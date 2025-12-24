@@ -30,8 +30,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          poetry install --no-interaction --no-root
-          poetry run pip install sphinx
+          poetry install --with dev --no-root
 
       - name: Copy assets to _static
         run: |
