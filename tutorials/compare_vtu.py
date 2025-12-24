@@ -3,8 +3,8 @@
 Compare displacement fields between two VTU files.
 
 Example:
-  PYTHONPATH=src python scripts/compare_vtu.py data/neo_hookean_bar_deformed.vtu result.vtu
-  PYTHONPATH=src python scripts/compare_vtu.py a.vtu b.vtu --field1 u --field2 displacement
+  PYTHONPATH=src python tutorials/compare_vtu.py data/neo_hookean_bar_deformed.vtu result/tutorials/hyperelastic_cantilever/result.vtu --field1 displacement --field2 displacement
+  PYTHONPATH=src python tutorials/compare_vtu.py a.vtu b.vtu --field1 u --field2 displacement
 """
 
 import argparse
@@ -20,7 +20,9 @@ except Exception:  # pragma: no cover
     cKDTree = None
 
 
-def pick_vector_field(point_data: dict, preferred: Optional[str]) -> tuple[str, np.ndarray]:
+def pick_vector_field(
+    point_data: dict, preferred: Optional[str]
+) -> tuple[str, np.ndarray]:
     """Select a 3-component vector field from point_data."""
     if preferred is not None:
         if preferred not in point_data:
@@ -106,8 +108,14 @@ def main():
     p = argparse.ArgumentParser(description="Compare displacement fields between two VTU files.")
     p.add_argument("vtu1", help="reference VTU file (e.g., neo_hookean_bar_deformed.vtu)")
     p.add_argument("vtu2", help="VTU file to compare (e.g., result.vtu)")
-    p.add_argument("--field1", help="point-data field name in vtu1 (default: first 3-component field)")
-    p.add_argument("--field2", help="point-data field name in vtu2 (default: first 3-component field)")
+    p.add_argument(
+        "--field1",
+        help="point-data field name in vtu1 (default: first 3-component field)"
+    )
+    p.add_argument(
+        "--field2",
+        help="point-data field name in vtu2 (default: first 3-component field)"
+    )
     p.add_argument(
         "--all-fields",
         action="store_true",
