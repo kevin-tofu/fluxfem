@@ -22,13 +22,6 @@ from .elasticity import (
 from .diffusion import diffusion_form
 from .operators import dot, ddot, transpose_last2, sym_grad, sym_grad_u
 from .postprocess import make_point_data_displacement, write_point_data_vtu, interpolate_at_points
-try:  # optional fluid helpers
-except ModuleNotFoundError:
-    StokesSpaces = None
-    make_stokes_spaces = None
-    assemble_viscosity_matrix = None
-    assemble_divergence_block = None
-    assemble_stokes_system = None
 
 __all__ = [
     "lame_parameters",
