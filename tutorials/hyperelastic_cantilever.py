@@ -57,9 +57,12 @@ def parse_args():
     p.add_argument("--dirichlet-tag", type=int, default=env_default("DIRICHLET_TAG", 1, int))
     p.add_argument("--traction-tag", type=int, default=env_default("TRACTION_TAG", 2, int))
     p.add_argument(
-        "--output-vtu",
+        "--output-dir",
         type=str,
-        default=os.environ.get("OUTPUT_VTU", "result/tutorials/hyperelastic_cantilever/hyperelastic_cantilever.vtu").strip(),
+        default=os.environ.get(
+            "OUTPUT_DIR",
+            "result/tutorials/hyperelastic_cantilever",
+        ).strip(),
     )
     return p.parse_args()
 
@@ -242,11 +245,17 @@ def main():
     # max_disp = float(np.linalg.norm(u_nodes, axis=1).max()) if u_nodes.size else 0.0
     print("Final max |u| =", max_disp)
 
-    if args.output_vtu:
-        ff.write_elastic_vtu(mesh, space, u, args.output_vtu, compute_j=True, deformed_scale=1.0)
-        print(f"VTU written to {args.output_vtu}")
+    if args.output_dir:
+        os.makedirs(args.output_dir, exist_ok=True)
+        vtu_path = os.path.join(args.output_dir, "result.vtu")
+        ff.write_elastic_vtu(
+            mesh, space, u, vtu_path,
+            compute_j=True,
+            deformed_scale=1.0
+        )
+        print(f"VTU written to {vtu_path}")
 
-        scale = 10000.0
+        scale = 20000.0
         coords_np = np.asarray(mesh.coords)
         u_nodes = np.asarray(u).reshape(-1, 3)
         deformed = coords_np + scale * u_nodes
@@ -265,11 +274,22 @@ def main():
         disp_mag = np.linalg.norm(u_nodes, axis=1)
         grid.point_data["disp_mag"] = disp_mag
 
-        img_path = os.path.splitext(args.output_vtu)[0] + "_deformed_x10000.png"
+        img_path = os.path.join(args.output_dir, f"result_deformed_x{str(int(scale))}.png")
         os.makedirs(os.path.dirname(img_path) or ".", exist_ok=True)
         pv.OFF_SCREEN = True
         plotter = pv.Plotter(off_screen=True)
         plotter.add_mesh(grid, scalars="disp_mag", cmap="viridis", show_edges=True)
+        type(plotter).add_text(
+            plotter,
+            "hyperelastic_cantilever",
+            position="upper_left",
+            font_size=14,
+            color="black",
+        )
+        # plotter.view_xy()
+        # plotter.camera.up = (0.0, 1.0, 0.0)
+        # plotter.camera.azimuth += 10
+        # plotter.camera.elevation += 80
         plotter.show(screenshot=img_path)
         print(f"Image written to {img_path}")
 
