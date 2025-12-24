@@ -19,6 +19,12 @@ from ...physics.operators import sym_grad
 
 
 def linear_elasticity_form(ctx: FormContext, D: jnp.ndarray) -> jnp.ndarray:
+    """
+    Linear-elasticity bilinear form in Voigt notation.
+
+    Returns the per-quadrature integrand for Bv^T D Bu, where B is the
+    symmetric-gradient operator for the test/trial fields.
+    """
     Bu = sym_grad(ctx.trial)                 # (n_q, 6, ndofs_e)
     Bv = sym_grad(ctx.test)                  # (n_q, 6, ndofs_e)
     return jnp.einsum("qik,kl,qlm->qim", jnp.swapaxes(Bv, 1, 2), D, Bu)

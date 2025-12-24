@@ -48,7 +48,13 @@ from .data import SpaceData
 
 
 class FESpaceBase(Protocol):
-    """Protocol for FE space objects used by assembly."""
+    """
+    Protocol for FE space objects used by assembly.
+
+    This defines the minimal interface required by the core assembly routines:
+    element-to-DOF connectivity, value dimension, and the ability to build
+    per-element FormContext objects (test/trial fields plus quadrature data).
+    """
     elem_dofs: jnp.ndarray
     value_dim: int
     n_dofs: int
@@ -59,7 +65,18 @@ class FESpaceBase(Protocol):
 
 @dataclass(eq=False)
 class FESpaceClosure:
-    """Finite element space built from a mesh, basis, and element dof map."""
+    """
+    Finite element space built from a mesh, basis, and element dof map.
+
+    This is the standard space used by fluxfem. It bundles:
+    - a mesh (geometry and connectivity),
+    - a basis (shape functions + quadrature),
+    - an element-to-DOF map (elem_dofs),
+    - and metadata such as value_dim and cached sparsity patterns.
+
+    The class provides thin wrappers around assembly helpers and constructs
+    FormContext objects for element-level integration.
+    """
     mesh: BaseMesh
     basis: Basis3D
     elem_dofs: jnp.ndarray  # (n_elems, n_ldofs) int32
@@ -181,7 +198,13 @@ class FESpaceClosure:
 
 @jax.tree_util.register_pytree_node_class
 class FESpacePytree(FESpaceClosure):
-    """FESpaceClosure with JAX pytree support."""
+    """
+    FESpaceClosure with JAX pytree support.
+
+    Use this when a space must be carried through JAX transformations (jit/vmap),
+    or stored inside other pytrees. Only mesh, basis, and elem_dofs are treated
+    as children; metadata is preserved as auxiliary data.
+    """
     def tree_flatten(self):
         children = (self.mesh, self.basis, self.elem_dofs)
         aux = {

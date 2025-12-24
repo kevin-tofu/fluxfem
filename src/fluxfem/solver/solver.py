@@ -18,7 +18,12 @@ from ..core.space import FESpace
 
 
 class LinearSolver:
-    """Simple linear solver wrapper."""
+    """
+    Lightweight wrapper for solving linear systems with optional Dirichlet BCs.
+
+    Supports dense arrays or FluxSparseMatrix and can either condense or enforce
+    Dirichlet conditions before solving with the chosen backend.
+    """
 
     def __init__(self, method: str = "spsolve", tol: float = 1e-8, maxiter: int = 200):
         self.method = method
@@ -84,8 +89,10 @@ class LinearSolver:
 
 class NonlinearSolver:
     """
-    Original Newton-based nonlinear solver.
-    (kept for backward compatibility)
+    Backward-compatible Newton-based nonlinear solver.
+
+    This is a thin wrapper around ``newton_solve`` kept for legacy code paths.
+    Prefer ``NonlinearAnalysis`` + ``NewtonSolveRunner`` for new workflows.
     """
 
     def __init__(

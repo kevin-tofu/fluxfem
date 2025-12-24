@@ -15,7 +15,7 @@ import jax.numpy as jnp
 
 import fluxfem as ff
 import fluxfem.helpers_num as h_num
-import pyvista as pv
+from scripts.render_deformed_vtu import render_deformed_vtu
 
 
 def env_default(name: str, default, cast):
@@ -254,43 +254,15 @@ def main():
             deformed_scale=1.0
         )
         print(f"VTU written to {vtu_path}")
-
-        scale = 20000.0
-        coords_np = np.asarray(mesh.coords)
-        u_nodes = np.asarray(u).reshape(-1, 3)
-        deformed = coords_np + scale * u_nodes
-
-        n_cells, n_nodes = mesh.conn.shape
-        cells = np.hstack([np.full((n_cells, 1), n_nodes, dtype=np.int64), np.asarray(mesh.conn, dtype=np.int64)])
-        cells = cells.reshape(-1)
-        if n_nodes == 8:
-            cell_types = np.full(n_cells, pv.CellType.HEXAHEDRON, dtype=np.uint8)
-        elif n_nodes == 4:
-            cell_types = np.full(n_cells, pv.CellType.TETRA, dtype=np.uint8)
-        else:
-            raise ValueError(f"Unsupported element with {n_nodes} nodes for PyVista export.")
-
-        grid = pv.UnstructuredGrid(cells, cell_types, deformed)
-        disp_mag = np.linalg.norm(u_nodes, axis=1)
-        grid.point_data["disp_mag"] = disp_mag
-
-        img_path = os.path.join(args.output_dir, f"result_deformed_x{str(int(scale))}.png")
-        os.makedirs(os.path.dirname(img_path) or ".", exist_ok=True)
-        pv.OFF_SCREEN = True
-        plotter = pv.Plotter(off_screen=True)
-        plotter.add_mesh(grid, scalars="disp_mag", cmap="viridis", show_edges=True)
-        type(plotter).add_text(
-            plotter,
-            "hyperelastic_cantilever",
-            position="upper_left",
-            font_size=14,
-            color="black",
+        img_path = render_deformed_vtu(
+            vtu_path,
+            output_path=os.path.join(args.output_dir, "result_deformed_x20000.png"),
+            scale=20000.0,
+            title="hyperelastic_cantilever",
+            azimuth=35.0,
+            elevation=8.0,
+            view="xy",
         )
-        # plotter.view_xy()
-        # plotter.camera.up = (0.0, 1.0, 0.0)
-        # plotter.camera.azimuth += 10
-        # plotter.camera.elevation += 80
-        plotter.show(screenshot=img_path)
         print(f"Image written to {img_path}")
 
 

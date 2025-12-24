@@ -88,12 +88,8 @@ class NewtonSolveRunner:
     """
     Run one or more Newton solves across load factors.
 
-    Example
-    -------
-    >>> analysis = NonlinearAnalysis(space, residual_form, params, base_external_vector=F, dirichlet=(dir_dofs, dir_vals))
-    >>> config = NewtonLoopConfig(tol=1e-6, n_steps=4)
-    >>> runner = NewtonSolveRunner(analysis, config)
-    >>> u, history = runner.run()
+    This orchestrates load stepping, assembles external load per step,
+    and returns the full (Dirichlet-expanded) solution and per-step history.
     """
 
     def __init__(self, analysis: NonlinearAnalysis, config: NewtonLoopConfig):
@@ -332,7 +328,10 @@ def solve_nonlinear(
 @dataclass
 class LinearAnalysis:
     """
-    Bundle linear problem data for a single load solve or a sequence of load factors.
+    Bundle linear problem data for a single solve or a load-scaled sequence.
+
+    The matrix is assembled once from ``bilinear_form``; the RHS is scaled
+    by the load factor.
     """
 
     space: Any
@@ -368,6 +367,18 @@ class LinearSolveConfig:
 
 @dataclass
 class LinearStepResult:
+    """
+    Result record for one linear solve step.
+
+    Attributes
+    ----------
+    info : SolverResult
+        Solver status and iteration metadata.
+    solve_time : float
+        Wall time for the solve section.
+    u : Any
+        Full solution vector (Dirichlet-expanded).
+    """
     info: SolverResult
     solve_time: float
     u: Any

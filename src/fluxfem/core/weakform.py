@@ -122,7 +122,6 @@ class FieldRef(Expr):
         return Expr("sdot", _as_expr(other), self)
 
 
-
 @dataclass(frozen=True)
 class ParamRef(Expr):
     """Symbolic reference to params passed into the kernel."""
@@ -159,22 +158,23 @@ class Params:
     def tree_unflatten(cls, keys, values):
         return cls(**dict(zip(keys, values)))
 
-def Trial(name: str | None = "u") -> FieldRef:
-    """Create a symbolic trial field."""
+
+def trial_ref(name: str | None = "u") -> FieldRef:
+    """Create a symbolic trial field reference."""
     return FieldRef(role="trial", name=name)
 
 
-def Test(name: str | None = "u") -> FieldRef:
-    """Create a symbolic test field."""
+def test_ref(name: str | None = "v") -> FieldRef:
+    """Create a symbolic test field reference."""
     return FieldRef(role="test", name=name)
 
 
-def Unknown(name: str | None = "u") -> FieldRef:
-    """Create a symbolic unknown (current solution) field."""
+def unknown_ref(name: str | None = "u") -> FieldRef:
+    """Create a symbolic unknown (current solution) field reference."""
     return FieldRef(role="unknown", name=name)
 
 
-def Param() -> ParamRef:
+def param_ref() -> ParamRef:
     """Create a symbolic params reference."""
     return ParamRef()
 
@@ -379,9 +379,9 @@ def compile_bilinear(fn):
     if isinstance(fn, Expr):
         expr = fn
     else:
-        u = Trial()
-        v = Test()
-        p = Param()
+        u = trial_ref()
+        v = test_ref()
+        p = param_ref()
         try:
             expr = fn(u, v, p)
         except TypeError:
@@ -403,8 +403,8 @@ def compile_linear(fn):
     if isinstance(fn, Expr):
         expr = fn
     else:
-        v = Test()
-        p = Param()
+        v = test_ref()
+        p = param_ref()
         try:
             expr = fn(v, p)
         except TypeError:
@@ -434,8 +434,8 @@ def compile_surface_linear(fn):
     if isinstance(fn, Expr):
         expr = fn
     else:
-        v = Test()
-        p = Param()
+        v = test_ref()
+        p = param_ref()
         expr = None
         try:
             expr = fn(v, p)
@@ -516,9 +516,9 @@ def compile_residual(fn):
     if isinstance(fn, Expr):
         expr = fn
     else:
-        v = Test()
-        u = Unknown()
-        p = Param()
+        v = test_ref()
+        u = unknown_ref()
+        p = param_ref()
         try:
             expr = fn(v, u, p)
         except TypeError:
@@ -543,9 +543,9 @@ def compile_mixed_residual(residuals: dict[str, Callable]):
         if isinstance(fn, Expr):
             expr = fn
         else:
-            v = Test(name)
-            u = Unknown(name)
-            p = Param()
+            v = test_ref(name)
+            u = unknown_ref(name)
+            p = param_ref()
             try:
                 expr = fn(v, u, p)
             except TypeError:
@@ -790,10 +790,10 @@ __all__ = [
     "Expr",
     "FieldRef",
     "ParamRef",
-    "Trial",
-    "Test",
-    "Unknown",
-    "Param",
+    "trial_ref",
+    "test_ref",
+    "unknown_ref",
+    "param_ref",
     "Params",
     "MixedWeakForm",
     "ResidualForm",

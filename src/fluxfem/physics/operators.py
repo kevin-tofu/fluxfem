@@ -7,7 +7,12 @@ import jax.numpy as jnp
 
 
 def dot(a, b):
-    """Batched matrix product on the last two axes, or vector load helper for FormField."""
+    """
+    Batched matrix product on the last two axes.
+
+    If the first argument is a FormField, dispatch to vector_load_form to build
+    the linear form contribution for a vector load.
+    """
     if hasattr(a, "N") and getattr(a, "value_dim", None) is not None:
         from ..core.forms import vector_load_form
         return vector_load_form(a, b)
@@ -19,7 +24,7 @@ def ddot(a, b, c=None):
     Double contraction on the last two axes.
 
     - ddot(a, b): sum_ij a_ij * b_ij
-    - ddot(a, b, c): a^T b c (for Voigt-style linear elasticity blocks)
+    - ddot(a, b, c): a^T b c (Voigt-style linear elasticity blocks)
     """
     if c is None:
         return jnp.einsum("...ij,...ij->...", a, b)
@@ -86,8 +91,19 @@ def sym_grad(field) -> jnp.ndarray:
 
 def sym_grad_u(field, u_elem: jnp.ndarray) -> jnp.ndarray:
     """
-    u_elem: (dofs_per_node*n_nodes,)
-    returns eps_voigt: (n_q, 6)
+    Apply sym_grad(field) to a local displacement vector.
+
+    Parameters
+    ----------
+    field : FormField-like
+        Vector field basis data.
+    u_elem : jnp.ndarray
+        Element displacement vector (dofs_per_node*n_nodes,).
+
+    Returns
+    -------
+    jnp.ndarray
+        Symmetric strain in Voigt form with shape (n_q, 6).
     """
     B = sym_grad(field)
     return jnp.einsum("qik,k->qi", B, u_elem)
