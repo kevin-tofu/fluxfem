@@ -77,7 +77,7 @@ def main():
     )
     t0 = time.perf_counter()
     K_wf = space.assemble_bilinear_form(
-        bilinear_form.bilinear_form(),
+        bilinear_form.compile(),
         params=D,
     )
     print(f"[timing] assemble K_wf (weakform): {time.perf_counter() - t0:.3f}s")
@@ -124,7 +124,7 @@ def main():
     t0 = time.perf_counter()
     F_wf = surface.assemble_linear_form_on_space(
         space,
-        surface_form.linear_form(),
+        surface_form.compile(),
         params=traction_param,
     )
     print(f"[timing] assemble F_wf (surface weakform): {time.perf_counter() - t0:.3f}s")

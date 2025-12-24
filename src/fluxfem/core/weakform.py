@@ -474,7 +474,7 @@ class LinearForm:
     def surface(cls, fn):
         return cls(fn, kind="surface")
 
-    def linear_form(self, *, ctx_kind: str | None = None):
+    def compile(self, *, ctx_kind: str | None = None):
         kind = self.kind if ctx_kind is None else ctx_kind
         if kind == "volume":
             return compile_linear(self.fn)
@@ -493,7 +493,7 @@ class BilinearForm:
     def volume(cls, fn):
         return cls(fn)
 
-    def bilinear_form(self):
+    def compile(self):
         return compile_bilinear(self.fn)
 
 
@@ -507,7 +507,7 @@ class ResidualForm:
     def volume(cls, fn):
         return cls(fn)
 
-    def residual_form(self):
+    def compile(self):
         return compile_residual(self.fn)
 
 
@@ -568,7 +568,7 @@ class MixedWeakForm:
     def __init__(self, *, residuals: dict[str, Callable]):
         self.residuals = residuals
 
-    def residual_form(self):
+    def compile(self):
         if not self.residuals:
             raise ValueError("residuals are not defined")
         return compile_mixed_residual(self.residuals)
