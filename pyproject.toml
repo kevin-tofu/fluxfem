@@ -43,16 +43,17 @@ jax = "==0.8.2"
 jaxlib = "==0.8.2"
 
 
-[dependency-groups]
-dev = [
-    "pytest (>=9.0.2,<10.0.0)",
-    "scikit-fem (>=11.0.0,<12.0.0)",
-    "sphinx (>=7.4.0,<8.0.0)",
-    "sphinx-rtd-theme (>=2.0.0,<3.0.0)",
-    "sphinx-sitemap (>=2.6.0,<3.0.0)",
-    "myst-parser (>=3.0.0,<4.0.0)",
-    "pytest-cov (>=7.0.0,<8.0.0)"
-]
+[tool.poetry.group.dev]
+optional = true
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=9.0.2,<10.0.0"
+scikit-fem = ">=11.0.0,<12.0.0"
+sphinx = ">=7.4.0,<8.0.0"
+sphinx-rtd-theme = ">=2.0.0,<3.0.0"
+sphinx-sitemap = ">=2.6.0,<3.0.0"
+myst-parser = ">=3.0.0,<4.0.0"
+pytest-cov = ">=7.0.0,<8.0.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
