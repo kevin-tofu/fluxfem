@@ -37,7 +37,7 @@ jobs:
           poetry-version: "1.8.3"
 
       - name: Install dependencies
-        run: poetry install
+        run: poetry install --with dev
 
       - name: Run tests with coverage
         run: PYTHONPATH=fluxfem poetry run pytest --cov=fluxfem --cov-report=xml
