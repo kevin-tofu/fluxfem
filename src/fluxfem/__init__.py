@@ -153,8 +153,6 @@ from .physics import (
     principal_sum,
     max_shear_stress,
     von_mises_stress,
-    StokesSpaces,
-    make_stokes_spaces,
 )
 
 __all__ = [
