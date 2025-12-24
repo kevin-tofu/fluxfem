@@ -6,7 +6,14 @@ authors = [
     {name = "Kevin-Tofu",email = "koheitech001@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10,<3.14"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = [
     "pyvista (>=0.46.4,<0.47.0)",
     "meshio (>=5.3.5,<6.0.0)",
@@ -28,9 +35,14 @@ packages = [
 ]
 
 
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+[tool.poetry.dependencies]
+python = ">=3.10,<3.14"
+pyvista = ">=0.46.4,<0.47.0"
+meshio = ">=5.3.5,<6.0.0"
+matplotlib = ">=3.10.7,<4.0.0"
+jax = "==0.8.2"
+jaxlib = "==0.8.2"
+
 
 [dependency-groups]
 dev = [
@@ -42,3 +54,7 @@ dev = [
     "myst-parser (>=3.0.0,<4.0.0)",
     "pytest-cov (>=7.0.0,<8.0.0)"
 ]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
