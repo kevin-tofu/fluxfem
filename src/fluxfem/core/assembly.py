@@ -633,11 +633,18 @@ def assemble_residual_scatter(
     """
     elem_dofs = space.elem_dofs
     n_dofs = space.n_dofs
+    if np.max(elem_dofs) >= n_dofs:
+        raise ValueError("elem_dofs contains index outside n_dofs")
+    if np.min(elem_dofs) < 0:
+        raise ValueError("elem_dofs contains negative index")
     ctxs = space.build_form_contexts()
     ker = kernel if kernel is not None else make_element_residual_kernel(res_form, params)
 
     u_elems = u[elem_dofs]
     elem_res = jax.vmap(ker)(ctxs, u_elems)  # (n_elem, n_ldofs)
+    if not bool(jax.block_until_ready(jnp.all(jnp.isfinite(elem_res)))):
+        bad = int(jnp.count_nonzero(~jnp.isfinite(elem_res)))
+        raise RuntimeError(f"[assemble_residual_scatter] elem_res nonfinite: {bad}")
 
     rows = elem_dofs.reshape(-1)
     data = elem_res.reshape(-1)

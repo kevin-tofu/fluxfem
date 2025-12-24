@@ -15,6 +15,7 @@ import jax.numpy as jnp
 
 import fluxfem as ff
 import fluxfem.helpers_num as h_num
+import pyvista as pv
 
 
 def env_default(name: str, default, cast):
@@ -74,6 +75,12 @@ def main():
     facet_data = None
     if args.mesh_file and os.path.exists(args.mesh_file):
         mesh, facets, facet_tags = ff.load_gmsh_mesh(args.mesh_file)
+        if facet_tags is not None:
+            tags_np = np.asarray(facet_tags)
+            tags_unique = np.unique(tags_np)
+            print("facet_tags unique:", tags_unique)
+            for t in tags_unique:
+                print(f"facet_tags count[{int(t)}] =", int(np.sum(tags_np == t)))
         if facets is not None and (facet_tags is None or np.all(np.asarray(facet_tags) == 0)):
             # geometric fallback tagging by x-min/x-max
             coords_np = np.asarray(mesh.coords)
@@ -101,6 +108,49 @@ def main():
         space = ff.make_tet_space(mesh, dim=3, intorder=args.intorder)
     else:
         space = ff.make_hex_space(mesh, dim=3, intorder=args.intorder)
+
+    ctxs = space.build_form_contexts()
+    ctx0 = jax.tree_util.tree_map(lambda x: x[0], ctxs)
+    detJ = np.asarray(ctx0.test.detJ)
+    print("detJ finite:", bool(np.all(np.isfinite(detJ))), "min/max:", float(detJ.min()), float(detJ.max()))
+    gradN = np.asarray(ctx0.trial.gradN)
+    print("gradN finite:", bool(np.all(np.isfinite(gradN))))
+    elem_coords = np.asarray(mesh.element_coords())
+    print("elem_coords finite:", bool(np.all(np.isfinite(elem_coords))))
+    basis = space.basis
+    detJ_all = jax.vmap(lambda Xe: basis.spatial_grads_and_detJ(Xe)[1])(jnp.asarray(elem_coords))
+    detJ_all_np = np.asarray(detJ_all)
+    print(
+        "detJ all finite:",
+        bool(np.all(np.isfinite(detJ_all_np))),
+        "min/max:",
+        float(detJ_all_np.min()),
+        float(detJ_all_np.max()),
+        "nonpos:",
+        int(np.count_nonzero(detJ_all_np <= 0.0)),
+    )
+    u0_check = jnp.zeros(space.n_dofs, dtype=dtype)
+    res_kernel = ff.make_element_residual_kernel(ff.neo_hookean_residual_form, params)
+    u_elems0 = u0_check[space.elem_dofs]
+    elem_res0 = jax.vmap(res_kernel)(ctxs, u_elems0)
+    elem_bad = ~jnp.all(jnp.isfinite(elem_res0), axis=1)
+    n_bad = int(jnp.count_nonzero(elem_bad))
+    print("elem residual nonfinite:", n_bad)
+    if n_bad > 0:
+        bad_idx = int(np.nonzero(np.asarray(elem_bad))[0][0])
+        ctx_bad = jax.tree_util.tree_map(lambda x: x[bad_idx], ctxs)
+        u_bad = u0_check[space.elem_dofs[bad_idx]]
+        F_bad = ff.deformation_gradient(ctx_bad, u_bad)
+        J_bad = jnp.sqrt(jnp.linalg.det(ff.right_cauchy_green(F_bad)))
+        print(
+            "bad elem:",
+            bad_idx,
+            "F finite:",
+            bool(jnp.all(jnp.isfinite(F_bad))),
+            "J min/max:",
+            float(jnp.min(J_bad)),
+            float(jnp.max(J_bad)),
+        )
 
     J_pattern = ff.make_sparsity_pattern(space, with_idx=False)
 
@@ -145,6 +195,13 @@ def main():
         facets, tags = facet_data
         clamp_nodes = np.unique(np.asarray(facets)[np.asarray(tags) == args.dirichlet_tag].reshape(-1))
         dir_dofs = mesh.node_dofs(clamp_nodes, components="xyz")
+        print("dirichlet nodes:", clamp_nodes.size, "dirichlet dofs:", dir_dofs.size)
+        if dir_dofs.size > 0:
+            print("dirichlet dofs min/max:", int(np.min(dir_dofs)), int(np.max(dir_dofs)))
+        if clamp_nodes.size > 0:
+            print("dirichlet nodes min/max:", int(np.min(clamp_nodes)), int(np.max(clamp_nodes)))
+        if clamp_nodes.size == 0:
+            raise RuntimeError("No Dirichlet facets found for dirichlet_tag; check mesh tags.")
     else:
         xmin = float(np.asarray(mesh.coords)[:, 0].min())
         dir_dofs = mesh.boundary_dofs_where(
@@ -188,6 +245,33 @@ def main():
     if args.output_vtu:
         ff.write_elastic_vtu(mesh, space, u, args.output_vtu, compute_j=True, deformed_scale=1.0)
         print(f"VTU written to {args.output_vtu}")
+
+        scale = 10000.0
+        coords_np = np.asarray(mesh.coords)
+        u_nodes = np.asarray(u).reshape(-1, 3)
+        deformed = coords_np + scale * u_nodes
+
+        n_cells, n_nodes = mesh.conn.shape
+        cells = np.hstack([np.full((n_cells, 1), n_nodes, dtype=np.int64), np.asarray(mesh.conn, dtype=np.int64)])
+        cells = cells.reshape(-1)
+        if n_nodes == 8:
+            cell_types = np.full(n_cells, pv.CellType.HEXAHEDRON, dtype=np.uint8)
+        elif n_nodes == 4:
+            cell_types = np.full(n_cells, pv.CellType.TETRA, dtype=np.uint8)
+        else:
+            raise ValueError(f"Unsupported element with {n_nodes} nodes for PyVista export.")
+
+        grid = pv.UnstructuredGrid(cells, cell_types, deformed)
+        disp_mag = np.linalg.norm(u_nodes, axis=1)
+        grid.point_data["disp_mag"] = disp_mag
+
+        img_path = os.path.splitext(args.output_vtu)[0] + "_deformed_x10000.png"
+        os.makedirs(os.path.dirname(img_path) or ".", exist_ok=True)
+        pv.OFF_SCREEN = True
+        plotter = pv.Plotter(off_screen=True)
+        plotter.add_mesh(grid, scalars="disp_mag", cmap="viridis", show_edges=True)
+        plotter.show(screenshot=img_path)
+        print(f"Image written to {img_path}")
 
 
 if __name__ == "__main__":

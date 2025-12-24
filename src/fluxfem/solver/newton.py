@@ -16,6 +16,7 @@ from ..core.solver import spdirect_solve_cpu, spdirect_solve_gpu
 from .cg import cg_solve, cg_solve_jax
 from .result import SolverResult
 from .sparse import SparsityPattern, FluxSparseMatrix
+from .dirichlet import _normalize_dirichlet
 
 
 def newton_solve(
@@ -54,8 +55,9 @@ def newton_solve(
 
     if dirichlet is not None:
         dir_dofs, dir_vals = dirichlet
-        dir_dofs = np.asarray(dir_dofs, dtype=int)
-        dir_vals = np.asarray(dir_vals, dtype=float)
+        dir_dofs, dir_vals = _normalize_dirichlet(dir_dofs, dir_vals)
+        if dir_vals.ndim == 0:
+            dir_vals = np.full(dir_dofs.shape[0], float(dir_vals))
         all_dofs = np.arange(space.n_dofs, dtype=int)
         mask = np.ones(space.n_dofs, dtype=bool)
         mask[dir_dofs] = False
@@ -179,6 +181,18 @@ def newton_solve(
     R_full_init = assemble_R(expand_full(u))
     if external_vector is not None:
         R_full_init = R_full_init - external_vector
+    finite_init = jnp.all(jnp.isfinite(R_full_init))
+    if not bool(jax.block_until_ready(finite_init)):
+        n_bad = int(jnp.size(R_full_init) - jnp.count_nonzero(jnp.isfinite(R_full_init)))
+        rows_dbg, data_dbg, n_dofs_dbg = assemble_residual_scatter(
+            space, res_form, expand_full(u), params, sparse=True
+        )
+        rows_np = np.asarray(rows_dbg)
+        data_np = np.asarray(data_dbg)
+        bad_data = np.count_nonzero(~np.isfinite(data_np))
+        row_min = int(rows_np.min()) if rows_np.size else -1
+        row_max = int(rows_np.max()) if rows_np.size else -1
+        raise RuntimeError(f"[newton] init residual has non-finite entries: {n_bad}")
     R_free = R_full_init[free_dofs_j]
     res0_inf = float(jnp.linalg.norm(R_free, ord=jnp.inf))
     res0_two = float(jnp.linalg.norm(R_free, ord=2))
@@ -199,6 +213,10 @@ def newton_solve(
         callback({"iter": 0, "res_inf": res0_inf, "res_two": res0_two, "rel_residual": 1.0, "alpha": 1.0, "step_norm": np.nan})
 
     J = assemble_J(u_full)
+    finite_j = jnp.all(jnp.isfinite(J.data))
+    if not bool(jax.block_until_ready(finite_j)):
+        n_bad = int(jnp.size(J.data) - jnp.count_nonzero(jnp.isfinite(J.data)))
+        raise RuntimeError(f"[newton] init Jacobian has non-finite entries: {n_bad}")
     J_free = restrict_free_matrix(J)
     for k in range(maxiter):
         # --- Newton residual (iteration start) ---
@@ -210,6 +228,8 @@ def newton_solve(
         # JAX is async; synchronize to ensure logs are emitted.
         res_prev_inf_f = float(jax.block_until_ready(res_prev_inf))
         res_prev_two_f = float(jax.block_until_ready(res_prev_two))
+        if not (np.isfinite(res_prev_inf_f) and np.isfinite(res_prev_two_f)):
+            raise RuntimeError("[newton] residual became non-finite; aborting.")
 
         crit = max(atol, tol * res0_inf)
         print(
@@ -250,7 +270,7 @@ def newton_solve(
 
             # Linear solve
             cg_solver = cg_solve_jax if linear_solver in ("cg", "cg_jax") else cg_solve
-            print(f"[newton] k={k:02d}  LIN {linear_solver}: solve...", flush=True)
+            print(f"[linear] k={k:02d} {linear_solver}: solve...", flush=True)
             t_lin0 = time.perf_counter()
             du_free, lin_info = cg_solver(
                 J_free,
@@ -268,11 +288,11 @@ def newton_solve(
 
         elif linear_solver in ("spsolve", "spdirect_solve_gpu"):
             pre_dt = 0.0
-            print(f"[newton] k={k:02d}  LIN {linear_solver}: csr/slice...", flush=True)
+            print(f"[linear] k={k:02d} {linear_solver}: csr/slice...", flush=True)
             t_lin0 = time.perf_counter()
             J_csr = J.to_csr()
             J_ff = J_csr[np.ix_(free_dofs, free_dofs)]
-            print(f"[newton] k={k:02d}  LIN {linear_solver}: solve...", flush=True)
+            print(f"[linear] k={k:02d} {linear_solver}: solve...", flush=True)
             if linear_solver == "spdirect_solve_gpu":
                 du_free = spdirect_solve_gpu(J_ff, rhs)
             else:
@@ -288,7 +308,8 @@ def newton_solve(
 
         lr = float(linear_residual) if linear_residual is not None else float("nan")
         print(
-            f"[newton] k={k:02d}  LIN done  iters={lin_iters} conv={linear_converged} lin_res={lr:.3e}  pre_dt={pre_dt:.3f}s lin_dt={lin_dt:.3f}s",
+            f"[linear] k={k:02d} done iters={lin_iters} conv={linear_converged} lin_res={lr:.3e} "
+            f"pre_dt={pre_dt:.3f}s lin_dt={lin_dt:.3f}s",
             flush=True,
         )
 
