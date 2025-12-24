@@ -35,6 +35,7 @@ class ElementVector:
 @jax.tree_util.register_pytree_node_class
 @dataclass(eq=False)
 class ScalarFormField:
+    """Scalar FE field evaluated on one element."""
     N: jnp.ndarray              # (n_q, n_nodes)
     elem_coords: jnp.ndarray    # (n_nodes, 3)
     basis: Basis3D
@@ -75,6 +76,7 @@ class ScalarFormField:
 @jax.tree_util.register_pytree_node_class
 @dataclass(eq=False)
 class VectorFormField:
+    """Vector-valued FE field evaluated on one element."""
     N: jnp.ndarray
     elem_coords: jnp.ndarray
     basis: Basis3D
@@ -140,6 +142,7 @@ def vector_load_form(field: FormFieldLike, load_vec: jnp.ndarray) -> jnp.ndarray
 @jax.tree_util.register_pytree_node_class
 @dataclass(eq=False)
 class FormContext:
+    """Bundle test/trial fields and quadrature data for element assembly."""
     test: FormFieldLike
     trial: FormFieldLike
     x_q: jnp.ndarray       # (n_q, 3)
@@ -155,10 +158,77 @@ class FormContext:
         return self.test
 
     def tree_flatten(self):
-        children = (self.test, self.trial, self.x_q, self.w, self.elem_id)
+        children = (
+            self.test,
+            self.trial,
+            self.x_q,
+            self.w,
+            self.elem_id,
+        )
         return children, {}
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        test, trial, x_q, w, elem_id = children
-        return cls(test, trial, x_q, w, elem_id)
+        (
+            test,
+            trial,
+            x_q,
+            w,
+            elem_id,
+        ) = children
+        return cls(
+            test,
+            trial,
+            x_q,
+            w,
+            elem_id,
+        )
+
+
+@dataclass(eq=False)
+class FieldPair:
+    """Named test/trial/unknown grouping for mixed formulations."""
+    test: FormFieldLike
+    trial: FormFieldLike
+    unknown: FormFieldLike | None = None
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(eq=False)
+class MixedFormContext:
+    """FormContext for mixed formulations keyed by field name."""
+    fields: dict[str, FieldPair]
+    x_q: jnp.ndarray       # (n_q, 3)
+    w: jnp.ndarray         # (n_q,)
+    elem_id: jnp.ndarray | int = 0
+    unknown: FormFieldLike | None = None
+    trial_fields: dict[str, FormFieldLike] | None = None
+    test_fields: dict[str, FormFieldLike] | None = None
+    unknown_fields: dict[str, FormFieldLike] | None = None
+
+    def tree_flatten(self):
+        children = (
+            self.fields,
+            self.x_q,
+            self.w,
+            self.elem_id,
+            self.unknown,
+            self.trial_fields,
+            self.test_fields,
+            self.unknown_fields,
+        )
+        return children, {}
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        (
+            fields,
+            x_q,
+            w,
+            elem_id,
+            unknown,
+            trial_fields,
+            test_fields,
+            unknown_fields,
+        ) = children
+        return cls(fields, x_q, w, elem_id, unknown, trial_fields, test_fields, unknown_fields)

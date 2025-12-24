@@ -8,6 +8,7 @@ import jax.numpy as jnp
 
 @dataclass(eq=False)
 class MeshData:
+    """Lightweight mesh data container for JAX-friendly serialization."""
     coords: jnp.ndarray
     conn: jnp.ndarray
     cell_tags: jnp.ndarray | None = None
@@ -25,6 +26,7 @@ class MeshData:
 
 @dataclass(eq=False)
 class BasisData:
+    """Quadrature and basis metadata for reproducible assembly."""
     quad_points: jnp.ndarray
     quad_weights: jnp.ndarray
     dofs_per_node: int
@@ -42,6 +44,7 @@ class BasisData:
 
 @dataclass(eq=False)
 class SpaceData:
+    """Snapshot of space-related data used in assembly."""
     mesh: MeshData
     basis: BasisData
     elem_dofs: jnp.ndarray

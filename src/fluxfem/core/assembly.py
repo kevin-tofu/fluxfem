@@ -79,6 +79,11 @@ def assemble_bilinear_form(
     chunk_size: Optional[int] = None,   # None -> no-chunk (old behavior)
     dep: jnp.ndarray | None = None,
 ):
+    """
+    Assemble a sparse bilinear form into a FluxSparseMatrix.
+
+    Expects form(ctx, params) -> (n_q, n_ldofs, n_ldofs).
+    """
     from ..solver import FluxSparseMatrix
 
     if pattern is None:
@@ -90,9 +95,13 @@ def assemble_bilinear_form(
         pat = pattern
     elem_data = space.build_form_contexts(dep=dep)
 
+    includes_measure = getattr(form, "_includes_measure", False)
+
     def per_element(ctx):
-        integrand = form(ctx, params)                     # (n_q, m, m)
-        wJ = ctx.w * ctx.test.detJ                        # (n_q,)
+        integrand = form(ctx, params)                      # (n_q, m, m)
+        if includes_measure:
+            return integrand.sum(axis=0)
+        wJ = ctx.w * ctx.test.detJ                         # (n_q,)
         return (integrand * wJ[:, None, None]).sum(axis=0)  # (m, m)
 
     # --- no-chunk path (your current implementation) ---
@@ -226,11 +235,14 @@ def assemble_linear_form(
 
     elem_data = space.build_form_contexts(dep=dep)
 
+    includes_measure = getattr(form, "_includes_measure", False)
+
     def per_element(ctx: FormContext):
         integrand = form(ctx, params)  # (n_q, m)
+        if includes_measure:
+            return integrand.sum(axis=0)
         wJ = ctx.w * ctx.test.detJ     # (n_q,)
-        fe = (integrand * wJ[:, None]).sum(axis=0) # (m,)
-        return fe
+        return (integrand * wJ[:, None]).sum(axis=0) # (m,)
 
     if chunk_size is None:
         F_e_all = jax.vmap(per_element)(elem_data)            # (n_elems, m)
@@ -283,10 +295,14 @@ def assemble_functional(space: SpaceLike, form: Kernel[P], params: P) -> jnp.nda
     """
     elem_data = space.build_form_contexts()
 
+    includes_measure = getattr(form, "_includes_measure", False)
+
     def per_element(ctx: FormContext):
         integrand = form(ctx, params)
         if integrand.ndim == 2 and integrand.shape[1] == 1:
             integrand = integrand[:, 0]
+        if includes_measure:
+            return jnp.sum(integrand)
         wJ = ctx.w * ctx.test.detJ
         return jnp.sum(integrand * wJ)
 
@@ -476,6 +492,8 @@ def make_element_residual_kernel(res_form: ResidualForm[P], params: P):
 
     def per_element(ctx: FormContext, u_elem: jnp.ndarray):
         integrand = res_form(ctx, u_elem, params)
+        if getattr(res_form, "_includes_measure", False):
+            return integrand.sum(axis=0)
         wJ = ctx.w * ctx.test.detJ
         return (integrand * wJ[:, None]).sum(axis=0)
 
@@ -487,10 +505,47 @@ def make_element_jacobian_kernel(res_form: ResidualForm[P], params: P):
 
     def fe_fun(u_elem, ctx: FormContext):
         integrand = res_form(ctx, u_elem, params)
+        if getattr(res_form, "_includes_measure", False):
+            return integrand.sum(axis=0)
         wJ = ctx.w * ctx.test.detJ
         return (integrand * wJ[:, None]).sum(axis=0)
 
     return jax.jit(jax.jacrev(fe_fun, argnums=0))
+
+
+def element_residual(res_form: ResidualForm[P], ctx: FormContext, u_elem: jnp.ndarray, params: P):
+    """
+    Element residual vector r_e(u_e) = sum_q w_q * detJ_q * res_form(ctx, u_e, params).
+    Returns shape (n_ldofs,).
+    """
+    integrand = res_form(ctx, u_elem, params)  # (n_q, n_ldofs) or pytree
+    includes_measure = getattr(res_form, "_includes_measure", False)
+    if isinstance(integrand, jnp.ndarray):
+        if includes_measure:
+            return jnp.einsum("qa->a", integrand)
+        wJ = ctx.w * ctx.test.detJ             # (n_q,)
+        return jnp.einsum("qa,q->a", integrand, wJ)
+    if hasattr(ctx, "fields") and ctx.fields is not None:
+        def _reduce(name, val):
+            if isinstance(includes_measure, dict) and includes_measure.get(name, False):
+                return jnp.einsum("qa->a", val)
+            wJ = ctx.w * ctx.fields[name].test.detJ
+            return jnp.einsum("qa,q->a", val, wJ)
+
+        return {name: _reduce(name, val) for name, val in integrand.items()}
+    if includes_measure:
+        return jax.tree_util.tree_map(lambda x: jnp.einsum("qa->a", x), integrand)
+    return jax.tree_util.tree_map(lambda x: jnp.einsum("qa,q->a", x, ctx.w * ctx.test.detJ), integrand)
+
+
+def element_jacobian(res_form: ResidualForm[P], ctx: FormContext, u_elem: jnp.ndarray, params: P):
+    """
+    Element Jacobian K_e = d r_e / d u_e (AD via jacfwd), shape (n_ldofs, n_ldofs).
+    """
+    def _r_elem(u_local):
+        return element_residual(res_form, ctx, u_local, params)
+
+    return jax.jacfwd(_r_elem)(u_elem)
 
 
 def make_sparsity_pattern(space: SpaceLike, *, with_idx: bool = True):
@@ -650,6 +705,7 @@ def assemble_residual(
     *,
     sparse: bool = False
 ):
+    """Assemble the global residual vector (scatter-based)."""
     return assemble_residual_scatter(space, form, u, params, sparse=sparse)
 
 
@@ -663,6 +719,7 @@ def assemble_jacobian(
     return_flux_matrix: bool = False,
     pattern=None,
 ):
+    """Assemble the global Jacobian (scatter-based)."""
     return assemble_jacobian_scatter(
         space,
         res_form,

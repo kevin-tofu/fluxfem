@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import argparse
 import numpy as np
+import time
 
 import jax
 
 jax.config.update("jax_enable_x64", True)
 
-import fluxfem as ff  # noqa: E402
+import fluxfem as ff
+import fluxfem.helpers_num as h_num
+import fluxfem.helpers_wf as h_wf
 
 
 def parse_args():
@@ -39,18 +42,18 @@ def main():
     args = parse_args()
 
     def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray:
-        Bu = ff.sym_grad(ctx.u)
-        Bv = ff.sym_grad(ctx.v)
-        return ff.ddot(Bv, D, Bu)
+        Bu = h_num.sym_grad(ctx.u)
+        Bv = h_num.sym_grad(ctx.v)
+        return h_num.ddot(Bv, D, Bu)
 
     def surface_traction_form(ctx: ff.SurfaceFormContext, traction_vec: np.ndarray) -> np.ndarray:
-        return ff.dot(ctx.v, traction_vec)
+        return h_num.dot(ctx.v, traction_vec)
 
     def surface_normal_traction_form(ctx: ff.SurfaceFormContext, traction_scalar: float) -> np.ndarray:
         normal = ctx.normal
         if normal is None:
             raise RuntimeError("surface normal is not available in context")
-        return ff.dot(ctx.v, float(traction_scalar) * normal)
+        return h_num.dot(ctx.v, float(traction_scalar) * normal)
 
     mesh = ff.StructuredHexBox(
         nx=args.nx,
@@ -62,9 +65,30 @@ def main():
     ).build()
     space = ff.make_hex_space(mesh, dim=3, intorder=args.intorder)
 
-    # --- Weak form (bilinear) ---
+    # --- Weak form (scikit-fem style) --- 
     D = ff.isotropic_3d_D(args.E, args.nu)
+    t0 = time.perf_counter()
     K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
+    print(f"[timing] assemble K (numeric): {time.perf_counter() - t0:.3f}s")
+
+    # --- Weak form ---
+    bilinear_form = ff.BilinearForm.volume(
+        lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
+    )
+    t0 = time.perf_counter()
+    K_wf = space.assemble_bilinear_form(
+        bilinear_form.bilinear_form(),
+        params=D,
+    )
+    print(f"[timing] assemble K_wf (weakform): {time.perf_counter() - t0:.3f}s")
+    same_pattern = (
+        np.array_equal(np.asarray(K.pattern.rows), np.asarray(K_wf.pattern.rows))
+        and np.array_equal(np.asarray(K.pattern.cols), np.asarray(K_wf.pattern.cols))
+        and K.pattern.n_dofs == K_wf.pattern.n_dofs
+    )
+    same_data = np.allclose(np.asarray(K.data), np.asarray(K_wf.data))
+    if not (same_pattern and same_data):
+        raise RuntimeError("K and K_wf do not match; check weak-form definitions.")
 
     # --- Linear form (surface traction) ---
     coords = np.asarray(mesh.coords)
@@ -80,11 +104,33 @@ def main():
     surface = ff.SurfaceMesh.from_hex_mesh(mesh, facets)
     traction_form = surface_normal_traction_form if args.normal_traction else surface_traction_form
     traction_param = float(args.traction) if args.normal_traction else np.array([args.traction, 0.0, 0.0], dtype=float)
-    F = surface.assemble_linear_form_on_space(
+
+    if args.normal_traction:
+        surface_form = ff.LinearForm.surface(
+            lambda v, p: (v | (p * h_wf.normal())) * h_wf.ds()
+        )
+    else:
+        surface_form = ff.LinearForm.surface(
+            lambda v, p: (v | p) * h_wf.ds()
+        )
+
+    t0 = time.perf_counter()
+    F_num = surface.assemble_linear_form_on_space(
         space,
         traction_form,
         params=traction_param,
     )
+    print(f"[timing] assemble F_num (surface numeric): {time.perf_counter() - t0:.3f}s")
+    t0 = time.perf_counter()
+    F_wf = surface.assemble_linear_form_on_space(
+        space,
+        surface_form.linear_form(),
+        params=traction_param,
+    )
+    print(f"[timing] assemble F_wf (surface weakform): {time.perf_counter() - t0:.3f}s")
+    if not np.allclose(F_num, F_wf):
+        raise RuntimeError("Surface linear form mismatch between numeric and form APIs.")
+    F = F_wf
 
     # --- Dirichlet BC (clamp x=0) ---
     dir_dofs = mesh.boundary_dofs_where(
@@ -92,21 +138,31 @@ def main():
         components="xyz",
     )
     solver = ff.LinearSolver(method="spsolve")
+    t0 = time.perf_counter()
     u, _ = solver.solve(
         K,
         F,
         dirichlet=(dir_dofs, None),
         dirichlet_mode="condense",
     )
+    print(f"[timing] solve: {time.perf_counter() - t0:.3f}s")
 
     u_nodes = np.asarray(u).reshape(-1, 3)
     right_nodes = mesh.axis_extrema_nodes(axis=0, side="max")
     ux_max = float(np.max(u_nodes[right_nodes, 0])) if right_nodes.size else 0.0
+    ux_theory = args.traction * args.lx / args.E
 
     print(
         f"bar solved: dofs={space.n_dofs}, "
         f"ux_max@x=L={ux_max:.6e} (traction={args.traction})"
     )
+    if ux_theory != 0.0:
+        rel_err = abs(ux_max - ux_theory) / abs(ux_theory)
+        print(
+            f"[theory] ux=L: {ux_theory:.6e} (rel.err={rel_err:.3e})"
+        )
+    else:
+        print(f"[theory] ux=L: {ux_theory:.6e}")
 
 
 if __name__ == "__main__":

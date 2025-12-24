@@ -208,8 +208,11 @@ def assemble_surface_linear_form(
         fe_q = form(ctx, params)
         if fe_q.ndim != 2 or fe_q.shape[0] != N.shape[0]:
             raise ValueError("surface form must return array shape (n_q, n_ldofs)")
-        wJ = w * detJ
-        fe = np.einsum("qi,q->i", fe_q, wJ)
+        if getattr(form, "_includes_measure", False):
+            fe = np.einsum("qi->i", fe_q)
+        else:
+            wJ = w * detJ
+            fe = np.einsum("qi,q->i", fe_q, wJ)
         for a, node in enumerate(facet):
             for d in range(dim):
                 local = dim * a + d

@@ -48,6 +48,7 @@ from .data import SpaceData
 
 
 class FESpaceBase(Protocol):
+    """Protocol for FE space objects used by assembly."""
     elem_dofs: jnp.ndarray
     value_dim: int
     n_dofs: int
@@ -58,6 +59,7 @@ class FESpaceBase(Protocol):
 
 @dataclass(eq=False)
 class FESpaceClosure:
+    """Finite element space built from a mesh, basis, and element dof map."""
     mesh: BaseMesh
     basis: Basis3D
     elem_dofs: jnp.ndarray  # (n_elems, n_ldofs) int32
@@ -179,6 +181,7 @@ class FESpaceClosure:
 
 @jax.tree_util.register_pytree_node_class
 class FESpacePytree(FESpaceClosure):
+    """FESpaceClosure with JAX pytree support."""
     def tree_flatten(self):
         children = (self.mesh, self.basis, self.elem_dofs)
         aux = {
@@ -210,6 +213,8 @@ def make_space(
     element: ElementVector | None = None,
 ) -> FESpace:
     """
+    Build an FE space from a mesh and basis.
+
     element=None → scalar dof per node (elem_dofs = mesh.conn), value_dim=1
     element=ElementVector(dim) → vector dof per node, value_dim=dim
     """
@@ -278,6 +283,7 @@ def make_space_pytree(
     basis: Basis3D,
     element: ElementVector | None = None,
 ) -> FESpacePytree:
+    """Build a pytree-compatible FE space."""
     if element is None:
         elem_dofs = mesh.conn
         value_dim = 1
@@ -299,6 +305,7 @@ def make_space_pytree(
 def make_tet10_space(
     mesh: TetMesh, dim: int = 1, intorder: int = 2
 ) -> FESpace:
+    """Create a quadratic tet space (10-node elements)."""
     basis = make_tet10_basis(intorder)
     element = None if dim == 1 else ElementVector(dim)
     return make_space(mesh, basis, element)
@@ -307,12 +314,14 @@ def make_tet10_space(
 def make_tet10_space_pytree(
     mesh: TetMesh, dim: int = 1, intorder: int = 2
 ) -> FESpacePytree:
+    """Create a pytree quadratic tet space (10-node elements)."""
     basis = make_tet10_basis_pytree(intorder)
     element = None if dim == 1 else ElementVector(dim)
     return make_space_pytree(mesh, basis, element)
 
 
 def make_hex_space(mesh: HexMesh, dim: int = 1, intorder: int = 2) -> FESpace:
+    """Create a trilinear hex space (8-node elements)."""
     basis = make_hex_basis(intorder)
     element = None if dim == 1 else ElementVector(dim)
     return make_space(mesh, basis, element)
@@ -321,6 +330,7 @@ def make_hex_space(mesh: HexMesh, dim: int = 1, intorder: int = 2) -> FESpace:
 def make_hex_space_pytree(
     mesh: HexMesh, dim: int = 1, intorder: int = 2
 ) -> FESpacePytree:
+    """Create a pytree trilinear hex space (8-node elements)."""
     basis = make_hex_basis_pytree(intorder)
     element = None if dim == 1 else ElementVector(dim)
     return make_space_pytree(mesh, basis, element)
@@ -329,6 +339,7 @@ def make_hex_space_pytree(
 def make_hex20_space(
     mesh: HexMesh, dim: int = 1, intorder: int = 2
 ) -> FESpace:
+    """Create a serendipity hex space (20-node elements)."""
     basis = make_hex20_basis(intorder)
     element = None if dim == 1 else ElementVector(dim)
     return make_space(mesh, basis, element)
@@ -337,6 +348,7 @@ def make_hex20_space(
 def make_hex20_space_pytree(
     mesh: HexMesh, dim: int = 1, intorder: int = 2
 ) -> FESpacePytree:
+    """Create a pytree serendipity hex space (20-node elements)."""
     basis = make_hex20_basis_pytree(intorder)
     element = None if dim == 1 else ElementVector(dim)
     return make_space_pytree(mesh, basis, element)
@@ -345,6 +357,7 @@ def make_hex20_space_pytree(
 def make_hex27_space(
     mesh: HexMesh, dim: int = 1, intorder: int = 3
 ) -> FESpace:
+    """Create a triquadratic hex space (27-node elements)."""
     basis = make_hex27_basis(intorder)
     element = None if dim == 1 else ElementVector(dim)
     return make_space(mesh, basis, element)
@@ -353,12 +366,14 @@ def make_hex27_space(
 def make_hex27_space_pytree(
     mesh: HexMesh, dim: int = 1, intorder: int = 3
 ) -> FESpacePytree:
+    """Create a pytree triquadratic hex space (27-node elements)."""
     basis = make_hex27_basis_pytree(intorder)
     element = None if dim == 1 else ElementVector(dim)
     return make_space_pytree(mesh, basis, element)
 
 
 def make_tet_space(mesh: TetMesh, dim: int = 1, intorder: int = 2) -> FESpace:
+    """Create a linear or quadratic tet space based on mesh nodes."""
     n_nodes = mesh.conn.shape[1]
     if n_nodes == 10:
         basis = make_tet10_basis(intorder if intorder > 1 else 2)
@@ -371,6 +386,7 @@ def make_tet_space(mesh: TetMesh, dim: int = 1, intorder: int = 2) -> FESpace:
 def make_tet_space_pytree(
     mesh: TetMesh, dim: int = 1, intorder: int = 2
 ) -> FESpacePytree:
+    """Create a pytree linear or quadratic tet space based on mesh nodes."""
     n_nodes = mesh.conn.shape[1]
     if n_nodes == 10:
         basis = make_tet10_basis_pytree(intorder if intorder > 1 else 2)

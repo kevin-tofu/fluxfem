@@ -523,12 +523,19 @@ class HexTriLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
         self, elem_coords: jnp.ndarray
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """
-        Compute ∇_x N and detJ for one element.
-        
-        elem_coords: (8,3)
-        Returns:
-          dN_dx: (n_q, 8, 3)
-          detJ:  (n_q,)
+        Compute spatial gradients and detJ for one element.
+
+        Parameters
+        ----------
+        elem_coords : jnp.ndarray
+            Element coordinates of shape (8, 3).
+
+        Returns
+        -------
+        dN_dx : jnp.ndarray
+            Spatial gradients of shape (n_q, 8, 3).
+        detJ : jnp.ndarray
+            Determinant of the Jacobian of shape (n_q,).
         """
         dN_dxi = self.shape_grads_ref()  # (n_q, 8, 3)
 
@@ -892,11 +899,13 @@ def _tet_quadrature(degree: int) -> tuple[jnp.ndarray, jnp.ndarray]:
 
 
 def make_tet_basis(intorder: int = 2) -> TetLinearBasis:
+    """Create a linear tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)
     return TetLinearBasis(qp, qw)
 
 
 def make_tet_basis_pytree(intorder: int = 2) -> TetLinearBasisPytree:
+    """Create a pytree linear tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)
     return TetLinearBasisPytree(qp, qw)
 
@@ -918,6 +927,7 @@ def make_hex_basis(intorder: int = 2) -> HexTriLinearBasis:
 
 
 def make_hex_basis_pytree(intorder: int = 2) -> HexTriLinearBasisPytree:
+    """Create a pytree trilinear hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
     pt_1d, wt_1d = _gauss_legendre_1d(n_1d)
     xi, eta, zeta = jnp.meshgrid(pt_1d, pt_1d, pt_1d, indexing="ij")
@@ -929,6 +939,7 @@ def make_hex_basis_pytree(intorder: int = 2) -> HexTriLinearBasisPytree:
 
 
 def make_hex20_basis(intorder: int = 2) -> HexSerendipityBasis20:
+    """Create a serendipity hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
     pt_1d, wt_1d = _gauss_legendre_1d(n_1d)
     xi, eta, zeta = jnp.meshgrid(pt_1d, pt_1d, pt_1d, indexing="ij")
@@ -940,6 +951,7 @@ def make_hex20_basis(intorder: int = 2) -> HexSerendipityBasis20:
 
 
 def make_hex20_basis_pytree(intorder: int = 2) -> HexSerendipityBasis20Pytree:
+    """Create a pytree serendipity hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
     pt_1d, wt_1d = _gauss_legendre_1d(n_1d)
     xi, eta, zeta = jnp.meshgrid(pt_1d, pt_1d, pt_1d, indexing="ij")
@@ -951,6 +963,7 @@ def make_hex20_basis_pytree(intorder: int = 2) -> HexSerendipityBasis20Pytree:
 
 
 def make_hex27_basis(intorder: int = 3) -> HexTriQuadraticBasis27:
+    """Create a triquadratic hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
     pt_1d, wt_1d = _gauss_legendre_1d(n_1d)
     xi, eta, zeta = jnp.meshgrid(pt_1d, pt_1d, pt_1d, indexing="ij")
@@ -961,6 +974,7 @@ def make_hex27_basis(intorder: int = 3) -> HexTriQuadraticBasis27:
 
 
 def make_hex27_basis_pytree(intorder: int = 3) -> HexTriQuadraticBasis27Pytree:
+    """Create a pytree triquadratic hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
     pt_1d, wt_1d = _gauss_legendre_1d(n_1d)
     xi, eta, zeta = jnp.meshgrid(pt_1d, pt_1d, pt_1d, indexing="ij")
@@ -971,10 +985,12 @@ def make_hex27_basis_pytree(intorder: int = 3) -> HexTriQuadraticBasis27Pytree:
 
 
 def make_tet10_basis(intorder: int = 2) -> TetQuadraticBasis10:
+    """Create a quadratic tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)
     return TetQuadraticBasis10(qp, qw)
 
 
 def make_tet10_basis_pytree(intorder: int = 2) -> TetQuadraticBasis10Pytree:
+    """Create a pytree quadratic tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)
     return TetQuadraticBasis10Pytree(qp, qw)
