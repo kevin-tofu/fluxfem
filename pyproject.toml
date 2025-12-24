@@ -30,7 +30,7 @@ authors = ["Kevin-Tofu <koheitech001@gmail.com>"]
 readme = "README.md"
 license = "Apache-2.0"
 packages = [
-  { include = "fluxfem", from = "fluxfem" }
+  { include = "fluxfem", from = "src" }
 ]
 
 
