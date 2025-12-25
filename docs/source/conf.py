@@ -25,6 +25,8 @@ extensions = [
 napoleon_use_ivar = True
 
 autodoc_mock_imports = [
+    "jax",
+    "jaxlib",
     "jaxlib.gpu_sparse",
     "jax_cuda12_plugin",
 ]

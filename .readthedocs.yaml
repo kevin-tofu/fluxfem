@@ -15,6 +15,13 @@ python:
     - method: pip
       path: .
 
+python:
+  install:
+    - requirements: docs/requirements.txt
+    - method: pip
+      path: .
+
+
 # Optionally, but recommended,
 # declare the Python requirements required to build your documentation
 # See https://docs.readthedocs.io/en/stable/guides/reproducible-builds.html
