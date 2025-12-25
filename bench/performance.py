@@ -115,10 +115,6 @@ def fluxfem_cases(args, backend: str):
         diffusion_form,
         scalar_body_force_form,
         condense_dirichlet_fluxsparse,
-        spdirect_solve_cpu,
-        spdirect_solve_gpu,
-        LinearSolver,
-        FluxSparseMatrix,
         bbox_predicate,
     )
 
@@ -173,11 +169,10 @@ def fluxfem_cases(args, backend: str):
             K, F, dir_nodes, dir_vals
         )
 
-        if args.no_solve or K_bc.shape[0] > 1e5:
+        if args.no_solve or K_ff.shape[0] > 1e5:
             solve_time = float("nan")
         else:
-            solver = LinearSolver(method="cg", tol=args.cg_tol, maxiter=args.cg_maxiter)
-            solve_fn = lambda: solver.solve(K_ff, F_free)
+            solve_fn = lambda: sla.spsolve(K_ff, F_free)
             with timer.section("solve"):
                 solve_fn()
             solve_time = timer.last("solve")
