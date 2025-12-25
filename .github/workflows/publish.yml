@@ -37,7 +37,7 @@ jobs:
         run: poetry install --no-root
         
       - name: Run tests
-        run: PYTHONPATH=scikit-topt poetry run pytest
+        run: PYTHONPATH=src poetry run pytest
 
       - name: Build with Poetry
         run: poetry build
