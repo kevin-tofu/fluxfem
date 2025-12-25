@@ -134,7 +134,16 @@
 <span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">linear_elasticity_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Surface traction (numeric):</p>
+<p>Surface traction (weak-form-based assembly):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">p</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ds</span><span class="p">()</span>
+<span class="p">)</span>
+<span class="n">F_wf</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
+    <span class="n">space</span><span class="p">,</span> <span class="n">surface_form</span><span class="o">.</span><span class="n">linear_form</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="n">traction_vec</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Surface traction (tensor-based assembly):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">surface_traction_form</span><span class="p">(</span>
    <span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">SurfaceFormContext</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
@@ -142,15 +151,6 @@
 
 <span class="n">F_num</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
    <span class="n">space</span><span class="p">,</span> <span class="n">surface_traction_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">traction_vec</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-<p>Surface traction (weak-form DSL):</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span>
-    <span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">p</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ds</span><span class="p">()</span>
-<span class="p">)</span>
-<span class="n">F_wf</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
-    <span class="n">space</span><span class="p">,</span> <span class="n">surface_form</span><span class="o">.</span><span class="n">linear_form</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="n">traction_vec</span>
 <span class="p">)</span>
 </pre></div>
 </div>

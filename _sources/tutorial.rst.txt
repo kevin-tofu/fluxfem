@@ -58,7 +58,19 @@ tensor-based assembly (scikit-fem-style):
    K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
 
 
-Surface traction (numeric):
+Surface traction (weak-form-based assembly):
+
+.. code-block:: python
+
+    surface_form = ff.LinearForm.surface(
+        lambda v, p: (v | p) * h_wf.ds()
+    )
+    F_wf = surface.assemble_linear_form_on_space(
+        space, surface_form.linear_form(), params=traction_vec
+    )
+
+
+Surface traction (tensor-based assembly):
 
 .. code-block:: python
 
@@ -71,16 +83,6 @@ Surface traction (numeric):
        space, surface_traction_form, params=traction_vec
     )
 
-Surface traction (weak-form DSL):
-
-.. code-block:: python
-
-    surface_form = ff.LinearForm.surface(
-        lambda v, p: (v | p) * h_wf.ds()
-    )
-    F_wf = surface.assemble_linear_form_on_space(
-        space, surface_form.linear_form(), params=traction_vec
-    )
 
 Dirichlet clamp:
 
