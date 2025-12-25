@@ -18,6 +18,10 @@
   <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/Neo-Hookean-deformedx20000.png" alt="Neo-Hookean" width="400" style="margin-right: 20px;">
 </p>
 
+<p align="center">
+  <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/performance.png" alt="performance" width="400" style="margin-right: 20px;">
+</p>
+
 ## Features
 - Built on JAX, enabling automatic differentiation and high-performance execution via grad, jit, vmap, and related transformations.
 
