@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath('../../src'))
 project = "fluxfem"
 author = "Kohei Watanabe"
 copyright = f"{datetime.now().year}, {author}"
-release = "0.1.0"
+release = "0.1.1b"
 
 extensions = [
     "sphinx.ext.autodoc",
