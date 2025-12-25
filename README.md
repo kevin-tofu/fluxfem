@@ -24,7 +24,7 @@
 </table>
 
 <p align="center">
-  <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/performance.png" alt="performance" width="400" style="margin-right: 20px;">
+  <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/performance.png" alt="performance" width="800" style="margin-right: 20px;">
 </p>
 
 ## Features
