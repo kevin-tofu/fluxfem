@@ -1,9 +1,10 @@
 Weak form Assembly
 ===================
 
-FluxFEM provides a compact DSL for writing FEM weak forms as expression trees.
+FluxFEM provides a compact expression API for writing FEM weak forms as expression trees.
 The goal is to let you write forms close to mathematics while keeping the assembly
-kernels JAX-friendly.
+kernels JAX-friendly. Expression trees are compiled into element kernels before
+assembly.
 
 This page explains the **recommended way to build weak forms**, with examples that
 match the reference test suite.
@@ -222,7 +223,7 @@ About ``ddot``:
 Surface traction: ``v | t``
 ---------------------------
 
-For surface linear forms, the DSL supports a convenient operator:
+For surface linear forms, the expression API supports a convenient operator:
 
 - ``v | t`` (with ``t`` a vector) is interpreted as a **surface dot** between the test field and traction.
 
@@ -301,7 +302,7 @@ vector-load helper used by ``dot(field, load)``.
 About the ``@`` operator
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-Besides regular matrix multiplication, the DSL defines a special case for
+Besides regular matrix multiplication, the expression API defines a special case for
 batched 3D arrays shaped like ``(q, *, dim)``:
 
 ``A @ B`` with ``A.ndim==B.ndim==3`` and matching last axis performs a contraction over ``dim``

@@ -99,9 +99,10 @@
              
   <section id="weak-form-assembly">
 <h1>Weak form Assembly<a class="headerlink" href="#weak-form-assembly" title="Link to this heading"></a></h1>
-<p>FluxFEM provides a compact DSL for writing FEM weak forms as expression trees.
+<p>FluxFEM provides a compact expression API for writing FEM weak forms as expression trees.
 The goal is to let you write forms close to mathematics while keeping the assembly
-kernels JAX-friendly.</p>
+kernels JAX-friendly. Expression trees are compiled into element kernels before
+assembly.</p>
 <p>This page explains the <strong>recommended way to build weak forms</strong>, with examples that
 match the reference test suite.</p>
 <nav class="contents local" id="contents">
@@ -307,7 +308,7 @@ it contracts over the middle axis and returns a local block <code class="docutil
 </section>
 <section id="surface-traction-v-t">
 <h2><a class="toc-backref" href="#id14" role="doc-backlink">Surface traction: <code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code></a><a class="headerlink" href="#surface-traction-v-t" title="Link to this heading"></a></h2>
-<p>For surface linear forms, the DSL supports a convenient operator:</p>
+<p>For surface linear forms, the expression API supports a convenient operator:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code> (with <code class="docutils literal notranslate"><span class="pre">t</span></code> a vector) is interpreted as a <strong>surface dot</strong> between the test field and traction.</p></li>
 </ul>
@@ -372,7 +373,7 @@ vector-load helper used by <code class="docutils literal notranslate"><span clas
 </section>
 <section id="id1">
 <h3><a class="toc-backref" href="#id22" role="doc-backlink">About the <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> operator</a><a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
-<p>Besides regular matrix multiplication, the DSL defines a special case for
+<p>Besides regular matrix multiplication, the expression API defines a special case for
 batched 3D arrays shaped like <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">*,</span> <span class="pre">dim)</span></code>:</p>
 <p><code class="docutils literal notranslate"><span class="pre">A</span> <span class="pre">&#64;</span> <span class="pre">B</span></code> with <code class="docutils literal notranslate"><span class="pre">A.ndim==B.ndim==3</span></code> and matching last axis performs a contraction over <code class="docutils literal notranslate"><span class="pre">dim</span></code>
 and returns <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">*,</span> <span class="pre">*)</span></code> (conceptually <code class="docutils literal notranslate"><span class="pre">einsum(&quot;qia,qja-&gt;qij&quot;)</span></code>). In other words, for each
