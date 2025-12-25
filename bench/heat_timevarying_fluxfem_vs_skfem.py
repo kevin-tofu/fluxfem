@@ -405,6 +405,14 @@ def _run_for_backend(args, backend: str):
         str(args.dt),
         "--nsteps",
         str(args.nsteps),
+        "--batch",
+        str(args.batch),
+        "--batch-seed",
+        str(args.batch_seed),
+        "--kappa0-jitter",
+        str(args.kappa0_jitter),
+        "--alpha-jitter",
+        str(args.alpha_jitter),
         "--out-dir",
         args.out_dir,
     ]
@@ -429,6 +437,20 @@ def main():
     p.add_argument("--times", type=str, default="0.01,0.02", help="comma-separated times to evaluate or 'all'")
     p.add_argument("--dt", type=float, default=1e-3, help="time step for implicit solve")
     p.add_argument("--nsteps", type=int, default=20, help="number of time steps")
+    p.add_argument("--batch", type=int, default=1, help="number of parameter sweeps")
+    p.add_argument("--batch-seed", type=int, default=0, help="random seed for parameter sweeps")
+    p.add_argument(
+        "--kappa0-jitter",
+        type=float,
+        default=0.1,
+        help="relative jitter for kappa0 in batch sweeps",
+    )
+    p.add_argument(
+        "--alpha-jitter",
+        type=float,
+        default=0.1,
+        help="relative jitter for alpha in batch sweeps",
+    )
     p.add_argument(
         "--flux-solver",
         choices=("scipy", "jax"),
@@ -479,6 +501,14 @@ def main():
                     str(args.dt),
                     "--nsteps",
                     str(args.nsteps),
+                    "--batch",
+                    str(args.batch),
+                    "--batch-seed",
+                    str(args.batch_seed),
+                    "--kappa0-jitter",
+                    str(args.kappa0_jitter),
+                    "--alpha-jitter",
+                    str(args.alpha_jitter),
                     "--flux-solver",
                     args.flux_solver,
                     "--out-dir",
@@ -569,17 +599,49 @@ def main():
     if not include_skfem:
         print("[heat] scikit-fem comparison skipped on GPU backend.")
 
-    coords, record_flux, record_sk, timings = solve_heat_compare(
-        args.size,
-        args.kappa0,
-        args.alpha,
-        t0,
-        args.dt,
-        args.nsteps,
-        times,
-        flux_solver=args.flux_solver,
-        include_skfem=include_skfem,
-    )
+    rng = np.random.default_rng(args.batch_seed)
+    if args.batch <= 1:
+        kappa0_list = [args.kappa0]
+        alpha_list = [args.alpha]
+    else:
+        kappa0_list = args.kappa0 * (1.0 + rng.normal(0.0, args.kappa0_jitter, size=args.batch))
+        alpha_list = args.alpha * (1.0 + rng.normal(0.0, args.alpha_jitter, size=args.batch))
+        print(f"[heat] batch sweep: n={args.batch} (skfem only on first case)")
+
+    record_flux = {}
+    record_sk = {}
+    timings_all = {
+        "assemble_k_flux_s": [],
+        "assemble_k_skfem_s": [],
+        "solve_flux_s": [],
+        "solve_skfem_s": [],
+    }
+    coords = None
+
+    for idx, (kappa0_i, alpha_i) in enumerate(zip(kappa0_list, alpha_list)):
+        run_skfem = include_skfem and idx == 0
+        coords_i, record_flux_i, record_sk_i, timings_i = solve_heat_compare(
+            args.size,
+            float(kappa0_i),
+            float(alpha_i),
+            t0,
+            args.dt,
+            args.nsteps,
+            times,
+            flux_solver=args.flux_solver,
+            include_skfem=run_skfem,
+        )
+        if coords is None:
+            coords = coords_i
+        if idx == 0:
+            record_flux = record_flux_i
+            record_sk = record_sk_i
+        timings_all["assemble_k_flux_s"].append(timings_i["assemble_k_flux_s"])
+        timings_all["assemble_k_skfem_s"].append(timings_i["assemble_k_skfem_s"])
+        timings_all["solve_flux_s"].append(timings_i["solve_flux_s"])
+        timings_all["solve_skfem_s"].append(timings_i["solve_skfem_s"])
+
+    timings = {k: np.concatenate(v) if v else np.array([]) for k, v in timings_all.items()}
 
     rel_flux_list = []
     rel_sk_list = []
@@ -618,6 +680,9 @@ def main():
         size=args.size,
         kappa0=args.kappa0,
         alpha=args.alpha,
+        batch=int(args.batch),
+        kappa0_batch=np.asarray(kappa0_list),
+        alpha_batch=np.asarray(alpha_list),
         dt=args.dt,
         nsteps=args.nsteps,
         rel_err_flux=np.asarray(rel_flux_list),

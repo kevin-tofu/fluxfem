@@ -23,9 +23,6 @@
   </tr>
 </table>
 
-<p align="center">
-  <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/performance.png" alt="performance" width="800" style="margin-right: 20px;">
-</p>
 
 ## Features
 - Built on JAX, enabling automatic differentiation and high-performance execution via grad, jit, vmap, and related transformations.
