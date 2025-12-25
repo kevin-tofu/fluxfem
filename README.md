@@ -8,15 +8,20 @@
  A weak-form-centric differentiable finite element framework in JAX
 
 ## Examples and Features
-### Example 1 : Diffusion
-<p align="center">
-  <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/diffusion_mms_timeseries.gif" alt="Diffusion-mms" width="400" style="margin-right: 20px;">
-</p>
-
-### Example 2 : Neo Neohookean Hyper Elasticity
-<p align="center">
-  <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/Neo-Hookean-deformedx20000.png" alt="Neo-Hookean" width="400" style="margin-right: 20px;">
-</p>
+<table>
+  <tr>
+    <td align="center"><b>Example 1: Diffusion</b></td>
+    <td align="center"><b>Example 2: Neo Neohookean Hyper Elasticity</b></td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/diffusion_mms_timeseries.gif" alt="Diffusion-mms" width="400">
+    </td>
+    <td align="center">
+      <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/Neo-Hookean-deformedx20000.png" alt="Neo-Hookean" width="400">
+    </td>
+  </tr>
+</table>
 
 <p align="center">
   <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/performance.png" alt="performance" width="400" style="margin-right: 20px;">
