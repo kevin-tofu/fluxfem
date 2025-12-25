@@ -13,6 +13,11 @@
   <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/diffusion_mms_timeseries.gif" alt="Optimization Process Pull-Down-0" width="400" style="margin-right: 20px;">
 </p>
 
+### Example 2 : Neo Neohookean Hyper Elasticity
+<p align="center">
+  <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/Neo-Hookean-deformedx200000.ong" alt="Optimization Process Pull-Down-0" width="400" style="margin-right: 20px;">
+</p>
+
 ## Features
 - Built on JAX, enabling automatic differentiation and high-performance execution via grad, jit, vmap, and related transformations.
 
@@ -20,7 +25,7 @@
 
 - Supports two assembly approaches: weak-form-based assembly and a tensor-based (scikit-fem–style) assembly.
 
-- enables to handle both Linear / Non-Linear Analysis with AD with JAX
+- enables to handle both Linear / Non-Linear analysis with AD in JAX
 
 ## Usage 
 
