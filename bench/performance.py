@@ -108,6 +108,7 @@ def fluxfem_cases(args, backend: str):
     import jax
     jax.config.update("jax_enable_x64", True)
     import jax.numpy as jnp
+    import scipy.sparse.linalg as sla
 
     from fluxfem import (
         StructuredTetTensorBox,

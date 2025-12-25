@@ -39,15 +39,16 @@ def exact_u(coords: np.ndarray, t: float, kappa0: float, alpha: float) -> np.nda
     return phi * decay
 
 
-def _apply_dirichlet(A_csr, b, bc_dofs, bc_vals):
-    A = A_csr.tolil(copy=True)
+def _condense_dirichlet(A_csr, b, bc_dofs, bc_vals, free_dofs):
+    """
+    Condense Dirichlet DOFs without LIL conversion.
+    Returns (A_free, b_free).
+    """
     b = b.copy()
-    b -= A[:, bc_dofs] @ bc_vals
-    A[:, bc_dofs] = 0.0
-    A[bc_dofs, :] = 0.0
-    A[bc_dofs, bc_dofs] = 1.0
-    b[bc_dofs] = bc_vals
-    return A.tocsr(), b
+    A_free = A_csr[free_dofs][:, free_dofs]
+    A_fd = A_csr[free_dofs][:, bc_dofs]
+    b_free = b[free_dofs] - A_fd @ bc_vals
+    return A_free, b_free
 
 
 def _grid_from_slice(xy: np.ndarray, values: np.ndarray):
@@ -348,21 +349,27 @@ def solve_heat_compare(
             rhs_sf = (M_sf @ u_sk) / dt
 
         bc_vals = exact_u(coords[bc_dofs], t_np1, kappa0, alpha)
-        A_flux_bc, rhs_flux_bc = _apply_dirichlet(A_flux, rhs_flux, bc_dofs, bc_vals)
+        A_flux_bc, rhs_flux_bc = _condense_dirichlet(A_flux, rhs_flux, bc_dofs, bc_vals, free)
         if include_skfem:
-            A_sf_bc, rhs_sf_bc = _apply_dirichlet(A_sf, rhs_sf, bc_dofs, bc_vals)
+            A_sf_bc, rhs_sf_bc = _condense_dirichlet(A_sf, rhs_sf, bc_dofs, bc_vals, free)
 
         with timer.section("solve_flux"):
             if flux_solver == "jax":
-                u_flux = ff.spdirect_solve_jax(A_flux_bc, rhs_flux_bc)
+                u_free = ff.spdirect_solve_jax(A_flux_bc, rhs_flux_bc)
             else:
-                u_flux = np.asarray(sla.spsolve(A_flux_bc, rhs_flux_bc))
+                u_free = np.asarray(sla.spsolve(A_flux_bc, rhs_flux_bc))
+            u_flux = u_flux.copy()
+            u_flux[free] = u_free
+            u_flux[bc_dofs] = bc_vals
         sol_flux_dt = timer.last("solve_flux")
         solve_flux.append(sol_flux_dt)
 
         if include_skfem:
             with timer.section("solve_skfem"):
-                u_sk = np.asarray(sla.spsolve(A_sf_bc, rhs_sf_bc))
+            u_free = np.asarray(sla.spsolve(A_sf_bc, rhs_sf_bc))
+            u_sk = u_sk.copy()
+            u_sk[free] = u_free
+            u_sk[bc_dofs] = bc_vals
             sol_sk_dt = timer.last("solve_skfem")
             solve_sk.append(sol_sk_dt)
 
