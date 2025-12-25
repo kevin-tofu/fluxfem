@@ -36,7 +36,17 @@ where ``\varepsilon(u) = sym(grad(u))``.
 Implementation mapping (fluxfem)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Numeric assembly(scikit-fem-style):
+weak-form-based assembly:
+
+.. code-block:: python
+
+   bilinear_form = ff.BilinearForm.volume(
+       lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
+   )
+   K_wf = space.assemble_bilinear_form(bilinear_form.bilinear_form(), params=D)
+
+
+tensor-based assembly (scikit-fem-style):
 
 .. code-block:: python
 
@@ -47,14 +57,6 @@ Numeric assembly(scikit-fem-style):
 
    K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
 
-Weak-form DSL assembly:
-
-.. code-block:: python
-
-   bilinear_form = ff.BilinearForm.volume(
-       lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
-   )
-   K_wf = space.assemble_bilinear_form(bilinear_form.bilinear_form(), params=D)
 
 Surface traction (numeric):
 
@@ -92,10 +94,3 @@ Dirichlet clamp:
    u, _ = ff.LinearSolver(method="spsolve").solve(
        K, F, dirichlet=(dir_dofs, None), dirichlet_mode="condense"
    )
-
-Reference
-^^^^^^^^^
-
-.. code-block:: bash
-
-   python tutorials/linearelastic_tensile_bar.py
