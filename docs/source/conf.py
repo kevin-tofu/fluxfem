@@ -45,3 +45,11 @@ html_meta = {
 }
 
 html_baseurl = "https://kevin-tofu.github.io/fluxfem/"
+
+on_rtd = os.environ.get("READTHEDOCS") == "True"
+if on_rtd:
+    # RTD
+    html_baseurl = "https://fluxfem.readthedocs.io/en/latest/"
+else:
+    # GitHub Pages
+    html_baseurl = "https://kevin-tofu.github.io/fluxfem/"
