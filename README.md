@@ -27,13 +27,10 @@
 
 
 ## Features
-- Built on JAX, enabling automatic differentiation and high-performance execution via grad, jit, vmap, and related transformations.
-
-- A FEM framework with a weak-form–centric API, emphasizing a smooth transition from theoretical formulations to practical code implementations.
-
-- Supports two assembly approaches: weak-form-based assembly and a tensor-based (scikit-fem–style) assembly.
-
-- enables to handle both Linear / Non-Linear analysis with AD in JAX
+- Built on JAX, enabling automatic differentiation with grad, jit, vmap, and related transformations.
+- Weak-form–centric API that keeps formulations close to code; weak forms are represented as expression trees and compiled to element kernels.
+- Two assembly approaches: weak-form-based assembly and a tensor-based (scikit-fem–style) assembly.
+- Handles both linear and nonlinear analyses with AD in JAX.
 
 ## Usage 
 
