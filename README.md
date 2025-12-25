@@ -15,7 +15,7 @@
 
 ### Example 2 : Neo Neohookean Hyper Elasticity
 <p align="center">
-  <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/Neo-Hookean-deformedx200000.png" alt="Neo-Hookean" width="400" style="margin-right: 20px;">
+  <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/Neo-Hookean-deformedx20000.png" alt="Neo-Hookean" width="400" style="margin-right: 20px;">
 </p>
 
 ## Features
