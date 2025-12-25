@@ -57,6 +57,18 @@ def parse_args():
         default=2000,
         help="CG max iterations for fluxfem solve timing.",
     )
+    p.add_argument(
+        "--chunk-size",
+        type=int,
+        default=None,
+        help="Chunk size for FluxFEM assembly (reduces JIT compile pressure).",
+    )
+    p.add_argument(
+        "--repeat",
+        type=int,
+        default=3,
+        help="Repeat assembly timing per mesh size (JIT reuse).",
+    )
     return p.parse_args()
 
 
@@ -102,7 +114,7 @@ def fluxfem_cases(args, backend: str):
         make_tet_space,
         diffusion_form,
         scalar_body_force_form,
-        enforce_dirichlet_sparse,
+        condense_dirichlet_fluxsparse,
         spdirect_solve_cpu,
         spdirect_solve_gpu,
         LinearSolver,
@@ -115,6 +127,7 @@ def fluxfem_cases(args, backend: str):
         timer = SectionTimer()
         mesh = StructuredTetTensorBox(nx=n, ny=n, nz=n, lx=1.0, ly=1.0, lz=1.0).build()
         space = make_tet_space(mesh, dim=1, intorder=args.intorder)
+        pattern = space.get_sparsity_pattern(with_idx=True)
         coords = np.asarray(mesh.coords)
         mins = coords.min(axis=0)
         maxs = coords.max(axis=0)
@@ -124,10 +137,14 @@ def fluxfem_cases(args, backend: str):
 
         def assemble(dummy):
             K = space.assemble_bilinear_form(
-                diffusion_form, params=1.0, dep=dummy
+                diffusion_form,
+                params=1.0,
+                dep=dummy,
+                pattern=pattern,
+                chunk_size=args.chunk_size,
             )
             F = space.assemble_linear_form(
-                scalar_body_force_form, params=1.0, dep=dummy
+                scalar_body_force_form, params=1.0, dep=dummy, chunk_size=args.chunk_size
             )
             return K, F
 
@@ -143,27 +160,24 @@ def fluxfem_cases(args, backend: str):
             _block_ready(K0, F0)
         total_time = timer.last("total")
 
-        with timer.section("assemble"):
-            K, F = assemble_jit(dummy)
-            _block_ready(K, F)
-        assemble_time = timer.last("assemble")
+        assemble_times = []
+        for _ in range(max(1, args.repeat)):
+            with timer.section("assemble"):
+                K, F = assemble_jit(dummy)
+                _block_ready(K, F)
+            assemble_times.append(timer.last("assemble"))
+        assemble_time = float(np.mean(assemble_times))
         jit_compile_time = max(total_time - assemble_time, 0.0)
-        K_bc, F_bc = enforce_dirichlet_sparse(K, F, dir_nodes, dir_vals)
+
+        K_ff, F_free, free, dir_dofs, dir_vals = condense_dirichlet_fluxsparse(
+            K, F, dir_nodes, dir_vals
+        )
 
         if args.no_solve or K_bc.shape[0] > 1e5:
             solve_time = float("nan")
         else:
-            coo = K_bc.tocoo()
-            K_cg = FluxSparseMatrix.from_bilinear(
-                (
-                    np.asarray(coo.row, dtype=np.int32),
-                    np.asarray(coo.col, dtype=np.int32),
-                    np.asarray(coo.data),
-                    int(K_bc.shape[0]),
-                )
-            )
             solver = LinearSolver(method="cg", tol=args.cg_tol, maxiter=args.cg_maxiter)
-            solve_fn = lambda: solver.solve(K_cg, F_bc)
+            solve_fn = lambda: solver.solve(K_ff, F_free)
             with timer.section("solve"):
                 solve_fn()
             solve_time = timer.last("solve")
