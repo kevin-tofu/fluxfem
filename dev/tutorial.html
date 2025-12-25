@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tutorial &mdash; fluxfem 0.1.0 documentation</title>
+  <title>Tutorial &mdash; fluxfem 0.1.1b documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
@@ -14,15 +14,15 @@
     <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial.html" />
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/documentation_options.js?v=a9b42864"></script>
       <script src="_static/doctools.js?v=9bcbadda"></script>
       <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
       <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Weak Form" href="weakform.html" />
-    <link rel="prev" title="Installation" href="installation.html" /> 
+    <link rel="next" title="Installation" href="installation.html" />
+    <link rel="prev" title="&lt;no title&gt;" href="concept.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -47,22 +47,19 @@
               <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="reference internal" href="project.html">Project</a><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Tutorial</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#linear-elasticity-weak-form-to-implementation">Linear Elasticity: Weak Form to Implementation</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#problem-statement">Problem statement</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#weak-form">Weak form</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#implementation-mapping-fluxfem">Implementation mapping (fluxfem)</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#reference">Reference</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="weakform.html">Weak Form</a></li>
-<li class="toctree-l2"><a class="reference internal" href="physics.html">Physics</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api.html">API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html">Installation</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 </ul>
 
         </div>
@@ -119,39 +116,47 @@
 </section>
 <section id="implementation-mapping-fluxfem">
 <h3>Implementation mapping (fluxfem)<a class="headerlink" href="#implementation-mapping-fluxfem" title="Link to this heading"></a></h3>
-<p>Numeric assembly(scikit-fem-style):</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">linear_elasticity_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-    <span class="n">Bu</span> <span class="o">=</span> <span class="n">h_num</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">u</span><span class="p">)</span>
-    <span class="n">Bv</span> <span class="o">=</span> <span class="n">h_num</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">v</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">h_num</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">Bv</span><span class="p">,</span> <span class="n">D</span><span class="p">,</span> <span class="n">Bu</span><span class="p">)</span>
+<p>weak-form-based assembly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_wf</span>
 
-<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">linear_elasticity_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span>
-</pre></div>
-</div>
-<p>Weak-form DSL assembly:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">bilinear_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+<span class="n">bilinear_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
     <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">,</span> <span class="n">D</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
 <span class="p">)</span>
 <span class="n">K_wf</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">bilinear_form</span><span class="o">.</span><span class="n">bilinear_form</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Surface traction (numeric):</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">surface_traction_form</span><span class="p">(</span>
-   <span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">SurfaceFormContext</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-   <span class="k">return</span> <span class="n">h_num</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">)</span>
+<p>tensor-based assembly (scikit-fem-style):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_ts</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_ts</span>
 
-<span class="n">F_num</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
-   <span class="n">space</span><span class="p">,</span> <span class="n">surface_traction_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">traction_vec</span>
-<span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">linear_elasticity_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="n">Bu</span> <span class="o">=</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">u</span><span class="p">)</span>
+    <span class="n">Bv</span> <span class="o">=</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">v</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">Bv</span><span class="p">,</span> <span class="n">D</span><span class="p">,</span> <span class="n">Bu</span><span class="p">)</span>
+
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">linear_elasticity_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Surface traction (weak-form DSL):</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span>
+<p>Surface traction (weak-form-based assembly):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_wf</span>
+
+<span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span>
     <span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">p</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ds</span><span class="p">()</span>
 <span class="p">)</span>
 <span class="n">F_wf</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
     <span class="n">space</span><span class="p">,</span> <span class="n">surface_form</span><span class="o">.</span><span class="n">linear_form</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="n">traction_vec</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Surface traction (tensor-based assembly):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_ts</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_ts</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">surface_traction_form</span><span class="p">(</span>
+   <span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">SurfaceFormContext</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+   <span class="k">return</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">)</span>
+
+<span class="n">F_tensor</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
+   <span class="n">space</span><span class="p">,</span> <span class="n">surface_traction_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">traction_vec</span>
 <span class="p">)</span>
 </pre></div>
 </div>
@@ -167,12 +172,6 @@
 </pre></div>
 </div>
 </section>
-<section id="reference">
-<h3>Reference<a class="headerlink" href="#reference" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/linearelastic_tensile_bar.py
-</pre></div>
-</div>
-</section>
 </section>
 </section>
 
@@ -180,8 +179,8 @@
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="installation.html" class="btn btn-neutral float-left" title="Installation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="weakform.html" class="btn btn-neutral float-right" title="Weak Form" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="concept.html" class="btn btn-neutral float-left" title="&lt;no title&gt;" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="installation.html" class="btn btn-neutral float-right" title="Installation" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
