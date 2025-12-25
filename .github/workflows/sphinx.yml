@@ -3,7 +3,7 @@ name: Sphinx build and deploy
 on:
   push:
     branches:
-      - master
+      - main
       - dev
 
 jobs:
@@ -46,7 +46,7 @@ jobs:
         run: |
           touch docs/_build/html/.nojekyll
 
-      - name: Deploy master docs to GitHub Pages
+      - name: Deploy main docs to GitHub Pages
         if: github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v3
         with:

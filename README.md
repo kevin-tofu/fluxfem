@@ -12,9 +12,10 @@
   <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/diffusion_mms_timeseries.gif" alt="Optimization Process Pull-Down-0" width="400" style="margin-right: 20px;">
 </p>
 
+## Features
+
 
 ## Usage 
-
 
 This library provides two assembly approaches.
 
@@ -54,4 +55,28 @@ def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray
 space = ff.make_hex_space(mesh, dim=3, intorder=2)
 D = ff.isotropic_3d_D(1.0, 0.3)
 K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
+```
+
+## Documentation
+
+
+## SetUp
+
+You can install **Scikit-Topt** either via **pip** or **Poetry**.
+
+#### Supported Python Versions
+
+Scikit-Topt supports **Python 3.10–3.13**:
+
+
+**Choose one of the following methods:**
+
+### Using pip
+```bash
+pip install fluxfem
+```
+
+### Using poetry
+```bash
+poetry add fluxfem
 ```
