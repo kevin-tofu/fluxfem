@@ -1,0 +1,287 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tensor Assembly &mdash; fluxfem 0.1.1b documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/assembly_tensor.html" />
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a9b42864"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Weak form Assembly" href="assembly_weakform.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            fluxfem
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="project.html">Project</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="usage.html">Usage</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="assembly.html">Assembly</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="assembly_weakform.html">Weak form Assembly</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Tensor Assembly</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#core-idea">Core idea</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#forms-and-signatures">Forms and signatures</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#quadrature-handling">Quadrature handling</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#common-building-blocks">Common building blocks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#recipes-from-tests">Recipes (from tests)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">fluxfem</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="usage.html">Usage</a></li>
+          <li class="breadcrumb-item"><a href="assembly.html">Assembly</a></li>
+      <li class="breadcrumb-item active">Tensor Assembly</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/assembly_tensor.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="tensor-assembly">
+<h1>Tensor Assembly<a class="headerlink" href="#tensor-assembly" title="Link to this heading"></a></h1>
+<p>FluxFEM also supports tensor-based assembly, where you write element integrands
+directly in terms of arrays (scikit-fem style). This pairs naturally with JAX
+and makes the data flow explicit.</p>
+<p>This page mirrors the weak-form chapter, but with tensor-style forms.</p>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#core-idea" id="id1">Core idea</a></p></li>
+<li><p><a class="reference internal" href="#forms-and-signatures" id="id2">Forms and signatures</a></p>
+<ul>
+<li><p><a class="reference internal" href="#bilinear-form-volume" id="id3">Bilinear form (volume)</a></p></li>
+<li><p><a class="reference internal" href="#linear-form-volume" id="id4">Linear form (volume)</a></p></li>
+<li><p><a class="reference internal" href="#linear-form-surface" id="id5">Linear form (surface)</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#quadrature-handling" id="id6">Quadrature handling</a></p></li>
+<li><p><a class="reference internal" href="#common-building-blocks" id="id7">Common building blocks</a></p>
+<ul>
+<li><p><a class="reference internal" href="#formcontext-fields" id="id8">FormContext fields</a></p></li>
+<li><p><a class="reference internal" href="#helpers-helpers-ts" id="id9">Helpers (helpers_ts)</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#recipes-from-tests" id="id10">Recipes (from tests)</a></p>
+<ul>
+<li><p><a class="reference internal" href="#mass-scalar" id="id11">Mass (scalar)</a></p></li>
+<li><p><a class="reference internal" href="#diffusion" id="id12">Diffusion</a></p></li>
+<li><p><a class="reference internal" href="#linear-elasticity" id="id13">Linear elasticity</a></p></li>
+<li><p><a class="reference internal" href="#surface-traction" id="id14">Surface traction</a></p></li>
+</ul>
+</li>
+</ul>
+</nav>
+<section id="core-idea">
+<h2><a class="toc-backref" href="#id1" role="doc-backlink">Core idea</a><a class="headerlink" href="#core-idea" title="Link to this heading"></a></h2>
+<p>A tensor-based form is a Python function that returns a per-quadrature integrand.
+The assembly routines handle the quadrature weights and Jacobian determinants.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_ts</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_ts</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">diffusion_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">kappa</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="n">grad_v</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">test</span><span class="o">.</span><span class="n">gradN</span>  <span class="c1"># (n_q, n_nodes, dim)</span>
+    <span class="n">grad_u</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">trial</span><span class="o">.</span><span class="n">gradN</span>
+    <span class="k">return</span> <span class="n">kappa</span> <span class="o">*</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;qia,qja-&gt;qij&quot;</span><span class="p">,</span> <span class="n">grad_v</span><span class="p">,</span> <span class="n">grad_u</span><span class="p">)</span>
+
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="forms-and-signatures">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">Forms and signatures</a><a class="headerlink" href="#forms-and-signatures" title="Link to this heading"></a></h2>
+<section id="bilinear-form-volume">
+<h3><a class="toc-backref" href="#id3" role="doc-backlink">Bilinear form (volume)</a><a class="headerlink" href="#bilinear-form-volume" title="Link to this heading"></a></h3>
+<p>Signature: <code class="docutils literal notranslate"><span class="pre">(ctx,</span> <span class="pre">params)</span> <span class="pre">-&gt;</span> <span class="pre">ndarray</span></code></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ctx</span></code> : <code class="docutils literal notranslate"><span class="pre">FormContext</span></code> with <code class="docutils literal notranslate"><span class="pre">test</span></code> and <code class="docutils literal notranslate"><span class="pre">trial</span></code> fields</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">params</span></code> : scalar/array or a custom object</p></li>
+<li><p>Return shape: <code class="docutils literal notranslate"><span class="pre">(n_q,</span> <span class="pre">n_ldofs,</span> <span class="pre">n_ldofs)</span></code></p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">mass_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">_p</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="n">N</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">test</span><span class="o">.</span><span class="n">N</span>  <span class="c1"># (n_q, n_nodes)</span>
+    <span class="k">return</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;qa,qb-&gt;qab&quot;</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="linear-form-volume">
+<h3><a class="toc-backref" href="#id4" role="doc-backlink">Linear form (volume)</a><a class="headerlink" href="#linear-form-volume" title="Link to this heading"></a></h3>
+<p>Signature: <code class="docutils literal notranslate"><span class="pre">(ctx,</span> <span class="pre">params)</span> <span class="pre">-&gt;</span> <span class="pre">ndarray</span></code></p>
+<ul class="simple">
+<li><p>Return shape: <code class="docutils literal notranslate"><span class="pre">(n_q,</span> <span class="pre">n_ldofs)</span></code></p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">body_force_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">f</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">ctx</span><span class="o">.</span><span class="n">test</span><span class="o">.</span><span class="n">N</span> <span class="o">*</span> <span class="n">f</span>
+</pre></div>
+</div>
+</section>
+<section id="linear-form-surface">
+<h3><a class="toc-backref" href="#id5" role="doc-backlink">Linear form (surface)</a><a class="headerlink" href="#linear-form-surface" title="Link to this heading"></a></h3>
+<p>Signature: <code class="docutils literal notranslate"><span class="pre">(ctx,</span> <span class="pre">params)</span> <span class="pre">-&gt;</span> <span class="pre">ndarray</span></code> with <code class="docutils literal notranslate"><span class="pre">SurfaceFormContext</span></code></p>
+<ul class="simple">
+<li><p>Return shape: <code class="docutils literal notranslate"><span class="pre">(n_q,</span> <span class="pre">n_ldofs)</span></code></p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_ts</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_ts</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">traction_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">SurfaceFormContext</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="quadrature-handling">
+<h2><a class="toc-backref" href="#id6" role="doc-backlink">Quadrature handling</a><a class="headerlink" href="#quadrature-handling" title="Link to this heading"></a></h2>
+<p>Tensor-based forms should return the <strong>integrand only</strong>. Assembly multiplies by
+<code class="docutils literal notranslate"><span class="pre">w</span> <span class="pre">*</span> <span class="pre">detJ</span></code> and sums over quadrature points. Do not include <code class="docutils literal notranslate"><span class="pre">dOmega()</span></code> or
+<code class="docutils literal notranslate"><span class="pre">ds()</span></code> in tensor-based forms.</p>
+</section>
+<section id="common-building-blocks">
+<h2><a class="toc-backref" href="#id7" role="doc-backlink">Common building blocks</a><a class="headerlink" href="#common-building-blocks" title="Link to this heading"></a></h2>
+<section id="formcontext-fields">
+<h3><a class="toc-backref" href="#id8" role="doc-backlink">FormContext fields</a><a class="headerlink" href="#formcontext-fields" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ctx.test.N</span></code> / <code class="docutils literal notranslate"><span class="pre">ctx.trial.N</span></code>: shape-function values <code class="docutils literal notranslate"><span class="pre">(n_q,</span> <span class="pre">n_nodes)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ctx.test.gradN</span></code> / <code class="docutils literal notranslate"><span class="pre">ctx.trial.gradN</span></code>: spatial gradients <code class="docutils literal notranslate"><span class="pre">(n_q,</span> <span class="pre">n_nodes,</span> <span class="pre">dim)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ctx.x_q</span></code>: quadrature points in physical coordinates</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ctx.w</span></code>: quadrature weights (used by assembly)</p></li>
+</ul>
+</section>
+<section id="helpers-helpers-ts">
+<h3><a class="toc-backref" href="#id9" role="doc-backlink">Helpers (helpers_ts)</a><a class="headerlink" href="#helpers-helpers-ts" title="Link to this heading"></a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">helpers_ts</span></code> exposes tensor operators used in the physics modules:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">h_ts.sym_grad(field)</span></code>: Voigt B-matrix for linear elasticity</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">h_ts.ddot(a,</span> <span class="pre">b,</span> <span class="pre">c)</span></code>: contractions for elasticity blocks</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">h_ts.dot(field,</span> <span class="pre">load)</span></code>: vector load form for surface/volume loads</p></li>
+</ul>
+</section>
+</section>
+<section id="recipes-from-tests">
+<h2><a class="toc-backref" href="#id10" role="doc-backlink">Recipes (from tests)</a><a class="headerlink" href="#recipes-from-tests" title="Link to this heading"></a></h2>
+<section id="mass-scalar">
+<h3><a class="toc-backref" href="#id11" role="doc-backlink">Mass (scalar)</a><a class="headerlink" href="#mass-scalar" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">mass_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">_p</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="n">N</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">test</span><span class="o">.</span><span class="n">N</span>
+    <span class="k">return</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;qa,qb-&gt;qab&quot;</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="diffusion">
+<h3><a class="toc-backref" href="#id12" role="doc-backlink">Diffusion</a><a class="headerlink" href="#diffusion" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">diffusion_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">kappa</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="n">grad_v</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">test</span><span class="o">.</span><span class="n">gradN</span>
+    <span class="n">grad_u</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">trial</span><span class="o">.</span><span class="n">gradN</span>
+    <span class="k">return</span> <span class="n">kappa</span> <span class="o">*</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;qia,qja-&gt;qij&quot;</span><span class="p">,</span> <span class="n">grad_v</span><span class="p">,</span> <span class="n">grad_u</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="linear-elasticity">
+<h3><a class="toc-backref" href="#id13" role="doc-backlink">Linear elasticity</a><a class="headerlink" href="#linear-elasticity" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_ts</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_ts</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">linear_elasticity_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="n">Bu</span> <span class="o">=</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">trial</span><span class="p">)</span>
+    <span class="n">Bv</span> <span class="o">=</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">test</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">Bv</span><span class="p">,</span> <span class="n">D</span><span class="p">,</span> <span class="n">Bu</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="surface-traction">
+<h3><a class="toc-backref" href="#id14" role="doc-backlink">Surface traction</a><a class="headerlink" href="#surface-traction" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_ts</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_ts</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">traction_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">SurfaceFormContext</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">)</span>
+
+<span class="n">F_tensor</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
+    <span class="n">space</span><span class="p">,</span> <span class="n">traction_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">traction_vec</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="assembly_weakform.html" class="btn btn-neutral float-left" title="Weak form Assembly" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Kohei Watanabe.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
