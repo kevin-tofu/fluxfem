@@ -74,11 +74,11 @@ K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
 
 ## SetUp
 
-You can install **Scikit-Topt** either via **pip** or **Poetry**.
+You can install **FluxFEM** either via **pip** or **Poetry**.
 
 #### Supported Python Versions
 
-Scikit-Topt supports **Python 3.10–3.13**:
+FluxFEM supports **Python 3.11–3.13**:
 
 
 **Choose one of the following methods:**
