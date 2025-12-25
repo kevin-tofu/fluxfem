@@ -40,6 +40,8 @@ weak-form-based assembly:
 
 .. code-block:: python
 
+   import fluxfem.helpers_wf as h_wf
+
    bilinear_form = ff.BilinearForm.volume(
        lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
    )
@@ -50,10 +52,12 @@ tensor-based assembly (scikit-fem-style):
 
 .. code-block:: python
 
+   import fluxfem.helpers_ts as h_ts
+
    def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray:
-       Bu = h_num.sym_grad(ctx.u)
-       Bv = h_num.sym_grad(ctx.v)
-       return h_num.ddot(Bv, D, Bu)
+       Bu = h_ts.sym_grad(ctx.u)
+       Bv = h_ts.sym_grad(ctx.v)
+       return h_ts.ddot(Bv, D, Bu)
 
    K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
 
@@ -61,6 +65,8 @@ tensor-based assembly (scikit-fem-style):
 Surface traction (weak-form-based assembly):
 
 .. code-block:: python
+
+    import fluxfem.helpers_wf as h_wf
 
     surface_form = ff.LinearForm.surface(
         lambda v, p: (v | p) * h_wf.ds()
@@ -74,12 +80,14 @@ Surface traction (tensor-based assembly):
 
 .. code-block:: python
 
+    import fluxfem.helpers_ts as h_ts
+
     def surface_traction_form(
        ctx: ff.SurfaceFormContext, traction_vec: np.ndarray
     ) -> np.ndarray:
-       return h_num.dot(ctx.v, traction_vec)
+       return h_ts.dot(ctx.v, traction_vec)
 
-    F_num = surface.assemble_linear_form_on_space(
+    F_tensor = surface.assemble_linear_form_on_space(
        space, surface_traction_form, params=traction_vec
     )
 

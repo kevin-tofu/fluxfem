@@ -5,8 +5,6 @@ Project
    :maxdepth: 2
    :caption: Project
 
-   installation
+   concept
    tutorial
-   weakform
-   physics
-   api
+   installation

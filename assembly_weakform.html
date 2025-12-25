@@ -1,0 +1,407 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weak form Assembly &mdash; fluxfem 0.1.1b documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/assembly_weakform.html" />
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a9b42864"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Tensor Assembly" href="assembly_tensor.html" />
+    <link rel="prev" title="Assembly" href="assembly.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            fluxfem
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="project.html">Project</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="usage.html">Usage</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="assembly.html">Assembly</a><ul class="current">
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Weak form Assembly</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#core-idea">Core idea</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#forms-and-signatures">Forms and signatures</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#parameters-scalar-vs-ff-params">Parameters: scalar vs ff.Params</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#volume-measure-domega">Volume measure: dOmega()</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#surface-measure-ds">Surface measure: ds()</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#mass-matrix-u-v-scalar-only">Mass matrix: <code class="docutils literal notranslate"><span class="pre">u</span> <span class="pre">*</span> <span class="pre">v</span></code> (scalar only)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#diffusion-poisson-v-grad-u-grad">Diffusion / Poisson: <code class="docutils literal notranslate"><span class="pre">v.grad</span> <span class="pre">&#64;</span> <span class="pre">u.grad</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#vector-loads-and-dot-field-load">Vector loads and dot(field, load)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#linear-elasticity-sym-grad-and-ddot-voigt-b-matrix">Linear elasticity: sym_grad and ddot (Voigt B-matrix)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#surface-traction-v-t">Surface traction: <code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#recipes-from-tests">Recipes (from tests)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="assembly_tensor.html">Tensor Assembly</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">fluxfem</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="usage.html">Usage</a></li>
+          <li class="breadcrumb-item"><a href="assembly.html">Assembly</a></li>
+      <li class="breadcrumb-item active">Weak form Assembly</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/assembly_weakform.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="weak-form-assembly">
+<h1>Weak form Assembly<a class="headerlink" href="#weak-form-assembly" title="Link to this heading"></a></h1>
+<p>FluxFEM provides a compact DSL for writing FEM weak forms as expression trees.
+The goal is to let you write forms close to mathematics while keeping the assembly
+kernels JAX-friendly.</p>
+<p>This page explains the <strong>recommended way to build weak forms</strong>, with examples that
+match the reference test suite.</p>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#core-idea" id="id2">Core idea</a></p></li>
+<li><p><a class="reference internal" href="#forms-and-signatures" id="id3">Forms and signatures</a></p>
+<ul>
+<li><p><a class="reference internal" href="#bilinearform-volume" id="id4">BilinearForm (volume)</a></p></li>
+<li><p><a class="reference internal" href="#linearform-volume" id="id5">LinearForm (volume)</a></p></li>
+<li><p><a class="reference internal" href="#linearform-surface" id="id6">LinearForm (surface)</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#parameters-scalar-vs-ff-params" id="id7">Parameters: scalar vs ff.Params</a></p></li>
+<li><p><a class="reference internal" href="#volume-measure-domega" id="id8">Volume measure: dOmega()</a></p></li>
+<li><p><a class="reference internal" href="#surface-measure-ds" id="id9">Surface measure: ds()</a></p></li>
+<li><p><a class="reference internal" href="#mass-matrix-u-v-scalar-only" id="id10">Mass matrix: <code class="docutils literal notranslate"><span class="pre">u</span> <span class="pre">*</span> <span class="pre">v</span></code> (scalar only)</a></p></li>
+<li><p><a class="reference internal" href="#diffusion-poisson-v-grad-u-grad" id="id11">Diffusion / Poisson: <code class="docutils literal notranslate"><span class="pre">v.grad</span> <span class="pre">&#64;</span> <span class="pre">u.grad</span></code></a></p></li>
+<li><p><a class="reference internal" href="#vector-loads-and-dot-field-load" id="id12">Vector loads and dot(field, load)</a></p></li>
+<li><p><a class="reference internal" href="#linear-elasticity-sym-grad-and-ddot-voigt-b-matrix" id="id13">Linear elasticity: sym_grad and ddot (Voigt B-matrix)</a></p></li>
+<li><p><a class="reference internal" href="#surface-traction-v-t" id="id14">Surface traction: <code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code></a></p></li>
+<li><p><a class="reference internal" href="#recipes-from-tests" id="id15">Recipes (from tests)</a></p>
+<ul>
+<li><p><a class="reference internal" href="#mass-scalar" id="id16">Mass (scalar)</a></p></li>
+<li><p><a class="reference internal" href="#diffusion" id="id17">Diffusion</a></p></li>
+<li><p><a class="reference internal" href="#linear-elasticity" id="id18">Linear elasticity</a></p></li>
+<li><p><a class="reference internal" href="#surface-traction" id="id19">Surface traction</a></p></li>
+<li><p><a class="reference internal" href="#about-the-operator" id="id20">About the <code class="docutils literal notranslate"><span class="pre">|</span></code> operator</a></p></li>
+<li><p><a class="reference internal" href="#id1" id="id21">About the <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> operator</a></p></li>
+</ul>
+</li>
+</ul>
+</nav>
+<section id="core-idea">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">Core idea</a><a class="headerlink" href="#core-idea" title="Link to this heading"></a></h2>
+<p>A weak form is written as a Python function returning an expression.
+FluxFEM then compiles it into an element kernel and assembles it over a space:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">wf</span>
+
+<span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">u</span> <span class="o">*</span> <span class="n">v</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">())</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Important:</strong> volume forms must include <code class="docutils literal notranslate"><span class="pre">dOmega()</span></code> and surface forms must include <code class="docutils literal notranslate"><span class="pre">ds()</span></code>.
+The compiler checks this and raises an error otherwise.</p>
+</section>
+<section id="forms-and-signatures">
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">Forms and signatures</a><a class="headerlink" href="#forms-and-signatures" title="Link to this heading"></a></h2>
+<section id="bilinearform-volume">
+<h3><a class="toc-backref" href="#id4" role="doc-backlink">BilinearForm (volume)</a><a class="headerlink" href="#bilinearform-volume" title="Link to this heading"></a></h3>
+<p>Signature: <code class="docutils literal notranslate"><span class="pre">(u,</span> <span class="pre">v,</span> <span class="pre">params)</span> <span class="pre">-&gt;</span> <span class="pre">Expr</span></code></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">u</span></code> : trial field (shape-function data for the unknown)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">v</span></code> : test field</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">params</span></code> : coefficient(s), can be a scalar/array or <code class="docutils literal notranslate"><span class="pre">ff.Params</span></code></p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">kappa</span><span class="p">:</span> <span class="n">kappa</span> <span class="o">*</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">())</span>
+</pre></div>
+</div>
+</section>
+<section id="linearform-volume">
+<h3><a class="toc-backref" href="#id5" role="doc-backlink">LinearForm (volume)</a><a class="headerlink" href="#linearform-volume" title="Link to this heading"></a></h3>
+<p>Signature: <code class="docutils literal notranslate"><span class="pre">(v,</span> <span class="pre">params)</span> <span class="pre">-&gt;</span> <span class="pre">Expr</span></code></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">f</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">*</span> <span class="n">f</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">())</span>
+</pre></div>
+</div>
+</section>
+<section id="linearform-surface">
+<h3><a class="toc-backref" href="#id6" role="doc-backlink">LinearForm (surface)</a><a class="headerlink" href="#linearform-surface" title="Link to this heading"></a></h3>
+<p>Signature: <code class="docutils literal notranslate"><span class="pre">(v,</span> <span class="pre">params)</span> <span class="pre">-&gt;</span> <span class="pre">Expr</span></code> but evaluated on a <code class="docutils literal notranslate"><span class="pre">SurfaceFormContext</span></code>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="parameters-scalar-vs-ff-params">
+<h2><a class="toc-backref" href="#id7" role="doc-backlink">Parameters: scalar vs ff.Params</a><a class="headerlink" href="#parameters-scalar-vs-ff-params" title="Link to this heading"></a></h2>
+<p>If you pass a raw scalar/array, it is received as <code class="docutils literal notranslate"><span class="pre">params</span></code> directly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">kappa</span><span class="p">:</span> <span class="n">kappa</span> <span class="o">*</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">())</span>
+</pre></div>
+</div>
+<p>If you need multiple coefficients, use <code class="docutils literal notranslate"><span class="pre">ff.Params</span></code> for attribute access:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">p</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">rho</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span> <span class="n">kappa</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
+
+<span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">rho</span> <span class="o">*</span> <span class="p">(</span><span class="n">u</span> <span class="o">*</span> <span class="n">v</span><span class="p">)</span> <span class="o">+</span> <span class="n">p</span><span class="o">.</span><span class="n">kappa</span> <span class="o">*</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">grad</span><span class="p">))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="volume-measure-domega">
+<h2><a class="toc-backref" href="#id8" role="doc-backlink">Volume measure: dOmega()</a><a class="headerlink" href="#volume-measure-domega" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">wf.dOmega()</span></code> represents the volume quadrature measure <code class="docutils literal notranslate"><span class="pre">w</span> <span class="pre">*</span> <span class="pre">detJ</span></code>.
+All <strong>volume</strong> integrands must multiply by it.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">a</span> <span class="o">=</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="surface-measure-ds">
+<h2><a class="toc-backref" href="#id9" role="doc-backlink">Surface measure: ds()</a><a class="headerlink" href="#surface-measure-ds" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">wf.ds()</span></code> represents the surface quadrature measure <code class="docutils literal notranslate"><span class="pre">w</span> <span class="pre">*</span> <span class="pre">detJ</span></code> on facets.
+All <strong>surface</strong> integrands must multiply by it.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">g</span> <span class="o">=</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">traction</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="mass-matrix-u-v-scalar-only">
+<h2><a class="toc-backref" href="#id10" role="doc-backlink">Mass matrix: <code class="docutils literal notranslate"><span class="pre">u</span> <span class="pre">*</span> <span class="pre">v</span></code> (scalar only)</a><a class="headerlink" href="#mass-matrix-u-v-scalar-only" title="Link to this heading"></a></h2>
+<p>For scalar spaces (<code class="docutils literal notranslate"><span class="pre">dim=1</span></code>), <code class="docutils literal notranslate"><span class="pre">u</span> <span class="pre">*</span> <span class="pre">v</span></code> is defined and matches the assembled mass matrix:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">_p</span><span class="p">:</span> <span class="p">(</span><span class="n">u</span> <span class="o">*</span> <span class="n">v</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">())</span>
+<span class="n">K_expr</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">()</span>
+<span class="n">K_mass</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_mass_matrix</span><span class="p">()</span><span class="o">.</span><span class="n">to_dense</span><span class="p">()</span>
+
+<span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">K_expr</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">K_mass</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>For vector-valued spaces (<code class="docutils literal notranslate"><span class="pre">dim&gt;1</span></code>), <code class="docutils literal notranslate"><span class="pre">u</span> <span class="pre">*</span> <span class="pre">v</span></code> is <strong>rejected</strong> to avoid ambiguity:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_hex_space</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">intorder</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">_p</span><span class="p">:</span> <span class="p">(</span><span class="n">u</span> <span class="o">*</span> <span class="n">v</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">())</span>
+
+<span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;scalar fields&quot;</span><span class="p">):</span>
+    <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">dot(...)</span></code>, <code class="docutils literal notranslate"><span class="pre">inner(...)</span></code> or the operator forms (<code class="docutils literal notranslate"><span class="pre">&#64;</span></code> / <code class="docutils literal notranslate"><span class="pre">|</span></code>) instead.</p>
+</section>
+<section id="diffusion-poisson-v-grad-u-grad">
+<h2><a class="toc-backref" href="#id11" role="doc-backlink">Diffusion / Poisson: <code class="docutils literal notranslate"><span class="pre">v.grad</span> <span class="pre">&#64;</span> <span class="pre">u.grad</span></code></a><a class="headerlink" href="#diffusion-poisson-v-grad-u-grad" title="Link to this heading"></a></h2>
+<p>A diffusion form can be written in two equivalent styles:</p>
+<p><strong>(1) Explicit style</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">kappa</span><span class="p">:</span> <span class="n">kappa</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">u</span><span class="p">))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>(2) Operator style (recommended)</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="n">p</span><span class="o">.</span><span class="n">kappa</span> <span class="o">*</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Both match <code class="docutils literal notranslate"><span class="pre">ff.diffusion_form</span></code> in the tests.</p>
+<p>What does <code class="docutils literal notranslate"><span class="pre">v.grad</span> <span class="pre">&#64;</span> <span class="pre">u.grad</span></code> mean?</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">u.grad</span></code> / <code class="docutils literal notranslate"><span class="pre">v.grad</span></code> represent basis gradients at quadrature points.</p></li>
+<li><p>The <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> operator performs a <strong>quadrature-wise contraction over the spatial dimension</strong>,
+producing local stiffness contributions (conceptually <code class="docutils literal notranslate"><span class="pre">Σ_k</span> <span class="pre">∂N_v/∂x_k</span> <span class="pre">*</span> <span class="pre">∂N_u/∂x_k</span></code>).</p></li>
+</ul>
+</section>
+<section id="vector-loads-and-dot-field-load">
+<h2><a class="toc-backref" href="#id12" role="doc-backlink">Vector loads and dot(field, load)</a><a class="headerlink" href="#vector-loads-and-dot-field-load" title="Link to this heading"></a></h2>
+<p>In mechanics operators, <code class="docutils literal notranslate"><span class="pre">dot</span></code> has a special dispatch:</p>
+<ul class="simple">
+<li><p>If the first argument is a FormField (has <code class="docutils literal notranslate"><span class="pre">N</span></code> and <code class="docutils literal notranslate"><span class="pre">value_dim</span></code>), <code class="docutils literal notranslate"><span class="pre">dot(field,</span> <span class="pre">load_vec)</span></code>
+builds the <strong>vector linear form</strong> contribution via <code class="docutils literal notranslate"><span class="pre">vector_load_form</span></code>.</p></li>
+<li><p>Otherwise, it falls back to a batched matrix product.</p></li>
+</ul>
+<p>This is why, on surfaces, traction can be expressed naturally as a dot-like operation.</p>
+</section>
+<section id="linear-elasticity-sym-grad-and-ddot-voigt-b-matrix">
+<h2><a class="toc-backref" href="#id13" role="doc-backlink">Linear elasticity: sym_grad and ddot (Voigt B-matrix)</a><a class="headerlink" href="#linear-elasticity-sym-grad-and-ddot-voigt-b-matrix" title="Link to this heading"></a></h2>
+<p>For small-strain 3D linear elasticity, use:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">wf.sym_grad(u)</span></code> : symmetric gradient <strong>Voigt B-matrix</strong></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">D</span></code> : constitutive matrix in Voigt notation (6x6)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">wf.ddot(sym_grad(v),</span> <span class="pre">D</span> <span class="pre">&#64;</span> <span class="pre">sym_grad(u))</span></code> : contraction to form local stiffness blocks</p></li>
+</ul>
+<p>Definition (as implemented):</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">sym_grad(field)</span></code> returns <code class="docutils literal notranslate"><span class="pre">B</span></code> with shape <code class="docutils literal notranslate"><span class="pre">(n_q,</span> <span class="pre">6,</span> <span class="pre">n_dofs)</span></code>
+in Voigt order <code class="docutils literal notranslate"><span class="pre">[xx,</span> <span class="pre">yy,</span> <span class="pre">zz,</span> <span class="pre">xy,</span> <span class="pre">yz,</span> <span class="pre">zx]</span></code> such that</p>
+<p><code class="docutils literal notranslate"><span class="pre">eps_voigt(q,:)</span> <span class="pre">=</span> <span class="pre">B(q,:,:)</span> <span class="pre">&#64;</span> <span class="pre">u_elem</span></code></p>
+</li>
+</ul>
+<p>Example that matches <code class="docutils literal notranslate"><span class="pre">ff.linear_elasticity_form</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">D</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">isotropic_3d_D</span><span class="p">(</span><span class="mf">210_000.0</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)</span>
+
+<span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">D</span> <span class="o">@</span> <span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">u</span><span class="p">))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+<span class="p">)</span>
+
+<span class="n">K_expr</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">()</span>
+<span class="n">K_ref</span>  <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">linear_elasticity_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">()</span>
+<span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">K_expr</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">K_ref</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>About <code class="docutils literal notranslate"><span class="pre">ddot</span></code>:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">ddot(a,</span> <span class="pre">b)</span></code>:
+- If <code class="docutils literal notranslate"><span class="pre">a</span></code> and <code class="docutils literal notranslate"><span class="pre">b</span></code> are 2D arrays, it computes elementwise double contraction</p>
+<blockquote>
+<div><p><code class="docutils literal notranslate"><span class="pre">Σ_ij</span> <span class="pre">a_ij</span> <span class="pre">b_ij</span></code> (last two axes), returning a scalar per quadrature point.</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>If <code class="docutils literal notranslate"><span class="pre">a</span></code> and <code class="docutils literal notranslate"><span class="pre">b</span></code> are 3D arrays shaped like <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">i,</span> <span class="pre">k)</span></code> and <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">i,</span> <span class="pre">m)</span></code>,
+it contracts over the middle axis and returns a local block <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">k,</span> <span class="pre">m)</span></code>
+(used by <code class="docutils literal notranslate"><span class="pre">sym_grad</span></code> in elasticity).</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ddot(a,</span> <span class="pre">b,</span> <span class="pre">c)</span></code> computes <code class="docutils literal notranslate"><span class="pre">aᵀ</span> <span class="pre">b</span> <span class="pre">c</span></code> (used for Voigt-style elasticity blocks).</p></li>
+</ul>
+</section>
+<section id="surface-traction-v-t">
+<h2><a class="toc-backref" href="#id14" role="doc-backlink">Surface traction: <code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code></a><a class="headerlink" href="#surface-traction-v-t" title="Link to this heading"></a></h2>
+<p>For surface linear forms, the DSL supports a convenient operator:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code> (with <code class="docutils literal notranslate"><span class="pre">t</span></code> a vector) is interpreted as a <strong>surface dot</strong> between the test field and traction.</p></li>
+</ul>
+<p>In the tests, this matches the tensor-based reference traction form:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">traction_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">SurfaceFormContext</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">ff</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Both assemblies match.</p>
+</section>
+<section id="recipes-from-tests">
+<h2><a class="toc-backref" href="#id15" role="doc-backlink">Recipes (from tests)</a><a class="headerlink" href="#recipes-from-tests" title="Link to this heading"></a></h2>
+<section id="mass-scalar">
+<h3><a class="toc-backref" href="#id16" role="doc-backlink">Mass (scalar)</a><a class="headerlink" href="#mass-scalar" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">u</span> <span class="o">*</span> <span class="n">v</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">())</span>
+</pre></div>
+</div>
+</section>
+<section id="diffusion">
+<h3><a class="toc-backref" href="#id17" role="doc-backlink">Diffusion</a><a class="headerlink" href="#diffusion" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="n">p</span><span class="o">.</span><span class="n">kappa</span> <span class="o">*</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">())</span>
+</pre></div>
+</div>
+</section>
+<section id="linear-elasticity">
+<h3><a class="toc-backref" href="#id18" role="doc-backlink">Linear elasticity</a><a class="headerlink" href="#linear-elasticity" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">D</span> <span class="o">@</span> <span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">u</span><span class="p">))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="surface-traction">
+<h3><a class="toc-backref" href="#id19" role="doc-backlink">Surface traction</a><a class="headerlink" href="#surface-traction" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
+</pre></div>
+</div>
+</section>
+<section id="about-the-operator">
+<h3><a class="toc-backref" href="#id20" role="doc-backlink">About the <code class="docutils literal notranslate"><span class="pre">|</span></code> operator</a><a class="headerlink" href="#about-the-operator" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">|</span></code> operator is context-dependent:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">FieldRef</span> <span class="pre">|</span> <span class="pre">FieldRef</span></code> is interpreted as an inner product (<code class="docutils literal notranslate"><span class="pre">inner</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FieldRef</span> <span class="pre">|</span> <span class="pre">load</span></code> (e.g., a traction vector) is interpreted as a surface-dot helper (<code class="docutils literal notranslate"><span class="pre">sdot</span></code>),
+which is consistent with the tensor-based reference <code class="docutils literal notranslate"><span class="pre">dot(ctx.v,</span> <span class="pre">t)</span></code> on surfaces.</p></li>
+</ul>
+<p>This is why surface traction is written as <code class="docutils literal notranslate"><span class="pre">(v</span> <span class="pre">|</span> <span class="pre">t)</span> <span class="pre">*</span> <span class="pre">ds()</span></code>.
+If the right-hand side is not a field, <code class="docutils literal notranslate"><span class="pre">sdot</span></code> ultimately dispatches to the same
+vector-load helper used by <code class="docutils literal notranslate"><span class="pre">dot(field,</span> <span class="pre">load)</span></code>.</p>
+</section>
+<section id="id1">
+<h3><a class="toc-backref" href="#id21" role="doc-backlink">About the <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> operator</a><a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<p>Besides regular matrix multiplication, the DSL defines a special case for
+batched 3D arrays shaped like <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">*,</span> <span class="pre">dim)</span></code>:</p>
+<p><code class="docutils literal notranslate"><span class="pre">A</span> <span class="pre">&#64;</span> <span class="pre">B</span></code> with <code class="docutils literal notranslate"><span class="pre">A.ndim==B.ndim==3</span></code> and matching last axis performs a contraction over <code class="docutils literal notranslate"><span class="pre">dim</span></code>
+and returns <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">*,</span> <span class="pre">*)</span></code> (conceptually <code class="docutils literal notranslate"><span class="pre">einsum(&quot;qia,qja-&gt;qij&quot;)</span></code>). In other words, for each
+quadrature point <code class="docutils literal notranslate"><span class="pre">q</span></code>, the last axis is contracted to produce a <code class="docutils literal notranslate"><span class="pre">(i,</span> <span class="pre">j)</span></code> block.</p>
+<p>This is used for expressions like <code class="docutils literal notranslate"><span class="pre">v.grad</span> <span class="pre">&#64;</span> <span class="pre">u.grad</span></code>.
+If the operands are not in this 3D batched form, it falls back to normal
+matrix multiplication.</p>
+<p>To avoid ambiguity, you can use <code class="docutils literal notranslate"><span class="pre">h_wf.matmul(A,</span> <span class="pre">B)</span></code> for <strong>standard</strong> matrix
+multiplication (no special 3D contraction).</p>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="assembly.html" class="btn btn-neutral float-left" title="Assembly" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="assembly_tensor.html" class="btn btn-neutral float-right" title="Tensor Assembly" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Kohei Watanabe.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
