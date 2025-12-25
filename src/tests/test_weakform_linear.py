@@ -135,8 +135,8 @@ def test_linearform_volume_body_force_matches():
     assert np.allclose(np.asarray(F_expr), np.asarray(F_ref))
 
 
-def test_linearform_surface_matches_numeric():
-    """LinearForm.surface matches numeric surface traction form."""
+def test_linearform_surface_matches_tensor():
+    """LinearForm.surface matches tensor-based surface traction form."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=3, intorder=2)
     coords = np.asarray(mesh.coords)
@@ -154,11 +154,11 @@ def test_linearform_surface_matches_numeric():
         return ff.dot(ctx.v, t)
 
     surface_form = ff.LinearForm.surface(lambda v, p: (v | p) * h_wf.ds())
-    F_num = surface.assemble_linear_form_on_space(
+    F_tensor = surface.assemble_linear_form_on_space(
         space, traction_form, params=traction
     )
     F_wf = surface.assemble_linear_form_on_space(
         space, surface_form.get_compiled(), params=traction
     )
 
-    assert np.allclose(np.asarray(F_num), np.asarray(F_wf))
+    assert np.allclose(np.asarray(F_tensor), np.asarray(F_wf))

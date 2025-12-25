@@ -14,7 +14,7 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 import fluxfem as ff
-import fluxfem.helpers_num as h_num
+import fluxfem.helpers_ts as h_ts
 from scripts.render_deformed_vtu import render_deformed_vtu
 
 
@@ -158,7 +158,7 @@ def main():
     J_pattern = ff.make_sparsity_pattern(space, with_idx=False)
 
     def surface_traction_form(ctx: ff.SurfaceFormContext, traction_vec: np.ndarray) -> np.ndarray:
-        return h_num.dot(ctx.v, traction_vec)
+        return h_ts.dot(ctx.v, traction_vec)
 
     # external vector
     f_body = jnp.array([args.fx, args.fy, args.fz], dtype=dtype)

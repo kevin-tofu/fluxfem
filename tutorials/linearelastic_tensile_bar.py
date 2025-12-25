@@ -18,7 +18,7 @@ import jax
 jax.config.update("jax_enable_x64", True)
 
 import fluxfem as ff
-import fluxfem.helpers_num as h_num
+import fluxfem.helpers_ts as h_ts
 import fluxfem.helpers_wf as h_wf
 
 
@@ -42,18 +42,18 @@ def main():
     args = parse_args()
 
     def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray:
-        Bu = h_num.sym_grad(ctx.trial)
-        Bv = h_num.sym_grad(ctx.test)
-        return h_num.ddot(Bv, D, Bu)
+        Bu = h_ts.sym_grad(ctx.trial)
+        Bv = h_ts.sym_grad(ctx.test)
+        return h_ts.ddot(Bv, D, Bu)
 
     def surface_traction_form(ctx: ff.SurfaceFormContext, traction_vec: np.ndarray) -> np.ndarray:
-        return h_num.dot(ctx.v, traction_vec)
+        return h_ts.dot(ctx.v, traction_vec)
 
     def surface_normal_traction_form(ctx: ff.SurfaceFormContext, traction_scalar: float) -> np.ndarray:
         normal = ctx.normal
         if normal is None:
             raise RuntimeError("surface normal is not available in context")
-        return h_num.dot(ctx.v, float(traction_scalar) * normal)
+        return h_ts.dot(ctx.v, float(traction_scalar) * normal)
 
     mesh = ff.StructuredHexBox(
         nx=args.nx,
@@ -69,7 +69,7 @@ def main():
     D = ff.isotropic_3d_D(args.E, args.nu)
     t0 = time.perf_counter()
     K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
-    print(f"[timing] assemble K (numeric): {time.perf_counter() - t0:.3f}s")
+    print(f"[timing] assemble K (tensor): {time.perf_counter() - t0:.3f}s")
 
     # --- Weak form ---
     bilinear_form = ff.BilinearForm.volume(
@@ -115,12 +115,12 @@ def main():
         )
 
     t0 = time.perf_counter()
-    F_num = surface.assemble_linear_form_on_space(
+    F_tensor = surface.assemble_linear_form_on_space(
         space,
         traction_form,
         params=traction_param,
     )
-    print(f"[timing] assemble F_num (surface numeric): {time.perf_counter() - t0:.3f}s")
+    print(f"[timing] assemble F_tensor (surface tensor): {time.perf_counter() - t0:.3f}s")
     t0 = time.perf_counter()
     F_wf = surface.assemble_linear_form_on_space(
         space,
@@ -128,8 +128,8 @@ def main():
         params=traction_param,
     )
     print(f"[timing] assemble F_wf (surface weakform): {time.perf_counter() - t0:.3f}s")
-    if not np.allclose(F_num, F_wf):
-        raise RuntimeError("Surface linear form mismatch between numeric and form APIs.")
+    if not np.allclose(F_tensor, F_wf):
+        raise RuntimeError("Surface linear form mismatch between tensor and form APIs.")
     F = F_wf
 
     # --- Dirichlet BC (clamp x=0) ---

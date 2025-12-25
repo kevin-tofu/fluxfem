@@ -12,7 +12,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import fluxfem as ff
-import fluxfem.helpers_num as h_num
+import fluxfem.helpers_ts as h_ts
 
 jax.config.update("jax_enable_x64", True)
 
@@ -40,7 +40,7 @@ def main():
     # nonlinear solve
     nstep = 200
     maxiter = 80
-    tol, atol = 1e-4, 1e-6
+    tol, atol = 1e-4, 1e-10
     line_search = False
 
     # linear solver options
@@ -79,7 +79,7 @@ def main():
     surf = ff.make_surface_from_facets(coords_np, neumann_facets)
 
     def traction_form(ctx: ff.SurfaceFormContext, traction_vec: np.ndarray) -> np.ndarray:
-        return h_num.dot(ctx.v, traction_vec)
+        return h_ts.dot(ctx.v, traction_vec)
 
     traction_vec = np.array([0.0, traction, 0.0], dtype=float)
     F_ext = surf.assemble_linear_form_on_space(space, traction_form, params=traction_vec, F0=F_ext)

@@ -40,6 +40,7 @@ This is because the weak-form-based assembly is ultimately transformed into the 
 ### weak-form-based assembly
 ```Python
 import fluxfem as ff
+import fluxfem.helpers_wf as h_wf
 
 space = ff.make_hex_space(mesh, dim=3, intorder=2)
 D = ff.isotropic_3d_D(1.0, 0.3)
@@ -57,11 +58,12 @@ K_wf = space.assemble_bilinear_form(
 ```Python
 import fluxfem as ff
 import numpy as np
+import fluxfem.helpers_ts as h_ts
 
 def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray:
-        Bu = h_num.sym_grad(ctx.trial)
-        Bv = h_num.sym_grad(ctx.test)
-        return h_num.ddot(Bv, D, Bu)
+        Bu = h_ts.sym_grad(ctx.trial)
+        Bv = h_ts.sym_grad(ctx.test)
+        return h_ts.ddot(Bv, D, Bu)
 
 
 space = ff.make_hex_space(mesh, dim=3, intorder=2)
