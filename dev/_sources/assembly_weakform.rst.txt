@@ -237,6 +237,18 @@ In the tests, this matches the tensor-based reference traction form:
 
 Both assemblies match.
 
+Normal traction (pressure)
+--------------------------
+
+If the traction is a **scalar pressure** acting along the outward normal, use
+``h_wf.normal()`` inside the weak form:
+
+.. code-block:: python
+
+   surface_form = ff.LinearForm.surface(
+       lambda v, p: (v | (p * h_wf.normal())) * h_wf.ds()
+   )
+
 
 Recipes (from tests)
 --------------------

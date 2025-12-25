@@ -6,3 +6,4 @@ Usage
    :caption: Usage
 
    assembly
+   solver
