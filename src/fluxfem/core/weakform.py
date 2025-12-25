@@ -362,6 +362,11 @@ def transpose_last2(a) -> Expr:
     return Expr("transpose_last2", _as_expr(a))
 
 
+def matmul(a, b) -> Expr:
+    """Matrix product with standard semantics (no special 3D contraction)."""
+    return Expr("matmul_std", _as_expr(a), _as_expr(b))
+
+
 def einsum(subscripts: str, *args) -> Expr:
     """Einsum wrapper that supports Expr inputs."""
     return Expr("einsum", subscripts, *[_as_expr(arg) for arg in args])
@@ -706,6 +711,10 @@ def _eval_expr(expr: Expr, ctx, params, u_elem=None):
         ):
             return jnp.einsum("qia,qja->qij", a, b)
         return a @ b
+    if op == "matmul_std":
+        a = _eval_value(args[0], ctx, params, u_elem=u_elem)
+        b = _eval_value(args[1], ctx, params, u_elem=u_elem)
+        return jnp.matmul(a, b)
     if op == "neg":
         return -_eval_value(args[0], ctx, params, u_elem=u_elem)
     if op == "dot":
@@ -814,5 +823,6 @@ __all__ = [
     "transpose",
     "log",
     "transpose_last2",
+    "matmul",
     "einsum",
 ]

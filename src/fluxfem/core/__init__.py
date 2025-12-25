@@ -86,6 +86,7 @@ from .weakform import (
     transpose,
     log,
     transpose_last2,
+    matmul,
     einsum,
 )
 from ..mesh import (
@@ -244,6 +245,7 @@ __all__ = [
     "transpose",
     "log",
     "transpose_last2",
+    "matmul",
     "einsum",
     "HexMesh",
     "HexMeshPytree",
