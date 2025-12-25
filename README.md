@@ -13,7 +13,13 @@
 </p>
 
 ## Features
+- Built on JAX, enabling automatic differentiation and high-performance execution via grad, jit, vmap, and related transformations.
 
+- A FEM framework with a weak-form–centric API, emphasizing a smooth transition from theoretical formulations to practical code implementations.
+
+- Supports two assembly approaches: weak-form-based assembly and a tensor-based (scikit-fem–style) assembly.
+
+- enables to handle both Linear / Non-Linear Analysis with AD with JAX
 
 ## Usage 
 
@@ -40,7 +46,7 @@ K_wf = space.assemble_bilinear_form(
 )
 ```
 
-### tensor-based assembly (scikit-fem-like)
+### tensor-based assembly (scikit-fem-style)
 
 ```Python
 import fluxfem as ff
@@ -80,3 +86,6 @@ pip install fluxfem
 ```bash
 poetry add fluxfem
 ```
+
+## Acknowledgements
+ I acknoldege everythings that made this work possible.

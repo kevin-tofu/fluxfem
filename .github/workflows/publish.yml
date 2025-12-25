@@ -1,0 +1,46 @@
+name: Upload Python Package
+
+on:
+  release:
+    types: [published]
+  
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: .
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Set up Poetry
+        uses: abatilo/actions-poetry@v2
+        with:
+          poetry-version: "1.8.3"
+      
+      - name: Show structure
+        run: tree -L 3
+        
+      - name: Remove old build artifacts
+        run: rm -rf dist/*
+
+      - name: Install dependencies
+        run: poetry install --no-root
+        
+      - name: Run tests
+        run: PYTHONPATH=scikit-topt poetry run pytest
+
+      - name: Build with Poetry
+        run: poetry build
+
+      - name: Publish to PyPI with token
+        run: poetry publish --username __token__ --password ${{ secrets.PYPI_API_TOKEN }}
