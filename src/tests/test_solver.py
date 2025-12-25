@@ -101,7 +101,9 @@ def test_robin_adds_diag_and_rhs():
     facet = np.array([0, 1, 2, 3], dtype=int)
     K = np.zeros((4, 4), dtype=float)
     F = np.zeros(4, dtype=float)
-    F_new, K_new = add_robin(F, K, facet, alpha=2.0, g=3.0, dim=1, coords=coords)
+    F_new, K_new = add_robin(
+        F, K, facet, alpha=2.0, g=3.0, dim=1, coords=coords
+    )
     # weight = alpha * area / m = 2 * 1 / 4 = 0.5
     assert np.allclose(np.diag(K_new), 0.5)
     assert np.allclose(F_new, 0.5 * 3.0)

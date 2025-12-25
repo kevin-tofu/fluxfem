@@ -42,8 +42,8 @@ def main():
     args = parse_args()
 
     def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray:
-        Bu = h_num.sym_grad(ctx.u)
-        Bv = h_num.sym_grad(ctx.v)
+        Bu = h_num.sym_grad(ctx.trial)
+        Bv = h_num.sym_grad(ctx.test)
         return h_num.ddot(Bv, D, Bu)
 
     def surface_traction_form(ctx: ff.SurfaceFormContext, traction_vec: np.ndarray) -> np.ndarray:
@@ -77,7 +77,7 @@ def main():
     )
     t0 = time.perf_counter()
     K_wf = space.assemble_bilinear_form(
-        bilinear_form.compile(),
+        bilinear_form.get_compiled(),
         params=D,
     )
     print(f"[timing] assemble K_wf (weakform): {time.perf_counter() - t0:.3f}s")
@@ -124,7 +124,7 @@ def main():
     t0 = time.perf_counter()
     F_wf = surface.assemble_linear_form_on_space(
         space,
-        surface_form.compile(),
+        surface_form.get_compiled(),
         params=traction_param,
     )
     print(f"[timing] assemble F_wf (surface weakform): {time.perf_counter() - t0:.3f}s")

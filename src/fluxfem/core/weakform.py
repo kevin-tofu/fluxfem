@@ -375,7 +375,7 @@ def _call_user(fn, *args, params):
 
 
 def compile_bilinear(fn):
-    """Compile a bilinear weak form (u, v, params) -> Expr into a kernel."""
+    """get_compiled a bilinear weak form (u, v, params) -> Expr into a kernel."""
     if isinstance(fn, Expr):
         expr = fn
     else:
@@ -399,7 +399,7 @@ def compile_bilinear(fn):
 
 
 def compile_linear(fn):
-    """Compile a linear weak form (v, params) -> Expr into a kernel."""
+    """get_compiled a linear weak form (v, params) -> Expr into a kernel."""
     if isinstance(fn, Expr):
         expr = fn
     else:
@@ -430,7 +430,7 @@ def _expr_contains(expr: Expr, op: str) -> bool:
 
 
 def compile_surface_linear(fn):
-    """Compile a surface linear form into a kernel (ctx, params) -> ndarray."""
+    """get_compiled a surface linear form into a kernel (ctx, params) -> ndarray."""
     if isinstance(fn, Expr):
         expr = fn
     else:
@@ -474,7 +474,7 @@ class LinearForm:
     def surface(cls, fn):
         return cls(fn, kind="surface")
 
-    def compile(self, *, ctx_kind: str | None = None):
+    def get_compiled(self, *, ctx_kind: str | None = None):
         kind = self.kind if ctx_kind is None else ctx_kind
         if kind == "volume":
             return compile_linear(self.fn)
@@ -493,7 +493,7 @@ class BilinearForm:
     def volume(cls, fn):
         return cls(fn)
 
-    def compile(self):
+    def get_compiled(self):
         return compile_bilinear(self.fn)
 
 
@@ -507,12 +507,12 @@ class ResidualForm:
     def volume(cls, fn):
         return cls(fn)
 
-    def compile(self):
+    def get_compiled(self):
         return compile_residual(self.fn)
 
 
 def compile_residual(fn):
-    """Compile a residual weak form (v, u, params) -> Expr into a kernel."""
+    """get_compiled a residual weak form (v, u, params) -> Expr into a kernel."""
     if isinstance(fn, Expr):
         expr = fn
     else:
@@ -536,7 +536,7 @@ def compile_residual(fn):
 
 
 def compile_mixed_residual(residuals: dict[str, Callable]):
-    """Compile mixed residuals keyed by field name."""
+    """get_compiled mixed residuals keyed by field name."""
     compiled = {}
     includes_measure = {}
     for name, fn in residuals.items():
@@ -568,7 +568,7 @@ class MixedWeakForm:
     def __init__(self, *, residuals: dict[str, Callable]):
         self.residuals = residuals
 
-    def compile(self):
+    def get_compiled(self):
         if not self.residuals:
             raise ValueError("residuals are not defined")
         return compile_mixed_residual(self.residuals)

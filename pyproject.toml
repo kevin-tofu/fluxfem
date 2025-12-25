@@ -3,7 +3,7 @@ name = "fluxfem"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Kevin-Tofu",email = "koheitech001@gmail.com"}
+    {name = "Kohei Watanabe",email = "koheitech001@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.11,<3.14"

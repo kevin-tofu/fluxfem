@@ -12,12 +12,46 @@
   <img src="https://media.githubusercontent.com/media/kevin-tofu/fluxfem/main/assets/diffusion_mms_timeseries.gif" alt="Optimization Process Pull-Down-0" width="400" style="margin-right: 20px;">
 </p>
 
+
+## Usage 
+
+
+This library provides two assembly approaches.
+
+- A weak-form-based assembly, where the variational form is written and assembled directly.  
+- A tensor-based assembly, where trial and test functions are represented explicitly as tensors and assembled accordingly (in the style of scikit-fem).  
+The first approach offers simplicity and convenience, as mathematical expressions can be written almost directly in code.
+However, for more complex operations, the second approach can be easier to implement in practice.
+This is because the weak-form-based assembly is ultimately transformed into the tensor-based representation internally during computation.
+
+### weak-form-based assembly
 ```Python
+import fluxfem as ff
+
+space = ff.make_hex_space(mesh, dim=3, intorder=2)
+D = ff.isotropic_3d_D(1.0, 0.3)
 bilinear_form = ff.BilinearForm.volume(
     lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
 )
 K_wf = space.assemble_bilinear_form(
-    bilinear_form.compile(),
+    bilinear_form.get_compiled(),
     params=D,
 )
+```
+
+### tensor-based assembly (scikit-fem-like)
+
+```Python
+import fluxfem as ff
+import numpy as np
+
+def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray:
+        Bu = h_num.sym_grad(ctx.trial)
+        Bv = h_num.sym_grad(ctx.test)
+        return h_num.ddot(Bv, D, Bu)
+
+
+space = ff.make_hex_space(mesh, dim=3, intorder=2)
+D = ff.isotropic_3d_D(1.0, 0.3)
+K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
 ```
