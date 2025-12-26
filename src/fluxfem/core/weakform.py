@@ -479,10 +479,6 @@ def _eval_field(obj: Any, ctx, params: ParamsLike) -> FormFieldLike:
         if obj.role == "unknown":
             return getattr(ctx, "unknown", ctx.trial)
         raise ValueError(f"Unknown field role: {obj.role}")
-    if isinstance(obj, Expr):
-        val = obj.eval(ctx, params)
-        if hasattr(val, "N"):
-            return val
     raise TypeError("Expected a field reference for this operator.")
 
 
@@ -726,8 +722,24 @@ class EvalPlan:
     index: dict[Expr, int]
 
 
+def _validate_eval_plan(nodes: tuple[Expr, ...]) -> None:
+    for node in nodes:
+        op = node.op
+        args = node.args
+        if op in {"value", "grad", "sym_grad"}:
+            if len(args) != 1 or not isinstance(args[0], FieldRef):
+                raise TypeError(f"{op} expects FieldRef.")
+        if op in {"dot", "sdot", "action", "gaction"}:
+            if len(args) != 2 or not isinstance(args[0], FieldRef):
+                raise TypeError(f"{op} expects FieldRef as the first argument.")
+        if op == "action":
+            if len(args) > 1 and isinstance(args[1], FieldRef):
+                raise TypeError("action expects a scalar expression; use u.val for unknowns.")
+
+
 def make_eval_plan(expr: Expr) -> EvalPlan:
     nodes = tuple(expr.postorder_expr())
+    _validate_eval_plan(nodes)
     index = {node: i for i, node in enumerate(nodes)}
     return EvalPlan(expr=expr, nodes=nodes, index=index)
 
@@ -741,7 +753,6 @@ def eval_with_plan(
     nodes = plan.nodes
     index = plan.index
     vals: list[Any] = [None] * len(nodes)
-
     def get(obj):
         if isinstance(obj, Expr):
             return vals[index[obj]]
@@ -781,16 +792,22 @@ def eval_with_plan(
                 vals[i] = _eval_field(FieldRef(role=role, name=name), ctx, params)
             continue
         if op == "value":
-            field = _eval_field(args[0], ctx, params)
-            if isinstance(args[0], FieldRef) and args[0].role == "unknown":
-                vals[i] = _eval_unknown_value(args[0], field, u_elem)
+            ref = args[0]
+            if not isinstance(ref, FieldRef):
+                raise TypeError("value expects FieldRef.")
+            field = _eval_field(ref, ctx, params)
+            if ref.role == "unknown":
+                vals[i] = _eval_unknown_value(ref, field, u_elem)
             else:
                 vals[i] = field.N
             continue
         if op == "grad":
-            field = _eval_field(args[0], ctx, params)
-            if isinstance(args[0], FieldRef) and args[0].role == "unknown":
-                vals[i] = _eval_unknown_grad(args[0], field, u_elem)
+            ref = args[0]
+            if not isinstance(ref, FieldRef):
+                raise TypeError("grad expects FieldRef.")
+            field = _eval_field(ref, ctx, params)
+            if ref.role == "unknown":
+                vals[i] = _eval_unknown_grad(ref, field, u_elem)
             else:
                 vals[i] = field.gradN
             continue
@@ -821,21 +838,24 @@ def eval_with_plan(
             vals[i] = normal
             continue
         if op == "surface_measure":
-            if not hasattr(ctx, "w") or not hasattr(ctx, "detJ"):
-                raise ValueError("surface measure requires surface context with w and detJ.")
+            if not isinstance(ctx, SurfaceContext):
+                raise TypeError("surface measure requires SurfaceContext.")
             vals[i] = ctx.w * ctx.detJ
             continue
         if op == "volume_measure":
-            if not hasattr(ctx, "w") or not hasattr(ctx, "test"):
-                raise ValueError("volume measure requires FormContext with w and test.detJ.")
+            if not isinstance(ctx, VolumeContext):
+                raise TypeError("volume measure requires VolumeContext.")
             vals[i] = ctx.w * ctx.test.detJ
             continue
         if op == "sym_grad":
-            field = _eval_field(args[0], ctx, params)
-            if isinstance(args[0], FieldRef) and args[0].role == "unknown":
+            ref = args[0]
+            if not isinstance(ref, FieldRef):
+                raise TypeError("sym_grad expects FieldRef.")
+            field = _eval_field(ref, ctx, params)
+            if ref.role == "unknown":
                 if u_elem is None:
                     raise ValueError("u_elem is required to evaluate unknown sym_grad.")
-                u_local = _extract_unknown_elem(args[0], u_elem)
+                u_local = _extract_unknown_elem(ref, u_elem)
                 vals[i] = _ops.sym_grad_u(field, u_local)
             else:
                 vals[i] = _ops.sym_grad(field)
@@ -900,38 +920,16 @@ def eval_with_plan(
             vals[i] = -get(args[0])
             continue
         if op == "dot":
-            if isinstance(args[0], FieldRef):
-                vals[i] = _ops.dot(_eval_field(args[0], ctx, params), get(args[1]))
-            else:
-                a = get(args[0])
-                b = get(args[1])
-                if (
-                    hasattr(a, "ndim")
-                    and hasattr(b, "ndim")
-                    and a.ndim == 3
-                    and b.ndim == 3
-                    and a.shape[-1] == b.shape[-1]
-                ):
-                    vals[i] = jnp.einsum("qia,qja->qij", a, b)
-                else:
-                    vals[i] = jnp.matmul(a, b)
+            ref = args[0]
+            if not isinstance(ref, FieldRef):
+                raise TypeError("dot expects FieldRef as the first argument.")
+            vals[i] = _ops.dot(_eval_field(ref, ctx, params), get(args[1]))
             continue
         if op == "sdot":
-            if isinstance(args[0], FieldRef):
-                vals[i] = _ops.dot(_eval_field(args[0], ctx, params), get(args[1]))
-            else:
-                a = get(args[0])
-                b = get(args[1])
-                if (
-                    hasattr(a, "ndim")
-                    and hasattr(b, "ndim")
-                    and a.ndim == 3
-                    and b.ndim == 3
-                    and a.shape[-1] == b.shape[-1]
-                ):
-                    vals[i] = jnp.einsum("qia,qja->qij", a, b)
-                else:
-                    vals[i] = jnp.matmul(a, b)
+            ref = args[0]
+            if not isinstance(ref, FieldRef):
+                raise TypeError("sdot expects FieldRef as the first argument.")
+            vals[i] = _ops.dot(_eval_field(ref, ctx, params), get(args[1]))
             continue
         if op == "ddot":
             if len(args) == 2:
@@ -957,11 +955,15 @@ def eval_with_plan(
             vals[i] = jnp.einsum("...i,...i->...", a, b)
             continue
         if op == "action":
+            ref = args[0]
+            if not isinstance(ref, FieldRef):
+                raise TypeError("action expects FieldRef as the first argument.")
             if isinstance(args[1], FieldRef):
                 raise ValueError("action expects a scalar expression; use u.val for unknowns.")
-            v_field = _eval_field(args[0], ctx, params)
+            v_field = _eval_field(ref, ctx, params)
             s = get(args[1])
             value_dim = int(getattr(v_field, "value_dim", 1))
+            # action maps a test field with a scalar/vector expression into nodal space.
             if value_dim == 1:
                 if v_field.N.ndim != 2:
                     raise ValueError("action expects scalar test field with N shape (q, ndofs).")
@@ -974,8 +976,12 @@ def eval_with_plan(
                 vals[i] = _ops.dot(v_field, s)
             continue
         if op == "gaction":
-            v_field = _eval_field(args[0], ctx, params)
+            ref = args[0]
+            if not isinstance(ref, FieldRef):
+                raise TypeError("gaction expects FieldRef as the first argument.")
+            v_field = _eval_field(ref, ctx, params)
             q = get(args[1])
+            # gaction maps a flux-like expression to nodal space via test gradients.
             if v_field.gradN.ndim != 3:
                 raise ValueError("gaction expects test gradient with shape (q, ndofs, dim).")
             if not hasattr(q, "ndim"):
