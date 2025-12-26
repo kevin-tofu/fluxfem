@@ -36,6 +36,7 @@ class HexMesh(BaseMesh):
 @jax.tree_util.register_pytree_node_class
 @dataclass(eq=False)
 class HexMeshPytree(BaseMeshPytree):
+    """Hex mesh registered as a JAX pytree."""
     def face_node_patterns(self):
         return [
             (0, 1, 2, 3),  # -z

@@ -69,6 +69,7 @@ def load_gmsh_mesh(path: str):
 
 
 def load_gmsh_hex_mesh(path: str):
+    """Load a Gmsh mesh and return a HexMesh with optional facets/tags."""
     mesh, facets, tags = load_gmsh_mesh(path)
     if not isinstance(mesh, HexMesh):
         raise ValueError("gmsh mesh is not hexahedral")
@@ -76,6 +77,7 @@ def load_gmsh_hex_mesh(path: str):
 
 
 def load_gmsh_tet_mesh(path: str):
+    """Load a Gmsh mesh and return a TetMesh with optional facets/tags."""
     mesh, facets, tags = load_gmsh_mesh(path)
     if not isinstance(mesh, TetMesh):
         raise ValueError("gmsh mesh is not tetrahedral")

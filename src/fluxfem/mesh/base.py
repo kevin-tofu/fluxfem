@@ -8,6 +8,11 @@ import jax.numpy as jnp
 
 @dataclass
 class BaseMeshClosure:
+    """
+    Base mesh container with coordinates, connectivity, and optional tags.
+
+    Concrete mesh types should implement face_node_patterns() for boundary queries.
+    """
     coords: jnp.ndarray
     conn: jnp.ndarray
     cell_tags: Optional[jnp.ndarray] = None
@@ -230,6 +235,7 @@ class BaseMeshClosure:
 
 @jax.tree_util.register_pytree_node_class
 class BaseMeshPytree(BaseMeshClosure):
+    """BaseMesh variant that registers as a JAX pytree."""
     def tree_flatten(self):
         children = (self.coords, self.conn, self.cell_tags, self.node_tags)
         return children, {}
@@ -241,4 +247,3 @@ class BaseMeshPytree(BaseMeshClosure):
 
 
 BaseMesh = BaseMeshClosure
-
