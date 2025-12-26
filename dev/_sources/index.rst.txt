@@ -7,3 +7,4 @@ fluxfem Documentation
 
    project
    usage
+   api
