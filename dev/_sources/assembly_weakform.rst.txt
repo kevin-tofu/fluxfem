@@ -66,7 +66,7 @@ Signature: ``(v, params) -> Expr`` but evaluated on a ``SurfaceFormContext``.
 
 .. code-block:: python
 
-   surface_form = ff.LinearForm.surface(lambda v, t: (v | t) * wf.ds())
+   surface_form = ff.LinearForm.surface(lambda v, t: wf.dot(v, t) * wf.ds())
 
 
 Parameters: scalar vs ff.Params
@@ -108,7 +108,7 @@ All **surface** integrands must multiply by it.
 
 .. code-block:: python
 
-   g = (v | traction) * wf.ds()
+   g = wf.dot(v, traction) * wf.ds()
 
 
 Mass matrix: ``u * v`` (scalar only)
@@ -134,7 +134,7 @@ For vector-valued spaces (``dim>1``), ``u * v`` is **rejected** to avoid ambigui
    with pytest.raises(ValueError, match="scalar fields"):
        space.assemble_bilinear_form(form.get_compiled(), params=0.0)
 
-Use ``dot(...)``, ``inner(...)`` or the operator forms (``@`` / ``|``) instead.
+Use ``dot(...)`` or tensor contractions (``inner(...)`` / ``einsum(...)``) instead.
 
 
 Diffusion / Poisson: ``v.grad @ u.grad``
@@ -186,7 +186,7 @@ For small-strain 3D linear elasticity, use:
 
 - ``wf.sym_grad(u)`` : symmetric gradient **Voigt B-matrix**
 - ``D`` : constitutive matrix in Voigt notation (6x6)
-- ``wf.ddot(sym_grad(v), D @ sym_grad(u))`` : contraction to form local stiffness blocks
+- ``wf.ddot(sym_grad(v), wf.matmul_std(D, wf.sym_grad(u)))`` : contraction to form local stiffness blocks
 
 Definition (as implemented):
 
@@ -202,7 +202,7 @@ Example that matches ``ff.linear_elasticity_form``:
    D = ff.isotropic_3d_D(210_000.0, 0.3)
 
    form = ff.BilinearForm.volume(
-       lambda u, v, D: wf.ddot(wf.sym_grad(v), D @ wf.sym_grad(u)) * wf.dOmega()
+       lambda u, v, D: wf.ddot(wf.sym_grad(v), wf.matmul_std(D, wf.sym_grad(u))) * wf.dOmega()
    )
 
    K_expr = space.assemble_bilinear_form(form.get_compiled(), params=D).to_dense()
@@ -220,18 +220,18 @@ About ``ddot``:
 - ``ddot(a, b, c)`` computes ``aᵀ b c`` (used for Voigt-style elasticity blocks).
 
 
-Surface traction: ``v | t``
----------------------------
+Surface traction: ``dot(v, t)`` (and ``v | t`` shorthand)
+----------------------------------------------------------
 
-For surface linear forms, the expression API supports a convenient operator:
+For surface linear forms, the expression API supports a convenient shorthand:
 
-- ``v | t`` (with ``t`` a vector) is interpreted as a **surface dot** between the test field and traction.
+- ``v | t`` (with ``t`` a vector expression) is treated as ``dot(v, t)``.
 
 In the tests, this matches the tensor-based reference traction form:
 
 .. code-block:: python
 
-   surface_form = ff.LinearForm.surface(lambda v, t: (v | t) * wf.ds())
+   surface_form = ff.LinearForm.surface(lambda v, t: wf.dot(v, t) * wf.ds())
 
    def traction_form(ctx: ff.SurfaceFormContext, t):
        return ff.dot(ctx.v, t)
@@ -242,12 +242,12 @@ Normal traction (pressure)
 --------------------------
 
 If the traction is a **scalar pressure** acting along the outward normal, use
-``h_wf.normal()`` inside the weak form:
+``wf.normal()`` inside the weak form:
 
 .. code-block:: python
 
    surface_form = ff.LinearForm.surface(
-       lambda v, p: (v | (p * h_wf.normal())) * h_wf.ds()
+       lambda v, p: (v | (p * wf.normal())) * wf.ds()
    )
 
 
@@ -274,7 +274,7 @@ Linear elasticity
 .. code-block:: python
 
    ff.BilinearForm.volume(
-       lambda u, v, D: wf.ddot(wf.sym_grad(v), D @ wf.sym_grad(u)) * wf.dOmega()
+       lambda u, v, D: wf.ddot(wf.sym_grad(v), wf.matmul_std(D, wf.sym_grad(u))) * wf.dOmega()
    )
 
 Surface traction
@@ -282,36 +282,33 @@ Surface traction
 
 .. code-block:: python
 
-   ff.LinearForm.surface(lambda v, t: (v | t) * wf.ds())
+   ff.LinearForm.surface(lambda v, t: wf.dot(v, t) * wf.ds())
 
 
 
 About the ``|`` operator
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``|`` operator is context-dependent:
+The ``|`` operator is intentionally limited:
 
-- ``FieldRef | FieldRef`` is interpreted as an inner product (``inner``).
-- ``FieldRef | load`` (e.g., a traction vector) is interpreted as a surface-dot helper (``sdot``),
-  which is consistent with the tensor-based reference ``dot(ctx.v, t)`` on surfaces.
+- ``FieldRef | FieldRef`` is **not allowed**. Use ``outer(test, trial)`` for basis kernels.
+- ``FieldRef | Expr`` is treated as ``dot(v, expr)`` (e.g., traction loads).
+- ``Expr | Expr`` is a tensor inner product over the last axis (``inner``), e.g. ``u.val | v.val``.
 
-This is why surface traction is written as ``(v | t) * ds()``.
-If the right-hand side is not a field, ``sdot`` ultimately dispatches to the same
-vector-load helper used by ``dot(field, load)``.
+For surface traction, prefer ``dot(v, t) * ds()`` for clarity.
 
 About the ``@`` operator
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-Besides regular matrix multiplication, the expression API defines a special case for
-batched 3D arrays shaped like ``(q, *, dim)``:
+The ``@`` operator is **FEM-specific** and only defined for batched 3D arrays shaped like
+``(q, *, dim)``:
 
 ``A @ B`` with ``A.ndim==B.ndim==3`` and matching last axis performs a contraction over ``dim``
 and returns ``(q, *, *)`` (conceptually ``einsum("qia,qja->qij")``). In other words, for each
 quadrature point ``q``, the last axis is contracted to produce a ``(i, j)`` block.
 
 This is used for expressions like ``v.grad @ u.grad``.
-If the operands are not in this 3D batched form, it falls back to normal
-matrix multiplication.
+If the operands are not in this 3D batched form, it raises a ``TypeError``.
 
-To avoid ambiguity, you can use ``h_wf.matmul(A, B)`` for **standard** matrix
-multiplication (no special 3D contraction).
+Use ``wf.matmul_std(A, B)`` for **standard** matrix multiplication
+(no special 3D contraction).
