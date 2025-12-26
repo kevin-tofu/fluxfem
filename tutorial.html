@@ -118,15 +118,23 @@
 <section id="implementation-mapping-fluxfem">
 <h3>Implementation mapping (fluxfem)<a class="headerlink" href="#implementation-mapping-fluxfem" title="Link to this heading"></a></h3>
 <p>weak-form-based assembly:</p>
+<div class="math notranslate nohighlight">
+\[a(u, v) = \int_{\Omega} \varepsilon(v) : D : \varepsilon(u)\, d\Omega\]</div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_wf</span>
 
 <span class="n">bilinear_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
-    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">,</span> <span class="n">D</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">,</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">matmul_std</span><span class="p">(</span><span class="n">D</span><span class="p">,</span> <span class="n">u</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">))</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
 <span class="p">)</span>
 <span class="n">K_wf</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">bilinear_form</span><span class="o">.</span><span class="n">bilinear_form</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>tensor-based assembly (scikit-fem-style):</p>
+<div class="math notranslate nohighlight">
+\[K = \int_{\Omega} B_v^{\mathsf{T}}\, D\, B_u \, d\Omega,\quad
+B_u = sym(\nabla u),\; B_v = sym(\nabla v)\]</div>
+<div class="math notranslate nohighlight">
+\[K \approx \sum_{e} \sum_{q} w_q\,
+B_v(x_q)^{\mathsf{T}} D B_u(x_q)\, \left|J_e(x_q)\right|\]</div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_ts</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_ts</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">linear_elasticity_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
@@ -138,6 +146,8 @@
 </pre></div>
 </div>
 <p>Surface traction (weak-form-based assembly):</p>
+<div class="math notranslate nohighlight">
+\[\ell(v) = \int_{\Gamma_t} v \cdot t \, ds\]</div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_wf</span>
 
 <span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span>
@@ -149,6 +159,8 @@
 </pre></div>
 </div>
 <p>Surface traction (tensor-based assembly):</p>
+<div class="math notranslate nohighlight">
+\[\ell(v) = \int_{\Gamma_t} v \cdot t \, ds\]</div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_ts</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_ts</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">surface_traction_form</span><span class="p">(</span>

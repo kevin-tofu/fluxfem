@@ -20,8 +20,8 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Tensor Assembly" href="assembly_tensor.html" />
-    <link rel="prev" title="Assembly" href="assembly.html" /> 
+    <link rel="next" title="Solvers" href="solver.html" />
+    <link rel="prev" title="Tensor Assembly" href="assembly_tensor.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -48,6 +48,8 @@
 <li class="toctree-l1"><a class="reference internal" href="project.html">Project</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="usage.html">Usage</a><ul class="current">
 <li class="toctree-l2 current"><a class="reference internal" href="assembly.html">Assembly</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="form_context.html">FormContext and Expr Resolution</a></li>
+<li class="toctree-l3"><a class="reference internal" href="assembly_tensor.html">Tensor Assembly</a></li>
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Weak form Assembly</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#core-idea">Core idea</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#forms-and-signatures">Forms and signatures</a></li>
@@ -58,12 +60,11 @@
 <li class="toctree-l4"><a class="reference internal" href="#diffusion-poisson-v-grad-u-grad">Diffusion / Poisson: <code class="docutils literal notranslate"><span class="pre">v.grad</span> <span class="pre">&#64;</span> <span class="pre">u.grad</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#vector-loads-and-dot-field-load">Vector loads and dot(field, load)</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#linear-elasticity-sym-grad-and-ddot-voigt-b-matrix">Linear elasticity: sym_grad and ddot (Voigt B-matrix)</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#surface-traction-v-t">Surface traction: <code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#surface-traction-dot-v-t-and-v-t-shorthand">Surface traction: <code class="docutils literal notranslate"><span class="pre">dot(v,</span> <span class="pre">t)</span></code> (and <code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code> shorthand)</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#normal-traction-pressure">Normal traction (pressure)</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#recipes-from-tests">Recipes (from tests)</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="assembly_tensor.html">Tensor Assembly</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="solver.html">Solvers</a></li>
@@ -123,7 +124,7 @@ match the reference test suite.</p>
 <li><p><a class="reference internal" href="#diffusion-poisson-v-grad-u-grad" id="id11">Diffusion / Poisson: <code class="docutils literal notranslate"><span class="pre">v.grad</span> <span class="pre">&#64;</span> <span class="pre">u.grad</span></code></a></p></li>
 <li><p><a class="reference internal" href="#vector-loads-and-dot-field-load" id="id12">Vector loads and dot(field, load)</a></p></li>
 <li><p><a class="reference internal" href="#linear-elasticity-sym-grad-and-ddot-voigt-b-matrix" id="id13">Linear elasticity: sym_grad and ddot (Voigt B-matrix)</a></p></li>
-<li><p><a class="reference internal" href="#surface-traction-v-t" id="id14">Surface traction: <code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code></a></p></li>
+<li><p><a class="reference internal" href="#surface-traction-dot-v-t-and-v-t-shorthand" id="id14">Surface traction: <code class="docutils literal notranslate"><span class="pre">dot(v,</span> <span class="pre">t)</span></code> (and <code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code> shorthand)</a></p></li>
 <li><p><a class="reference internal" href="#normal-traction-pressure" id="id15">Normal traction (pressure)</a></p></li>
 <li><p><a class="reference internal" href="#recipes-from-tests" id="id16">Recipes (from tests)</a></p>
 <ul>
@@ -175,7 +176,7 @@ The compiler checks this and raises an error otherwise.</p>
 <section id="linearform-surface">
 <h3><a class="toc-backref" href="#id6" role="doc-backlink">LinearForm (surface)</a><a class="headerlink" href="#linearform-surface" title="Link to this heading"></a></h3>
 <p>Signature: <code class="docutils literal notranslate"><span class="pre">(v,</span> <span class="pre">params)</span> <span class="pre">-&gt;</span> <span class="pre">Expr</span></code> but evaluated on a <code class="docutils literal notranslate"><span class="pre">SurfaceFormContext</span></code>.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="n">wf</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
 </pre></div>
 </div>
 </section>
@@ -207,7 +208,7 @@ All <strong>volume</strong> integrands must multiply by it.</p>
 <h2><a class="toc-backref" href="#id9" role="doc-backlink">Surface measure: ds()</a><a class="headerlink" href="#surface-measure-ds" title="Link to this heading"></a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">wf.ds()</span></code> represents the surface quadrature measure <code class="docutils literal notranslate"><span class="pre">w</span> <span class="pre">*</span> <span class="pre">detJ</span></code> on facets.
 All <strong>surface</strong> integrands must multiply by it.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">g</span> <span class="o">=</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">traction</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">()</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">g</span> <span class="o">=</span> <span class="n">wf</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">traction</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">()</span>
 </pre></div>
 </div>
 </section>
@@ -229,7 +230,7 @@ All <strong>surface</strong> integrands must multiply by it.</p>
     <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Use <code class="docutils literal notranslate"><span class="pre">dot(...)</span></code>, <code class="docutils literal notranslate"><span class="pre">inner(...)</span></code> or the operator forms (<code class="docutils literal notranslate"><span class="pre">&#64;</span></code> / <code class="docutils literal notranslate"><span class="pre">|</span></code>) instead.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">dot(...)</span></code> or tensor contractions (<code class="docutils literal notranslate"><span class="pre">inner(...)</span></code> / <code class="docutils literal notranslate"><span class="pre">einsum(...)</span></code>) instead.</p>
 </section>
 <section id="diffusion-poisson-v-grad-u-grad">
 <h2><a class="toc-backref" href="#id11" role="doc-backlink">Diffusion / Poisson: <code class="docutils literal notranslate"><span class="pre">v.grad</span> <span class="pre">&#64;</span> <span class="pre">u.grad</span></code></a><a class="headerlink" href="#diffusion-poisson-v-grad-u-grad" title="Link to this heading"></a></h2>
@@ -270,7 +271,7 @@ builds the <strong>vector linear form</strong> contribution via <code class="doc
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">wf.sym_grad(u)</span></code> : symmetric gradient <strong>Voigt B-matrix</strong></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">D</span></code> : constitutive matrix in Voigt notation (6x6)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">wf.ddot(sym_grad(v),</span> <span class="pre">D</span> <span class="pre">&#64;</span> <span class="pre">sym_grad(u))</span></code> : contraction to form local stiffness blocks</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">wf.ddot(sym_grad(v),</span> <span class="pre">wf.matmul_std(D,</span> <span class="pre">wf.sym_grad(u)))</span></code> : contraction to form local stiffness blocks</p></li>
 </ul>
 <p>Definition (as implemented):</p>
 <ul>
@@ -283,7 +284,7 @@ in Voigt order <code class="docutils literal notranslate"><span class="pre">[xx,
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">D</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">isotropic_3d_D</span><span class="p">(</span><span class="mf">210_000.0</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)</span>
 
 <span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
-    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">D</span> <span class="o">@</span> <span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">u</span><span class="p">))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">wf</span><span class="o">.</span><span class="n">matmul_std</span><span class="p">(</span><span class="n">D</span><span class="p">,</span> <span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">u</span><span class="p">)))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
 <span class="p">)</span>
 
 <span class="n">K_expr</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">()</span>
@@ -307,14 +308,14 @@ it contracts over the middle axis and returns a local block <code class="docutil
 <li><p><code class="docutils literal notranslate"><span class="pre">ddot(a,</span> <span class="pre">b,</span> <span class="pre">c)</span></code> computes <code class="docutils literal notranslate"><span class="pre">aᵀ</span> <span class="pre">b</span> <span class="pre">c</span></code> (used for Voigt-style elasticity blocks).</p></li>
 </ul>
 </section>
-<section id="surface-traction-v-t">
-<h2><a class="toc-backref" href="#id14" role="doc-backlink">Surface traction: <code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code></a><a class="headerlink" href="#surface-traction-v-t" title="Link to this heading"></a></h2>
-<p>For surface linear forms, the expression API supports a convenient operator:</p>
+<section id="surface-traction-dot-v-t-and-v-t-shorthand">
+<h2><a class="toc-backref" href="#id14" role="doc-backlink">Surface traction: <code class="docutils literal notranslate"><span class="pre">dot(v,</span> <span class="pre">t)</span></code> (and <code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code> shorthand)</a><a class="headerlink" href="#surface-traction-dot-v-t-and-v-t-shorthand" title="Link to this heading"></a></h2>
+<p>For surface linear forms, the expression API supports a convenient shorthand:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code> (with <code class="docutils literal notranslate"><span class="pre">t</span></code> a vector) is interpreted as a <strong>surface dot</strong> between the test field and traction.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">v</span> <span class="pre">|</span> <span class="pre">t</span></code> (with <code class="docutils literal notranslate"><span class="pre">t</span></code> a vector expression) is treated as <code class="docutils literal notranslate"><span class="pre">dot(v,</span> <span class="pre">t)</span></code>.</p></li>
 </ul>
 <p>In the tests, this matches the tensor-based reference traction form:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="n">wf</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">traction_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">SurfaceFormContext</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">ff</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
@@ -325,9 +326,9 @@ it contracts over the middle axis and returns a local block <code class="docutil
 <section id="normal-traction-pressure">
 <h2><a class="toc-backref" href="#id15" role="doc-backlink">Normal traction (pressure)</a><a class="headerlink" href="#normal-traction-pressure" title="Link to this heading"></a></h2>
 <p>If the traction is a <strong>scalar pressure</strong> acting along the outward normal, use
-<code class="docutils literal notranslate"><span class="pre">h_wf.normal()</span></code> inside the weak form:</p>
+<code class="docutils literal notranslate"><span class="pre">wf.normal()</span></code> inside the weak form:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span>
-    <span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="p">(</span><span class="n">p</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">normal</span><span class="p">()))</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ds</span><span class="p">()</span>
+    <span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="p">(</span><span class="n">p</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">normal</span><span class="p">()))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">()</span>
 <span class="p">)</span>
 </pre></div>
 </div>
@@ -349,41 +350,38 @@ it contracts over the middle axis and returns a local block <code class="docutil
 <section id="linear-elasticity">
 <h3><a class="toc-backref" href="#id19" role="doc-backlink">Linear elasticity</a><a class="headerlink" href="#linear-elasticity" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
-    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">D</span> <span class="o">@</span> <span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">u</span><span class="p">))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D</span><span class="p">:</span> <span class="n">wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">wf</span><span class="o">.</span><span class="n">matmul_std</span><span class="p">(</span><span class="n">D</span><span class="p">,</span> <span class="n">wf</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">(</span><span class="n">u</span><span class="p">)))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
 <span class="p">)</span>
 </pre></div>
 </div>
 </section>
 <section id="surface-traction">
 <h3><a class="toc-backref" href="#id20" role="doc-backlink">Surface traction</a><a class="headerlink" href="#surface-traction" title="Link to this heading"></a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="n">wf</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
 </pre></div>
 </div>
 </section>
 <section id="about-the-operator">
 <h3><a class="toc-backref" href="#id21" role="doc-backlink">About the <code class="docutils literal notranslate"><span class="pre">|</span></code> operator</a><a class="headerlink" href="#about-the-operator" title="Link to this heading"></a></h3>
-<p>The <code class="docutils literal notranslate"><span class="pre">|</span></code> operator is context-dependent:</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">|</span></code> operator is intentionally limited:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">FieldRef</span> <span class="pre">|</span> <span class="pre">FieldRef</span></code> is interpreted as an inner product (<code class="docutils literal notranslate"><span class="pre">inner</span></code>).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FieldRef</span> <span class="pre">|</span> <span class="pre">load</span></code> (e.g., a traction vector) is interpreted as a surface-dot helper (<code class="docutils literal notranslate"><span class="pre">sdot</span></code>),
-which is consistent with the tensor-based reference <code class="docutils literal notranslate"><span class="pre">dot(ctx.v,</span> <span class="pre">t)</span></code> on surfaces.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FieldRef</span> <span class="pre">|</span> <span class="pre">FieldRef</span></code> is <strong>not allowed</strong>. Use <code class="docutils literal notranslate"><span class="pre">outer(test,</span> <span class="pre">trial)</span></code> for basis kernels.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FieldRef</span> <span class="pre">|</span> <span class="pre">Expr</span></code> is treated as <code class="docutils literal notranslate"><span class="pre">dot(v,</span> <span class="pre">expr)</span></code> (e.g., traction loads).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Expr</span> <span class="pre">|</span> <span class="pre">Expr</span></code> is a tensor inner product over the last axis (<code class="docutils literal notranslate"><span class="pre">inner</span></code>), e.g. <code class="docutils literal notranslate"><span class="pre">u.val</span> <span class="pre">|</span> <span class="pre">v.val</span></code>.</p></li>
 </ul>
-<p>This is why surface traction is written as <code class="docutils literal notranslate"><span class="pre">(v</span> <span class="pre">|</span> <span class="pre">t)</span> <span class="pre">*</span> <span class="pre">ds()</span></code>.
-If the right-hand side is not a field, <code class="docutils literal notranslate"><span class="pre">sdot</span></code> ultimately dispatches to the same
-vector-load helper used by <code class="docutils literal notranslate"><span class="pre">dot(field,</span> <span class="pre">load)</span></code>.</p>
+<p>For surface traction, prefer <code class="docutils literal notranslate"><span class="pre">dot(v,</span> <span class="pre">t)</span> <span class="pre">*</span> <span class="pre">ds()</span></code> for clarity.</p>
 </section>
 <section id="id1">
 <h3><a class="toc-backref" href="#id22" role="doc-backlink">About the <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> operator</a><a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
-<p>Besides regular matrix multiplication, the expression API defines a special case for
-batched 3D arrays shaped like <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">*,</span> <span class="pre">dim)</span></code>:</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> operator is <strong>FEM-specific</strong> and only defined for batched 3D arrays shaped like
+<code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">*,</span> <span class="pre">dim)</span></code>:</p>
 <p><code class="docutils literal notranslate"><span class="pre">A</span> <span class="pre">&#64;</span> <span class="pre">B</span></code> with <code class="docutils literal notranslate"><span class="pre">A.ndim==B.ndim==3</span></code> and matching last axis performs a contraction over <code class="docutils literal notranslate"><span class="pre">dim</span></code>
 and returns <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">*,</span> <span class="pre">*)</span></code> (conceptually <code class="docutils literal notranslate"><span class="pre">einsum(&quot;qia,qja-&gt;qij&quot;)</span></code>). In other words, for each
 quadrature point <code class="docutils literal notranslate"><span class="pre">q</span></code>, the last axis is contracted to produce a <code class="docutils literal notranslate"><span class="pre">(i,</span> <span class="pre">j)</span></code> block.</p>
 <p>This is used for expressions like <code class="docutils literal notranslate"><span class="pre">v.grad</span> <span class="pre">&#64;</span> <span class="pre">u.grad</span></code>.
-If the operands are not in this 3D batched form, it falls back to normal
-matrix multiplication.</p>
-<p>To avoid ambiguity, you can use <code class="docutils literal notranslate"><span class="pre">h_wf.matmul(A,</span> <span class="pre">B)</span></code> for <strong>standard</strong> matrix
-multiplication (no special 3D contraction).</p>
+If the operands are not in this 3D batched form, it raises a <code class="docutils literal notranslate"><span class="pre">TypeError</span></code>.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">wf.matmul_std(A,</span> <span class="pre">B)</span></code> for <strong>standard</strong> matrix multiplication
+(no special 3D contraction).</p>
 </section>
 </section>
 </section>
@@ -392,8 +390,8 @@ multiplication (no special 3D contraction).</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="assembly.html" class="btn btn-neutral float-left" title="Assembly" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="assembly_tensor.html" class="btn btn-neutral float-right" title="Tensor Assembly" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="assembly_tensor.html" class="btn btn-neutral float-left" title="Tensor Assembly" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="solver.html" class="btn btn-neutral float-right" title="Solvers" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

@@ -38,17 +38,31 @@ Implementation mapping (fluxfem)
 
 weak-form-based assembly:
 
+.. math::
+
+   a(u, v) = \int_{\Omega} \varepsilon(v) : D : \varepsilon(u)\, d\Omega
+
 .. code-block:: python
 
    import fluxfem.helpers_wf as h_wf
 
    bilinear_form = ff.BilinearForm.volume(
-       lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
+       lambda u, v, D: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D, u.sym_grad)) * h_wf.dOmega()
    )
    K_wf = space.assemble_bilinear_form(bilinear_form.bilinear_form(), params=D)
 
 
 tensor-based assembly (scikit-fem-style):
+
+.. math::
+
+   K = \int_{\Omega} B_v^{\mathsf{T}}\, D\, B_u \, d\Omega,\quad
+   B_u = sym(\nabla u),\; B_v = sym(\nabla v)
+
+.. math::
+
+   K \approx \sum_{e} \sum_{q} w_q\,
+   B_v(x_q)^{\mathsf{T}} D B_u(x_q)\, \left|J_e(x_q)\right|
 
 .. code-block:: python
 
@@ -64,6 +78,10 @@ tensor-based assembly (scikit-fem-style):
 
 Surface traction (weak-form-based assembly):
 
+.. math::
+
+   \ell(v) = \int_{\Gamma_t} v \cdot t \, ds
+
 .. code-block:: python
 
     import fluxfem.helpers_wf as h_wf
@@ -77,6 +95,10 @@ Surface traction (weak-form-based assembly):
 
 
 Surface traction (tensor-based assembly):
+
+.. math::
+
+   \ell(v) = \int_{\Gamma_t} v \cdot t \, ds
 
 .. code-block:: python
 
