@@ -1,0 +1,733 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Core &mdash; fluxfem 0.1.1b documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/api/core.html" />
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=a9b42864"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Mesh" href="mesh.html" />
+    <link rel="prev" title="Top-level API" href="top.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            fluxfem
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../project.html">Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="top.html">Top-level API</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Core</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#assembly">Assembly</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-fluxfem.core.basis">Basis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.Basis3D"><code class="docutils literal notranslate"><span class="pre">Basis3D</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.HexSerendipityBasis20"><code class="docutils literal notranslate"><span class="pre">HexSerendipityBasis20</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.HexSerendipityBasis20Pytree"><code class="docutils literal notranslate"><span class="pre">HexSerendipityBasis20Pytree</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.HexTriLinearBasis"><code class="docutils literal notranslate"><span class="pre">HexTriLinearBasis</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.HexTriLinearBasisPytree"><code class="docutils literal notranslate"><span class="pre">HexTriLinearBasisPytree</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.HexTriQuadraticBasis27"><code class="docutils literal notranslate"><span class="pre">HexTriQuadraticBasis27</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.HexTriQuadraticBasis27Pytree"><code class="docutils literal notranslate"><span class="pre">HexTriQuadraticBasis27Pytree</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.SmallStrainBMixin"><code class="docutils literal notranslate"><span class="pre">SmallStrainBMixin</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.TetLinearBasis"><code class="docutils literal notranslate"><span class="pre">TetLinearBasis</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.TetLinearBasisPytree"><code class="docutils literal notranslate"><span class="pre">TetLinearBasisPytree</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.TetQuadraticBasis10"><code class="docutils literal notranslate"><span class="pre">TetQuadraticBasis10</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.TetQuadraticBasis10Pytree"><code class="docutils literal notranslate"><span class="pre">TetQuadraticBasis10Pytree</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.TotalLagrangeBMixin"><code class="docutils literal notranslate"><span class="pre">TotalLagrangeBMixin</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.build_B_matrices"><code class="docutils literal notranslate"><span class="pre">build_B_matrices()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.build_B_matrices_finite"><code class="docutils literal notranslate"><span class="pre">build_B_matrices_finite()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.make_hex20_basis"><code class="docutils literal notranslate"><span class="pre">make_hex20_basis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.make_hex20_basis_pytree"><code class="docutils literal notranslate"><span class="pre">make_hex20_basis_pytree()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.make_hex27_basis"><code class="docutils literal notranslate"><span class="pre">make_hex27_basis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.make_hex27_basis_pytree"><code class="docutils literal notranslate"><span class="pre">make_hex27_basis_pytree()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.make_hex_basis"><code class="docutils literal notranslate"><span class="pre">make_hex_basis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.make_hex_basis_pytree"><code class="docutils literal notranslate"><span class="pre">make_hex_basis_pytree()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.make_tet10_basis"><code class="docutils literal notranslate"><span class="pre">make_tet10_basis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.make_tet10_basis_pytree"><code class="docutils literal notranslate"><span class="pre">make_tet10_basis_pytree()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.make_tet_basis"><code class="docutils literal notranslate"><span class="pre">make_tet_basis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.core.basis.make_tet_basis_pytree"><code class="docutils literal notranslate"><span class="pre">make_tet_basis_pytree()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#data">Data</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-fluxfem.core.dtypes">Dtypes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#forms">Forms</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#interpolation">Interpolation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#space">Space</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#weakform">Weakform</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#core-solver">Core Solver</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="mesh.html">Mesh</a></li>
+<li class="toctree-l2"><a class="reference internal" href="solver.html">Solver</a></li>
+<li class="toctree-l2"><a class="reference internal" href="physics.html">Physics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools.html">Tools</a></li>
+<li class="toctree-l2"><a class="reference internal" href="helpers.html">Helpers</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">fluxfem</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../api.html">API Reference</a></li>
+      <li class="breadcrumb-item active">Core</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/core.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="core">
+<h1>Core<a class="headerlink" href="#core" title="Link to this heading"></a></h1>
+<section id="assembly">
+<h2>Assembly<a class="headerlink" href="#assembly" title="Link to this heading"></a></h2>
+</section>
+<section id="module-fluxfem.core.basis">
+<span id="basis"></span><h2>Basis<a class="headerlink" href="#module-fluxfem.core.basis" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">Basis3D</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.Basis3D" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Protocol</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D.B_small_strain">
+<span class="sig-name descname"><span class="pre">B_small_strain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dN_dx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.Basis3D.B_small_strain" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D.B_total_lagrange">
+<span class="sig-name descname"><span class="pre">B_total_lagrange</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dN_dX</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.Basis3D.B_total_lagrange" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D.dofs_per_node">
+<span class="sig-name descname"><span class="pre">dofs_per_node</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.Basis3D.dofs_per_node" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D.n_nodes">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_nodes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.Basis3D.n_nodes" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D.n_q">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_q</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.Basis3D.n_q" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D.quad_points">
+<span class="sig-name descname"><span class="pre">quad_points</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.Basis3D.quad_points" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D.quad_weights">
+<span class="sig-name descname"><span class="pre">quad_weights</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.Basis3D.quad_weights" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D.shape_functions">
+<span class="sig-name descname"><span class="pre">shape_functions</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.Basis3D.shape_functions" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D.shape_grads_ref">
+<span class="sig-name descname"><span class="pre">shape_grads_ref</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.Basis3D.shape_grads_ref" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.Basis3D.spatial_grads_and_detJ">
+<span class="sig-name descname"><span class="pre">spatial_grads_and_detJ</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">elem_coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.core.basis.Basis3D.spatial_grads_and_detJ" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">HexSerendipityBasis20</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quad_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quad_weights</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dofs_per_node</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#fluxfem.core.basis.SmallStrainBMixin" title="fluxfem.core.basis.SmallStrainBMixin"><code class="xref py py-class docutils literal notranslate"><span class="pre">SmallStrainBMixin</span></code></a>, <a class="reference internal" href="#fluxfem.core.basis.TotalLagrangeBMixin" title="fluxfem.core.basis.TotalLagrangeBMixin"><code class="xref py py-class docutils literal notranslate"><span class="pre">TotalLagrangeBMixin</span></code></a></p>
+<p>20-node serendipity hex element basis (corner + edge midpoints).</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.dofs_per_node">
+<span class="sig-name descname"><span class="pre">dofs_per_node</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.dofs_per_node" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.n_nodes">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_nodes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.n_nodes" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.n_q">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_q</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.n_q" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.quad_points">
+<span class="sig-name descname"><span class="pre">quad_points</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.quad_points" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.quad_weights">
+<span class="sig-name descname"><span class="pre">quad_weights</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.quad_weights" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.ref_node_coords">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ref_node_coords</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.ref_node_coords" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.shape_functions">
+<span class="sig-name descname"><span class="pre">shape_functions</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.shape_functions" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.shape_grads_ref">
+<span class="sig-name descname"><span class="pre">shape_grads_ref</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.shape_grads_ref" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.spatial_grads_and_detJ">
+<span class="sig-name descname"><span class="pre">spatial_grads_and_detJ</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">elem_coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.spatial_grads_and_detJ" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.tree_flatten">
+<span class="sig-name descname"><span class="pre">tree_flatten</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.tree_flatten" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20.tree_unflatten">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">tree_unflatten</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">aux_data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">children</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20.tree_unflatten" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexSerendipityBasis20Pytree">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">HexSerendipityBasis20Pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quad_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quad_weights</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dofs_per_node</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexSerendipityBasis20Pytree" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#fluxfem.core.basis.HexSerendipityBasis20" title="fluxfem.core.basis.HexSerendipityBasis20"><code class="xref py py-class docutils literal notranslate"><span class="pre">HexSerendipityBasis20</span></code></a></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">HexTriLinearBasis</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quad_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quad_weights</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dofs_per_node</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#fluxfem.core.basis.SmallStrainBMixin" title="fluxfem.core.basis.SmallStrainBMixin"><code class="xref py py-class docutils literal notranslate"><span class="pre">SmallStrainBMixin</span></code></a>, <a class="reference internal" href="#fluxfem.core.basis.TotalLagrangeBMixin" title="fluxfem.core.basis.TotalLagrangeBMixin"><code class="xref py py-class docutils literal notranslate"><span class="pre">TotalLagrangeBMixin</span></code></a></p>
+<p>Trilinear 8-node hex element basis with given quadrature rule.</p>
+<p>quad_points:  (n_q, 3)  # (xi, eta, zeta) in [-1, 1]^3
+quad_weights: (n_q,)    # weights</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.dofs_per_node">
+<span class="sig-name descname"><span class="pre">dofs_per_node</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.dofs_per_node" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.n_nodes">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_nodes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.n_nodes" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.n_q">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_q</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.n_q" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.quad_points">
+<span class="sig-name descname"><span class="pre">quad_points</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.quad_points" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.quad_weights">
+<span class="sig-name descname"><span class="pre">quad_weights</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.quad_weights" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.ref_node_signs">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ref_node_signs</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.ref_node_signs" title="Link to this definition"></a></dt>
+<dd><p>Node signs (8,3) for (-1,1)^3 reference hex.
+Node ordering:
+0: (-1,-1,-1)
+1: ( 1,-1,-1)
+2: ( 1, 1,-1)
+3: (-1, 1,-1)
+4: (-1,-1, 1)
+5: ( 1,-1, 1)
+6: ( 1, 1, 1)
+7: (-1, 1, 1)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.shape_functions">
+<span class="sig-name descname"><span class="pre">shape_functions</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.shape_functions" title="Link to this definition"></a></dt>
+<dd><p>Evaluate shape functions at all quadrature points.
+Returns: (n_q, 8)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.shape_grads_ref">
+<span class="sig-name descname"><span class="pre">shape_grads_ref</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.shape_grads_ref" title="Link to this definition"></a></dt>
+<dd><p>Gradients in reference coords (ξ,η,ζ) at all quad points.
+Returns: (n_q, 8, 3)  [dN/dξ, dN/dη, dN/dζ]</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.spatial_grads_and_detJ">
+<span class="sig-name descname"><span class="pre">spatial_grads_and_detJ</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">elem_coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.spatial_grads_and_detJ" title="Link to this definition"></a></dt>
+<dd><p>Compute spatial gradients and detJ for one element.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>elem_coords</strong> (<em>jnp.ndarray</em>) – Element coordinates of shape (8, 3).</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><ul class="simple">
+<li><p><strong>dN_dx</strong> (<em>jnp.ndarray</em>) – Spatial gradients of shape (n_q, 8, 3).</p></li>
+<li><p><strong>detJ</strong> (<em>jnp.ndarray</em>) – Determinant of the Jacobian of shape (n_q,).</p></li>
+</ul>
+</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.tree_flatten">
+<span class="sig-name descname"><span class="pre">tree_flatten</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.tree_flatten" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasis.tree_unflatten">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">tree_unflatten</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">aux_data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">children</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasis.tree_unflatten" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriLinearBasisPytree">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">HexTriLinearBasisPytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quad_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quad_weights</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dofs_per_node</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexTriLinearBasisPytree" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#fluxfem.core.basis.HexTriLinearBasis" title="fluxfem.core.basis.HexTriLinearBasis"><code class="xref py py-class docutils literal notranslate"><span class="pre">HexTriLinearBasis</span></code></a></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">HexTriQuadraticBasis27</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quad_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quad_weights</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dofs_per_node</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#fluxfem.core.basis.SmallStrainBMixin" title="fluxfem.core.basis.SmallStrainBMixin"><code class="xref py py-class docutils literal notranslate"><span class="pre">SmallStrainBMixin</span></code></a>, <a class="reference internal" href="#fluxfem.core.basis.TotalLagrangeBMixin" title="fluxfem.core.basis.TotalLagrangeBMixin"><code class="xref py py-class docutils literal notranslate"><span class="pre">TotalLagrangeBMixin</span></code></a></p>
+<p>27-node triquadratic hex (tensor-product).</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27.dofs_per_node">
+<span class="sig-name descname"><span class="pre">dofs_per_node</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27.dofs_per_node" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27.n_nodes">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_nodes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27.n_nodes" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27.n_q">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_q</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27.n_q" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27.quad_points">
+<span class="sig-name descname"><span class="pre">quad_points</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27.quad_points" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27.quad_weights">
+<span class="sig-name descname"><span class="pre">quad_weights</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27.quad_weights" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27.shape_functions">
+<span class="sig-name descname"><span class="pre">shape_functions</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27.shape_functions" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27.shape_grads_ref">
+<span class="sig-name descname"><span class="pre">shape_grads_ref</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27.shape_grads_ref" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27.spatial_grads_and_detJ">
+<span class="sig-name descname"><span class="pre">spatial_grads_and_detJ</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">elem_coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27.spatial_grads_and_detJ" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27.tree_flatten">
+<span class="sig-name descname"><span class="pre">tree_flatten</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27.tree_flatten" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27.tree_unflatten">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">tree_unflatten</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">aux</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">children</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27.tree_unflatten" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.HexTriQuadraticBasis27Pytree">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">HexTriQuadraticBasis27Pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quad_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quad_weights</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dofs_per_node</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.HexTriQuadraticBasis27Pytree" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#fluxfem.core.basis.HexTriQuadraticBasis27" title="fluxfem.core.basis.HexTriQuadraticBasis27"><code class="xref py py-class docutils literal notranslate"><span class="pre">HexTriQuadraticBasis27</span></code></a></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.SmallStrainBMixin">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">SmallStrainBMixin</span></span><a class="headerlink" href="#fluxfem.core.basis.SmallStrainBMixin" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.SmallStrainBMixin.B_small_strain">
+<span class="sig-name descname"><span class="pre">B_small_strain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dN_dx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.SmallStrainBMixin.B_small_strain" title="Link to this definition"></a></dt>
+<dd><p>dN_dx: (n_q, n_nodes, 3)
+returns: (n_q, 6, 3*n_nodes)  Voigt: [xx,yy,zz,xy,yz,zx]</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.SmallStrainBMixin.dofs_per_node">
+<span class="sig-name descname"><span class="pre">dofs_per_node</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#fluxfem.core.basis.SmallStrainBMixin.dofs_per_node" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">TetLinearBasis</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quad_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quad_weights</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dofs_per_node</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#fluxfem.core.basis.SmallStrainBMixin" title="fluxfem.core.basis.SmallStrainBMixin"><code class="xref py py-class docutils literal notranslate"><span class="pre">SmallStrainBMixin</span></code></a>, <a class="reference internal" href="#fluxfem.core.basis.TotalLagrangeBMixin" title="fluxfem.core.basis.TotalLagrangeBMixin"><code class="xref py py-class docutils literal notranslate"><span class="pre">TotalLagrangeBMixin</span></code></a></p>
+<p>4-node linear tetra basis with simple quadrature.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.dofs_per_node">
+<span class="sig-name descname"><span class="pre">dofs_per_node</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.dofs_per_node" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.n_nodes">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_nodes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.n_nodes" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.n_q">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_q</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.n_q" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.quad_points">
+<span class="sig-name descname"><span class="pre">quad_points</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.quad_points" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.quad_weights">
+<span class="sig-name descname"><span class="pre">quad_weights</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.quad_weights" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.ref_node_coords">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ref_node_coords</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.ref_node_coords" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.shape_functions">
+<span class="sig-name descname"><span class="pre">shape_functions</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.shape_functions" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.shape_grads_ref">
+<span class="sig-name descname"><span class="pre">shape_grads_ref</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.shape_grads_ref" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.spatial_grads_and_detJ">
+<span class="sig-name descname"><span class="pre">spatial_grads_and_detJ</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">elem_coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.spatial_grads_and_detJ" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.tree_flatten">
+<span class="sig-name descname"><span class="pre">tree_flatten</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.tree_flatten" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasis.tree_unflatten">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">tree_unflatten</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">aux_data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">children</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasis.tree_unflatten" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetLinearBasisPytree">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">TetLinearBasisPytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quad_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quad_weights</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dofs_per_node</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.TetLinearBasisPytree" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#fluxfem.core.basis.TetLinearBasis" title="fluxfem.core.basis.TetLinearBasis"><code class="xref py py-class docutils literal notranslate"><span class="pre">TetLinearBasis</span></code></a></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">TetQuadraticBasis10</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quad_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quad_weights</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dofs_per_node</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#fluxfem.core.basis.SmallStrainBMixin" title="fluxfem.core.basis.SmallStrainBMixin"><code class="xref py py-class docutils literal notranslate"><span class="pre">SmallStrainBMixin</span></code></a>, <a class="reference internal" href="#fluxfem.core.basis.TotalLagrangeBMixin" title="fluxfem.core.basis.TotalLagrangeBMixin"><code class="xref py py-class docutils literal notranslate"><span class="pre">TotalLagrangeBMixin</span></code></a></p>
+<p>10-node quadratic tetra basis (corner + edge mids).</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10.dofs_per_node">
+<span class="sig-name descname"><span class="pre">dofs_per_node</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10.dofs_per_node" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10.n_nodes">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_nodes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10.n_nodes" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10.n_q">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_q</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10.n_q" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10.quad_points">
+<span class="sig-name descname"><span class="pre">quad_points</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10.quad_points" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10.quad_weights">
+<span class="sig-name descname"><span class="pre">quad_weights</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span></em><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10.quad_weights" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10.shape_functions">
+<span class="sig-name descname"><span class="pre">shape_functions</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10.shape_functions" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10.shape_grads_ref">
+<span class="sig-name descname"><span class="pre">shape_grads_ref</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10.shape_grads_ref" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10.spatial_grads_and_detJ">
+<span class="sig-name descname"><span class="pre">spatial_grads_and_detJ</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">elem_coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10.spatial_grads_and_detJ" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10.tree_flatten">
+<span class="sig-name descname"><span class="pre">tree_flatten</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10.tree_flatten" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10.tree_unflatten">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">tree_unflatten</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">aux</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">children</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10.tree_unflatten" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TetQuadraticBasis10Pytree">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">TetQuadraticBasis10Pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quad_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quad_weights</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dofs_per_node</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.basis.TetQuadraticBasis10Pytree" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#fluxfem.core.basis.TetQuadraticBasis10" title="fluxfem.core.basis.TetQuadraticBasis10"><code class="xref py py-class docutils literal notranslate"><span class="pre">TetQuadraticBasis10</span></code></a></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TotalLagrangeBMixin">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">TotalLagrangeBMixin</span></span><a class="headerlink" href="#fluxfem.core.basis.TotalLagrangeBMixin" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TotalLagrangeBMixin.B_total_lagrange">
+<span class="sig-name descname"><span class="pre">B_total_lagrange</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dN_dX</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.TotalLagrangeBMixin.B_total_lagrange" title="Link to this definition"></a></dt>
+<dd><p>dN_dX: (n_q, n_nodes, 3), F: (n_q, 3, 3)
+returns: (n_q, 6, 3*n_nodes)  Voigt: [xx,yy,zz,xy,yz,zx]</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.core.basis.TotalLagrangeBMixin.dofs_per_node">
+<span class="sig-name descname"><span class="pre">dofs_per_node</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#fluxfem.core.basis.TotalLagrangeBMixin.dofs_per_node" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.build_B_matrices">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">build_B_matrices</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dN_dx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.build_B_matrices" title="Link to this definition"></a></dt>
+<dd><p>Build B matrices for all quadrature points.</p>
+<p>dN_dx: (n_q, 8, 3)
+:returns: (n_q, 6, 24)  # 6 strain components, 3 dofs/node * 8 nodes
+:rtype: B</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.build_B_matrices_finite">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">build_B_matrices_finite</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dN_dX</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.core.basis.build_B_matrices_finite" title="Link to this definition"></a></dt>
+<dd><p>Build finite-strain B matrices (Voigt) at each quadrature point.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>dN_dX</strong> – (n_q, n_nodes, 3) gradients of shape functions in reference config.</p></li>
+<li><p><strong>F</strong> – (n_q, 3, 3) deformation gradient at each quadrature point.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>(n_q, 6, n_dofs) where n_dofs = 3 * n_nodes</dt><dd><p>Voigt order: [xx, yy, zz, xy, yz, zx]</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>B</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.make_hex20_basis">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">make_hex20_basis</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#fluxfem.core.basis.HexSerendipityBasis20" title="fluxfem.core.basis.HexSerendipityBasis20"><span class="pre">HexSerendipityBasis20</span></a></span></span><a class="headerlink" href="#fluxfem.core.basis.make_hex20_basis" title="Link to this definition"></a></dt>
+<dd><p>Create a serendipity hex basis with tensor-product quadrature.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.make_hex20_basis_pytree">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">make_hex20_basis_pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></span><a class="headerlink" href="#fluxfem.core.basis.make_hex20_basis_pytree" title="Link to this definition"></a></dt>
+<dd><p>Create a pytree serendipity hex basis with tensor-product quadrature.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.make_hex27_basis">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">make_hex27_basis</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#fluxfem.core.basis.HexTriQuadraticBasis27" title="fluxfem.core.basis.HexTriQuadraticBasis27"><span class="pre">HexTriQuadraticBasis27</span></a></span></span><a class="headerlink" href="#fluxfem.core.basis.make_hex27_basis" title="Link to this definition"></a></dt>
+<dd><p>Create a triquadratic hex basis with tensor-product quadrature.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.make_hex27_basis_pytree">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">make_hex27_basis_pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></span><a class="headerlink" href="#fluxfem.core.basis.make_hex27_basis_pytree" title="Link to this definition"></a></dt>
+<dd><p>Create a pytree triquadratic hex basis with tensor-product quadrature.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.make_hex_basis">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">make_hex_basis</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#fluxfem.core.basis.HexTriLinearBasis" title="fluxfem.core.basis.HexTriLinearBasis"><span class="pre">HexTriLinearBasis</span></a></span></span><a class="headerlink" href="#fluxfem.core.basis.make_hex_basis" title="Link to this definition"></a></dt>
+<dd><p>Trilinear hex basis with tensor-product Gauss-Legendre quadrature.
+intorder = polynomial exactness degree (scikit-fem style).
+degree=1 → 1×1×1, degree=2/3 → 2×2×2, degree=4/5 → 3×3×3, etc.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.make_hex_basis_pytree">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">make_hex_basis_pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></span><a class="headerlink" href="#fluxfem.core.basis.make_hex_basis_pytree" title="Link to this definition"></a></dt>
+<dd><p>Create a pytree trilinear hex basis with tensor-product quadrature.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.make_tet10_basis">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">make_tet10_basis</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#fluxfem.core.basis.TetQuadraticBasis10" title="fluxfem.core.basis.TetQuadraticBasis10"><span class="pre">TetQuadraticBasis10</span></a></span></span><a class="headerlink" href="#fluxfem.core.basis.make_tet10_basis" title="Link to this definition"></a></dt>
+<dd><p>Create a quadratic tet basis with degree-based quadrature.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.make_tet10_basis_pytree">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">make_tet10_basis_pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></span><a class="headerlink" href="#fluxfem.core.basis.make_tet10_basis_pytree" title="Link to this definition"></a></dt>
+<dd><p>Create a pytree quadratic tet basis with degree-based quadrature.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.make_tet_basis">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">make_tet_basis</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#fluxfem.core.basis.TetLinearBasis" title="fluxfem.core.basis.TetLinearBasis"><span class="pre">TetLinearBasis</span></a></span></span><a class="headerlink" href="#fluxfem.core.basis.make_tet_basis" title="Link to this definition"></a></dt>
+<dd><p>Create a linear tet basis with degree-based quadrature.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.basis.make_tet_basis_pytree">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.basis.</span></span><span class="sig-name descname"><span class="pre">make_tet_basis_pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></span><a class="headerlink" href="#fluxfem.core.basis.make_tet_basis_pytree" title="Link to this definition"></a></dt>
+<dd><p>Create a pytree linear tet basis with degree-based quadrature.</p>
+</dd></dl>
+
+</section>
+<section id="data">
+<h2>Data<a class="headerlink" href="#data" title="Link to this heading"></a></h2>
+</section>
+<section id="module-fluxfem.core.dtypes">
+<span id="dtypes"></span><h2>Dtypes<a class="headerlink" href="#module-fluxfem.core.dtypes" title="Link to this heading"></a></h2>
+</section>
+<section id="forms">
+<h2>Forms<a class="headerlink" href="#forms" title="Link to this heading"></a></h2>
+</section>
+<section id="interpolation">
+<h2>Interpolation<a class="headerlink" href="#interpolation" title="Link to this heading"></a></h2>
+</section>
+<section id="space">
+<h2>Space<a class="headerlink" href="#space" title="Link to this heading"></a></h2>
+</section>
+<section id="weakform">
+<h2>Weakform<a class="headerlink" href="#weakform" title="Link to this heading"></a></h2>
+</section>
+<section id="core-solver">
+<h2>Core Solver<a class="headerlink" href="#core-solver" title="Link to this heading"></a></h2>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="top.html" class="btn btn-neutral float-left" title="Top-level API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="mesh.html" class="btn btn-neutral float-right" title="Mesh" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Kohei Watanabe.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
