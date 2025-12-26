@@ -47,7 +47,7 @@ weak-form-based assembly:
    import fluxfem.helpers_wf as h_wf
 
    bilinear_form = ff.BilinearForm.volume(
-       lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
+       lambda u, v, D: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D, u.sym_grad)) * h_wf.dOmega()
    )
    K_wf = space.assemble_bilinear_form(bilinear_form.bilinear_form(), params=D)
 

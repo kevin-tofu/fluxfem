@@ -67,7 +67,7 @@ def test_weakform_neo_hookean_residual_matches_tensor():
         C_inv = h_wf.inv(C)
         logJ = h_wf.log(h_wf.det(F))
         S = p.mu * (h_wf.I(3) - C_inv) + p.lam * logJ * C_inv
-        P = h_wf.matmul(F, S)
+        P = h_wf.matmul_std(F, S)
         # P = F @ S.T
         return h_wf.gaction(v, P) * h_wf.dOmega()
 

@@ -16,7 +16,7 @@ class VolumeContext(Protocol):
 class SurfaceContext(Protocol):
     """Minimum interface for surface weak-form evaluation."""
 
-    test: Any
+    v: Any
     w: Any
     detJ: Any
     normal: Any

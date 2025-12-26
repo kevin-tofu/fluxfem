@@ -10,7 +10,7 @@ def test_weakform_mass_matches():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
-    form = ff.BilinearForm.volume(lambda u, v, _p: (u * v) * h_wf.dOmega())
+    form = ff.BilinearForm.volume(lambda u, v, _p: h_wf.outer(v, u) * h_wf.dOmega())
     K_expr = space.assemble_bilinear_form(form.get_compiled(), params=0.0).to_dense()
     K_mass = space.assemble_mass_matrix().to_dense()
 
@@ -53,7 +53,8 @@ def test_weakform_linear_elasticity_matches():
 
     D = ff.isotropic_3d_D(210_000.0, 0.3)
     form = ff.BilinearForm.volume(
-        lambda u, v, D: h_wf.ddot(h_wf.sym_grad(v), D @ h_wf.sym_grad(u)) * h_wf.dOmega()
+        lambda u, v, D: h_wf.ddot(h_wf.sym_grad(v), h_wf.matmul_std(D, h_wf.sym_grad(u)))
+        * h_wf.dOmega()
     )
     K_expr = space.assemble_bilinear_form(form.get_compiled(), params=D).to_dense()
     K_ref = space.assemble_bilinear_form(ff.linear_elasticity_form, params=D).to_dense()
@@ -68,7 +69,8 @@ def test_weakform_ddot_linear_elasticity_matches():
 
     D = ff.isotropic_3d_D(210_000.0, 0.3)
     form = ff.BilinearForm.volume(
-        lambda u, v, D: h_wf.ddot(h_wf.sym_grad(v), D @ h_wf.sym_grad(u)) * h_wf.dOmega()
+        lambda u, v, D: h_wf.ddot(h_wf.sym_grad(v), h_wf.matmul_std(D, h_wf.sym_grad(u)))
+        * h_wf.dOmega()
     )
     K_expr = space.assemble_bilinear_form(form.get_compiled(), params=D).to_dense()
     K_ref = space.assemble_bilinear_form(ff.linear_elasticity_form, params=D).to_dense()
@@ -84,7 +86,7 @@ def test_weakform_multi_term_matches():
     params = ff.Params(rho=3.0, kappa=2.0)
     form = ff.BilinearForm.volume(
         lambda u, v, p: (
-            p.rho * (u * v)
+            p.rho * h_wf.outer(v, u)
             + p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u))
         ) * h_wf.dOmega()
     )
@@ -103,7 +105,7 @@ def test_weakform_multi_term_operator_matches():
     params = ff.Params(rho=3.0, kappa=2.0)
     form = ff.BilinearForm.volume(
         lambda u, v, p: (
-            p.rho * (u * v) + p.kappa * (v.grad @ u.grad)
+            p.rho * h_wf.outer(v, u) + p.kappa * (v.grad @ u.grad)
         ) * h_wf.dOmega()
     )
     K_expr = space.assemble_bilinear_form(form.get_compiled(), params=params).to_dense()
@@ -118,7 +120,7 @@ def test_weakform_vector_uv_raises():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=3, intorder=2)
 
-    form = ff.BilinearForm.volume(lambda u, v, _p: (u * v) * h_wf.dOmega())
+    form = ff.BilinearForm.volume(lambda u, v, _p: h_wf.outer(v, u) * h_wf.dOmega())
     with pytest.raises(ValueError, match="scalar fields"):
         space.assemble_bilinear_form(form.get_compiled(), params=0.0)
 
@@ -153,7 +155,7 @@ def test_linearform_surface_matches_tensor():
     def traction_form(ctx: ff.SurfaceFormContext, t: np.ndarray) -> np.ndarray:
         return ff.dot(ctx.v, t)
 
-    surface_form = ff.LinearForm.surface(lambda v, p: (v | p) * h_wf.ds())
+    surface_form = ff.LinearForm.surface(lambda v, p: h_wf.dot(v, p) * h_wf.ds())
     F_tensor = surface.assemble_linear_form_on_space(
         space, traction_form, params=traction
     )

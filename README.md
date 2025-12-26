@@ -67,7 +67,7 @@ import fluxfem.helpers_wf as h_wf
 space = ff.make_hex_space(mesh, dim=3, intorder=2)
 D = ff.isotropic_3d_D(1.0, 0.3)
 bilinear_form = ff.BilinearForm.volume(
-    lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
+    lambda u, v, D: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D, u.sym_grad)) * h_wf.dOmega()
 )
 K_wf = space.assemble_bilinear_form(
     bilinear_form.get_compiled(),

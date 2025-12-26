@@ -72,6 +72,7 @@ from .weakform import (
     compile_mixed_residual,
     grad,
     sym_grad,
+    outer,
     dot,
     sdot,
     ddot,
@@ -88,6 +89,7 @@ from .weakform import (
     log,
     transpose_last2,
     matmul,
+    matmul_std,
     einsum,
 )
 from ..mesh import (
@@ -235,6 +237,7 @@ __all__ = [
     "compile_mixed_residual",
     "grad",
     "sym_grad",
+    "outer",
     "dot",
     "sdot",
     "ddot",
@@ -251,6 +254,7 @@ __all__ = [
     "log",
     "transpose_last2",
     "matmul",
+    "matmul_std",
     "einsum",
     "HexMesh",
     "HexMeshPytree",

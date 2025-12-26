@@ -1,6 +1,6 @@
 [project]
 name = "fluxfem"
-version = "0.1.3"
+version = "0.1.4a"
 description = ""
 authors = [
     {name = "Kohei Watanabe",email = "koheitech001@gmail.com"}
@@ -24,7 +24,7 @@ dependencies = [
 
 [tool.poetry]
 name = "fluxfem"
-version = "0.1.3"
+version = "0.1.4a"
 description = "FluxFEM: A weak-form-centric differentiable finite element framework in JAX"
 authors = ["Kohei Watanabe <koheitech001@gmail.com>"]
 readme = "README.md"

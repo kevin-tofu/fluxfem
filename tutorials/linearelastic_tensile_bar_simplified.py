@@ -47,7 +47,8 @@ def main():
     # Bilinear form (weak-form)
     # --------------------
     bilinear_form = ff.BilinearForm.volume(
-        lambda u, v, D_mat: h_wf.ddot(v.sym_grad, D_mat @ u.sym_grad) * h_wf.dOmega()
+        lambda u, v, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
+        * h_wf.dOmega()
     )
     K = space.assemble_bilinear_form(bilinear_form.get_compiled(), params=D)
 

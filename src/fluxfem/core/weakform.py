@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Iterator, Literal
+from typing import Any, Callable, Iterator, Literal, get_args
+import inspect
 
 import numpy as np
 
@@ -14,9 +15,7 @@ from .context_types import FormFieldLike, ParamsLike, SurfaceContext, UElement, 
 
 OpName = Literal[
     "lit",
-    "param",
     "getattr",
-    "field",
     "value",
     "grad",
     "pow",
@@ -46,39 +45,8 @@ OpName = Literal[
     "einsum",
 ]
 
-_OP_NAMES: tuple[str, ...] = (
-    "lit",
-    "param",
-    "getattr",
-    "field",
-    "value",
-    "grad",
-    "pow",
-    "eye",
-    "det",
-    "inv",
-    "transpose",
-    "log",
-    "surface_normal",
-    "surface_measure",
-    "volume_measure",
-    "sym_grad",
-    "outer",
-    "add",
-    "sub",
-    "mul",
-    "matmul",
-    "matmul_std",
-    "neg",
-    "dot",
-    "sdot",
-    "ddot",
-    "inner",
-    "action",
-    "gaction",
-    "transpose_last2",
-    "einsum",
-)
+# Use OpName as the single source of truth for valid ops.
+_OP_NAMES: frozenset[str] = frozenset(get_args(OpName))
 
 
 _PRECEDENCE: dict[str, int] = {
@@ -121,15 +89,6 @@ def _pretty_expr(expr: Expr, parent_prec: int = 0) -> str:
 
     if op == "lit":
         return repr(args[0])
-    if op == "param":
-        return "param"
-    if op == "field":
-        if len(args) == 1 and isinstance(args[0], FieldRef):
-            return _pretty_render_arg(args[0])
-        role, name = args
-        if name is None:
-            return f"{role}"
-        return f"{role}:{name}"
     if op == "getattr":
         base = _pretty_render_arg(args[0], _PRECEDENCE.get("transpose", 50))
         return f"{base}.{args[1]}"
@@ -149,7 +108,7 @@ def _pretty_expr(expr: Expr, parent_prec: int = 0) -> str:
         base = _pretty_render_arg(args[0], _PRECEDENCE["pow"])
         exp = _pretty_render_arg(args[1], _PRECEDENCE["pow"] + 1)
         return _pretty_wrap(f"{base}**{exp}", _PRECEDENCE["pow"], parent_prec)
-    if op in {"add", "sub", "mul", "matmul", "inner", "dot", "sdot", "ddot", "matmul_std"}:
+    if op in {"add", "sub", "mul", "matmul", "dot", "sdot", "ddot"}:
         left = _pretty_render_arg(args[0], _PRECEDENCE[op])
         right = _pretty_render_arg(args[1], _PRECEDENCE[op] + 1)
         symbol = {
@@ -157,7 +116,6 @@ def _pretty_expr(expr: Expr, parent_prec: int = 0) -> str:
             "sub": "-",
             "mul": "*",
             "matmul": "@",
-            "matmul_std": "@",
             "inner": "|",
             "dot": "dot",
             "sdot": "sdot",
@@ -168,8 +126,14 @@ def _pretty_expr(expr: Expr, parent_prec: int = 0) -> str:
         else:
             text = f"{left} {symbol} {right}"
         return _pretty_wrap(text, _PRECEDENCE[op], parent_prec)
+    if op == "inner":
+        return f"inner({_pretty_render_arg(args[0])}, {_pretty_render_arg(args[1])})"
     if op in {"action", "gaction"}:
         return f"{op}({_pretty_render_arg(args[0])}, {_pretty_render_arg(args[1])})"
+    if op == "matmul_std":
+        return f"matmul_std({_pretty_render_arg(args[0])}, {_pretty_render_arg(args[1])})"
+    if op == "outer":
+        return f"outer({_pretty_render_arg(args[0])}, {_pretty_render_arg(args[1])})"
     if op in {
         "eye",
         "det",
@@ -209,7 +173,7 @@ def _as_expr(obj) -> Expr | FieldRef | ParamRef:
         return Expr("lit", obj)
     raise TypeError(
         "Expr literal must be a scalar or hashable tuple. "
-        "Arrays are not allowed; use ParamRef/FieldRef."
+        "Arrays are not allowed; pass them via params (ParamRef/params.xxx)."
     )
 
 
@@ -295,7 +259,7 @@ class Expr:
         return Expr("mul", _as_expr(other), self)
 
     def __matmul__(self, other):
-        """Matrix product: `a @ b` (special contraction semantics)."""
+        """Matrix product: `a @ b` (FEM-specific contraction semantics)."""
         return self._binop(other, "matmul")
 
     def __rmatmul__(self, other):
@@ -303,11 +267,15 @@ class Expr:
         return Expr("matmul", _as_expr(other), self)
 
     def __or__(self, other):
-        """Inner-like product: `a | b`."""
-        return self._binop(other, "inner")
+        """Tensor inner product: `a | b` (use .val/.grad for FieldRef)."""
+        if isinstance(other, FieldRef):
+            raise TypeError("FieldRef | FieldRef is not supported; use outer(test, trial).")
+        return Expr("inner", self, _as_expr(other))
 
     def __ror__(self, other):
-        """Right-`|`: `left | expr`."""
+        """Tensor inner product: `a | b` (use .val/.grad for FieldRef)."""
+        if isinstance(other, FieldRef):
+            raise TypeError("FieldRef | FieldRef is not supported; use outer(test, trial).")
         return Expr("inner", _as_expr(other), self)
 
     def __pow__(self, power, modulo=None):
@@ -353,12 +321,18 @@ class FieldRef:
 
     def __mul__(self, other):
         if isinstance(other, FieldRef):
-            return Expr("outer", self, other)
+            raise TypeError(
+                "FieldRef * FieldRef is ambiguous; use outer(v, u) (test, trial), "
+                "action(v, s), or dot(v, q)."
+            )
         return Expr("mul", Expr("value", self), _as_expr(other))
 
     def __rmul__(self, other):
         if isinstance(other, FieldRef):
-            return Expr("outer", other, self)
+            raise TypeError(
+                "FieldRef * FieldRef is ambiguous; use outer(v, u) (test, trial), "
+                "action(v, s), or dot(v, q)."
+            )
         return Expr("mul", _as_expr(other), Expr("value", self))
 
     def __add__(self, other):
@@ -375,13 +349,17 @@ class FieldRef:
 
     def __or__(self, other):
         if isinstance(other, FieldRef):
-            return Expr("inner", self, other)
-        return Expr("sdot", self, _as_expr(other))
+            raise TypeError(
+                "FieldRef | FieldRef is not supported; use outer(test, trial) for basis kernels."
+            )
+        return Expr("dot", self, _as_expr(other))
 
     def __ror__(self, other):
         if isinstance(other, FieldRef):
-            return Expr("inner", other, self)
-        return Expr("sdot", _as_expr(other), self)
+            raise TypeError(
+                "FieldRef | FieldRef is not supported; use outer(test, trial) for basis kernels."
+            )
+        return Expr("dot", _as_expr(other), self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,7 +416,11 @@ def param_ref() -> ParamRef:
     return ParamRef()
 
 
-def _eval_field(obj: Any, ctx, params: ParamsLike) -> FormFieldLike:
+def _eval_field(
+    obj: Any,
+    ctx: VolumeContext | SurfaceContext,
+    params: ParamsLike,
+) -> FormFieldLike:
     if isinstance(obj, FieldRef):
         if obj.name is not None:
             mixed_fields = getattr(ctx, "fields", None)
@@ -506,6 +488,16 @@ def _extract_unknown_elem(field_ref: FieldRef, u_elem: UElement):
     return u_elem
 
 
+def _basis_outer(test: FieldRef, trial: FieldRef, ctx, params):
+    v_field = _eval_field(test, ctx, params)
+    u_field = _eval_field(trial, ctx, params)
+    if getattr(v_field, "value_dim", 1) != 1 or getattr(u_field, "value_dim", 1) != 1:
+        raise ValueError(
+            "inner/outer is only defined for scalar fields; use dot/action/einsum for vector/tensor cases."
+        )
+    return jnp.einsum("qi,qj->qij", v_field.N, u_field.N)
+
+
 def _eval_unknown_value(field_ref: FieldRef, field: FormFieldLike, u_elem: UElement):
     u_local = _extract_unknown_elem(field_ref, u_elem)
     value_dim = int(getattr(field, "value_dim", 1))
@@ -536,6 +528,15 @@ def sym_grad(field) -> Expr:
     return Expr("sym_grad", _as_expr(field))
 
 
+def outer(a, b) -> Expr:
+    """Outer product of scalar fields: `outer(v, u)` (test, trial)."""
+    if not isinstance(a, FieldRef) or not isinstance(b, FieldRef):
+        raise TypeError("outer expects FieldRef operands.")
+    if a.role != "test" or b.role != "trial":
+        raise TypeError("outer expects outer(test, trial).")
+    return Expr("outer", a, b)
+
+
 def dot(a, b) -> Expr:
     """Dot product or vector load helper."""
     return Expr("dot", _as_expr(a), _as_expr(b))
@@ -554,7 +555,7 @@ def ddot(a, b, c=None) -> Expr:
 
 
 def inner(a, b) -> Expr:
-    """Inner product over the last axis."""
+    """Inner product over the last axis (tensor-level)."""
     return Expr("inner", _as_expr(a), _as_expr(b))
 
 
@@ -614,7 +615,12 @@ def transpose_last2(a) -> Expr:
 
 
 def matmul(a, b) -> Expr:
-    """Matrix product with standard semantics (no special 3D contraction)."""
+    """FEM-specific batched contraction (same semantics as `@`)."""
+    return Expr("matmul", _as_expr(a), _as_expr(b))
+
+
+def matmul_std(a, b) -> Expr:
+    """Standard matrix product (`jnp.matmul` semantics)."""
     return Expr("matmul_std", _as_expr(a), _as_expr(b))
 
 
@@ -625,9 +631,22 @@ def einsum(subscripts: str, *args) -> Expr:
 
 def _call_user(fn, *args, params):
     try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
         return fn(*args, params)
-    except TypeError:
-        return fn(*args)
+
+    params_list = list(sig.parameters.values())
+    if any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params_list):
+        return fn(*args, params)
+    positional = [
+        p
+        for p in params_list
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    max_positional = len(positional)
+    if len(args) + 1 <= max_positional:
+        return fn(*args, params)
+    return fn(*args)
 
 
 def compile_bilinear(fn):
@@ -638,10 +657,7 @@ def compile_bilinear(fn):
         u = trial_ref()
         v = test_ref()
         p = param_ref()
-        try:
-            expr = fn(u, v, p)
-        except TypeError:
-            expr = fn(u, v)
+        expr = _call_user(fn, u, v, params=p)
     expr = _as_expr(expr)
     if not isinstance(expr, Expr):
         raise TypeError("Bilinear form must return an Expr.")
@@ -671,10 +687,7 @@ def compile_linear(fn):
     else:
         v = test_ref()
         p = param_ref()
-        try:
-            expr = fn(v, p)
-        except TypeError:
-            expr = fn(v)
+        expr = _call_user(fn, v, params=p)
     expr = _as_expr(expr)
     if not isinstance(expr, Expr):
         raise TypeError("Linear form must return an Expr.")
@@ -719,28 +732,57 @@ def _count_op(expr: Expr, op: str) -> int:
 class EvalPlan:
     expr: Expr
     nodes: tuple[Expr, ...]
-    index: dict[Expr, int]
+    index: dict[int, int]
 
 
 def _validate_eval_plan(nodes: tuple[Expr, ...]) -> None:
+    fieldref_arg_ops = {
+        "value",
+        "grad",
+        "sym_grad",
+        "dot",
+        "sdot",
+        "action",
+        "gaction",
+        "outer",
+    }
     for node in nodes:
         op = node.op
         args = node.args
+        if op not in fieldref_arg_ops:
+            if any(isinstance(arg, FieldRef) for arg in args):
+                raise TypeError(f"{op} cannot take FieldRef directly; wrap with .val/.grad/.sym_grad.")
         if op in {"value", "grad", "sym_grad"}:
             if len(args) != 1 or not isinstance(args[0], FieldRef):
                 raise TypeError(f"{op} expects FieldRef.")
-        if op in {"dot", "sdot", "action", "gaction"}:
+        elif op in {"dot", "sdot"}:
+            if len(args) != 2:
+                raise TypeError(f"{op} expects two arguments.")
+            if any(isinstance(arg, FieldRef) for arg in args):
+                if not isinstance(args[0], FieldRef):
+                    raise TypeError(f"{op} expects FieldRef as the first argument.")
+                if isinstance(args[1], FieldRef):
+                    raise TypeError(f"{op} expects an expression for the second argument; use .val/.grad.")
+        elif op in {"action", "gaction"}:
             if len(args) != 2 or not isinstance(args[0], FieldRef):
                 raise TypeError(f"{op} expects FieldRef as the first argument.")
-        if op == "action":
-            if len(args) > 1 and isinstance(args[1], FieldRef):
-                raise TypeError("action expects a scalar expression; use u.val for unknowns.")
+            if op == "action" and isinstance(args[1], FieldRef):
+                raise ValueError("action expects a scalar expression; use u.val for unknowns.")
+            if op == "gaction" and isinstance(args[1], FieldRef):
+                raise TypeError("gaction expects an expression for the second argument; use .grad.")
+        elif op == "outer":
+            if len(args) != 2 or not all(isinstance(arg, FieldRef) for arg in args):
+                raise TypeError("outer expects two FieldRef operands.")
+            if args[0].role != "test" or args[1].role != "trial":
+                raise TypeError("outer expects outer(test, trial).")
 
 
 def make_eval_plan(expr: Expr) -> EvalPlan:
     nodes = tuple(expr.postorder_expr())
     _validate_eval_plan(nodes)
-    index = {node: i for i, node in enumerate(nodes)}
+    index: dict[int, int] = {}
+    for i, node in enumerate(nodes):
+        index.setdefault(id(node), i)
     return EvalPlan(expr=expr, nodes=nodes, index=index)
 
 
@@ -753,28 +795,24 @@ def eval_with_plan(
     nodes = plan.nodes
     index = plan.index
     vals: list[Any] = [None] * len(nodes)
+
     def get(obj):
         if isinstance(obj, Expr):
-            return vals[index[obj]]
+            return vals[index[id(obj)]]
         if isinstance(obj, FieldRef):
-            field = _eval_field(obj, ctx, params)
-            if obj.role == "unknown":
-                return _eval_unknown_value(obj, field, u_elem)
-            return field.N
+            raise TypeError(
+                "FieldRef must be wrapped with .val/.grad/.sym_grad or used as the first arg of dot/action."
+            )
         if isinstance(obj, ParamRef):
             return params
         return obj
 
-    for node in nodes:
+    for i, node in enumerate(nodes):
         op = node.op
         args = node.args
-        i = index[node]
 
         if op == "lit":
             vals[i] = args[0]
-            continue
-        if op == "param":
-            vals[i] = params
             continue
         if op == "getattr":
             base = get(args[0])
@@ -784,17 +822,9 @@ def eval_with_plan(
             else:
                 vals[i] = getattr(base, name)
             continue
-        if op == "field":
-            if len(args) == 1 and isinstance(args[0], FieldRef):
-                vals[i] = _eval_field(args[0], ctx, params)
-            else:
-                role, name = args
-                vals[i] = _eval_field(FieldRef(role=role, name=name), ctx, params)
-            continue
         if op == "value":
             ref = args[0]
-            if not isinstance(ref, FieldRef):
-                raise TypeError("value expects FieldRef.")
+            assert isinstance(ref, FieldRef)
             field = _eval_field(ref, ctx, params)
             if ref.role == "unknown":
                 vals[i] = _eval_unknown_value(ref, field, u_elem)
@@ -803,8 +833,7 @@ def eval_with_plan(
             continue
         if op == "grad":
             ref = args[0]
-            if not isinstance(ref, FieldRef):
-                raise TypeError("grad expects FieldRef.")
+            assert isinstance(ref, FieldRef)
             field = _eval_field(ref, ctx, params)
             if ref.role == "unknown":
                 vals[i] = _eval_unknown_grad(ref, field, u_elem)
@@ -838,19 +867,18 @@ def eval_with_plan(
             vals[i] = normal
             continue
         if op == "surface_measure":
-            if not isinstance(ctx, SurfaceContext):
+            if not hasattr(ctx, "w") or not hasattr(ctx, "detJ"):
                 raise TypeError("surface measure requires SurfaceContext.")
             vals[i] = ctx.w * ctx.detJ
             continue
         if op == "volume_measure":
-            if not isinstance(ctx, VolumeContext):
+            if not hasattr(ctx, "w") or not hasattr(ctx, "test"):
                 raise TypeError("volume measure requires VolumeContext.")
             vals[i] = ctx.w * ctx.test.detJ
             continue
         if op == "sym_grad":
             ref = args[0]
-            if not isinstance(ref, FieldRef):
-                raise TypeError("sym_grad expects FieldRef.")
+            assert isinstance(ref, FieldRef)
             field = _eval_field(ref, ctx, params)
             if ref.role == "unknown":
                 if u_elem is None:
@@ -864,17 +892,8 @@ def eval_with_plan(
             a, b = args
             if not isinstance(a, FieldRef) or not isinstance(b, FieldRef):
                 raise TypeError("outer expects FieldRef operands.")
-            if a.role == b.role:
-                raise ValueError("outer requires one trial and one test field.")
-            test = a if a.role == "test" else b
-            trial = b if a.role == "test" else a
-            v_field = _eval_field(test, ctx, params)
-            u_field = _eval_field(trial, ctx, params)
-            if getattr(v_field, "value_dim", 1) != 1 or getattr(u_field, "value_dim", 1) != 1:
-                raise ValueError("u*v is only defined for scalar fields; use dot/inner for vectors.")
-            vN = v_field.N
-            uN = u_field.N
-            vals[i] = jnp.einsum("qi,qj->qij", vN, uN)
+            test, trial = a, b
+            vals[i] = _basis_outer(test, trial, ctx, params)
             continue
         if op == "add":
             vals[i] = get(args[0]) + get(args[1])
@@ -909,7 +928,9 @@ def eval_with_plan(
             ):
                 vals[i] = jnp.einsum("qia,qja->qij", a, b)
             else:
-                vals[i] = a @ b
+                raise TypeError(
+                    "Expr '@' (matmul) is FEM-specific; use matmul_std(a, b) for standard matmul."
+                )
             continue
         if op == "matmul_std":
             a = get(args[0])
@@ -921,15 +942,39 @@ def eval_with_plan(
             continue
         if op == "dot":
             ref = args[0]
-            if not isinstance(ref, FieldRef):
-                raise TypeError("dot expects FieldRef as the first argument.")
-            vals[i] = _ops.dot(_eval_field(ref, ctx, params), get(args[1]))
+            if isinstance(ref, FieldRef):
+                vals[i] = _ops.dot(_eval_field(ref, ctx, params), get(args[1]))
+            else:
+                a = get(args[0])
+                b = get(args[1])
+                if (
+                    hasattr(a, "ndim")
+                    and hasattr(b, "ndim")
+                    and a.ndim == 3
+                    and b.ndim == 3
+                    and a.shape[-1] == b.shape[-1]
+                ):
+                    vals[i] = jnp.einsum("qia,qja->qij", a, b)
+                else:
+                    vals[i] = jnp.matmul(a, b)
             continue
         if op == "sdot":
             ref = args[0]
-            if not isinstance(ref, FieldRef):
-                raise TypeError("sdot expects FieldRef as the first argument.")
-            vals[i] = _ops.dot(_eval_field(ref, ctx, params), get(args[1]))
+            if isinstance(ref, FieldRef):
+                vals[i] = _ops.dot(_eval_field(ref, ctx, params), get(args[1]))
+            else:
+                a = get(args[0])
+                b = get(args[1])
+                if (
+                    hasattr(a, "ndim")
+                    and hasattr(b, "ndim")
+                    and a.ndim == 3
+                    and b.ndim == 3
+                    and a.shape[-1] == b.shape[-1]
+                ):
+                    vals[i] = jnp.einsum("qia,qja->qij", a, b)
+                else:
+                    vals[i] = jnp.matmul(a, b)
             continue
         if op == "ddot":
             if len(args) == 2:
@@ -956,8 +1001,7 @@ def eval_with_plan(
             continue
         if op == "action":
             ref = args[0]
-            if not isinstance(ref, FieldRef):
-                raise TypeError("action expects FieldRef as the first argument.")
+            assert isinstance(ref, FieldRef)
             if isinstance(args[1], FieldRef):
                 raise ValueError("action expects a scalar expression; use u.val for unknowns.")
             v_field = _eval_field(ref, ctx, params)
@@ -977,8 +1021,7 @@ def eval_with_plan(
             continue
         if op == "gaction":
             ref = args[0]
-            if not isinstance(ref, FieldRef):
-                raise TypeError("gaction expects FieldRef as the first argument.")
+            assert isinstance(ref, FieldRef)
             v_field = _eval_field(ref, ctx, params)
             q = get(args[1])
             # gaction maps a flux-like expression to nodal space via test gradients.
@@ -1006,7 +1049,7 @@ def eval_with_plan(
 
         raise ValueError(f"Unknown Expr op: {op}")
 
-    return vals[index[plan.expr]]
+    return vals[index[id(plan.expr)]]
 
 
 def compile_surface_linear(fn):
@@ -1016,14 +1059,7 @@ def compile_surface_linear(fn):
     else:
         v = test_ref()
         p = param_ref()
-        expr = None
-        try:
-            expr = fn(v, p)
-        except TypeError:
-            try:
-                expr = fn(v)
-            except TypeError:
-                expr = None
+        expr = _call_user(fn, v, params=p)
 
     expr = _as_expr(expr)
     if not isinstance(expr, Expr):
@@ -1107,10 +1143,7 @@ def compile_residual(fn):
         v = test_ref()
         u = unknown_ref()
         p = param_ref()
-        try:
-            expr = fn(v, u, p)
-        except TypeError:
-            expr = fn(v, u)
+        expr = _call_user(fn, v, u, params=p)
     expr = _as_expr(expr)
     if not isinstance(expr, Expr):
         raise TypeError("Residual form must return an Expr.")
@@ -1145,10 +1178,7 @@ def compile_mixed_residual(residuals: dict[str, Callable]):
             v = test_ref(name)
             u = unknown_ref(name)
             p = param_ref()
-            try:
-                expr = fn(v, u, p)
-            except TypeError:
-                expr = fn(v, u)
+            expr = _call_user(fn, v, u, params=p)
         expr = _as_expr(expr)
         if not isinstance(expr, Expr):
             raise TypeError(f"Mixed residual '{name}' must return an Expr.")
@@ -1210,6 +1240,7 @@ __all__ = [
     "compile_mixed_residual",
     "grad",
     "sym_grad",
+    "outer",
     "dot",
     "ddot",
     "inner",
@@ -1222,5 +1253,6 @@ __all__ = [
     "log",
     "transpose_last2",
     "matmul",
+    "matmul_std",
     "einsum",
 ]
