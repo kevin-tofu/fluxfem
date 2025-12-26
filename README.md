@@ -42,6 +42,23 @@ The first approach offers simplicity and convenience, as mathematical expression
 However, for more complex operations, the second approach can be easier to implement in practice.
 This is because the weak-form-based assembly is ultimately transformed into the tensor-based representation internally during computation.
 
+## Weak Form Compile Flow
+Weak-form expressions are compiled into an evaluation plan and then executed per element.
+
+```mermaid
+flowchart LR
+    A[User weak form lambda] --> B[Expr tree]
+    B --> C[compile_*]
+    C --> D[EvalPlan (postorder nodes + index)]
+    D --> E[eval_with_plan per element]
+    E --> F[Element kernel outputs]
+```
+
+Notes:
+- `compile_*` normalizes outputs into `Expr` and creates an `EvalPlan`.
+- `EvalPlan` is reused across elements; only `ctx/params/u_elem` change.
+- `Expr.eval` is a debug/single-shot path; compiled evaluators are the fast path.
+
 ### weak-form-based assembly
 ```Python
 import fluxfem as ff

@@ -1,4 +1,5 @@
 from .forms import FormContext, MixedFormContext, FieldPair, ElementVector, vector_load_form
+from .context_types import VolumeContext, SurfaceContext
 from .space import (
     FESpaceBase,
     FESpace,
@@ -162,6 +163,10 @@ __all__ = [
     "FESpacePytree",
     "FormContext",
     "MixedFormContext",
+    "VolumeContext",
+    "SurfaceContext",
+    "VolumeContext",
+    "SurfaceContext",
     "FieldPair",
     "ElementVector",
     "vector_load_form",
