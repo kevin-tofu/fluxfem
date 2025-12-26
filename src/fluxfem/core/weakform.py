@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import jax
 
 from ..physics import operators as _ops
-from .context_types import SurfaceContext, VolumeContext
+from .context_types import FormFieldLike, ParamsLike, SurfaceContext, UElement, VolumeContext
 
 
 OpName = Literal[
@@ -438,7 +438,7 @@ def param_ref() -> ParamRef:
     return ParamRef()
 
 
-def _eval_field(obj: Any, ctx, params):
+def _eval_field(obj: Any, ctx, params: ParamsLike) -> FormFieldLike:
     if isinstance(obj, FieldRef):
         if obj.name is not None:
             mixed_fields = getattr(ctx, "fields", None)
@@ -499,7 +499,7 @@ def _eval_field(obj: Any, ctx, params):
 #     return obj
 
 
-def _extract_unknown_elem(field_ref: FieldRef, u_elem):
+def _extract_unknown_elem(field_ref: FieldRef, u_elem: UElement):
     if u_elem is None:
         raise ValueError("u_elem is required to evaluate unknown field value.")
     if isinstance(u_elem, dict):
@@ -510,7 +510,7 @@ def _extract_unknown_elem(field_ref: FieldRef, u_elem):
     return u_elem
 
 
-def _eval_unknown_value(field_ref: FieldRef, field, u_elem):
+def _eval_unknown_value(field_ref: FieldRef, field: FormFieldLike, u_elem: UElement):
     u_local = _extract_unknown_elem(field_ref, u_elem)
     value_dim = int(getattr(field, "value_dim", 1))
     if value_dim == 1:
@@ -519,7 +519,7 @@ def _eval_unknown_value(field_ref: FieldRef, field, u_elem):
     return jnp.einsum("qa,ai->qi", field.N, u_nodes)
 
 
-def _eval_unknown_grad(field_ref: FieldRef, field, u_elem):
+def _eval_unknown_grad(field_ref: FieldRef, field: FormFieldLike, u_elem: UElement):
     u_local = _extract_unknown_elem(field_ref, u_elem)
     if u_local is None:
         raise ValueError("u_elem is required to evaluate unknown field gradient.")
@@ -732,7 +732,12 @@ def make_eval_plan(expr: Expr) -> EvalPlan:
     return EvalPlan(expr=expr, nodes=nodes, index=index)
 
 
-def eval_with_plan(plan: EvalPlan, ctx: VolumeContext | SurfaceContext, params, u_elem=None):
+def eval_with_plan(
+    plan: EvalPlan,
+    ctx: VolumeContext | SurfaceContext,
+    params: ParamsLike,
+    u_elem: UElement | None = None,
+):
     nodes = plan.nodes
     index = plan.index
     vals: list[Any] = [None] * len(nodes)
@@ -1172,7 +1177,12 @@ class MixedWeakForm:
         return compile_mixed_residual(self.residuals)
 
 
-def _eval_expr(expr: Expr, ctx: VolumeContext | SurfaceContext, params, u_elem=None):
+def _eval_expr(
+    expr: Expr,
+    ctx: VolumeContext | SurfaceContext,
+    params: ParamsLike,
+    u_elem: UElement | None = None,
+):
     plan = make_eval_plan(expr)
     return eval_with_plan(plan, ctx, params, u_elem=u_elem)
 

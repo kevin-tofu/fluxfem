@@ -33,3 +33,4 @@ class FormFieldLike(Protocol):
 
 
 UElement: TypeAlias = Any
+ParamsLike: TypeAlias = Any
