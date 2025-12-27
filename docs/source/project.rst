@@ -6,5 +6,5 @@ Project
    :caption: Project
 
    concept
-   tutorial
    installation
+   tutorial
