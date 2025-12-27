@@ -2,7 +2,7 @@ Linear Elasticity: Tensile Bar (Simplified)
 ===========================================
 
 This tutorial walks through the minimal tensile-bar example in
-`tutorials/linearelastic_tensile_bar_simplified.py` and explains the weak form,
+``tutorials/linearelastic_tensile_bar_simplified.py`` and explains the weak form,
 assembly, and boundary conditions with the key equations.
 
 Run the example
@@ -17,26 +17,26 @@ Problem statement
 
 We solve a small-strain linear elasticity problem on a 3D bar:
 
-- Unknown displacement field: `u`
-- Test function: `v`
-- Material: isotropic, given by `D(E, nu)`
+- Unknown displacement field: ``u``
+- Test function: ``v``
+- Material: isotropic, given by ``D(E, nu)``
 - Boundary conditions:
-  - Dirichlet (clamped) on `x = xmin`
-  - Uniform traction on `x = xmax` along `+x`
+  - Dirichlet (clamped) on ``x = xmin``
+  - Uniform traction on ``x = xmax`` along ``+x``
 
 Weak form
 ^^^^^^^^^
 
-Find `u` such that for all `v`:
+Find ``u`` such that for all ``v``:
 
 .. math::
 
    \int_{\Omega} \varepsilon(v) : D : \varepsilon(u)\, d\Omega
    = \int_{\Gamma_t} v \cdot t \, ds
 
-where `\varepsilon(u) = sym(grad(u))`.
+where :math:`\varepsilon(u) = \tfrac{1}{2}(\nabla u + \nabla u^T)`.
 
-In this example, `t = (traction, 0, 0)` is applied on `x = xmax`.
+In this example, ``t = (traction, 0, 0)`` is applied on ``x = xmax``.
 
 Implementation flow (FluxFEM)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -52,7 +52,7 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
    space = ff.make_hex_space(mesh, dim=3, intorder=intorder)
 
 2) Assemble the bilinear form (weak form)
-"""""""""""""""""""""""""""""
+"""""""""""""""""""""""""""""""""""""""""
 
 .. math::
 
@@ -69,7 +69,7 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
    K = space.assemble_bilinear_form(bilinear_form.get_compiled(), params=D)
 
 3) Assemble the surface traction
-"""""""""""""""""""""""
+""""""""""""""""""""""""""""""""
 
 .. math::
 
@@ -84,9 +84,9 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
    )
 
 4) Apply Dirichlet clamp
-"""""""""""""""""""""""
+""""""""""""""""""""""""
 
-The clamp fixes all components on the `x = xmin` face:
+The clamp fixes all components on the ``x = xmin`` face:
 
 .. code-block:: python
 
@@ -96,7 +96,7 @@ The clamp fixes all components on the `x = xmin` face:
    )
 
 5) Solve the linear system
-"""""""""""""""""""""""
+""""""""""""""""""""""""""
 
 .. code-block:: python
 
@@ -105,5 +105,5 @@ The clamp fixes all components on the `x = xmin` face:
        K, F, dirichlet=(dir_dofs, None), dirichlet_mode="condense"
    )
 
-The script also prints the maximum axial displacement at `x = xmax` and compares
-it with the 1D bar theory `u_x(L) = traction * L / E`.
+The script also prints the maximum axial displacement at ``x = xmax`` and compares
+it with the 1D bar theory ``u_x(L) = traction * L / E``.

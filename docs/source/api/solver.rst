@@ -1,79 +1,44 @@
 Solver
 ======
 
-.. automodule:: fluxfem.solver
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-BC
---
-
-.. automodule:: fluxfem.solver.bc
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Conjugate Gradient
-------------------
-
-.. automodule:: fluxfem.solver.cg
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Dirichlet
----------
-
-.. automodule:: fluxfem.solver.dirichlet
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-History
+Solvers
 -------
 
-.. automodule:: fluxfem.solver.history
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: fluxfem.solver.LinearSolver
+.. autoclass:: fluxfem.solver.NonlinearSolver
 
-Newton
-------
+.. autoclass:: fluxfem.solver.LinearAnalysis
+.. autoclass:: fluxfem.solver.NonlinearAnalysis
+.. autoclass:: fluxfem.solver.LinearSolveRunner
+.. autoclass:: fluxfem.solver.NewtonSolveRunner
 
-.. automodule:: fluxfem.solver.newton
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Result
-------
-
-.. automodule:: fluxfem.solver.result
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Solve Runner
-------------
-
-.. automodule:: fluxfem.solver.solve_runner
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: fluxfem.solver.LinearSolveConfig
+.. autoclass:: fluxfem.solver.NewtonLoopConfig
 
 Sparse
 ------
 
-.. automodule:: fluxfem.solver.sparse
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: fluxfem.solver.SparsityPattern
+.. autoclass:: fluxfem.solver.FluxSparseMatrix
 
-Solver Base
------------
+Dirichlet
+---------
 
-.. automodule:: fluxfem.solver.solver
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autofunction:: fluxfem.solver.enforce_dirichlet_dense
+.. autofunction:: fluxfem.solver.enforce_dirichlet_sparse
+.. autofunction:: fluxfem.solver.free_dofs
+.. autofunction:: fluxfem.solver.condense_dirichlet_fluxsparse
+.. autofunction:: fluxfem.solver.condense_dirichlet_dense
+.. autofunction:: fluxfem.solver.expand_dirichlet_solution
+
+Iterative
+---------
+
+.. autofunction:: fluxfem.solver.cg_solve
+.. autofunction:: fluxfem.solver.cg_solve_jax
+
+Nonlinear
+---------
+
+.. autofunction:: fluxfem.solver.newton_solve
+.. autofunction:: fluxfem.solver.solve_nonlinear

@@ -3,6 +3,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, TypeAlias
 
 from .basis import Basis3D
 
@@ -119,7 +120,10 @@ class VectorFormField:
         return cls(N, elem_coords, aux["basis"], aux["value_dim"], gradN, detJ)
 
 
-FormFieldLike = ScalarFormField | VectorFormField
+if TYPE_CHECKING:
+    FormFieldLike: TypeAlias = ScalarFormField | VectorFormField
+else:
+    FormFieldLike = object
 
 
 def vector_load_form(field: FormFieldLike, load_vec: jnp.ndarray) -> jnp.ndarray:
