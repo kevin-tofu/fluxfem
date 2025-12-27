@@ -3,11 +3,19 @@ Tutorial
 
 This section contains tutorials for fluxfem.
 
-Linear Elasticity: Weak Form to Implementation
-----------------------------------------------
+Linear Elasticity: Tensile Bar (Simplified)
+-------------------------------------------
 
-This section documents how the weak form used in
-``tutorials/linearelastic_tensile_bar.py`` maps to the fluxfem implementation.
+This tutorial walks through the minimal tensile-bar example in
+``tutorials/linearelastic_tensile_bar_simplified.py`` and explains the weak form,
+assembly, and boundary conditions with the key equations.
+
+Run the example
+^^^^^^^^^^^^^^^
+
+.. code-block:: bash
+
+   python tutorials/linearelastic_tensile_bar_simplified.py
 
 Problem statement
 ^^^^^^^^^^^^^^^^^
@@ -18,8 +26,8 @@ We solve a small-strain linear elasticity problem on a 3D bar:
 - Test function: ``v``
 - Material: isotropic, given by ``D(E, nu)``
 - Boundary conditions:
-  - Dirichlet (clamped) on ``x = 0``
-  - Traction on ``x = L``
+  - Dirichlet (clamped) on ``x = xmin``
+  - Uniform traction on ``x = xmax`` along ``+x``
 
 Weak form
 ^^^^^^^^^
@@ -33,10 +41,23 @@ Find ``u`` such that for all ``v``:
 
 where ``\varepsilon(u) = sym(grad(u))``.
 
-Implementation mapping (fluxfem)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+In this example, ``t = (traction, 0, 0)`` is applied on ``x = xmax``.
 
-weak-form-based assembly:
+Implementation flow (FluxFEM)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1) Build mesh and space
+"""""""""""""""""""""""
+
+The script builds a structured hexahedral mesh and creates a vector-valued FEM space:
+
+.. code-block:: python
+
+   mesh = ff.StructuredHexBox(nx=nx, ny=ny, nz=nz, lx=lx, ly=ly, lz=lz).build()
+   space = ff.make_hex_space(mesh, dim=3, intorder=intorder)
+
+2) Assemble the bilinear form (weak form)
+"""""""""""""""""""""""""""""
 
 .. math::
 
@@ -47,36 +68,13 @@ weak-form-based assembly:
    import fluxfem.helpers_wf as h_wf
 
    bilinear_form = ff.BilinearForm.volume(
-       lambda u, v, D: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D, u.sym_grad)) * h_wf.dOmega()
+       lambda u, v, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
+       * h_wf.dOmega()
    )
-   K_wf = space.assemble_bilinear_form(bilinear_form.bilinear_form(), params=D)
+   K = space.assemble_bilinear_form(bilinear_form.get_compiled(), params=D)
 
-
-tensor-based assembly (scikit-fem-style):
-
-.. math::
-
-   K = \int_{\Omega} B_v^{\mathsf{T}}\, D\, B_u \, d\Omega,\quad
-   B_u = sym(\nabla u),\; B_v = sym(\nabla v)
-
-.. math::
-
-   K \approx \sum_{e} \sum_{q} w_q\,
-   B_v(x_q)^{\mathsf{T}} D B_u(x_q)\, \left|J_e(x_q)\right|
-
-.. code-block:: python
-
-   import fluxfem.helpers_ts as h_ts
-
-   def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray:
-       Bu = h_ts.sym_grad(ctx.u)
-       Bv = h_ts.sym_grad(ctx.v)
-       return h_ts.ddot(Bv, D, Bu)
-
-   K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
-
-
-Surface traction (weak-form-based assembly):
+3) Assemble the surface traction
+"""""""""""""""""""""""
 
 .. math::
 
@@ -84,37 +82,16 @@ Surface traction (weak-form-based assembly):
 
 .. code-block:: python
 
-    import fluxfem.helpers_wf as h_wf
+   surface_form = ff.LinearForm.surface(lambda v, p: (v | p) * h_wf.ds())
+   traction_vec = np.array([traction, 0.0, 0.0], dtype=float)
+   F = surface.assemble_linear_form_on_space(
+       space, surface_form.get_compiled(), params=traction_vec
+   )
 
-    surface_form = ff.LinearForm.surface(
-        lambda v, p: (v | p) * h_wf.ds()
-    )
-    F_wf = surface.assemble_linear_form_on_space(
-        space, surface_form.linear_form(), params=traction_vec
-    )
+4) Apply Dirichlet clamp
+"""""""""""""""""""""""
 
-
-Surface traction (tensor-based assembly):
-
-.. math::
-
-   \ell(v) = \int_{\Gamma_t} v \cdot t \, ds
-
-.. code-block:: python
-
-    import fluxfem.helpers_ts as h_ts
-
-    def surface_traction_form(
-       ctx: ff.SurfaceFormContext, traction_vec: np.ndarray
-    ) -> np.ndarray:
-       return h_ts.dot(ctx.v, traction_vec)
-
-    F_tensor = surface.assemble_linear_form_on_space(
-       space, surface_traction_form, params=traction_vec
-    )
-
-
-Dirichlet clamp:
+The clamp fixes all components on the ``x = xmin`` face:
 
 .. code-block:: python
 
@@ -123,6 +100,15 @@ Dirichlet clamp:
        components="xyz",
    )
 
-   u, _ = ff.LinearSolver(method="spsolve").solve(
+5) Solve the linear system
+"""""""""""""""""""""""
+
+.. code-block:: python
+
+   solver = ff.LinearSolver(method="spsolve")
+   u, _ = solver.solve(
        K, F, dirichlet=(dir_dofs, None), dirichlet_mode="condense"
    )
+
+The script also prints the maximum axial displacement at ``x = xmax`` and compares
+it with the 1D bar theory ``u_x(L) = traction * L / E``.
