@@ -6,5 +6,6 @@ fluxfem Documentation
    :caption: Contents
 
    project
+   tutorial
    usage
    api

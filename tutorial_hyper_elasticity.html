@@ -1,0 +1,254 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hyper-Elasticity: Hyperelastic Cantilever &mdash; fluxfem 0.1.1b documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial_hyper_elasticity.html" />
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a9b42864"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Usage" href="usage.html" />
+    <link rel="prev" title="Linear Elasticity: Tensile Bar (Simplified)" href="tutorial_linear_elasticity.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            fluxfem
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="project.html">Project</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="tutorial.html">Tutorial</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar (Simplified)</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Hyper-Elasticity: Hyperelastic Cantilever</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#run-the-example">Run the example</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#problem-statement">Problem statement</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#hyperelastic-formulation">Hyperelastic formulation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#implementation-flow-fluxfem">Implementation flow (FluxFEM)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#build-mesh-and-space">1) Build mesh and space</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#assemble-external-forces">2) Assemble external forces</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#apply-dirichlet-clamp">3) Apply Dirichlet clamp</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nonlinear-analysis-and-newton-solve">4) Nonlinear analysis and Newton solve</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">fluxfem</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="tutorial.html">Tutorial</a></li>
+      <li class="breadcrumb-item active">Hyper-Elasticity: Hyperelastic Cantilever</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/tutorial_hyper_elasticity.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="hyper-elasticity-hyperelastic-cantilever">
+<h1>Hyper-Elasticity: Hyperelastic Cantilever<a class="headerlink" href="#hyper-elasticity-hyperelastic-cantilever" title="Link to this heading"></a></h1>
+<p>This tutorial summarizes <code class="docutils literal notranslate"><span class="pre">tutorials/hyperelastic_cantilever_simplified.py</span></code> and
+explains the nonlinear formulation, loads, and solver flow used for a 3D
+Neo-Hookean cantilever.</p>
+<section id="run-the-example">
+<h2>Run the example<a class="headerlink" href="#run-the-example" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/hyperelastic_cantilever_simplified.py
+</pre></div>
+</div>
+</section>
+<section id="problem-statement">
+<h2>Problem statement<a class="headerlink" href="#problem-statement" title="Link to this heading"></a></h2>
+<p>We solve a finite-strain hyperelasticity problem on a 3D cantilever:</p>
+<ul class="simple">
+<li><p>Unknown displacement field: <code class="docutils literal notranslate"><span class="pre">u</span></code></p></li>
+<li><p>Test function: <code class="docutils literal notranslate"><span class="pre">v</span></code></p></li>
+<li><p>Material: compressible Neo-Hookean, with Lam”e parameters <code class="docutils literal notranslate"><span class="pre">(lam,</span> <span class="pre">mu)</span></code></p></li>
+<li><p>Boundary conditions:
+- Dirichlet (clamped) on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmin</span></code>
+- Uniform traction on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code> along <code class="docutils literal notranslate"><span class="pre">+y</span></code></p></li>
+</ul>
+</section>
+<section id="hyperelastic-formulation">
+<h2>Hyperelastic formulation<a class="headerlink" href="#hyperelastic-formulation" title="Link to this heading"></a></h2>
+<p>Let the deformation gradient be:</p>
+<div class="math notranslate nohighlight">
+\[F = I + \nabla u, \quad J = \det F\]</div>
+<p>For a compressible Neo-Hookean material, a standard strain-energy density is:</p>
+<div class="math notranslate nohighlight">
+\[W(F) = \frac{\mu}{2}(I_1 - 3) - \mu \ln J + \frac{\lambda}{2}(\ln J)^2\]</div>
+<p>where <code class="docutils literal notranslate"><span class="pre">I_1</span> <span class="pre">=</span> <span class="pre">\mathrm{tr}(F^T</span> <span class="pre">F)</span></code>. The first Piola-Kirchhoff stress is
+<code class="docutils literal notranslate"><span class="pre">P</span> <span class="pre">=</span> <span class="pre">\partial</span> <span class="pre">W</span> <span class="pre">/</span> <span class="pre">\partial</span> <span class="pre">F</span></code>. The weak form is: find <code class="docutils literal notranslate"><span class="pre">u</span></code> such that for all
+<code class="docutils literal notranslate"><span class="pre">v</span></code>:</p>
+<div class="math notranslate nohighlight">
+\[R(u; v) = \int_{\Omega} P(F(u)) : \nabla v \, d\Omega
+- \int_{\Omega} v \cdot b \, d\Omega
+- \int_{\Gamma_t} v \cdot t \, ds = 0\]</div>
+<p>In this example, the body force <code class="docutils literal notranslate"><span class="pre">b</span></code> is zero and the traction
+<code class="docutils literal notranslate"><span class="pre">t</span> <span class="pre">=</span> <span class="pre">(0,</span> <span class="pre">traction,</span> <span class="pre">0)</span></code> is applied on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code>.</p>
+</section>
+<section id="implementation-flow-fluxfem">
+<h2>Implementation flow (FluxFEM)<a class="headerlink" href="#implementation-flow-fluxfem" title="Link to this heading"></a></h2>
+<section id="build-mesh-and-space">
+<h3>1) Build mesh and space<a class="headerlink" href="#build-mesh-and-space" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">mesh</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">StructuredHexBox</span><span class="p">(</span><span class="n">nx</span><span class="o">=</span><span class="n">nx</span><span class="p">,</span> <span class="n">ny</span><span class="o">=</span><span class="n">ny</span><span class="p">,</span> <span class="n">nz</span><span class="o">=</span><span class="n">nz</span><span class="p">,</span> <span class="n">lx</span><span class="o">=</span><span class="n">lx</span><span class="p">,</span> <span class="n">ly</span><span class="o">=</span><span class="n">ly</span><span class="p">,</span> <span class="n">lz</span><span class="o">=</span><span class="n">lz</span><span class="p">)</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
+<span class="n">space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_hex_space</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">intorder</span><span class="o">=</span><span class="n">intorder</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="assemble-external-forces">
+<h3>2) Assemble external forces<a class="headerlink" href="#assemble-external-forces" title="Link to this heading"></a></h3>
+<p>Body force:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">f_body</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">body_force</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+<span class="n">F_ext</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_linear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">vector_body_force_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">f_body</span><span class="p">,</span> <span class="n">sparse</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Surface traction on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">traction_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">SurfaceFormContext</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">)</span>
+
+<span class="n">traction_vec</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">traction</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+<span class="n">F_ext</span> <span class="o">=</span> <span class="n">surf</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span><span class="n">space</span><span class="p">,</span> <span class="n">traction_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">traction_vec</span><span class="p">,</span> <span class="n">F0</span><span class="o">=</span><span class="n">F_ext</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="apply-dirichlet-clamp">
+<h3>3) Apply Dirichlet clamp<a class="headerlink" href="#apply-dirichlet-clamp" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">dir_dofs</span> <span class="o">=</span> <span class="n">mesh</span><span class="o">.</span><span class="n">boundary_dofs_where</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">pts</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">pts</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">xmin</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">),</span>
+    <span class="n">components</span><span class="o">=</span><span class="s2">&quot;xyz&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="nonlinear-analysis-and-newton-solve">
+<h3>4) Nonlinear analysis and Newton solve<a class="headerlink" href="#nonlinear-analysis-and-newton-solve" title="Link to this heading"></a></h3>
+<p>FluxFEM provides a nonlinear analysis wrapper and a Newton loop. The residual can be
+expressed as a weak-form function (conceptually), and then assembled per element.
+The simplified script uses the built-in <code class="docutils literal notranslate"><span class="pre">ff.neo_hookean_residual_form</span></code> internally,
+but the weak-form mapping looks like this:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_wf</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">neo_hookean_residual_wf</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
+    <span class="n">mu</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;mu&quot;</span><span class="p">]</span>
+    <span class="n">lam</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;lam&quot;</span><span class="p">]</span>
+    <span class="n">F</span> <span class="o">=</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">I</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span> <span class="o">+</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">u</span><span class="p">)</span>  <span class="c1"># deformation gradient</span>
+    <span class="n">C</span> <span class="o">=</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">h_wf</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="n">F</span><span class="p">),</span> <span class="n">F</span><span class="p">)</span>
+    <span class="n">C_inv</span> <span class="o">=</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">inv</span><span class="p">(</span><span class="n">C</span><span class="p">)</span>
+    <span class="n">J</span> <span class="o">=</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">det</span><span class="p">(</span><span class="n">F</span><span class="p">)</span>
+
+    <span class="n">S</span> <span class="o">=</span> <span class="n">mu</span> <span class="o">*</span> <span class="p">(</span><span class="n">h_wf</span><span class="o">.</span><span class="n">I</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span> <span class="o">-</span> <span class="n">C_inv</span><span class="p">)</span> <span class="o">+</span> <span class="n">lam</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">J</span><span class="p">)</span> <span class="o">*</span> <span class="n">C_inv</span>
+    <span class="n">dE</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="n">h_wf</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">h_wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">F</span><span class="p">)</span> <span class="o">+</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="n">h_wf</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">h_wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">F</span><span class="p">)))</span>
+    <span class="k">return</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">S</span><span class="p">,</span> <span class="n">dE</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+
+<span class="n">residual_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ResidualForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="n">neo_hookean_residual_wf</span><span class="p">)</span>
+<span class="n">R</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">residual_form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">analysis</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">NonlinearAnalysis</span><span class="p">(</span>
+    <span class="n">space</span><span class="o">=</span><span class="n">space</span><span class="p">,</span>
+    <span class="n">residual_form</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">neo_hookean_residual_form</span><span class="p">,</span>
+    <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span>
+    <span class="n">base_external_vector</span><span class="o">=</span><span class="n">F_ext</span><span class="p">,</span>
+    <span class="n">dirichlet</span><span class="o">=</span><span class="p">(</span><span class="n">dir_dofs</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+    <span class="n">jacobian_pattern</span><span class="o">=</span><span class="n">J_pattern</span><span class="p">,</span>
+    <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>In weak-form terms, the element residual corresponds to:</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}r_e(u; v) = \\int_{\\Omega_e} P(F(u)) : \\nabla v \\, d\\Omega - f_{ext,e}\end{split}\]</div>
+<p>FluxFEM then assembles the element contributions over the mesh using the current
+state <code class="docutils literal notranslate"><span class="pre">u</span></code> and subtracts the external force vector <code class="docutils literal notranslate"><span class="pre">F_ext</span></code> (from body forces and
+surface traction) when forming the global residual.</p>
+<blockquote>
+<div><p>runner = ff.NewtonSolveRunner(analysis, newton_cfg)
+u, history = runner.run(u0=jnp.zeros(space.n_dofs, dtype=dtype))</p>
+</div></blockquote>
+<p>The script reports the maximum displacement magnitude and optionally writes
+<code class="docutils literal notranslate"><span class="pre">result.vtu</span></code> for visualization.</p>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="tutorial_linear_elasticity.html" class="btn btn-neutral float-left" title="Linear Elasticity: Tensile Bar (Simplified)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="usage.html" class="btn btn-neutral float-right" title="Usage" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Kohei Watanabe.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
