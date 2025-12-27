@@ -45,42 +45,6 @@ This is because the weak-form-based assembly is ultimately transformed into the 
 ## Weak Form Compile Flow
 Weak-form expressions are compiled into an evaluation plan and then executed per element.
 
-```mermaid
-flowchart TB
-
-  %% invisible anchors
-  X(( ))
-  Y(( ))
-
-  %% Compile row
-  subgraph Compile
-    direction LR
-    A["User weak form"]
-    B["Expr tree"]
-    C["compile"]
-    D["EvalPlan"]
-    A --> B --> C --> D
-  end
-
-  %% Runtime row
-  subgraph Runtime
-    direction LR
-    E["eval_with_plan"]
-    F["Element kernel outputs"]
-    E --> F
-  end
-
-  %% force vertical layout
-  X --> A
-  X --> E
-  D --> Y
-```
-
-Notes:
-- `compile_*` normalizes outputs into `Expr` and creates an `EvalPlan`.
-- `EvalPlan` is reused across elements; only `ctx/params/u_elem` change.
-- `Expr.eval` is a debug/single-shot path; compiled evaluators are the fast path.
-
 ### weak-form-based assembly
 ```Python
 import fluxfem as ff
