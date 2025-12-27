@@ -19,7 +19,7 @@ We solve a finite-strain hyperelasticity problem on a 3D cantilever:
 
 - Unknown displacement field: ``u``
 - Test function: ``v``
-- Material: compressible Neo-Hookean, with Lam"e parameters ``(lam, mu)``
+- Material: compressible Neo-Hookean, with Lamé parameters ``(lam, mu)``
 - Boundary conditions:
   - Dirichlet (clamped) on ``x = xmin``
   - Uniform traction on ``x = xmax`` along ``+y``
@@ -99,7 +99,7 @@ Surface traction on ``x = xmax``:
 FluxFEM provides a nonlinear analysis wrapper and a Newton loop. The residual can be
 expressed as a weak-form function (conceptually), and then assembled per element.
 The simplified script uses the built-in ``ff.neo_hookean_residual_form`` internally,
-but the weak-form mapping looks like this:
+but the weak-form mapping looks like this (PK2 form):
 
 .. code-block:: python
 
@@ -121,6 +121,9 @@ but the weak-form mapping looks like this:
    residual_form = ff.ResidualForm.volume(neo_hookean_residual_wf)
    R = space.assemble_residual(residual_form.get_compiled(), u, params=params)
 
+In FluxFEM, ``ff.neo_hookean_residual_form`` uses the PK2 stress ``S`` internally,
+and the weak-form expression above is consistent with that choice.
+
 .. code-block:: python
 
    analysis = ff.NonlinearAnalysis(
@@ -137,7 +140,8 @@ In weak-form terms, the element residual corresponds to:
 
 .. math::
 
-   r_e(u; v) = \\int_{\\Omega_e} P(F(u)) : \\nabla v \\, d\\Omega - f_{ext,e}
+   r_e(u; v) = \\int_{\\Omega_e} S(u) : \\delta E(u; v) \\, d\\Omega - f_{ext,e}
+   \\quad (\\equiv \\int_{\\Omega_e} P(u) : \\nabla v \\, d\\Omega - f_{ext,e})
 
 FluxFEM then assembles the element contributions over the mesh using the current
 state ``u`` and subtracts the external force vector ``F_ext`` (from body forces and
