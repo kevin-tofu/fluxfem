@@ -1,7 +1,7 @@
 Hyper-Elasticity: Hyperelastic Cantilever
 =========================================
 
-This tutorial summarizes ``tutorials/hyperelastic_cantilever_simplified.py`` and
+This tutorial summarizes `tutorials/hyperelastic_cantilever_simplified.py` and
 explains the nonlinear formulation, loads, and solver flow used for a 3D
 Neo-Hookean cantilever.
 
@@ -17,12 +17,12 @@ Problem statement
 
 We solve a finite-strain hyperelasticity problem on a 3D cantilever:
 
-- Unknown displacement field: ``u``
-- Test function: ``v``
-- Material: compressible Neo-Hookean, with Lamé parameters ``(lam, mu)``
+- Unknown displacement field: `u`
+- Test function: `v`
+- Material: compressible Neo-Hookean, with Lamé parameters `(lam, mu)`
 - Boundary conditions:
-  - Dirichlet (clamped) on ``x = xmin``
-  - Uniform traction on ``x = xmax`` along ``+y``
+  - Dirichlet (clamped) on `x = xmin`
+  - Uniform traction on `x = xmax` along `+y`
 
 Hyperelastic formulation
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -39,9 +39,9 @@ For a compressible Neo-Hookean material, a standard strain-energy density is:
 
    W(F) = \frac{\mu}{2}(I_1 - 3) - \mu \ln J + \frac{\lambda}{2}(\ln J)^2
 
-where ``I_1 = \mathrm{tr}(F^T F)``. The first Piola-Kirchhoff stress is
-``P = \partial W / \partial F``. The weak form is: find ``u`` such that for all
-``v``:
+where :math:`I_1 = \\mathrm{tr}(F^T F)`. The first Piola-Kirchhoff stress is
+`P = \partial W / \partial F`. The weak form is: find `u` such that for all
+`v`:
 
 .. math::
 
@@ -49,8 +49,8 @@ where ``I_1 = \mathrm{tr}(F^T F)``. The first Piola-Kirchhoff stress is
    - \int_{\Omega} v \cdot b \, d\Omega
    - \int_{\Gamma_t} v \cdot t \, ds = 0
 
-In this example, the body force ``b`` is zero and the traction
-``t = (0, traction, 0)`` is applied on ``x = xmax``.
+In this example, the body force `b` is zero and the traction
+`t = (0, traction, 0)` is applied on `x = xmax`.
 
 Implementation flow (FluxFEM)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -73,7 +73,7 @@ Body force:
    f_body = jnp.array(body_force, dtype=dtype)
    F_ext = space.assemble_linear_form(ff.vector_body_force_form, params=f_body, sparse=False)
 
-Surface traction on ``x = xmax``:
+Surface traction on `x = xmax`:
 
 .. code-block:: python
 
@@ -98,7 +98,7 @@ Surface traction on ``x = xmax``:
 
 FluxFEM provides a nonlinear analysis wrapper and a Newton loop. The residual can be
 expressed as a weak-form function (conceptually), and then assembled per element.
-The simplified script uses the built-in ``ff.neo_hookean_residual_form`` internally,
+The simplified script uses the built-in `ff.neo_hookean_residual_form` internally,
 but the weak-form mapping looks like this (PK2 form):
 
 .. code-block:: python
@@ -121,7 +121,7 @@ but the weak-form mapping looks like this (PK2 form):
    residual_form = ff.ResidualForm.volume(neo_hookean_residual_wf)
    R = space.assemble_residual(residual_form.get_compiled(), u, params=params)
 
-In FluxFEM, ``ff.neo_hookean_residual_form`` uses the PK2 stress ``S`` internally,
+In FluxFEM, `ff.neo_hookean_residual_form` uses the PK2 stress `S` internally,
 and the weak-form expression above is consistent with that choice.
 
 .. code-block:: python
@@ -144,11 +144,11 @@ In weak-form terms, the element residual corresponds to:
    \\quad (\\equiv \\int_{\\Omega_e} P(u) : \\nabla v \\, d\\Omega - f_{ext,e})
 
 FluxFEM then assembles the element contributions over the mesh using the current
-state ``u`` and subtracts the external force vector ``F_ext`` (from body forces and
+state `u` and subtracts the external force vector `F_ext` (from body forces and
 surface traction) when forming the global residual.
 
    runner = ff.NewtonSolveRunner(analysis, newton_cfg)
    u, history = runner.run(u0=jnp.zeros(space.n_dofs, dtype=dtype))
 
 The script reports the maximum displacement magnitude and optionally writes
-``result.vtu`` for visualization.
+`result.vtu` for visualization.

@@ -1,8 +1,8 @@
 FormContext and Expr Resolution
 ================================
 
-FluxFEM assembly operates on **element-local data** stored in a ``FormContext``
-(or ``SurfaceFormContext``). The context provides per-element shape functions,
+FluxFEM assembly operates on **element-local data** stored in a `FormContext`
+(or `SurfaceFormContext`). The context provides per-element shape functions,
 gradients, quadrature weights, and geometry. Both assembly styles use the same
 context, but they differ in how you write the integrand.
 
@@ -11,11 +11,11 @@ What lives in a FormContext
 
 Typical fields used by assembly:
 
-- ``ctx.test.N`` / ``ctx.trial.N``: shape-function values ``(n_q, n_nodes)``
-- ``ctx.test.gradN`` / ``ctx.trial.gradN``: gradients ``(n_q, n_nodes, dim)``
-- ``ctx.x_q``: quadrature points in physical coordinates
-- ``ctx.w``: quadrature weights
-- ``ctx.detJ``: Jacobian determinant (surface contexts may expose ``ctx.normal``)
+- `ctx.test.N` / `ctx.trial.N`: shape-function values `(n_q, n_nodes)`
+- `ctx.test.gradN` / `ctx.trial.gradN`: gradients `(n_q, n_nodes, dim)`
+- `ctx.x_q`: quadrature points in physical coordinates
+- `ctx.w`: quadrature weights
+- `ctx.detJ`: Jacobian determinant (surface contexts may expose `ctx.normal`)
 
 Tensor vs weak-form resolution
 ------------------------------
@@ -27,7 +27,7 @@ Tensor vs weak-form resolution
    def diffusion_form(ctx: ff.FormContext, kappa):
        return kappa * ff.jnp.einsum("qia,qja->qij", ctx.test.gradN, ctx.trial.gradN)
 
-**Weak-form assembly** builds an ``Expr`` tree, then resolves it against the
+**Weak-form assembly** builds an `Expr` tree, then resolves it against the
 context and params during compilation/evaluation:
 
 .. code-block:: python
@@ -39,9 +39,9 @@ context and params during compilation/evaluation:
    compiled = form.get_compiled()
    K = space.assemble_bilinear_form(compiled, params=ff.Params(kappa=1.0))
 
-In the weak-form path, symbolic refs like ``u`` and ``v`` are resolved to the
-corresponding context fields (``ctx.trial`` / ``ctx.test``), and measure terms
-like ``dOmega()``/``ds()`` inject quadrature weights.
+In the weak-form path, symbolic refs like `u` and `v` are resolved to the
+corresponding context fields (`ctx.trial` / `ctx.test`), and measure terms
+like `dOmega()`/`ds()` inject quadrature weights.
 
 Why use Expr (benefits and drawbacks)
 -------------------------------------
@@ -52,11 +52,11 @@ They can make nonlinear models readable while keeping the assembly interface the
 Benefits
 ^^^^^^^^
 
-- **Concise weak forms**: you write expressions close to mathematics (e.g., ``v.grad @ u.grad``).
+- **Concise weak forms**: you write expressions close to mathematics (e.g., `v.grad @ u.grad`).
 - **Single source of truth**: the same Expr tree can be reused for residuals, Jacobians,
   and consistency checks (measure validation, shape constraints).
 - **Less boilerplate**: FormContext access is automatic through symbolic refs
-  (``test_ref()``, ``trial_ref()``, ``param_ref()``).
+  (`test_ref()`, `trial_ref()`, `param_ref()`).
 - **Fewer ad-hoc kernels**: nonlinear models like Neo-Hookean can be expressed
   without hand-written B-matrix assembly.
 
@@ -91,7 +91,7 @@ Comparison with scikit-fem
 --------------------------
 
 scikit-fem is closer to **tensor-based assembly**: you work directly with
-``ctx`` arrays and return per-quadrature integrands. FluxFEM's Expr-based
+`ctx` arrays and return per-quadrature integrands. FluxFEM's Expr-based
 weak forms sit one level higher.
 
 Advantages vs scikit-fem style

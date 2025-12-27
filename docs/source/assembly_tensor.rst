@@ -37,11 +37,11 @@ Forms and signatures
 Bilinear form (volume)
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Signature: ``(ctx, params) -> ndarray``
+Signature: `(ctx, params) -> ndarray`
 
-- ``ctx`` : ``FormContext`` with ``test`` and ``trial`` fields
-- ``params`` : scalar/array or a custom object
-- Return shape: ``(n_q, n_ldofs, n_ldofs)``
+- `ctx` : `FormContext` with `test` and `trial` fields
+- `params` : scalar/array or a custom object
+- Return shape: `(n_q, n_ldofs, n_ldofs)`
 
 .. code-block:: python
 
@@ -53,9 +53,9 @@ Signature: ``(ctx, params) -> ndarray``
 Linear form (volume)
 ^^^^^^^^^^^^^^^^^^^^
 
-Signature: ``(ctx, params) -> ndarray``
+Signature: `(ctx, params) -> ndarray`
 
-- Return shape: ``(n_q, n_ldofs)``
+- Return shape: `(n_q, n_ldofs)`
 
 .. code-block:: python
 
@@ -66,9 +66,9 @@ Signature: ``(ctx, params) -> ndarray``
 Linear form (surface)
 ^^^^^^^^^^^^^^^^^^^^^
 
-Signature: ``(ctx, params) -> ndarray`` with ``SurfaceFormContext``
+Signature: `(ctx, params) -> ndarray` with `SurfaceFormContext`
 
-- Return shape: ``(n_q, n_ldofs)``
+- Return shape: `(n_q, n_ldofs)`
 
 .. code-block:: python
 
@@ -83,8 +83,8 @@ Quadrature handling
 -------------------
 
 Tensor-based forms should return the **integrand only**. Assembly multiplies by
-``w * detJ`` and sums over quadrature points. Do not include ``dOmega()`` or
-``ds()`` in tensor-based forms.
+`w * detJ` and sums over quadrature points. Do not include `dOmega()` or
+`ds()` in tensor-based forms.
 
 
 Common building blocks
@@ -93,20 +93,20 @@ Common building blocks
 FormContext fields
 ^^^^^^^^^^^^^^^^^^
 
-- ``ctx.test.N`` / ``ctx.trial.N``: shape-function values ``(n_q, n_nodes)``
-- ``ctx.test.gradN`` / ``ctx.trial.gradN``: spatial gradients ``(n_q, n_nodes, dim)``
-- ``ctx.x_q``: quadrature points in physical coordinates
-- ``ctx.w``: quadrature weights (used by assembly)
+- `ctx.test.N` / `ctx.trial.N`: shape-function values `(n_q, n_nodes)`
+- `ctx.test.gradN` / `ctx.trial.gradN`: spatial gradients `(n_q, n_nodes, dim)`
+- `ctx.x_q`: quadrature points in physical coordinates
+- `ctx.w`: quadrature weights (used by assembly)
 
 
 Helpers (helpers_ts)
 ^^^^^^^^^^^^^^^^^^^^
 
-``helpers_ts`` exposes tensor operators used in the physics modules:
+`helpers_ts` exposes tensor operators used in the physics modules:
 
-- ``h_ts.sym_grad(field)``: Voigt B-matrix for linear elasticity
-- ``h_ts.ddot(a, b, c)``: contractions for elasticity blocks
-- ``h_ts.dot(field, load)``: vector load form for surface/volume loads
+- `h_ts.sym_grad(field)`: Voigt B-matrix for linear elasticity
+- `h_ts.ddot(a, b, c)`: contractions for elasticity blocks
+- `h_ts.dot(field, load)`: vector load form for surface/volume loads
 
 
 Recipes (from tests)
