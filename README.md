@@ -46,13 +46,14 @@ This is because the weak-form-based assembly is ultimately transformed into the 
 Weak-form expressions are compiled into an evaluation plan and then executed per element.
 
 ```mermaid
-flowchart LR
+flowchart TB
+
   subgraph Compile
     direction TB
     A["User weak form<br/>lambda"]
     B["Expr tree"]
     C["compile"]
-    D["EvalPlan<br/>(postorder nodes; index)"]
+    D["EvalPlan"]
     A --> B --> C --> D
   end
 
