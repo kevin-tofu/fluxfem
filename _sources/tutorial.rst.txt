@@ -1,5 +1,5 @@
-Tutorial
-========
+Tutorial Page
+==============
 
 This section contains tutorials for fluxfem.
 

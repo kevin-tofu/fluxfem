@@ -47,7 +47,7 @@
               <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="project.html">Project</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="tutorial.html">Tutorial</a><ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="tutorial.html">Tutorial Page</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar (Simplified)</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Hyper-Elasticity: Hyperelastic Cantilever</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#run-the-example">Run the example</a></li>
@@ -82,7 +82,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-          <li class="breadcrumb-item"><a href="tutorial.html">Tutorial</a></li>
+          <li class="breadcrumb-item"><a href="tutorial.html">Tutorial Page</a></li>
       <li class="breadcrumb-item active">Hyper-Elasticity: Hyperelastic Cantilever</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/tutorial_hyper_elasticity.rst.txt" rel="nofollow"> View page source</a>
@@ -110,7 +110,7 @@ Neo-Hookean cantilever.</p>
 <ul class="simple">
 <li><p>Unknown displacement field: <code class="docutils literal notranslate"><span class="pre">u</span></code></p></li>
 <li><p>Test function: <code class="docutils literal notranslate"><span class="pre">v</span></code></p></li>
-<li><p>Material: compressible Neo-Hookean, with Lam”e parameters <code class="docutils literal notranslate"><span class="pre">(lam,</span> <span class="pre">mu)</span></code></p></li>
+<li><p>Material: compressible Neo-Hookean, with Lamé parameters <code class="docutils literal notranslate"><span class="pre">(lam,</span> <span class="pre">mu)</span></code></p></li>
 <li><p>Boundary conditions:
 - Dirichlet (clamped) on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmin</span></code>
 - Uniform traction on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code> along <code class="docutils literal notranslate"><span class="pre">+y</span></code></p></li>
@@ -173,7 +173,7 @@ Neo-Hookean cantilever.</p>
 <p>FluxFEM provides a nonlinear analysis wrapper and a Newton loop. The residual can be
 expressed as a weak-form function (conceptually), and then assembled per element.
 The simplified script uses the built-in <code class="docutils literal notranslate"><span class="pre">ff.neo_hookean_residual_form</span></code> internally,
-but the weak-form mapping looks like this:</p>
+but the weak-form mapping looks like this (PK2 form):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_wf</span>
 
@@ -193,6 +193,8 @@ but the weak-form mapping looks like this:</p>
 <span class="n">R</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">residual_form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>In FluxFEM, <code class="docutils literal notranslate"><span class="pre">ff.neo_hookean_residual_form</span></code> uses the PK2 stress <code class="docutils literal notranslate"><span class="pre">S</span></code> internally,
+and the weak-form expression above is consistent with that choice.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">analysis</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">NonlinearAnalysis</span><span class="p">(</span>
     <span class="n">space</span><span class="o">=</span><span class="n">space</span><span class="p">,</span>
     <span class="n">residual_form</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">neo_hookean_residual_form</span><span class="p">,</span>
@@ -206,7 +208,8 @@ but the weak-form mapping looks like this:</p>
 </div>
 <p>In weak-form terms, the element residual corresponds to:</p>
 <div class="math notranslate nohighlight">
-\[\begin{split}r_e(u; v) = \\int_{\\Omega_e} P(F(u)) : \\nabla v \\, d\\Omega - f_{ext,e}\end{split}\]</div>
+\[\begin{split}r_e(u; v) = \\int_{\\Omega_e} S(u) : \\delta E(u; v) \\, d\\Omega - f_{ext,e}
+\\quad (\\equiv \\int_{\\Omega_e} P(u) : \\nabla v \\, d\\Omega - f_{ext,e})\end{split}\]</div>
 <p>FluxFEM then assembles the element contributions over the mesh using the current
 state <code class="docutils literal notranslate"><span class="pre">u</span></code> and subtracts the external force vector <code class="docutils literal notranslate"><span class="pre">F_ext</span></code> (from body forces and
 surface traction) when forming the global residual.</p>
