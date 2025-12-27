@@ -47,11 +47,23 @@ Weak-form expressions are compiled into an evaluation plan and then executed per
 
 ```mermaid
 flowchart LR
-  A["User weak form<br/>lambda"] --> B["Expr tree"]
-  B --> C["compile"]
-  C --> D["EvalPlan<br/>(postorder nodes; index)"]
-  D --> E["eval_with_plan<br/>per element"]
-  E --> F["Element kernel<br/>outputs"]
+  subgraph Compile
+    direction TB
+    A["User weak form<br/>lambda"]
+    B["Expr tree"]
+    C["compile"]
+    D["EvalPlan<br/>(postorder nodes; index)"]
+    A --> B --> C --> D
+  end
+
+  subgraph Runtime
+    direction TB
+    E["eval_with_plan<br/>per element"]
+    F["Element kernel<br/>outputs"]
+    E --> F
+  end
+
+  D --> E
 ```
 
 Notes:
