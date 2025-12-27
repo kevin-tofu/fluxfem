@@ -1,7 +1,7 @@
 Installation
 ============
 
-FluxFEM supports Python 3.11-3.13 (inclusive) and depends on JAX 0.8.2.
+FluxFEM supports Python 3.11-3.13 (inclusive) and depends on JAX >= 0.8.2.
 
 Quick install (pip)
 -------------------
