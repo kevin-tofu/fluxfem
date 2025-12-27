@@ -94,19 +94,19 @@
              
   <section id="formcontext-and-expr-resolution">
 <h1>FormContext and Expr Resolution<a class="headerlink" href="#formcontext-and-expr-resolution" title="Link to this heading"></a></h1>
-<p>FluxFEM assembly operates on <strong>element-local data</strong> stored in a <cite>FormContext</cite>
-(or <cite>SurfaceFormContext</cite>). The context provides per-element shape functions,
+<p>FluxFEM assembly operates on <strong>element-local data</strong> stored in a <code class="docutils literal notranslate"><span class="pre">FormContext</span></code>
+(or <code class="docutils literal notranslate"><span class="pre">SurfaceFormContext</span></code>). The context provides per-element shape functions,
 gradients, quadrature weights, and geometry. Both assembly styles use the same
 context, but they differ in how you write the integrand.</p>
 <section id="what-lives-in-a-formcontext">
 <h2>What lives in a FormContext<a class="headerlink" href="#what-lives-in-a-formcontext" title="Link to this heading"></a></h2>
 <p>Typical fields used by assembly:</p>
 <ul class="simple">
-<li><p><cite>ctx.test.N</cite> / <cite>ctx.trial.N</cite>: shape-function values <cite>(n_q, n_nodes)</cite></p></li>
-<li><p><cite>ctx.test.gradN</cite> / <cite>ctx.trial.gradN</cite>: gradients <cite>(n_q, n_nodes, dim)</cite></p></li>
-<li><p><cite>ctx.x_q</cite>: quadrature points in physical coordinates</p></li>
-<li><p><cite>ctx.w</cite>: quadrature weights</p></li>
-<li><p><cite>ctx.detJ</cite>: Jacobian determinant (surface contexts may expose <cite>ctx.normal</cite>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ctx.test.N</span></code> / <code class="docutils literal notranslate"><span class="pre">ctx.trial.N</span></code>: shape-function values <code class="docutils literal notranslate"><span class="pre">(n_q,</span> <span class="pre">n_nodes)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ctx.test.gradN</span></code> / <code class="docutils literal notranslate"><span class="pre">ctx.trial.gradN</span></code>: gradients <code class="docutils literal notranslate"><span class="pre">(n_q,</span> <span class="pre">n_nodes,</span> <span class="pre">dim)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ctx.x_q</span></code>: quadrature points in physical coordinates</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ctx.w</span></code>: quadrature weights</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ctx.detJ</span></code>: Jacobian determinant (surface contexts may expose <code class="docutils literal notranslate"><span class="pre">ctx.normal</span></code>)</p></li>
 </ul>
 </section>
 <section id="tensor-vs-weak-form-resolution">
@@ -116,7 +116,7 @@ context, but they differ in how you write the integrand.</p>
     <span class="k">return</span> <span class="n">kappa</span> <span class="o">*</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;qia,qja-&gt;qij&quot;</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">test</span><span class="o">.</span><span class="n">gradN</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">trial</span><span class="o">.</span><span class="n">gradN</span><span class="p">)</span>
 </pre></div>
 </div>
-<p><strong>Weak-form assembly</strong> builds an <cite>Expr</cite> tree, then resolves it against the
+<p><strong>Weak-form assembly</strong> builds an <code class="docutils literal notranslate"><span class="pre">Expr</span></code> tree, then resolves it against the
 context and params during compilation/evaluation:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
     <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="n">p</span><span class="o">.</span><span class="n">kappa</span> <span class="o">*</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
@@ -126,9 +126,9 @@ context and params during compilation/evaluation:</p>
 <span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">compiled</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">))</span>
 </pre></div>
 </div>
-<p>In the weak-form path, symbolic refs like <cite>u</cite> and <cite>v</cite> are resolved to the
-corresponding context fields (<cite>ctx.trial</cite> / <cite>ctx.test</cite>), and measure terms
-like <cite>dOmega()</cite>/<cite>ds()</cite> inject quadrature weights.</p>
+<p>In the weak-form path, symbolic refs like <code class="docutils literal notranslate"><span class="pre">u</span></code> and <code class="docutils literal notranslate"><span class="pre">v</span></code> are resolved to the
+corresponding context fields (<code class="docutils literal notranslate"><span class="pre">ctx.trial</span></code> / <code class="docutils literal notranslate"><span class="pre">ctx.test</span></code>), and measure terms
+like <code class="docutils literal notranslate"><span class="pre">dOmega()</span></code>/<code class="docutils literal notranslate"><span class="pre">ds()</span></code> inject quadrature weights.</p>
 </section>
 <section id="why-use-expr-benefits-and-drawbacks">
 <h2>Why use Expr (benefits and drawbacks)<a class="headerlink" href="#why-use-expr-benefits-and-drawbacks" title="Link to this heading"></a></h2>
@@ -137,11 +137,11 @@ They can make nonlinear models readable while keeping the assembly interface the
 <section id="benefits">
 <h3>Benefits<a class="headerlink" href="#benefits" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><strong>Concise weak forms</strong>: you write expressions close to mathematics (e.g., <cite>v.grad &#64; u.grad</cite>).</p></li>
+<li><p><strong>Concise weak forms</strong>: you write expressions close to mathematics (e.g., <code class="docutils literal notranslate"><span class="pre">v.grad</span> <span class="pre">&#64;</span> <span class="pre">u.grad</span></code>).</p></li>
 <li><p><strong>Single source of truth</strong>: the same Expr tree can be reused for residuals, Jacobians,
 and consistency checks (measure validation, shape constraints).</p></li>
 <li><p><strong>Less boilerplate</strong>: FormContext access is automatic through symbolic refs
-(<cite>test_ref()</cite>, <cite>trial_ref()</cite>, <cite>param_ref()</cite>).</p></li>
+(<code class="docutils literal notranslate"><span class="pre">test_ref()</span></code>, <code class="docutils literal notranslate"><span class="pre">trial_ref()</span></code>, <code class="docutils literal notranslate"><span class="pre">param_ref()</span></code>).</p></li>
 <li><p><strong>Fewer ad-hoc kernels</strong>: nonlinear models like Neo-Hookean can be expressed
 without hand-written B-matrix assembly.</p></li>
 </ul>
@@ -175,7 +175,7 @@ kernels or new Expr operators.</p></li>
 <section id="comparison-with-scikit-fem">
 <h2>Comparison with scikit-fem<a class="headerlink" href="#comparison-with-scikit-fem" title="Link to this heading"></a></h2>
 <p>scikit-fem is closer to <strong>tensor-based assembly</strong>: you work directly with
-<cite>ctx</cite> arrays and return per-quadrature integrands. FluxFEM’s Expr-based
+<code class="docutils literal notranslate"><span class="pre">ctx</span></code> arrays and return per-quadrature integrands. FluxFEM’s Expr-based
 weak forms sit one level higher.</p>
 <section id="advantages-vs-scikit-fem-style">
 <h3>Advantages vs scikit-fem style<a class="headerlink" href="#advantages-vs-scikit-fem-style" title="Link to this heading"></a></h3>

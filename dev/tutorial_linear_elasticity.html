@@ -97,7 +97,7 @@
   <section id="linear-elasticity-tensile-bar-simplified">
 <h1>Linear Elasticity: Tensile Bar (Simplified)<a class="headerlink" href="#linear-elasticity-tensile-bar-simplified" title="Link to this heading"></a></h1>
 <p>This tutorial walks through the minimal tensile-bar example in
-<cite>tutorials/linearelastic_tensile_bar_simplified.py</cite> and explains the weak form,
+<code class="docutils literal notranslate"><span class="pre">tutorials/linearelastic_tensile_bar_simplified.py</span></code> and explains the weak form,
 assembly, and boundary conditions with the key equations.</p>
 <section id="run-the-example">
 <h2>Run the example<a class="headerlink" href="#run-the-example" title="Link to this heading"></a></h2>
@@ -109,22 +109,22 @@ assembly, and boundary conditions with the key equations.</p>
 <h2>Problem statement<a class="headerlink" href="#problem-statement" title="Link to this heading"></a></h2>
 <p>We solve a small-strain linear elasticity problem on a 3D bar:</p>
 <ul class="simple">
-<li><p>Unknown displacement field: <cite>u</cite></p></li>
-<li><p>Test function: <cite>v</cite></p></li>
-<li><p>Material: isotropic, given by <cite>D(E, nu)</cite></p></li>
+<li><p>Unknown displacement field: <code class="docutils literal notranslate"><span class="pre">u</span></code></p></li>
+<li><p>Test function: <code class="docutils literal notranslate"><span class="pre">v</span></code></p></li>
+<li><p>Material: isotropic, given by <code class="docutils literal notranslate"><span class="pre">D(E,</span> <span class="pre">nu)</span></code></p></li>
 <li><p>Boundary conditions:
-- Dirichlet (clamped) on <cite>x = xmin</cite>
-- Uniform traction on <cite>x = xmax</cite> along <cite>+x</cite></p></li>
+- Dirichlet (clamped) on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmin</span></code>
+- Uniform traction on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code> along <code class="docutils literal notranslate"><span class="pre">+x</span></code></p></li>
 </ul>
 </section>
 <section id="weak-form">
 <h2>Weak form<a class="headerlink" href="#weak-form" title="Link to this heading"></a></h2>
-<p>Find <cite>u</cite> such that for all <cite>v</cite>:</p>
+<p>Find <code class="docutils literal notranslate"><span class="pre">u</span></code> such that for all <code class="docutils literal notranslate"><span class="pre">v</span></code>:</p>
 <div class="math notranslate nohighlight">
 \[\int_{\Omega} \varepsilon(v) : D : \varepsilon(u)\, d\Omega
 = \int_{\Gamma_t} v \cdot t \, ds\]</div>
-<p>where <cite>varepsilon(u) = sym(grad(u))</cite>.</p>
-<p>In this example, <cite>t = (traction, 0, 0)</cite> is applied on <cite>x = xmax</cite>.</p>
+<p>where <span class="math notranslate nohighlight">\(\varepsilon(u) = \tfrac{1}{2}(\nabla u + \nabla u^T)\)</span>.</p>
+<p>In this example, <code class="docutils literal notranslate"><span class="pre">t</span> <span class="pre">=</span> <span class="pre">(traction,</span> <span class="pre">0,</span> <span class="pre">0)</span></code> is applied on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code>.</p>
 </section>
 <section id="implementation-flow-fluxfem">
 <h2>Implementation flow (FluxFEM)<a class="headerlink" href="#implementation-flow-fluxfem" title="Link to this heading"></a></h2>
@@ -164,7 +164,7 @@ assembly, and boundary conditions with the key equations.</p>
 </section>
 <section id="apply-dirichlet-clamp">
 <h3>4) Apply Dirichlet clamp<a class="headerlink" href="#apply-dirichlet-clamp" title="Link to this heading"></a></h3>
-<p>The clamp fixes all components on the <cite>x = xmin</cite> face:</p>
+<p>The clamp fixes all components on the <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmin</span></code> face:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">dir_dofs</span> <span class="o">=</span> <span class="n">mesh</span><span class="o">.</span><span class="n">boundary_dofs_where</span><span class="p">(</span>
     <span class="k">lambda</span> <span class="n">pts</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">pts</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">xmin</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">),</span>
     <span class="n">components</span><span class="o">=</span><span class="s2">&quot;xyz&quot;</span><span class="p">,</span>
@@ -180,8 +180,8 @@ assembly, and boundary conditions with the key equations.</p>
 <span class="p">)</span>
 </pre></div>
 </div>
-<p>The script also prints the maximum axial displacement at <cite>x = xmax</cite> and compares
-it with the 1D bar theory <cite>u_x(L) = traction * L / E</cite>.</p>
+<p>The script also prints the maximum axial displacement at <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code> and compares
+it with the 1D bar theory <code class="docutils literal notranslate"><span class="pre">u_x(L)</span> <span class="pre">=</span> <span class="pre">traction</span> <span class="pre">*</span> <span class="pre">L</span> <span class="pre">/</span> <span class="pre">E</span></code>.</p>
 </section>
 </section>
 </section>

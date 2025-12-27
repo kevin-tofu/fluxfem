@@ -1,55 +1,40 @@
 Mesh
 ====
 
-.. automodule:: fluxfem.mesh
-   :members:
-   :undoc-members:
-   :show-inheritance:
+Meshes
+------
 
-Base
-----
+.. autoclass:: fluxfem.mesh.BaseMesh
+.. autoclass:: fluxfem.mesh.BaseMeshPytree
 
-.. automodule:: fluxfem.mesh.base
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: fluxfem.mesh.HexMesh
+.. autoclass:: fluxfem.mesh.HexMeshPytree
+.. autoclass:: fluxfem.mesh.StructuredHexBox
+.. autofunction:: fluxfem.mesh.tag_axis_minmax_facets
 
-Hex
----
-
-.. automodule:: fluxfem.mesh.hex
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Tet
----
-
-.. automodule:: fluxfem.mesh.tet
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: fluxfem.mesh.TetMesh
+.. autoclass:: fluxfem.mesh.TetMeshPytree
+.. autoclass:: fluxfem.mesh.StructuredTetBox
+.. autoclass:: fluxfem.mesh.StructuredTetTensorBox
 
 Surface
 -------
 
-.. automodule:: fluxfem.mesh.surface
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: fluxfem.mesh.SurfaceMesh
+.. autoclass:: fluxfem.mesh.SurfaceMeshPytree
 
 IO
 --
 
-.. automodule:: fluxfem.mesh.io
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autofunction:: fluxfem.mesh.load_gmsh_mesh
+.. autofunction:: fluxfem.mesh.load_gmsh_hex_mesh
+.. autofunction:: fluxfem.mesh.load_gmsh_tet_mesh
+.. autofunction:: fluxfem.mesh.make_surface_from_facets
 
-Predicate
----------
+Predicates
+----------
 
-.. automodule:: fluxfem.mesh.predicate
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autofunction:: fluxfem.mesh.bbox_predicate
+.. autofunction:: fluxfem.mesh.plane_predicate
+.. autofunction:: fluxfem.mesh.axis_plane_predicate
+.. autofunction:: fluxfem.mesh.slab_predicate

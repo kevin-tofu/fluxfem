@@ -95,7 +95,7 @@
              
   <section id="hyper-elasticity-hyperelastic-cantilever">
 <h1>Hyper-Elasticity: Hyperelastic Cantilever<a class="headerlink" href="#hyper-elasticity-hyperelastic-cantilever" title="Link to this heading"></a></h1>
-<p>This tutorial summarizes <cite>tutorials/hyperelastic_cantilever_simplified.py</cite> and
+<p>This tutorial summarizes <code class="docutils literal notranslate"><span class="pre">tutorials/hyperelastic_cantilever_simplified.py</span></code> and
 explains the nonlinear formulation, loads, and solver flow used for a 3D
 Neo-Hookean cantilever.</p>
 <section id="run-the-example">
@@ -108,12 +108,12 @@ Neo-Hookean cantilever.</p>
 <h2>Problem statement<a class="headerlink" href="#problem-statement" title="Link to this heading"></a></h2>
 <p>We solve a finite-strain hyperelasticity problem on a 3D cantilever:</p>
 <ul class="simple">
-<li><p>Unknown displacement field: <cite>u</cite></p></li>
-<li><p>Test function: <cite>v</cite></p></li>
-<li><p>Material: compressible Neo-Hookean, with Lamé parameters <cite>(lam, mu)</cite></p></li>
+<li><p>Unknown displacement field: <code class="docutils literal notranslate"><span class="pre">u</span></code></p></li>
+<li><p>Test function: <code class="docutils literal notranslate"><span class="pre">v</span></code></p></li>
+<li><p>Material: compressible Neo-Hookean, with Lamé parameters <code class="docutils literal notranslate"><span class="pre">(lam,</span> <span class="pre">mu)</span></code></p></li>
 <li><p>Boundary conditions:
-- Dirichlet (clamped) on <cite>x = xmin</cite>
-- Uniform traction on <cite>x = xmax</cite> along <cite>+y</cite></p></li>
+- Dirichlet (clamped) on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmin</span></code>
+- Uniform traction on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code> along <code class="docutils literal notranslate"><span class="pre">+y</span></code></p></li>
 </ul>
 </section>
 <section id="hyperelastic-formulation">
@@ -124,15 +124,15 @@ Neo-Hookean cantilever.</p>
 <p>For a compressible Neo-Hookean material, a standard strain-energy density is:</p>
 <div class="math notranslate nohighlight">
 \[W(F) = \frac{\mu}{2}(I_1 - 3) - \mu \ln J + \frac{\lambda}{2}(\ln J)^2\]</div>
-<p>where <span class="math notranslate nohighlight">\(I_1 = \\mathrm{tr}(F^T F)\)</span>. The first Piola-Kirchhoff stress is
-<cite>P = partial W / partial F</cite>. The weak form is: find <cite>u</cite> such that for all
-<cite>v</cite>:</p>
+<p>where <span class="math notranslate nohighlight">\(I_1 = tr(F^T F)\)</span>. The first Piola-Kirchhoff stress is
+<span class="math notranslate nohighlight">\(P = \partial W / \partial F\)</span>. The weak form is: find <code class="docutils literal notranslate"><span class="pre">u</span></code> such that for all
+<code class="docutils literal notranslate"><span class="pre">v</span></code>:</p>
 <div class="math notranslate nohighlight">
 \[R(u; v) = \int_{\Omega} P(F(u)) : \nabla v \, d\Omega
 - \int_{\Omega} v \cdot b \, d\Omega
 - \int_{\Gamma_t} v \cdot t \, ds = 0\]</div>
-<p>In this example, the body force <cite>b</cite> is zero and the traction
-<cite>t = (0, traction, 0)</cite> is applied on <cite>x = xmax</cite>.</p>
+<p>In this example, the body force <code class="docutils literal notranslate"><span class="pre">b</span></code> is zero and the traction
+<code class="docutils literal notranslate"><span class="pre">t</span> <span class="pre">=</span> <span class="pre">(0,</span> <span class="pre">traction,</span> <span class="pre">0)</span></code> is applied on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code>.</p>
 </section>
 <section id="implementation-flow-fluxfem">
 <h2>Implementation flow (FluxFEM)<a class="headerlink" href="#implementation-flow-fluxfem" title="Link to this heading"></a></h2>
@@ -150,7 +150,7 @@ Neo-Hookean cantilever.</p>
 <span class="n">F_ext</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_linear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">vector_body_force_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">f_body</span><span class="p">,</span> <span class="n">sparse</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Surface traction on <cite>x = xmax</cite>:</p>
+<p>Surface traction on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code>:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">traction_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">SurfaceFormContext</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
     <span class="k">return</span> <span class="n">h_ts</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="n">traction_vec</span><span class="p">)</span>
 
@@ -172,7 +172,7 @@ Neo-Hookean cantilever.</p>
 <h3>4) Nonlinear analysis and Newton solve<a class="headerlink" href="#nonlinear-analysis-and-newton-solve" title="Link to this heading"></a></h3>
 <p>FluxFEM provides a nonlinear analysis wrapper and a Newton loop. The residual can be
 expressed as a weak-form function (conceptually), and then assembled per element.
-The simplified script uses the built-in <cite>ff.neo_hookean_residual_form</cite> internally,
+The simplified script uses the built-in <code class="docutils literal notranslate"><span class="pre">ff.neo_hookean_residual_form</span></code> internally,
 but the weak-form mapping looks like this (PK2 form):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_wf</span>
@@ -193,7 +193,7 @@ but the weak-form mapping looks like this (PK2 form):</p>
 <span class="n">R</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">residual_form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>In FluxFEM, <cite>ff.neo_hookean_residual_form</cite> uses the PK2 stress <cite>S</cite> internally,
+<p>In FluxFEM, <code class="docutils literal notranslate"><span class="pre">ff.neo_hookean_residual_form</span></code> uses the PK2 stress <code class="docutils literal notranslate"><span class="pre">S</span></code> internally,
 and the weak-form expression above is consistent with that choice.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">analysis</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">NonlinearAnalysis</span><span class="p">(</span>
     <span class="n">space</span><span class="o">=</span><span class="n">space</span><span class="p">,</span>
@@ -211,14 +211,14 @@ and the weak-form expression above is consistent with that choice.</p>
 \[\begin{split}r_e(u; v) = \\int_{\\Omega_e} S(u) : \\delta E(u; v) \\, d\\Omega - f_{ext,e}
 \\quad (\\equiv \\int_{\\Omega_e} P(u) : \\nabla v \\, d\\Omega - f_{ext,e})\end{split}\]</div>
 <p>FluxFEM then assembles the element contributions over the mesh using the current
-state <cite>u</cite> and subtracts the external force vector <cite>F_ext</cite> (from body forces and
+state <code class="docutils literal notranslate"><span class="pre">u</span></code> and subtracts the external force vector <code class="docutils literal notranslate"><span class="pre">F_ext</span></code> (from body forces and
 surface traction) when forming the global residual.</p>
 <blockquote>
 <div><p>runner = ff.NewtonSolveRunner(analysis, newton_cfg)
 u, history = runner.run(u0=jnp.zeros(space.n_dofs, dtype=dtype))</p>
 </div></blockquote>
 <p>The script reports the maximum displacement magnitude and optionally writes
-<cite>result.vtu</cite> for visualization.</p>
+<code class="docutils literal notranslate"><span class="pre">result.vtu</span></code> for visualization.</p>
 </section>
 </section>
 </section>

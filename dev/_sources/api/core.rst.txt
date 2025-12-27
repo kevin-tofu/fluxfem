@@ -1,79 +1,34 @@
 Core
 ====
 
-.. automodule:: fluxfem.core
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Assembly
---------
-
-.. automodule:: fluxfem.core.assembly
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Basis
------
-
-.. automodule:: fluxfem.core.basis
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Data
-----
-
-.. automodule:: fluxfem.core.data
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Dtypes
+Spaces
 ------
 
-.. automodule:: fluxfem.core.dtypes
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: fluxfem.core.FESpaceBase
+.. autoclass:: fluxfem.core.FESpace
+.. autoclass:: fluxfem.core.FESpacePytree
+
+.. autofunction:: fluxfem.core.make_space
+.. autofunction:: fluxfem.core.make_space_pytree
+.. autofunction:: fluxfem.core.make_hex_space
+.. autofunction:: fluxfem.core.make_hex_space_pytree
+.. autofunction:: fluxfem.core.make_tet_space
+.. autofunction:: fluxfem.core.make_tet_space_pytree
 
 Forms
 -----
 
-.. automodule:: fluxfem.core.forms
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: fluxfem.core.FormContext
+.. autoclass:: fluxfem.core.MixedFormContext
+.. autoclass:: fluxfem.core.VolumeContext
+.. autoclass:: fluxfem.core.SurfaceContext
 
-Interpolation
--------------
+.. autoclass:: fluxfem.core.LinearForm
+.. autoclass:: fluxfem.core.BilinearForm
+.. autoclass:: fluxfem.core.ResidualForm
+.. autoclass:: fluxfem.core.MixedWeakForm
 
-.. automodule:: fluxfem.core.interp
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Space
------
-
-.. automodule:: fluxfem.core.space
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Weakform
+Assembly
 --------
 
-.. automodule:: fluxfem.core.weakform
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Core Solver
------------
-
-.. automodule:: fluxfem.core.solver
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autofunction:: fluxfem.core.make_sparsity_pattern
