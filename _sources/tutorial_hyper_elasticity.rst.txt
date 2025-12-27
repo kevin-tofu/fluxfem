@@ -39,8 +39,8 @@ For a compressible Neo-Hookean material, a standard strain-energy density is:
 
    W(F) = \frac{\mu}{2}(I_1 - 3) - \mu \ln J + \frac{\lambda}{2}(\ln J)^2
 
-where ``I_1 = \mathrm{tr}(F^T F)``. The first Piola-Kirchhoff stress is
-``P = \partial W / \partial F``. The weak form is: find ``u`` such that for all
+where :math:`I_1 = tr(F^T F)`. The first Piola-Kirchhoff stress is
+:math:`P = \partial W / \partial F`. The weak form is: find ``u`` such that for all
 ``v``:
 
 .. math::
@@ -64,7 +64,7 @@ Implementation flow (FluxFEM)
    space = ff.make_hex_space(mesh, dim=3, intorder=intorder)
 
 2) Assemble external forces
-"""""""""""""""""""""""
+"""""""""""""""""""""""""""
 
 Body force:
 
@@ -84,7 +84,7 @@ Surface traction on ``x = xmax``:
    F_ext = surf.assemble_linear_form_on_space(space, traction_form, params=traction_vec, F0=F_ext)
 
 3) Apply Dirichlet clamp
-"""""""""""""""""""""""
+""""""""""""""""""""""""
 
 .. code-block:: python
 
@@ -94,7 +94,7 @@ Surface traction on ``x = xmax``:
    )
 
 4) Nonlinear analysis and Newton solve
-""""""""""""""""""""""""""
+""""""""""""""""""""""""""""""""""""""
 
 FluxFEM provides a nonlinear analysis wrapper and a Newton loop. The residual can be
 expressed as a weak-form function (conceptually), and then assembled per element.
@@ -140,8 +140,10 @@ In weak-form terms, the element residual corresponds to:
 
 .. math::
 
-   r_e(u; v) = \\int_{\\Omega_e} S(u) : \\delta E(u; v) \\, d\\Omega - f_{ext,e}
-   \\quad (\\equiv \\int_{\\Omega_e} P(u) : \\nabla v \\, d\\Omega - f_{ext,e})
+   \begin{aligned}
+   r_e(u; v) &= \int_{\Omega_e} S(u) : \delta E(u; v) \, d\Omega - f_{ext,e} \\
+            &= \int_{\Omega_e} P(u) : \nabla v \, d\Omega - f_{ext,e}
+   \end{aligned}
 
 FluxFEM then assembles the element contributions over the mesh using the current
 state ``u`` and subtracts the external force vector ``F_ext`` (from body forces and

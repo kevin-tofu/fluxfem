@@ -52,12 +52,38 @@
 <li class="toctree-l2"><a class="reference internal" href="top.html">Top-level API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="core.html">Core</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Mesh</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#base">Base</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#hex">Hex</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#tet">Tet</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#surface">Surface</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#io">IO</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#predicate">Predicate</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#meshes">Meshes</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.BaseMesh"><code class="docutils literal notranslate"><span class="pre">BaseMesh</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.BaseMeshPytree"><code class="docutils literal notranslate"><span class="pre">BaseMeshPytree</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.HexMesh"><code class="docutils literal notranslate"><span class="pre">HexMesh</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.HexMeshPytree"><code class="docutils literal notranslate"><span class="pre">HexMeshPytree</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.StructuredHexBox"><code class="docutils literal notranslate"><span class="pre">StructuredHexBox</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.tag_axis_minmax_facets"><code class="docutils literal notranslate"><span class="pre">tag_axis_minmax_facets()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.TetMesh"><code class="docutils literal notranslate"><span class="pre">TetMesh</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.TetMeshPytree"><code class="docutils literal notranslate"><span class="pre">TetMeshPytree</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.StructuredTetBox"><code class="docutils literal notranslate"><span class="pre">StructuredTetBox</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.StructuredTetTensorBox"><code class="docutils literal notranslate"><span class="pre">StructuredTetTensorBox</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#surface">Surface</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.SurfaceMesh"><code class="docutils literal notranslate"><span class="pre">SurfaceMesh</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.SurfaceMeshPytree"><code class="docutils literal notranslate"><span class="pre">SurfaceMeshPytree</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#io">IO</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.load_gmsh_mesh"><code class="docutils literal notranslate"><span class="pre">load_gmsh_mesh()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.load_gmsh_hex_mesh"><code class="docutils literal notranslate"><span class="pre">load_gmsh_hex_mesh()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.load_gmsh_tet_mesh"><code class="docutils literal notranslate"><span class="pre">load_gmsh_tet_mesh()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.make_surface_from_facets"><code class="docutils literal notranslate"><span class="pre">make_surface_from_facets()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#predicates">Predicates</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.bbox_predicate"><code class="docutils literal notranslate"><span class="pre">bbox_predicate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.plane_predicate"><code class="docutils literal notranslate"><span class="pre">plane_predicate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.axis_plane_predicate"><code class="docutils literal notranslate"><span class="pre">axis_plane_predicate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fluxfem.mesh.slab_predicate"><code class="docutils literal notranslate"><span class="pre">slab_predicate()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="solver.html">Solver</a></li>
@@ -95,23 +121,160 @@
              
   <section id="mesh">
 <h1>Mesh<a class="headerlink" href="#mesh" title="Link to this heading"></a></h1>
-<section id="base">
-<h2>Base<a class="headerlink" href="#base" title="Link to this heading"></a></h2>
-</section>
-<section id="hex">
-<h2>Hex<a class="headerlink" href="#hex" title="Link to this heading"></a></h2>
-</section>
-<section id="tet">
-<h2>Tet<a class="headerlink" href="#tet" title="Link to this heading"></a></h2>
+<section id="meshes">
+<h2>Meshes<a class="headerlink" href="#meshes" title="Link to this heading"></a></h2>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.mesh.BaseMesh">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">BaseMesh</span></span><a class="headerlink" href="#fluxfem.mesh.BaseMesh" title="Link to this definition"></a></dt>
+<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseMeshClosure</span></code></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.mesh.BaseMeshPytree">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">BaseMeshPytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">conn</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_tags</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">node_tags</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.BaseMeshPytree" title="Link to this definition"></a></dt>
+<dd><p>BaseMesh variant that registers as a JAX pytree.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.mesh.HexMesh">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">HexMesh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">conn</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_tags</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">node_tags</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.HexMesh" title="Link to this definition"></a></dt>
+<dd><p>Structured / unstructured hex mesh (8-node linear hex elements).</p>
+<p>coords: (n_nodes, 3) float32
+conn:   (n_elems, 8) int32  # node indices of each element</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.mesh.HexMeshPytree">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">HexMeshPytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.HexMeshPytree" title="Link to this definition"></a></dt>
+<dd><p>Hex mesh registered as a JAX pytree.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.mesh.StructuredHexBox">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">StructuredHexBox</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ny</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nz</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ly</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lz</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">origin</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(0.0,</span> <span class="pre">0.0,</span> <span class="pre">0.0)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.StructuredHexBox" title="Link to this definition"></a></dt>
+<dd><p>Uniform hex mesh generator on a box, returned as an unstructured HexMesh.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.mesh.tag_axis_minmax_facets">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">tag_axis_minmax_facets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#fluxfem.mesh.HexMesh" title="fluxfem.mesh.hex.HexMesh"><span class="pre">HexMesh</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dirichlet_tag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">neumann_tag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1e-08</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">jax.numpy.ndarray</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.mesh.tag_axis_minmax_facets" title="Link to this definition"></a></dt>
+<dd><p>Tag boundary facets on min/max of the given axis.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(n_facets, 4) int32, quad node ids
+facet_tags: (n_facets,) int32, dirichlet_tag on min side, neumann_tag on max side</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>facets</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.mesh.TetMesh">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">TetMesh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">conn</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_tags</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">node_tags</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.TetMesh" title="Link to this definition"></a></dt>
+<dd><p>Unstructured tetra mesh.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.mesh.TetMeshPytree">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">TetMeshPytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.TetMeshPytree" title="Link to this definition"></a></dt>
+<dd><p>Unstructured tetra mesh (pytree).</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.mesh.StructuredTetBox">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">StructuredTetBox</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ny</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nz</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ly</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lz</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">origin</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(0.0,</span> <span class="pre">0.0,</span> <span class="pre">0.0)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.StructuredTetBox" title="Link to this definition"></a></dt>
+<dd><p>Regular grid subdivided into 5 tets per cube (simplex) in a structured layout.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.mesh.StructuredTetTensorBox">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">StructuredTetTensorBox</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ny</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nz</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ly</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lz</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">origin</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(0.0,</span> <span class="pre">0.0,</span> <span class="pre">0.0)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.StructuredTetTensorBox" title="Link to this definition"></a></dt>
+<dd><p>Regular grid subdivided into 6 tets per cube (matches skfem MeshTet.init_tensor).</p>
+</dd></dl>
+
 </section>
 <section id="surface">
 <h2>Surface<a class="headerlink" href="#surface" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.mesh.SurfaceMesh">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">SurfaceMesh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">conn</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_tags</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">node_tags</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">facet_tags</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.SurfaceMesh" title="Link to this definition"></a></dt>
+<dd><p>Simple boundary mesh made of facets (tri/quad) that live in the volume mesh nodes.
+Uses BaseMesh.conn to store facets.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fluxfem.mesh.SurfaceMeshPytree">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">SurfaceMeshPytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.SurfaceMeshPytree" title="Link to this definition"></a></dt>
+<dd><p>Simple boundary mesh made of facets (tri/quad) that live in the volume mesh nodes.
+Uses BaseMesh.conn to store facets.</p>
+</dd></dl>
+
 </section>
 <section id="io">
 <h2>IO<a class="headerlink" href="#io" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.mesh.load_gmsh_mesh">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">load_gmsh_mesh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.load_gmsh_mesh" title="Link to this definition"></a></dt>
+<dd><p>Load a Gmsh .msh (v2/v4) file containing hex or tet elements (and optional boundary facets).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>HexMesh or TetMesh
+facets: (n_facets, 3 or 4) or None
+facet_tags: (n_facets,) or None  (gmsh physical tags if present)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>mesh</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.mesh.load_gmsh_hex_mesh">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">load_gmsh_hex_mesh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.load_gmsh_hex_mesh" title="Link to this definition"></a></dt>
+<dd><p>Load a Gmsh mesh and return a HexMesh with optional facets/tags.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.mesh.load_gmsh_tet_mesh">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">load_gmsh_tet_mesh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.load_gmsh_tet_mesh" title="Link to this definition"></a></dt>
+<dd><p>Load a Gmsh mesh and return a TetMesh with optional facets/tags.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.mesh.make_surface_from_facets">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">make_surface_from_facets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coords</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">facets</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tags</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#fluxfem.mesh.SurfaceMesh" title="fluxfem.mesh.surface.SurfaceMesh"><span class="pre">SurfaceMesh</span></a></span></span><a class="headerlink" href="#fluxfem.mesh.make_surface_from_facets" title="Link to this definition"></a></dt>
+<dd><p>Helper to build SurfaceMesh from raw coords/facets (optional tags).</p>
+</dd></dl>
+
 </section>
-<section id="predicate">
-<h2>Predicate<a class="headerlink" href="#predicate" title="Link to this heading"></a></h2>
+<section id="predicates">
+<h2>Predicates<a class="headerlink" href="#predicates" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.mesh.bbox_predicate">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">bbox_predicate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mins</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">maxs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1e-08</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.bbox_predicate" title="Link to this definition"></a></dt>
+<dd><p>Return predicate True for nodes on the axis-aligned bounding box.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.mesh.plane_predicate">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">plane_predicate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1e-08</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.plane_predicate" title="Link to this definition"></a></dt>
+<dd><p>Return predicate True when all nodes lie on plane x[axis]=value (within tol).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.mesh.axis_plane_predicate">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">axis_plane_predicate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1e-08</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.axis_plane_predicate" title="Link to this definition"></a></dt>
+<dd><p>Alias of plane_predicate for readability.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.mesh.slab_predicate">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.mesh.</span></span><span class="sig-name descname"><span class="pre">slab_predicate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_val</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_val</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1e-08</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.mesh.slab_predicate" title="Link to this definition"></a></dt>
+<dd><p>Return predicate True when nodes lie in a slab min&lt;=x[axis]&lt;=max (within tol).</p>
+</dd></dl>
+
 </section>
 </section>
 

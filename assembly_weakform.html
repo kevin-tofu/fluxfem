@@ -294,19 +294,13 @@ in Voigt order <code class="docutils literal notranslate"><span class="pre">[xx,
 </pre></div>
 </div>
 <p>About <code class="docutils literal notranslate"><span class="pre">ddot</span></code>:</p>
-<ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">ddot(a,</span> <span class="pre">b)</span></code>:
-- If <code class="docutils literal notranslate"><span class="pre">a</span></code> and <code class="docutils literal notranslate"><span class="pre">b</span></code> are 2D arrays, it computes elementwise double contraction</p>
-<blockquote>
-<div><p><code class="docutils literal notranslate"><span class="pre">Σ_ij</span> <span class="pre">a_ij</span> <span class="pre">b_ij</span></code> (last two axes), returning a scalar per quadrature point.</p>
-</div></blockquote>
 <ul class="simple">
-<li><p>If <code class="docutils literal notranslate"><span class="pre">a</span></code> and <code class="docutils literal notranslate"><span class="pre">b</span></code> are 3D arrays shaped like <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">i,</span> <span class="pre">k)</span></code> and <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">i,</span> <span class="pre">m)</span></code>,
-it contracts over the middle axis and returns a local block <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">k,</span> <span class="pre">m)</span></code>
+<li><p><code class="docutils literal notranslate"><span class="pre">ddot(a,</span> <span class="pre">b)</span></code> computes elementwise double contraction
+<code class="docutils literal notranslate"><span class="pre">sum_ij</span> <span class="pre">a_ij</span> <span class="pre">b_ij</span></code> for 2D arrays, returning a scalar per quadrature point.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ddot(a,</span> <span class="pre">b)</span></code> for 3D arrays shaped like <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">i,</span> <span class="pre">k)</span></code> and <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">i,</span> <span class="pre">m)</span></code>
+contracts over the middle axis and returns a local block <code class="docutils literal notranslate"><span class="pre">(q,</span> <span class="pre">k,</span> <span class="pre">m)</span></code>
 (used by <code class="docutils literal notranslate"><span class="pre">sym_grad</span></code> in elasticity).</p></li>
-</ul>
-</li>
-<li><p><code class="docutils literal notranslate"><span class="pre">ddot(a,</span> <span class="pre">b,</span> <span class="pre">c)</span></code> computes <code class="docutils literal notranslate"><span class="pre">aᵀ</span> <span class="pre">b</span> <span class="pre">c</span></code> (used for Voigt-style elasticity blocks).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ddot(a,</span> <span class="pre">b,</span> <span class="pre">c)</span></code> computes <code class="docutils literal notranslate"><span class="pre">a^T</span> <span class="pre">b</span> <span class="pre">c</span></code> (used for Voigt-style elasticity blocks).</p></li>
 </ul>
 </section>
 <section id="surface-traction-dot-v-t-and-v-t-shorthand">

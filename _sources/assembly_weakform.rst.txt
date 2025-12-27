@@ -211,13 +211,12 @@ Example that matches ``ff.linear_elasticity_form``:
 
 About ``ddot``:
 
-- ``ddot(a, b)``:
-  - If ``a`` and ``b`` are 2D arrays, it computes elementwise double contraction
-    ``Σ_ij a_ij b_ij`` (last two axes), returning a scalar per quadrature point.
-  - If ``a`` and ``b`` are 3D arrays shaped like ``(q, i, k)`` and ``(q, i, m)``,
-    it contracts over the middle axis and returns a local block ``(q, k, m)``
-    (used by ``sym_grad`` in elasticity).
-- ``ddot(a, b, c)`` computes ``aᵀ b c`` (used for Voigt-style elasticity blocks).
+- ``ddot(a, b)`` computes elementwise double contraction
+  ``sum_ij a_ij b_ij`` for 2D arrays, returning a scalar per quadrature point.
+- ``ddot(a, b)`` for 3D arrays shaped like ``(q, i, k)`` and ``(q, i, m)``
+  contracts over the middle axis and returns a local block ``(q, k, m)``
+  (used by ``sym_grad`` in elasticity).
+- ``ddot(a, b, c)`` computes ``a^T b c`` (used for Voigt-style elasticity blocks).
 
 
 Surface traction: ``dot(v, t)`` (and ``v | t`` shorthand)

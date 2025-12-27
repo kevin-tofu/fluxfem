@@ -1,0 +1,194 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autodiff Tutorial: Diffusion Sensitivity &mdash; fluxfem 0.1.1b documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial_autodiff.html" />
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a9b42864"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Usage" href="usage.html" />
+    <link rel="prev" title="Hyper-Elasticity: Hyperelastic Cantilever" href="tutorial_hyper_elasticity.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            fluxfem
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="project.html">Project</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="tutorial.html">Tutorial Page</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar (Simplified)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial_hyper_elasticity.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Autodiff Tutorial: Diffusion Sensitivity</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#run-the-example">Run the example</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#problem-setup">Problem setup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#weak-form">Weak form</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#loss-and-sensitivities">Loss and sensitivities</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#implementation-flow">Implementation flow</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#precompute-reference-operators">1) Precompute reference operators</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solve-and-differentiate">2) Solve and differentiate</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">fluxfem</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="tutorial.html">Tutorial Page</a></li>
+      <li class="breadcrumb-item active">Autodiff Tutorial: Diffusion Sensitivity</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/tutorial_autodiff.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="autodiff-tutorial-diffusion-sensitivity">
+<h1>Autodiff Tutorial: Diffusion Sensitivity<a class="headerlink" href="#autodiff-tutorial-diffusion-sensitivity" title="Link to this heading"></a></h1>
+<p>This tutorial explains <code class="docutils literal notranslate"><span class="pre">tutorials/autodiff_diffusion_sensitivity.py</span></code> and shows how to
+compute gradients of a scalar loss with respect to a diffusion coefficient and a
+boundary traction using JAX.</p>
+<section id="run-the-example">
+<h2>Run the example<a class="headerlink" href="#run-the-example" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/autodiff_diffusion_sensitivity.py
+</pre></div>
+</div>
+</section>
+<section id="problem-setup">
+<h2>Problem setup<a class="headerlink" href="#problem-setup" title="Link to this heading"></a></h2>
+<p>We solve a scalar diffusion problem on a structured hex mesh (<code class="docutils literal notranslate"><span class="pre">dim=1</span></code>):</p>
+<ul class="simple">
+<li><p>Unknown field: <code class="docutils literal notranslate"><span class="pre">u</span></code></p></li>
+<li><p>Diffusion coefficient: <code class="docutils literal notranslate"><span class="pre">kappa</span></code></p></li>
+<li><p>Dirichlet boundary: <code class="docutils literal notranslate"><span class="pre">u</span> <span class="pre">=</span> <span class="pre">0</span></code> on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmin</span></code></p></li>
+<li><p>Neumann boundary: constant traction on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code></p></li>
+</ul>
+</section>
+<section id="weak-form">
+<h2>Weak form<a class="headerlink" href="#weak-form" title="Link to this heading"></a></h2>
+<p>Find <code class="docutils literal notranslate"><span class="pre">u</span></code> such that for all <code class="docutils literal notranslate"><span class="pre">v</span></code>:</p>
+<div class="math notranslate nohighlight">
+\[\int_{\Omega} \kappa \, \nabla v \cdot \nabla u \, d\Omega
+= \int_{\Gamma_t} v \, t \, ds\]</div>
+</section>
+<section id="loss-and-sensitivities">
+<h2>Loss and sensitivities<a class="headerlink" href="#loss-and-sensitivities" title="Link to this heading"></a></h2>
+<p>The tutorial defines a simple quadratic loss and differentiates it:</p>
+<div class="math notranslate nohighlight">
+\[\mathcal{L}(u) = \tfrac{1}{2} \|u\|^2, \quad
+\frac{d\mathcal{L}}{d\kappa},\; \frac{d\mathcal{L}}{dt}\]</div>
+</section>
+<section id="implementation-flow">
+<h2>Implementation flow<a class="headerlink" href="#implementation-flow" title="Link to this heading"></a></h2>
+<section id="precompute-reference-operators">
+<h3>1) Precompute reference operators<a class="headerlink" href="#precompute-reference-operators" title="Link to this heading"></a></h3>
+<p>Because the stiffness operator is linear in <code class="docutils literal notranslate"><span class="pre">kappa</span></code> and the surface load is
+linear in the traction, the script precomputes reference matrices and scales them
+inside the JAX-traced function:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">K0</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">())</span>
+<span class="n">F_base</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
+    <span class="n">space</span><span class="p">,</span> <span class="n">surface_form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span>
+<span class="p">)</span>
+<span class="n">F_base</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">F_base</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="solve-and-differentiate">
+<h3>2) Solve and differentiate<a class="headerlink" href="#solve-and-differentiate" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">loss_fn</span><span class="p">(</span><span class="n">kappa</span><span class="p">,</span> <span class="n">traction</span><span class="p">):</span>
+    <span class="n">K</span> <span class="o">=</span> <span class="n">kappa</span> <span class="o">*</span> <span class="n">K0</span>
+    <span class="n">F</span> <span class="o">=</span> <span class="n">traction</span> <span class="o">*</span> <span class="n">F_base</span>
+    <span class="n">u</span> <span class="o">=</span> <span class="n">solve_linear_system</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">F</span><span class="p">)</span>
+    <span class="k">return</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">u</span><span class="p">)</span>
+
+<span class="n">grad_kappa</span><span class="p">,</span> <span class="n">grad_trac</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">loss_fn</span><span class="p">,</span> <span class="n">argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))(</span><span class="n">kappa0</span><span class="p">,</span> <span class="n">traction0</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This produces sensitivities of the loss with respect to the diffusion coefficient
+and the boundary traction.</p>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="tutorial_hyper_elasticity.html" class="btn btn-neutral float-left" title="Hyper-Elasticity: Hyperelastic Cantilever" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="usage.html" class="btn btn-neutral float-right" title="Usage" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Kohei Watanabe.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

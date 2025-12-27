@@ -8,3 +8,4 @@ This section contains tutorials for fluxfem.
 
    tutorial_linear_elasticity
    tutorial_hyper_elasticity
+   tutorial_autodiff

@@ -34,7 +34,7 @@ Find ``u`` such that for all ``v``:
    \int_{\Omega} \varepsilon(v) : D : \varepsilon(u)\, d\Omega
    = \int_{\Gamma_t} v \cdot t \, ds
 
-where ``\varepsilon(u) = sym(grad(u))``.
+where :math:`\varepsilon(u) = \tfrac{1}{2}(\nabla u + \nabla u^T)`.
 
 In this example, ``t = (traction, 0, 0)`` is applied on ``x = xmax``.
 
@@ -52,7 +52,7 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
    space = ff.make_hex_space(mesh, dim=3, intorder=intorder)
 
 2) Assemble the bilinear form (weak form)
-"""""""""""""""""""""""""""""
+"""""""""""""""""""""""""""""""""""""""""
 
 .. math::
 
@@ -69,7 +69,7 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
    K = space.assemble_bilinear_form(bilinear_form.get_compiled(), params=D)
 
 3) Assemble the surface traction
-"""""""""""""""""""""""
+""""""""""""""""""""""""""""""""
 
 .. math::
 
@@ -84,7 +84,7 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
    )
 
 4) Apply Dirichlet clamp
-"""""""""""""""""""""""
+""""""""""""""""""""""""
 
 The clamp fixes all components on the ``x = xmin`` face:
 
@@ -96,7 +96,7 @@ The clamp fixes all components on the ``x = xmin`` face:
    )
 
 5) Solve the linear system
-"""""""""""""""""""""""
+""""""""""""""""""""""""""
 
 .. code-block:: python
 

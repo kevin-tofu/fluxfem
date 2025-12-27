@@ -63,6 +63,7 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="tutorial_hyper_elasticity.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Diffusion Sensitivity</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
@@ -123,7 +124,7 @@ assembly, and boundary conditions with the key equations.</p>
 <div class="math notranslate nohighlight">
 \[\int_{\Omega} \varepsilon(v) : D : \varepsilon(u)\, d\Omega
 = \int_{\Gamma_t} v \cdot t \, ds\]</div>
-<p>where <code class="docutils literal notranslate"><span class="pre">\varepsilon(u)</span> <span class="pre">=</span> <span class="pre">sym(grad(u))</span></code>.</p>
+<p>where <span class="math notranslate nohighlight">\(\varepsilon(u) = \tfrac{1}{2}(\nabla u + \nabla u^T)\)</span>.</p>
 <p>In this example, <code class="docutils literal notranslate"><span class="pre">t</span> <span class="pre">=</span> <span class="pre">(traction,</span> <span class="pre">0,</span> <span class="pre">0)</span></code> is applied on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code>.</p>
 </section>
 <section id="implementation-flow-fluxfem">
