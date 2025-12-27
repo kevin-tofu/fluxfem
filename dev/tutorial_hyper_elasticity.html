@@ -209,8 +209,10 @@ and the weak-form expression above is consistent with that choice.</p>
 </div>
 <p>In weak-form terms, the element residual corresponds to:</p>
 <div class="math notranslate nohighlight">
-\[\begin{split}r_e(u; v) = \\int_{\\Omega_e} S(u) : \\delta E(u; v) \\, d\\Omega - f_{ext,e}
-\\quad (\\equiv \\int_{\\Omega_e} P(u) : \\nabla v \\, d\\Omega - f_{ext,e})\end{split}\]</div>
+\[\begin{split}\begin{aligned}
+r_e(u; v) &amp;= \int_{\Omega_e} S(u) : \delta E(u; v) \, d\Omega - f_{ext,e} \\
+         &amp;= \int_{\Omega_e} P(u) : \nabla v \, d\Omega - f_{ext,e}
+\end{aligned}\end{split}\]</div>
 <p>FluxFEM then assembles the element contributions over the mesh using the current
 state <code class="docutils literal notranslate"><span class="pre">u</span></code> and subtracts the external force vector <code class="docutils literal notranslate"><span class="pre">F_ext</span></code> (from body forces and
 surface traction) when forming the global residual.</p>

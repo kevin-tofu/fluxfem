@@ -140,8 +140,10 @@ In weak-form terms, the element residual corresponds to:
 
 .. math::
 
-   r_e(u; v) = \\int_{\\Omega_e} S(u) : \\delta E(u; v) \\, d\\Omega - f_{ext,e}
-   \\quad (\\equiv \\int_{\\Omega_e} P(u) : \\nabla v \\, d\\Omega - f_{ext,e})
+   \begin{aligned}
+   r_e(u; v) &= \int_{\Omega_e} S(u) : \delta E(u; v) \, d\Omega - f_{ext,e} \\
+            &= \int_{\Omega_e} P(u) : \nabla v \, d\Omega - f_{ext,e}
+   \end{aligned}
 
 FluxFEM then assembles the element contributions over the mesh using the current
 state ``u`` and subtracts the external force vector ``F_ext`` (from body forces and
