@@ -49,7 +49,7 @@ Weak-form expressions are compiled into an evaluation plan and then executed per
 flowchart TB
 
   subgraph Compile
-    direction TB
+    direction LR
     A["User weak form<br/>lambda"]
     B["Expr tree"]
     C["compile"]
@@ -58,7 +58,7 @@ flowchart TB
   end
 
   subgraph Runtime
-    direction TB
+    direction LR
     E["eval_with_plan<br/>per element"]
     F["Element kernel<br/>outputs"]
     E --> F
