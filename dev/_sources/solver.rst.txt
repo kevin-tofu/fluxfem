@@ -12,8 +12,8 @@ they are typically used in workflows.
 Linear solves
 -------------
 
-FluxFEM provides a lightweight ``LinearSolver`` wrapper that can solve either
-dense arrays or ``FluxSparseMatrix`` objects, with optional Dirichlet handling.
+FluxFEM provides a lightweight `LinearSolver` wrapper that can solve either
+dense arrays or `FluxSparseMatrix` objects, with optional Dirichlet handling.
 
 Typical usage:
 
@@ -32,10 +32,10 @@ Typical usage:
 
 Common options:
 
-- ``method="spsolve"``: direct solve on CPU.
-- ``method="cg"``: conjugate gradient (JAX-based).
-- ``dirichlet_mode="condense"``: eliminate Dirichlet DOFs (smaller system).
-- ``dirichlet_mode="enforce"``: enforce constraints in the full system.
+- `method="spsolve"`: direct solve on CPU.
+- `method="cg"`: conjugate gradient (JAX-based).
+- `dirichlet_mode="condense"`: eliminate Dirichlet DOFs (smaller system).
+- `dirichlet_mode="enforce"`: enforce constraints in the full system.
 
 
 Nonlinear solves (Newton)
@@ -74,7 +74,7 @@ Example:
 Runner usage
 ^^^^^^^^^^^^
 
-``NewtonSolveRunner`` orchestrates load steps and keeps a history of iterations.
+`NewtonSolveRunner` orchestrates load steps and keeps a history of iterations.
 Use it when you need load stepping, convergence history, or callbacks.
 
 .. code-block:: python
@@ -86,7 +86,7 @@ Use it when you need load stepping, convergence history, or callbacks.
    runner = ff.NewtonSolveRunner(analysis, newton_cfg)
    u, history = runner.run(u0=u0, newton_callback=on_newton_step)
 
-The returned ``history`` is important for judging whether the analysis is
+The returned `history` is important for judging whether the analysis is
 actually converging (residual norms, iteration counts, and load-step progress).
 It also provides a structured signal for future automation workflows, including
 AI/LLM agents that monitor and adapt solver behavior.
@@ -97,7 +97,7 @@ These are commonly used for early stopping, adaptive stepping, or logging/alerts
 Inputs overview
 ^^^^^^^^^^^^^^^
 
-``NonlinearAnalysis`` expects the following core inputs:
+`NonlinearAnalysis` expects the following core inputs:
 
 .. list-table::
    :header-rows: 1
@@ -148,9 +148,9 @@ Key configuration fields:
 Choosing a linear solver
 ------------------------
 
-- ``spsolve``: robust for small-to-medium problems on CPU.
-- ``cg``: scalable iterative solver; use preconditioners for better convergence.
-- ``spdirect_solve_gpu``: direct solver when running on GPU (when available).
+- `spsolve`: robust for small-to-medium problems on CPU.
+- `cg`: scalable iterative solver; use preconditioners for better convergence.
+- `spdirect_solve_gpu`: direct solver when running on GPU (when available).
 
 
 Dirichlet handling
@@ -161,4 +161,4 @@ Dirichlet constraints can be handled in two ways:
 - **condense**: removes constrained DOFs from the system (smaller, faster).
 - **enforce**: keeps the system size but overwrites rows/cols to impose constraints.
 
-For large systems, ``condense`` is typically preferred.
+For large systems, `condense` is typically preferred.
