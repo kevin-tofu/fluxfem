@@ -49,7 +49,7 @@ Weak-form expressions are compiled into an evaluation plan and then executed per
 flowchart LR
     A[User weak form lambda] --> B[Expr tree]
     B --> C[compile_*]
-    C --> D[EvalPlan (postorder nodes + index)]
+    C --> D[EvalPlan (postorder nodes and index)]
     D --> E[eval_with_plan per element]
     E --> F[Element kernel outputs]
 ```
