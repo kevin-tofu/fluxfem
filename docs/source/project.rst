@@ -7,4 +7,3 @@ Project
 
    concept
    installation
-   tutorial

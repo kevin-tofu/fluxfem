@@ -18,7 +18,7 @@ The library provides modular tools for building finite element spaces, assemblin
 systems, and solving PDEs while remaining flexible enough for rapid experimentation.
 
 Contributing
-============
+------------
 
 FluxFEM is an open-source project, and we warmly welcome community contributions.
 
