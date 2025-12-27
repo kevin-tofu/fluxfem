@@ -48,23 +48,32 @@ Weak-form expressions are compiled into an evaluation plan and then executed per
 ```mermaid
 flowchart TB
 
+  %% invisible anchors
+  X(( ))
+  Y(( ))
+
+  %% Compile row
   subgraph Compile
     direction LR
-    A["User weak form<br/>lambda"]
+    A["User weak form"]
     B["Expr tree"]
     C["compile"]
     D["EvalPlan"]
     A --> B --> C --> D
   end
 
+  %% Runtime row
   subgraph Runtime
     direction LR
-    E["eval_with_plan<br/>per element"]
-    F["Element kernel<br/>outputs"]
+    E["eval_with_plan"]
+    F["Element kernel outputs"]
     E --> F
   end
 
-  D --> E
+  %% force vertical layout
+  X --> A
+  X --> E
+  D --> Y
 ```
 
 Notes:
