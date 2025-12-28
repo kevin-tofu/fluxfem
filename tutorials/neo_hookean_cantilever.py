@@ -61,7 +61,7 @@ def parse_args():
         type=str,
         default=os.environ.get(
             "OUTPUT_DIR",
-            "result/tutorials/hyperelastic_cantilever",
+            "result/tutorials/neo_hookean_cantilever",
         ).strip(),
     )
     return p.parse_args()
@@ -258,7 +258,7 @@ def main():
             vtu_path,
             output_path=os.path.join(args.output_dir, "result_deformed_x20000.png"),
             scale=20000.0,
-            title="hyperelastic_cantilever",
+            title="neo_hookean_cantilever",
             azimuth=35.0,
             elevation=8.0,
             view="xy",

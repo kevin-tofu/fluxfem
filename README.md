@@ -36,14 +36,28 @@
 
 This library provides two assembly approaches.
 
-- A weak-form-based assembly, where the variational form is written and assembled directly.  
-- A tensor-based assembly, where trial and test functions are represented explicitly as tensors and assembled accordingly (in the style of scikit-fem).  
-The first approach offers simplicity and convenience, as mathematical expressions can be written almost directly in code.
-However, for more complex operations, the second approach can be easier to implement in practice.
-This is because the weak-form-based assembly is ultimately transformed into the tensor-based representation internally during computation.
+- A weak-form-based assembly, where the variational form is written symbolically and compiled before assembly.  
+- A tensor-based assembly, where trial and test functions are represented explicitly as element-level tensors and assembled accordingly (in the style of scikit-fem).  
 
-## Weak Form Compile Flow
-Weak-form expressions are compiled into an evaluation plan and then executed per element.
+The first approach offers simplicity and clarity, as mathematical expressions can be written almost directly in code.
+For more complex operations (e.g. nonlinear materials, custom contractions, or experimental operators),
+the second approach can be easier to implement and debug.
+
+Importantly, both approaches share the same underlying execution model:
+the weak-form-based assembly is compiled into the same element-level tensor representation
+used by the tensor-based assembly.
+
+
+## Assembly Flow
+All expressions are first compiled into an element-level evaluation plan,
+which operates on quadrature-point–major tensors.
+This plan is then executed independently for each element during assembly.
+
+As a result, both assembly approaches:
+- use the same quadrature-major (q, a, i) data layout,
+- perform element-local tensor contractions,
+- and are fully compatible with JAX transformations such as `jit`, `vmap`, and automatic differentiation.
+
 
 ### weak-form-based assembly
 ```Python
@@ -52,9 +66,14 @@ import fluxfem.helpers_wf as h_wf
 
 space = ff.make_hex_space(mesh, dim=3, intorder=2)
 D = ff.isotropic_3d_D(1.0, 0.3)
+
+# u, v are symbolic trial/test fields (weak-form DSL objects).
+# u.sym_grad / v.sym_grad are symbolic nodes (expression tree), not numeric arrays.
+# dOmega() is the integral measure; the whole expression is compiled before assembly.
 bilinear_form = ff.BilinearForm.volume(
     lambda u, v, D: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D, u.sym_grad)) * h_wf.dOmega()
 )
+
 K_wf = space.assemble_bilinear_form(
     bilinear_form.get_compiled(),
     params=D,
@@ -69,9 +88,14 @@ import numpy as np
 import fluxfem.helpers_ts as h_ts
 
 def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray:
-        Bu = h_ts.sym_grad(ctx.trial)
-        Bv = h_ts.sym_grad(ctx.test)
-        return h_ts.ddot(Bv, D, Bu)
+    # ctx.trial / ctx.test are FormField objects (not raw arrays).
+    # Their basis values and gradients are stored in a quadrature-major layout:
+    #   ctx.trial.N (n_qp, n_nodes)
+    #   ctx.trial.gradN: (n_qp, n_nodes, 3)
+    #   Bu, Bv are jnp.ndarray: (n_qp, 6, n_dofs)
+    Bu = h_ts.sym_grad(ctx.trial)
+    Bv = h_ts.sym_grad(ctx.test)
+    return h_ts.ddot(Bv, D, Bu) #(n_qp, n_dofs, n_dofs)
 
 
 space = ff.make_hex_space(mesh, dim=3, intorder=2)
@@ -86,15 +110,18 @@ The inverse diffusion tutorial shows this pattern:
 
 ```Python
 def loss_theta(theta):
-        kappa = jnp.exp(theta)
-        u = solve_u_jit(kappa, traction_true)
-        diff = u[obs_idx_j] - u_obs[obs_idx_j]
-        return 0.5 * jnp.mean(diff * diff)
+    kappa = jnp.exp(theta)
+    u = solve_u_jit(kappa, traction_true)
+    diff = u[obs_idx_j] - u_obs[obs_idx_j]
+    return 0.5 * jnp.mean(diff * diff)
 
 solve_u_jit = jax.jit(solve_u)
 loss_theta_jit = jax.jit(loss_theta)
 grad_fn = jax.jit(jax.grad(loss_theta))
 ```
+
+
+
 
 ## Documentation
 

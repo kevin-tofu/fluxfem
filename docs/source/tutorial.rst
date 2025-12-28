@@ -7,5 +7,5 @@ This section contains tutorials for fluxfem.
    :maxdepth: 1
 
    tutorial_linear_elasticity
-   tutorial_hyper_elasticity
+   tutorial_neo_hookean
    tutorial_autodiff

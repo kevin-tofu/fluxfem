@@ -1,7 +1,7 @@
 Hyper-Elasticity: Hyperelastic Cantilever
 =========================================
 
-This tutorial summarizes ``tutorials/hyperelastic_cantilever_simplified.py`` and
+This tutorial summarizes ``tutorials/neo_hookean_cantilever_simplified.py`` and
 explains the nonlinear formulation, loads, and solver flow used for a 3D
 Neo-Hookean cantilever.
 
@@ -10,12 +10,12 @@ Run the example
 
 .. code-block:: bash
 
-   python tutorials/hyperelastic_cantilever_simplified.py
+   python tutorials/neo_hookean_cantilever_simplified.py
 
 Problem statement
 ^^^^^^^^^^^^^^^^^
 
-We solve a finite-strain hyperelasticity problem on a 3D cantilever:
+We solve a finite-strain neo-Hookean problem on a 3D cantilever:
 
 - Unknown displacement field: ``u``
 - Test function: ``v``

@@ -3,7 +3,7 @@
 Compare displacement fields between two VTU files.
 
 Example:
-  PYTHONPATH=src python tutorials/compare_vtu.py data/neo_hookean_bar_deformed.vtu result/tutorials/hyperelastic_cantilever/result.vtu --field1 displacement --field2 displacement
+PYTHONPATH=src python tutorials/compare_vtu.py data/neo_hookean_bar_deformed.vtu result/tutorials/neo_hookean_cantilever/result.vtu --field1 displacement --field2 displacement
   PYTHONPATH=src python tutorials/compare_vtu.py a.vtu b.vtu --field1 u --field2 displacement
 """
 
