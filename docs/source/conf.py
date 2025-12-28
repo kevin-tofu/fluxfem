@@ -9,7 +9,7 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 # sys.path.insert(0, os.path.abspath(os.path.join(__file__, "..", "..", "..", "src")))
 sys.path.insert(0, os.path.abspath('../../src'))
 
-project = "fluxfem"
+project = "FluxFEM"
 author = "Kohei Watanabe"
 copyright = f"{datetime.now().year}, {author}"
 release = "0.1.1b"
@@ -38,7 +38,7 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 html_extra_path = ["extra"]
 html_meta = {
-    "description": "fluxfem is a finite element toolkit built on JAX.",
+    "description": "FluxFEM is a finite element toolkit built on JAX.",
     "keywords": "FEM, JAX, scientific computing",
     "author": "Kohei Watanabe",
     "robots": "index, follow",
