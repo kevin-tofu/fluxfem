@@ -19,16 +19,7 @@ bibliography: paper.bib
 
 ## Summary
 
-FluxFEM is a Python-based finite element method (FEM) framework built on top of JAX.
-The framework is designed so that the use of JAX does not preclude users from writing weak forms
-directly and explicitly.
-Maintaining a close correspondence between weak forms in code and their mathematical formulation
-is important for readability and productivity, and FluxFEM seeks to support this style while
-making use of automatic differentiation and just-in-time (JIT) compilation where applicable.
-
-In FluxFEM, the weak form of a partial differential equation (PDE) is treated as a **first-class residual operator**, with fields and coefficients exposed explicitly. These components are represented using PyTree-compatible data structures, allowing the weak form to integrate naturally with JAX transformations such as `jit`, `vmap`, and `grad`. This design supports not only linear problems but also **nonlinear problems solved via Newton-type methods** within the same unified framework.
-
-By preserving the expressiveness of weak forms while clarifying the input–output relationships between weak forms, residuals, and objective functions, FluxFEM enables PDE solvers to be embedded as differentiable computational components in larger optimization workflows.
+FluxFEM is a Python-based finite element method (FEM) framework built on top of JAX. The framework is designed so that the use of JAX does not preclude users from writing weak forms directly and explicitly. Maintaining a close correspondence between weak forms in code and their mathematical formulation is important for readability and productivity, and FluxFEM seeks to support this style while making use of automatic differentiation and just-in-time (JIT) compilation where applicable. In FluxFEM, the weak form of a partial differential equation (PDE) is treated as a **first-class residual operator**, with fields and coefficients exposed explicitly. These components are represented using PyTree-compatible data structures, allowing the weak form to integrate naturally with JAX transformations such as `jit`, `vmap`, and `grad`. This design supports not only linear problems but also **nonlinear problems solved via Newton-type methods** within the same unified framework. By preserving the expressiveness of weak forms while clarifying the input–output relationships between weak forms, residuals, and objective functions, FluxFEM enables PDE solvers to be embedded as differentiable computational components in larger optimization workflows.
 
 ---
 
@@ -47,29 +38,12 @@ optimization logic.
 
 ## Purpose and Prior Art
 
-Widely used finite element frameworks such as **FEniCS** [@fenics] and **Firedrake** [@firedrake] provide high-level domain-specific languages for defining weak forms and generating efficient forward solvers. These frameworks are highly mature and robust, and are primarily designed for large-scale forward simulations in scientific and engineering applications.
-
-FluxFEM does not aim to compete with or replace such systems. Instead, it focuses on a complementary problem setting in which weak forms are treated as **differentiable residual operators** with explicit inputs and outputs, enabling direct integration with automatic differentiation and optimization workflows.
-
-The design of FluxFEM is also strongly influenced by existing weak-form-centric FEM frameworks. In particular, the API design of **scikit-fem**, which enables concise and explicit expression of weak forms in Python, and the philosophy of **Gridap** [@Verdugo2022], which treats variational formulations as first-class objects rather than focusing on low-level matrix assembly, served as important reference points in the development of FluxFEM.
-
-FluxFEM respects the idea of *weak-form-centered FEM design* demonstrated by these frameworks, while reconstructing it in a form that integrates naturally with JAX’s automatic differentiation and program transformation mechanisms.
-
-One of the fundamental strengths of the finite element method is its ability to express problems in terms of weak forms that closely reflect their mathematical formulation. FluxFEM adopts the explicit stance that **using JAX should not require abandoning weak-form expressiveness**.
-
-Whereas Gridap emphasizes variational abstractions, FluxFEM places particular emphasis on representing weak forms as **differentiable residual mappings**, with explicit inputs and outputs suitable for automatic differentiation.
-This allows residual evaluation, differentiation, and composition to be combined directly with standard JAX transformations.
-
-By adopting a PyTree-based data model, FluxFEM integrates fields and coefficients in a form that is natural to JAX, while keeping residual evaluation and differentiation logic simple and composable. This design is intended to accommodate extensions involving geometry-dependent coefficients or advanced formulations in future work, without requiring substantial changes to the solver structure.
-
-FluxFEM does not aim to replace matrix-centric or solver-oriented FEM implementations. Instead, it provides a foundation for research and development scenarios in which **weak-form expressiveness and differentiable programming must coexist**. At present, linear elasticity and diffusion/Poisson forms are provided with examples and tests, demonstrating the practical feasibility of this approach.
+Widely used finite element frameworks such as FEniCS [@fenics] and Firedrake [@firedrake] provide high-level domain-specific languages for defining weak forms and generating efficient forward solvers. These frameworks are highly mature and robust, and are primarily designed for large-scale forward simulations in scientific and engineering applications. In contrast, FluxFEM represents weak forms as differentiable residual operators with explicit inputs and outputs. This formulation enables weak forms to be treated as computational components that integrate naturally with automatic differentiation and optimization workflows. The design of FluxFEM is also informed by weak-form-centric FEM frameworks. In particular, scikit-fem enables concise and explicit expression of weak forms directly in Python, while Gridap [@Verdugo2022] emphasizes treating variational formulations as first-class objects rather than focusing on low-level matrix assembly. FluxFEM builds on these ideas by formulating weak forms as differentiable residual mappings compatible with JAX’s program transformation mechanisms. One of the fundamental strengths of the finite element method is its ability to express problems in terms of weak forms that closely reflect their mathematical formulation. FluxFEM adopts the explicit stance that using JAX should not require abandoning this weak-form expressiveness. By representing weak forms as residual mappings with explicit inputs and outputs, residual evaluation, differentiation, and composition can be combined directly with standard JAX transformations. To support this design, FluxFEM adopts a PyTree-based data model that integrates fields and coefficients in a form natural to JAX, while keeping residual evaluation and differentiation logic simple and composable. This approach is intended to support future extensions, such as geometry-dependent coefficients or advanced formulations, without requiring substantial changes to the solver structure. At present, FluxFEM provides implementations and examples for linear elasticity and diffusion/Poisson problems, demonstrating the practical feasibility of combining weak-form expressiveness with differentiable programming.
 
 
 ### Example: Diffusion bilinear form (direct kernel vs Expr-based form)
 
-This example illustrates two complementary ways to express the same weak form in FluxFEM, highlighting the distinction between low-level element kernels and higher-level Expr-based weak-form representations.
-
-FluxFEM supports a "direct kernel" style, in which the element contribution is written explicitly using quantities provided by the form context, such as basis gradients and quadrature data. This provides maximum control over element-level computations and can be useful for performance tuning or implementing specialized operators. For a diffusion-type bilinear form, this can be written as:
+This example illustrates two complementary ways to express the same weak form in FluxFEM, highlighting the distinction between low-level element kernels and higher-level Expr-based weak-form representations. FluxFEM supports a "direct kernel" style, in which the element contribution is written explicitly using quantities provided by the form context, such as basis gradients and quadrature data. This provides maximum control over element-level computations and can be useful for performance tuning or implementing specialized operators. For a diffusion-type bilinear form, this can be written as:
 
 
 ```python
