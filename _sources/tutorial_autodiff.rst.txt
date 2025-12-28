@@ -108,3 +108,29 @@ inside the JAX-traced function:
 This yields an estimate ``kappa_est = exp(theta)`` that can be compared to
 ``kappa_true`` (used only to generate synthetic observations). With real data,
 replace ``u_obs`` with measurements and remove the synthetic generation block.
+
+JIT compilation
+^^^^^^^^^^^^^^^
+
+You can speed up the forward solve and loss/gradient evaluation with JAX JIT.
+In ``tutorials/inverse_diffusion_kappa.py`` the functions are JIT-compiled and
+then reused in the optimization loop:
+
+.. code-block:: python
+
+   solve_u_jit = jax.jit(solve_u)
+
+   def loss_theta(theta):
+       kappa = jnp.exp(theta)
+       u = solve_u_jit(kappa, traction_true)
+       diff = u[obs_idx_j] - u_obs[obs_idx_j]
+       return 0.5 * jnp.mean(diff * diff)
+
+   loss_theta_jit = jax.jit(loss_theta)
+   grad_fn = jax.jit(jax.grad(loss_theta))
+
+If you want to separate compilation from execution, you can call
+``loss_theta_jit.compile`` or ``grad_fn.compile`` once before the loop to pay
+the compile cost up front. The compiled functions assume fixed shapes (mesh,
+observation indices, and dof layout), so reusing the same inputs across steps
+avoids recompilation.

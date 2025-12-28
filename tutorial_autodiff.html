@@ -62,6 +62,7 @@
 <li class="toctree-l4"><a class="reference internal" href="#optimize-kappa-with-autodiff">3) Optimize kappa with autodiff</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="#jit-compilation">JIT compilation</a></li>
 </ul>
 </li>
 </ul>
@@ -190,6 +191,29 @@ inside the JAX-traced function:</p>
 <code class="docutils literal notranslate"><span class="pre">kappa_true</span></code> (used only to generate synthetic observations). With real data,
 replace <code class="docutils literal notranslate"><span class="pre">u_obs</span></code> with measurements and remove the synthetic generation block.</p>
 </section>
+</section>
+<section id="jit-compilation">
+<h2>JIT compilation<a class="headerlink" href="#jit-compilation" title="Link to this heading"></a></h2>
+<p>You can speed up the forward solve and loss/gradient evaluation with JAX JIT.
+In <code class="docutils literal notranslate"><span class="pre">tutorials/inverse_diffusion_kappa.py</span></code> the functions are JIT-compiled and
+then reused in the optimization loop:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">solve_u_jit</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">solve_u</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">loss_theta</span><span class="p">(</span><span class="n">theta</span><span class="p">):</span>
+    <span class="n">kappa</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">theta</span><span class="p">)</span>
+    <span class="n">u</span> <span class="o">=</span> <span class="n">solve_u_jit</span><span class="p">(</span><span class="n">kappa</span><span class="p">,</span> <span class="n">traction_true</span><span class="p">)</span>
+    <span class="n">diff</span> <span class="o">=</span> <span class="n">u</span><span class="p">[</span><span class="n">obs_idx_j</span><span class="p">]</span> <span class="o">-</span> <span class="n">u_obs</span><span class="p">[</span><span class="n">obs_idx_j</span><span class="p">]</span>
+    <span class="k">return</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">diff</span> <span class="o">*</span> <span class="n">diff</span><span class="p">)</span>
+
+<span class="n">loss_theta_jit</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">loss_theta</span><span class="p">)</span>
+<span class="n">grad_fn</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">loss_theta</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>If you want to separate compilation from execution, you can call
+<code class="docutils literal notranslate"><span class="pre">loss_theta_jit.compile</span></code> or <code class="docutils literal notranslate"><span class="pre">grad_fn.compile</span></code> once before the loop to pay
+the compile cost up front. The compiled functions assume fixed shapes (mesh,
+observation indices, and dof layout), so reusing the same inputs across steps
+avoids recompilation.</p>
 </section>
 </section>
 
