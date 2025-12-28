@@ -1,5 +1,5 @@
-Autodiff Tutorial: Inverse Diffusion (kappa)
-============================================
+Autodiff Tutorial: Inverse Diffusion 
+=====================================
 
 This tutorial explains ``tutorials/inverse_diffusion_kappa.py`` and shows how to
 recover a diffusion coefficient from synthetic observations using JAX autodiff.
