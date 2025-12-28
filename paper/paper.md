@@ -83,11 +83,14 @@ def diffusion_form(ctx: ff.FormContext, kappa):
 Alternatively, the same weak form can be expressed using the Expr-based assembly interface, which represents the weak form symbolically and resolves it against the evaluation context (geometry, basis functions, and quadrature data) at compile time.
 
 ```python
-import fluxfem.helpers_wf as wf
+import fluxfem.helpers_wf as h_wf
 
 form = ff.BilinearForm.volume(
-    lambda u, v, p: p.kappa * (v.grad @ u.grad) * wf.dOmega()
+    lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
 ).get_compiled()
+
+params = ff.Params(kappa=1.0)
+K = space.assemble_bilinear_form(form, params=params)
 
 ```
 

@@ -79,8 +79,26 @@ D = ff.isotropic_3d_D(1.0, 0.3)
 K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
 ```
 
+### autodiff + jit compile
+
+You can differentiate through the solve and JIT compile the hot path.
+The inverse diffusion tutorial shows this pattern:
+
+```Python
+def loss_theta(theta):
+        kappa = jnp.exp(theta)
+        u = solve_u_jit(kappa, traction_true)
+        diff = u[obs_idx_j] - u_obs[obs_idx_j]
+        return 0.5 * jnp.mean(diff * diff)
+
+solve_u_jit = jax.jit(solve_u)
+loss_theta_jit = jax.jit(loss_theta)
+grad_fn = jax.jit(jax.grad(loss_theta))
+```
+
 ## Documentation
 
+Full documentation, tutorials, and API reference are hosted at [this site](https://fluxfem.readthedocs.io/en/latest/).
 
 ## SetUp
 
