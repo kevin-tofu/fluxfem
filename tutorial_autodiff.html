@@ -131,8 +131,8 @@ by minimizing a mean-squared error on observed dofs on the <code class="docutils
 </section>
 <section id="loss-and-gradient">
 <h2>Loss and gradient<a class="headerlink" href="#loss-and-gradient" title="Link to this heading"></a></h2>
-<p>We optimize a scalar parameter <code class="docutils literal notranslate"><span class="pre">kappa</span></code> (in log-space for positivity) with
-gradient descent:</p>
+<p>We optimize a scalar parameter <code class="docutils literal notranslate"><span class="pre">kappa</span></code> using a log-parameterization
+<code class="docutils literal notranslate"><span class="pre">kappa</span> <span class="pre">=</span> <span class="pre">exp(theta)</span></code> so the coefficient stays positive during gradient descent:</p>
 <div class="math notranslate nohighlight">
 \[\mathcal{L}(\kappa) = \tfrac{1}{2N} \sum_i (u_i(\kappa) - u_i^{obs})^2\]</div>
 </section>
