@@ -125,39 +125,56 @@ from .basis import (
     TetQuadraticBasis10,
     TetQuadraticBasis10Pytree,
 )
+import importlib
+
 from ..physics import lame_parameters, isotropic_3d_D
 from .solver import spdirect_solve_cpu, spdirect_solve_gpu, spdirect_solve_jax, coo_to_csr
-from ..solver import (
-    SparsityPattern,
-    FluxSparseMatrix,
-    LinearSolver,
-    NonlinearSolver,
-    enforce_dirichlet_dense,
-    enforce_dirichlet_sparse,
-    free_dofs,
-    condense_dirichlet_fluxsparse,
-    condense_dirichlet_dense,
-    expand_dirichlet_solution,
-    cg_solve,
-    cg_solve_jax,
-    NonlinearAnalysis,
-    NewtonLoopConfig,
-    LoadStepResult,
-    NewtonSolveRunner,
-    solve_nonlinear,
-    LinearAnalysis,
-    LinearSolveConfig,
-    LinearStepResult,
-    LinearSolveRunner,
-    newton_solve,
-)
-from ..solver.bc import (
-    SurfaceFormField,
-    SurfaceFormContext,
-    vector_surface_load_form,
-    make_vector_surface_load_form,
-    assemble_surface_linear_form,
-)
+
+_SOLVER_EXPORTS = {
+    "SparsityPattern",
+    "FluxSparseMatrix",
+    "LinearSolver",
+    "NonlinearSolver",
+    "enforce_dirichlet_dense",
+    "enforce_dirichlet_sparse",
+    "free_dofs",
+    "condense_dirichlet_fluxsparse",
+    "condense_dirichlet_dense",
+    "expand_dirichlet_solution",
+    "cg_solve",
+    "cg_solve_jax",
+    "NonlinearAnalysis",
+    "NewtonLoopConfig",
+    "LoadStepResult",
+    "NewtonSolveRunner",
+    "solve_nonlinear",
+    "LinearAnalysis",
+    "LinearSolveConfig",
+    "LinearStepResult",
+    "LinearSolveRunner",
+    "newton_solve",
+}
+
+_SOLVER_BC_EXPORTS = {
+    "SurfaceFormField",
+    "SurfaceFormContext",
+    "vector_surface_load_form",
+    "make_vector_surface_load_form",
+    "assemble_surface_linear_form",
+}
+
+
+def __getattr__(name: str):
+    if name in _SOLVER_EXPORTS:
+        module = importlib.import_module("..solver", __name__)
+    elif name in _SOLVER_BC_EXPORTS:
+        module = importlib.import_module("..solver.bc", __name__)
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "FESpace",

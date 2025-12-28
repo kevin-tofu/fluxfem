@@ -93,6 +93,7 @@ __all__ = [
     "vector_surface_load_form",
     "make_vector_surface_load_form",
     "assemble_surface_linear_form",
+    "tag_axis_minmax_facets",
     "load_gmsh_mesh",
     "load_gmsh_hex_mesh",
     "load_gmsh_tet_mesh",

@@ -22,10 +22,7 @@ def test_newton_nonlinear_diffusion_converges():
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
     kappa0 = 1.0
 
-    K_lin = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=kappa0).to_dense())
-    u_lin = np.linalg.solve(np.asarray(K_lin), np.ones(8, dtype=np.float32))
-
-    u0 = jnp.zeros_like(jnp.asarray(u_lin))
+    u0 = jnp.zeros(space.n_dofs, dtype=jnp.float32)
     solver = ff.NonlinearSolver(space, nonlinear_residual, kappa0, tol=1e-6, maxiter=15)
     u_newton, info = solver.solve(u0)
     assert info.converged
