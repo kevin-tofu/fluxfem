@@ -67,11 +67,11 @@ def main():
     # Synthetic observations
     kappa_true = jnp.array(2.5, dtype=jnp.float64)
     traction_true = jnp.array(1.0, dtype=jnp.float64)
-    u_true = solve_u(kappa_true, traction_true)
+    u_synth = solve_u(kappa_true, traction_true)
 
     noise_std = 1e-4
     rng = np.random.default_rng(0)
-    u_obs = u_true + jnp.asarray(
+    u_obs = u_synth + jnp.asarray(
         rng.normal(scale=noise_std, size=space.n_dofs),
         dtype=jnp.float64,
     )
