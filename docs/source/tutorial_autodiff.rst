@@ -42,8 +42,8 @@ Find ``u`` such that for all ``v``:
 Loss and gradient
 ^^^^^^^^^^^^^^^^^
 
-We optimize a scalar parameter ``kappa`` (in log-space for positivity) with
-gradient descent:
+We optimize a scalar parameter ``kappa`` using a log-parameterization
+``kappa = exp(theta)`` so the coefficient stays positive during gradient descent:
 
 .. math::
 
