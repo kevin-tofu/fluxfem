@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autodiff Tutorial: Diffusion Sensitivity &mdash; fluxfem 0.1.1b documentation</title>
+  <title>Autodiff Tutorial: Inverse Diffusion &mdash; fluxfem 0.1.1b documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
@@ -50,14 +50,16 @@
 <li class="toctree-l1 current"><a class="reference internal" href="tutorial.html">Tutorial Page</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar (Simplified)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tutorial_hyper_elasticity.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Autodiff Tutorial: Diffusion Sensitivity</a><ul>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Autodiff Tutorial: Inverse Diffusion</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#run-the-example">Run the example</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#problem-setup">Problem setup</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#weak-form">Weak form</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#loss-and-sensitivities">Loss and sensitivities</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#inverse-problem">Inverse problem</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#forward-model-weak-form">Forward model (weak form)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#loss-and-gradient">Loss and gradient</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#implementation-flow">Implementation flow</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#precompute-reference-operators">1) Precompute reference operators</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solve-and-differentiate">2) Solve and differentiate</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#generate-synthetic-observations">2) Generate synthetic observations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#optimize-kappa-with-autodiff">3) Optimize kappa with autodiff</a></li>
 </ul>
 </li>
 </ul>
@@ -83,7 +85,7 @@
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
           <li class="breadcrumb-item"><a href="tutorial.html">Tutorial Page</a></li>
-      <li class="breadcrumb-item active">Autodiff Tutorial: Diffusion Sensitivity</li>
+      <li class="breadcrumb-item active">Autodiff Tutorial: Inverse Diffusion</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/tutorial_autodiff.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -93,14 +95,13 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="autodiff-tutorial-diffusion-sensitivity">
-<h1>Autodiff Tutorial: Diffusion Sensitivity<a class="headerlink" href="#autodiff-tutorial-diffusion-sensitivity" title="Link to this heading"></a></h1>
-<p>This tutorial explains <code class="docutils literal notranslate"><span class="pre">tutorials/autodiff_diffusion_sensitivity.py</span></code> and shows how to
-compute gradients of a scalar loss with respect to a diffusion coefficient and a
-boundary traction using JAX.</p>
+  <section id="autodiff-tutorial-inverse-diffusion">
+<h1>Autodiff Tutorial: Inverse Diffusion<a class="headerlink" href="#autodiff-tutorial-inverse-diffusion" title="Link to this heading"></a></h1>
+<p>This tutorial explains <code class="docutils literal notranslate"><span class="pre">tutorials/inverse_diffusion_kappa.py</span></code> and shows how to
+recover a diffusion coefficient from synthetic observations using JAX autodiff.</p>
 <section id="run-the-example">
 <h2>Run the example<a class="headerlink" href="#run-the-example" title="Link to this heading"></a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/autodiff_diffusion_sensitivity.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/inverse_diffusion_kappa.py
 </pre></div>
 </div>
 </section>
@@ -109,24 +110,31 @@ boundary traction using JAX.</p>
 <p>We solve a scalar diffusion problem on a structured hex mesh (<code class="docutils literal notranslate"><span class="pre">dim=1</span></code>):</p>
 <ul class="simple">
 <li><p>Unknown field: <code class="docutils literal notranslate"><span class="pre">u</span></code></p></li>
-<li><p>Diffusion coefficient: <code class="docutils literal notranslate"><span class="pre">kappa</span></code></p></li>
+<li><p>Diffusion coefficient: <code class="docutils literal notranslate"><span class="pre">kappa</span></code> (unknown)</p></li>
 <li><p>Dirichlet boundary: <code class="docutils literal notranslate"><span class="pre">u</span> <span class="pre">=</span> <span class="pre">0</span></code> on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmin</span></code></p></li>
 <li><p>Neumann boundary: constant traction on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code></p></li>
 </ul>
 </section>
-<section id="weak-form">
-<h2>Weak form<a class="headerlink" href="#weak-form" title="Link to this heading"></a></h2>
+<section id="inverse-problem">
+<h2>Inverse problem<a class="headerlink" href="#inverse-problem" title="Link to this heading"></a></h2>
+<p>We first generate synthetic observations by solving with a known coefficient
+<code class="docutils literal notranslate"><span class="pre">kappa_true</span></code> and adding small noise to the resulting field. We then fit <code class="docutils literal notranslate"><span class="pre">kappa</span></code>
+by minimizing a mean-squared error on observed dofs on the <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code> boundary
+(the traction boundary, not the Dirichlet boundary).</p>
+</section>
+<section id="forward-model-weak-form">
+<h2>Forward model (weak form)<a class="headerlink" href="#forward-model-weak-form" title="Link to this heading"></a></h2>
 <p>Find <code class="docutils literal notranslate"><span class="pre">u</span></code> such that for all <code class="docutils literal notranslate"><span class="pre">v</span></code>:</p>
 <div class="math notranslate nohighlight">
 \[\int_{\Omega} \kappa \, \nabla v \cdot \nabla u \, d\Omega
 = \int_{\Gamma_t} v \, t \, ds\]</div>
 </section>
-<section id="loss-and-sensitivities">
-<h2>Loss and sensitivities<a class="headerlink" href="#loss-and-sensitivities" title="Link to this heading"></a></h2>
-<p>The tutorial defines a simple quadratic loss and differentiates it:</p>
+<section id="loss-and-gradient">
+<h2>Loss and gradient<a class="headerlink" href="#loss-and-gradient" title="Link to this heading"></a></h2>
+<p>We optimize a scalar parameter <code class="docutils literal notranslate"><span class="pre">kappa</span></code> (in log-space for positivity) with
+gradient descent:</p>
 <div class="math notranslate nohighlight">
-\[\mathcal{L}(u) = \tfrac{1}{2} \|u\|^2, \quad
-\frac{d\mathcal{L}}{d\kappa},\; \frac{d\mathcal{L}}{dt}\]</div>
+\[\mathcal{L}(\kappa) = \tfrac{1}{2N} \sum_i (u_i(\kappa) - u_i^{obs})^2\]</div>
 </section>
 <section id="implementation-flow">
 <h2>Implementation flow<a class="headerlink" href="#implementation-flow" title="Link to this heading"></a></h2>
@@ -135,27 +143,51 @@ boundary traction using JAX.</p>
 <p>Because the stiffness operator is linear in <code class="docutils literal notranslate"><span class="pre">kappa</span></code> and the surface load is
 linear in the traction, the script precomputes reference matrices and scales them
 inside the JAX-traced function:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">K0</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">())</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">K0</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+    <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">(),</span>
+    <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="n">F_base</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
     <span class="n">space</span><span class="p">,</span> <span class="n">surface_form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span>
 <span class="p">)</span>
-<span class="n">F_base</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">F_base</span><span class="p">)</span>
+<span class="n">F_base</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">F_base</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
-<section id="solve-and-differentiate">
-<h3>2) Solve and differentiate<a class="headerlink" href="#solve-and-differentiate" title="Link to this heading"></a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">loss_fn</span><span class="p">(</span><span class="n">kappa</span><span class="p">,</span> <span class="n">traction</span><span class="p">):</span>
-    <span class="n">K</span> <span class="o">=</span> <span class="n">kappa</span> <span class="o">*</span> <span class="n">K0</span>
-    <span class="n">F</span> <span class="o">=</span> <span class="n">traction</span> <span class="o">*</span> <span class="n">F_base</span>
-    <span class="n">u</span> <span class="o">=</span> <span class="n">solve_linear_system</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">F</span><span class="p">)</span>
-    <span class="k">return</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">u</span><span class="p">)</span>
+<section id="generate-synthetic-observations">
+<h3>2) Generate synthetic observations<a class="headerlink" href="#generate-synthetic-observations" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">kappa_true</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mf">2.5</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+<span class="n">traction_true</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+<span class="n">u_true</span> <span class="o">=</span> <span class="n">solve_u</span><span class="p">(</span><span class="n">kappa_true</span><span class="p">,</span> <span class="n">traction_true</span><span class="p">)</span>
+<span class="n">u_obs</span> <span class="o">=</span> <span class="n">u_true</span> <span class="o">+</span> <span class="n">noise</span>
 
-<span class="n">grad_kappa</span><span class="p">,</span> <span class="n">grad_trac</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">loss_fn</span><span class="p">,</span> <span class="n">argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))(</span><span class="n">kappa0</span><span class="p">,</span> <span class="n">traction0</span><span class="p">)</span>
+<span class="n">boundary_dofs</span> <span class="o">=</span> <span class="n">mesh</span><span class="o">.</span><span class="n">boundary_dofs_where</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">pts</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">pts</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">xmax</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">),</span>
+    <span class="n">components</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+    <span class="n">dof_per_node</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">boundary_free_dofs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">setdiff1d</span><span class="p">(</span><span class="n">boundary_dofs</span><span class="p">,</span> <span class="n">dir_dofs</span><span class="p">)</span>
+<span class="n">obs_count</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span><span class="n">obs_min</span><span class="p">,</span> <span class="n">obs_max</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+<span class="n">obs_idx</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">boundary_free_dofs</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">obs_count</span><span class="p">,</span> <span class="n">replace</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>This produces sensitivities of the loss with respect to the diffusion coefficient
-and the boundary traction.</p>
+</section>
+<section id="optimize-kappa-with-autodiff">
+<h3>3) Optimize kappa with autodiff<a class="headerlink" href="#optimize-kappa-with-autodiff" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">loss_theta</span><span class="p">(</span><span class="n">theta</span><span class="p">):</span>
+    <span class="n">kappa</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">theta</span><span class="p">)</span>
+    <span class="n">u</span> <span class="o">=</span> <span class="n">solve_u</span><span class="p">(</span><span class="n">kappa</span><span class="p">,</span> <span class="n">traction_true</span><span class="p">)</span>
+    <span class="n">diff</span> <span class="o">=</span> <span class="n">u</span><span class="p">[</span><span class="n">obs_idx</span><span class="p">]</span> <span class="o">-</span> <span class="n">u_obs</span><span class="p">[</span><span class="n">obs_idx</span><span class="p">]</span>
+    <span class="k">return</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">diff</span> <span class="o">*</span> <span class="n">diff</span><span class="p">)</span>
+
+<span class="n">grad_fn</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">loss_theta</span><span class="p">)</span>
+<span class="n">theta</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">))</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">steps</span><span class="p">):</span>
+    <span class="n">theta</span> <span class="o">=</span> <span class="n">theta</span> <span class="o">-</span> <span class="n">lr</span> <span class="o">*</span> <span class="n">grad_fn</span><span class="p">(</span><span class="n">theta</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This yields an estimate <code class="docutils literal notranslate"><span class="pre">kappa_est</span> <span class="pre">=</span> <span class="pre">exp(theta)</span></code> that can be compared to
+<code class="docutils literal notranslate"><span class="pre">kappa_true</span></code>.</p>
 </section>
 </section>
 </section>
