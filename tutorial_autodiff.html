@@ -158,8 +158,8 @@ inside the JAX-traced function:</p>
 <h3>2) Generate synthetic observations<a class="headerlink" href="#generate-synthetic-observations" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">kappa_true</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mf">2.5</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
 <span class="n">traction_true</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
-<span class="n">u_true</span> <span class="o">=</span> <span class="n">solve_u</span><span class="p">(</span><span class="n">kappa_true</span><span class="p">,</span> <span class="n">traction_true</span><span class="p">)</span>
-<span class="n">u_obs</span> <span class="o">=</span> <span class="n">u_true</span> <span class="o">+</span> <span class="n">noise</span>
+<span class="n">u_synth</span> <span class="o">=</span> <span class="n">solve_u</span><span class="p">(</span><span class="n">kappa_true</span><span class="p">,</span> <span class="n">traction_true</span><span class="p">)</span>
+<span class="n">u_obs</span> <span class="o">=</span> <span class="n">u_synth</span> <span class="o">+</span> <span class="n">noise</span>
 
 <span class="n">boundary_dofs</span> <span class="o">=</span> <span class="n">mesh</span><span class="o">.</span><span class="n">boundary_dofs_where</span><span class="p">(</span>
     <span class="k">lambda</span> <span class="n">pts</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">pts</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">xmax</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">),</span>
@@ -187,7 +187,8 @@ inside the JAX-traced function:</p>
 </pre></div>
 </div>
 <p>This yields an estimate <code class="docutils literal notranslate"><span class="pre">kappa_est</span> <span class="pre">=</span> <span class="pre">exp(theta)</span></code> that can be compared to
-<code class="docutils literal notranslate"><span class="pre">kappa_true</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">kappa_true</span></code> (used only to generate synthetic observations). With real data,
+replace <code class="docutils literal notranslate"><span class="pre">u_obs</span></code> with measurements and remove the synthetic generation block.</p>
 </section>
 </section>
 </section>

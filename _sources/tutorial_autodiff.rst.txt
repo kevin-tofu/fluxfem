@@ -77,8 +77,8 @@ inside the JAX-traced function:
 
    kappa_true = jnp.array(2.5, dtype=jnp.float64)
    traction_true = jnp.array(1.0, dtype=jnp.float64)
-   u_true = solve_u(kappa_true, traction_true)
-   u_obs = u_true + noise
+   u_synth = solve_u(kappa_true, traction_true)
+   u_obs = u_synth + noise
 
    boundary_dofs = mesh.boundary_dofs_where(
        lambda pts: np.isclose(pts[:, 0], xmax, atol=1e-8),
@@ -106,4 +106,5 @@ inside the JAX-traced function:
        theta = theta - lr * grad_fn(theta)
 
 This yields an estimate ``kappa_est = exp(theta)`` that can be compared to
-``kappa_true``.
+``kappa_true`` (used only to generate synthetic observations). With real data,
+replace ``u_obs`` with measurements and remove the synthetic generation block.
