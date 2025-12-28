@@ -1,4 +1,4 @@
-fluxfem Documentation
+FluxFEM Documentation
 =====================
 
 .. toctree::

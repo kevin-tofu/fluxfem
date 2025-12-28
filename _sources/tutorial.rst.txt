@@ -1,7 +1,7 @@
 Tutorial Page
 ==============
 
-This section contains tutorials for fluxfem.
+This section contains tutorials for FluxFEM.
 
 .. toctree::
    :maxdepth: 1
