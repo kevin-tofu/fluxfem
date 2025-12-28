@@ -7,7 +7,8 @@
 
 
 # FluxFEM
- A weak-form-centric differentiable finite element framework in JAX
+A weak-form-centric differentiable finite element framework in JAX,
+where variational forms are treated as first-class, differentiable programs.
 
 ## Examples and Features
 <table>
@@ -28,7 +29,7 @@
 
 ## Features
 - Built on JAX, enabling automatic differentiation with grad, jit, vmap, and related transformations.
-- Weak-form–centric API that keeps formulations close to code; weak forms are represented as expression trees and compiled to element kernels.
+- Weak-form–centric API that keeps formulations close to code; weak forms are represented as expression trees and compiled into element kernels, enabling automatic differentiation of residuals, tangents, and objectives.
 - Two assembly approaches: weak-form-based assembly and a tensor-based (scikit-fem–style) assembly.
 - Handles both linear and nonlinear analyses with AD in JAX.
 
@@ -60,6 +61,8 @@ As a result, both assembly approaches:
 
 
 ### weak-form-based assembly
+In the weak-form-based assembly, the variational formulation itself is the primary object. The expression below defines a symbolic computation graph, which is later compiled and executed at the element level.
+
 ```Python
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
@@ -102,6 +105,26 @@ space = ff.make_hex_space(mesh, dim=3, intorder=2)
 D = ff.isotropic_3d_D(1.0, 0.3)
 K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
 ```
+
+### Nonlinear residual assembly with a weak-form DSL (Neo-Hookean)
+Below is a Neo-Hookean hyperelasticity example written in weak form.
+The residual is expressed symbolically and compiled into element-level kernels executed per element.
+No manual derivation of tangent operators is required; consistent tangents (Jacobians) for Newton-type solvers are obtained automatically via JAX AD.
+
+```Python
+def neo_hookean_residual_wf(v, u, params):
+    mu = params["mu"]
+    lam = params["lam"]
+    F = h_wf.I(3) + h_wf.grad(u)  # deformation gradient
+    C = h_wf.matmul(h_wf.transpose(F), F)
+    C_inv = h_wf.inv(C)
+    J = h_wf.det(F)
+
+    S = mu * (h_wf.I(3) - C_inv) + lam * h_wf.log(J) * C_inv
+    dE = 0.5 * (h_wf.matmul(h_wf.grad(v), F) + h_wf.transpose(h_wf.matmul(h_wf.grad(v), F)))
+    return h_wf.ddot(S, dE) * h_wf.dOmega()
+```
+
 
 ### autodiff + jit compile
 
@@ -149,4 +172,4 @@ poetry add fluxfem
 ```
 
 ## Acknowledgements
- I acknoldege everythings that made this work possible.
+I acknowledge the open-source software, libraries, and communities that made this work possible.
