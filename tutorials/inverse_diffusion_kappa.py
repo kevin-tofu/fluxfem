@@ -64,6 +64,8 @@ def main():
         u = jnp.zeros(space.n_dofs, dtype=K.dtype)
         return u.at[free_dofs_j].set(u_free)
 
+    solve_u_jit = jax.jit(solve_u)
+
     # Synthetic observations
     kappa_true = jnp.array(2.5, dtype=jnp.float64)
     traction_true = jnp.array(1.0, dtype=jnp.float64)
@@ -91,11 +93,12 @@ def main():
 
     def loss_theta(theta):
         kappa = jnp.exp(theta)
-        u = solve_u(kappa, traction_true)
+        u = solve_u_jit(kappa, traction_true)
         diff = u[obs_idx_j] - u_obs[obs_idx_j]
         return 0.5 * jnp.mean(diff * diff)
 
-    grad_fn = jax.grad(loss_theta)
+    loss_theta_jit = jax.jit(loss_theta)
+    grad_fn = jax.jit(jax.grad(loss_theta))
 
     theta = jnp.log(jnp.array(1.0, dtype=jnp.float64))  # initial guess for kappa
     lr = 0.5
@@ -105,7 +108,7 @@ def main():
         g = grad_fn(theta)
         theta = theta - lr * g
         if step % 10 == 0 or step == steps - 1:
-            loss_val = loss_theta(theta)
+            loss_val = loss_theta_jit(theta)
             kappa_est = float(jnp.exp(theta))
             print(
                 f"step={step:02d} loss={float(loss_val):.3e} "
