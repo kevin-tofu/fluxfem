@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autodiff Tutorial: Inverse Diffusion &mdash; fluxfem 0.1.1b documentation</title>
+  <title>Autodiff Tutorial: Inverse Diffusion &mdash; FluxFEM 0.1.1b documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
@@ -22,7 +22,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Usage" href="usage.html" />
-    <link rel="prev" title="Hyper-Elasticity: Hyperelastic Cantilever" href="tutorial_hyper_elasticity.html" /> 
+    <link rel="prev" title="Hyper-Elasticity: Hyperelastic Cantilever" href="tutorial_neo_hookean.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -34,7 +34,7 @@
           
           
           <a href="index.html" class="icon icon-home">
-            fluxfem
+            FluxFEM
           </a>
 <div role="search">
   <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
@@ -49,7 +49,7 @@
 <li class="toctree-l1"><a class="reference internal" href="project.html">Project</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="tutorial.html">Tutorial Page</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar (Simplified)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="tutorial_hyper_elasticity.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Autodiff Tutorial: Inverse Diffusion</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#run-the-example">Run the example</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#problem-setup">Problem setup</a></li>
@@ -62,6 +62,7 @@
 <li class="toctree-l4"><a class="reference internal" href="#optimize-kappa-with-autodiff">3) Optimize kappa with autodiff</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="#jit-compilation">JIT compilation</a></li>
 </ul>
 </li>
 </ul>
@@ -76,7 +77,7 @@
 
     <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="index.html">fluxfem</a>
+          <a href="index.html">FluxFEM</a>
       </nav>
 
       <div class="wy-nav-content">
@@ -131,8 +132,8 @@ by minimizing a mean-squared error on observed dofs on the <code class="docutils
 </section>
 <section id="loss-and-gradient">
 <h2>Loss and gradient<a class="headerlink" href="#loss-and-gradient" title="Link to this heading"></a></h2>
-<p>We optimize a scalar parameter <code class="docutils literal notranslate"><span class="pre">kappa</span></code> (in log-space for positivity) with
-gradient descent:</p>
+<p>We optimize a scalar parameter <code class="docutils literal notranslate"><span class="pre">kappa</span></code> using a log-parameterization
+<code class="docutils literal notranslate"><span class="pre">kappa</span> <span class="pre">=</span> <span class="pre">exp(theta)</span></code> so the coefficient stays positive during gradient descent:</p>
 <div class="math notranslate nohighlight">
 \[\mathcal{L}(\kappa) = \tfrac{1}{2N} \sum_i (u_i(\kappa) - u_i^{obs})^2\]</div>
 </section>
@@ -158,8 +159,8 @@ inside the JAX-traced function:</p>
 <h3>2) Generate synthetic observations<a class="headerlink" href="#generate-synthetic-observations" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">kappa_true</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mf">2.5</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
 <span class="n">traction_true</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
-<span class="n">u_true</span> <span class="o">=</span> <span class="n">solve_u</span><span class="p">(</span><span class="n">kappa_true</span><span class="p">,</span> <span class="n">traction_true</span><span class="p">)</span>
-<span class="n">u_obs</span> <span class="o">=</span> <span class="n">u_true</span> <span class="o">+</span> <span class="n">noise</span>
+<span class="n">u_synth</span> <span class="o">=</span> <span class="n">solve_u</span><span class="p">(</span><span class="n">kappa_true</span><span class="p">,</span> <span class="n">traction_true</span><span class="p">)</span>
+<span class="n">u_obs</span> <span class="o">=</span> <span class="n">u_synth</span> <span class="o">+</span> <span class="n">noise</span>
 
 <span class="n">boundary_dofs</span> <span class="o">=</span> <span class="n">mesh</span><span class="o">.</span><span class="n">boundary_dofs_where</span><span class="p">(</span>
     <span class="k">lambda</span> <span class="n">pts</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">pts</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">xmax</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">),</span>
@@ -187,8 +188,32 @@ inside the JAX-traced function:</p>
 </pre></div>
 </div>
 <p>This yields an estimate <code class="docutils literal notranslate"><span class="pre">kappa_est</span> <span class="pre">=</span> <span class="pre">exp(theta)</span></code> that can be compared to
-<code class="docutils literal notranslate"><span class="pre">kappa_true</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">kappa_true</span></code> (used only to generate synthetic observations). With real data,
+replace <code class="docutils literal notranslate"><span class="pre">u_obs</span></code> with measurements and remove the synthetic generation block.</p>
 </section>
+</section>
+<section id="jit-compilation">
+<h2>JIT compilation<a class="headerlink" href="#jit-compilation" title="Link to this heading"></a></h2>
+<p>You can speed up the forward solve and loss/gradient evaluation with JAX JIT.
+In <code class="docutils literal notranslate"><span class="pre">tutorials/inverse_diffusion_kappa.py</span></code> the functions are JIT-compiled and
+then reused in the optimization loop:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">solve_u_jit</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">solve_u</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">loss_theta</span><span class="p">(</span><span class="n">theta</span><span class="p">):</span>
+    <span class="n">kappa</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">theta</span><span class="p">)</span>
+    <span class="n">u</span> <span class="o">=</span> <span class="n">solve_u_jit</span><span class="p">(</span><span class="n">kappa</span><span class="p">,</span> <span class="n">traction_true</span><span class="p">)</span>
+    <span class="n">diff</span> <span class="o">=</span> <span class="n">u</span><span class="p">[</span><span class="n">obs_idx_j</span><span class="p">]</span> <span class="o">-</span> <span class="n">u_obs</span><span class="p">[</span><span class="n">obs_idx_j</span><span class="p">]</span>
+    <span class="k">return</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">diff</span> <span class="o">*</span> <span class="n">diff</span><span class="p">)</span>
+
+<span class="n">loss_theta_jit</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">loss_theta</span><span class="p">)</span>
+<span class="n">grad_fn</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">loss_theta</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>If you want to separate compilation from execution, you can call
+<code class="docutils literal notranslate"><span class="pre">loss_theta_jit.compile</span></code> or <code class="docutils literal notranslate"><span class="pre">grad_fn.compile</span></code> once before the loop to pay
+the compile cost up front. The compiled functions assume fixed shapes (mesh,
+observation indices, and dof layout), so reusing the same inputs across steps
+avoids recompilation.</p>
 </section>
 </section>
 
@@ -196,7 +221,7 @@ inside the JAX-traced function:</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="tutorial_hyper_elasticity.html" class="btn btn-neutral float-left" title="Hyper-Elasticity: Hyperelastic Cantilever" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="tutorial_neo_hookean.html" class="btn btn-neutral float-left" title="Hyper-Elasticity: Hyperelastic Cantilever" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="usage.html" class="btn btn-neutral float-right" title="Usage" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
