@@ -37,16 +37,12 @@ where variational forms are treated as first-class, differentiable programs.
 
 This library provides two assembly approaches.
 
-- A weak-form-based assembly, where the variational form is written symbolically and compiled before assembly.  
-- A tensor-based assembly, where trial and test functions are represented explicitly as element-level tensors and assembled accordingly (in the style of scikit-fem).  
+- A tensor-based assembly, where trial and test functions are represented explicitly as element-level tensors and assembled accordingly (in the style of scikit-fem).
+- A weak-form-based assembly, where the variational form is written symbolically and compiled before assembly.
 
-The first approach offers simplicity and clarity, as mathematical expressions can be written almost directly in code.
-For more complex operations (e.g. nonlinear materials, custom contractions, or experimental operators),
-the second approach can be easier to implement and debug.
-
-Importantly, both approaches share the same underlying execution model:
-the weak-form-based assembly is compiled into the same element-level tensor representation
-used by the tensor-based assembly.
+The two approaches are functionally equivalent and share the same element-level execution model,
+but they differ in how you author the weak form. The example below mirrors the paper's diffusion
+case and makes the distinction explicit with `jnp`.
 
 
 ## Assembly Flow
@@ -60,8 +56,45 @@ As a result, both assembly approaches:
 - and are fully compatible with JAX transformations such as `jit`, `vmap`, and automatic differentiation.
 
 
-### weak-form-based assembly
-In the weak-form-based assembly, the variational formulation itself is the primary object. The expression below defines a symbolic computation graph, which is later compiled and executed at the element level.
+### tensor-based vs weak-form-based (diffusion example)
+
+#### tensor-based assembly
+```Python
+import fluxfem as ff
+import jax.numpy as jnp
+
+def diffusion_form(ctx: ff.FormContext, kappa):
+    # ctx.test.gradN / ctx.trial.gradN: (n_qp, n_nodes, dim)
+    # output tensor: (n_qp, n_nodes, n_nodes)
+    return kappa * jnp.einsum("qia,qja->qij", ctx.test.gradN, ctx.trial.gradN)
+
+space = ff.make_hex_space(mesh, dim=3, intorder=2)
+params = ff.Params(kappa=1.0)
+K_ts = space.assemble_bilinear_form(diffusion_form, params=params.kappa)
+```
+
+#### weak-form-based assembly
+In the weak-form-based assembly, the variational formulation itself is the primary object.
+The expression below defines a symbolic computation graph, which is later compiled and executed at the element level.
+
+```Python
+import fluxfem as ff
+import fluxfem.helpers_wf as h_wf
+
+space = ff.make_hex_space(mesh, dim=3, intorder=2)
+params = ff.Params(kappa=1.0)
+
+# u, v are symbolic trial/test fields (weak-form DSL objects).
+# u.grad / v.grad are symbolic nodes (expression tree), not numeric arrays.
+# dOmega() is the integral measure; the whole expression is compiled before assembly.
+form_wf = ff.BilinearForm.volume(
+    lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
+).get_compiled()
+
+K_wf = space.assemble_bilinear_form(form_wf, params=params)
+```
+
+### Linear Elasticity assembly (weak-form based assembly)
 
 ```Python
 import fluxfem as ff
@@ -70,43 +103,14 @@ import fluxfem.helpers_wf as h_wf
 space = ff.make_hex_space(mesh, dim=3, intorder=2)
 D = ff.isotropic_3d_D(1.0, 0.3)
 
-# u, v are symbolic trial/test fields (weak-form DSL objects).
-# u.sym_grad / v.sym_grad are symbolic nodes (expression tree), not numeric arrays.
-# dOmega() is the integral measure; the whole expression is compiled before assembly.
-bilinear_form = ff.BilinearForm.volume(
-    lambda u, v, D: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D, u.sym_grad)) * h_wf.dOmega()
-)
+form_wf = ff.BilinearForm.volume(
+    lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
+).get_compiled()
 
-K_wf = space.assemble_bilinear_form(
-    bilinear_form.get_compiled(),
-    params=D,
-)
+K = space.assemble_bilinear_form(form_wf, params=D)
 ```
 
-### tensor-based assembly (scikit-fem-style)
-
-```Python
-import fluxfem as ff
-import numpy as np
-import fluxfem.helpers_ts as h_ts
-
-def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray:
-    # ctx.trial / ctx.test are FormField objects (not raw arrays).
-    # Their basis values and gradients are stored in a quadrature-major layout:
-    #   ctx.trial.N (n_qp, n_nodes)
-    #   ctx.trial.gradN: (n_qp, n_nodes, 3)
-    #   Bu, Bv are jnp.ndarray: (n_qp, 6, n_dofs)
-    Bu = h_ts.sym_grad(ctx.trial)
-    Bv = h_ts.sym_grad(ctx.test)
-    return h_ts.ddot(Bv, D, Bu) #(n_qp, n_dofs, n_dofs)
-
-
-space = ff.make_hex_space(mesh, dim=3, intorder=2)
-D = ff.isotropic_3d_D(1.0, 0.3)
-K = space.assemble_bilinear_form(linear_elasticity_form, params=D)
-```
-
-### Nonlinear residual assembly with a weak-form DSL (Neo-Hookean)
+### Neo-Hookean residual assembly (weak-form DSL)
 Below is a Neo-Hookean hyperelasticity example written in weak form.
 The residual is expressed symbolically and compiled into element-level kernels executed per element.
 No manual derivation of tangent operators is required; consistent tangents (Jacobians) for Newton-type solvers are obtained automatically via JAX AD.
