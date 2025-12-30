@@ -76,7 +76,7 @@ def assemble_bilinear_form(
     params,
     *,
     pattern=None,
-    chunk_size: Optional[int] = None,   # None -> no-chunk (old behavior)
+    n_chunks: Optional[int] = None,   # None -> no chunking
     dep: jnp.ndarray | None = None,
 ):
     """
@@ -105,13 +105,17 @@ def assemble_bilinear_form(
         return (integrand * wJ[:, None, None]).sum(axis=0)  # (m, m)
 
     # --- no-chunk path (your current implementation) ---
-    if chunk_size is None:
+    if n_chunks is None:
         K_e_all = jax.vmap(per_element)(elem_data)  # (n_elems, m, m)
         data = K_e_all.reshape(-1)
         return FluxSparseMatrix(pat, data)
 
     # --- chunked path ---
     n_elems = space.elem_dofs.shape[0]
+    if n_chunks <= 0:
+        raise ValueError("n_chunks must be a positive integer.")
+    n_chunks = min(int(n_chunks), int(n_elems))
+    chunk_size = (n_elems + n_chunks - 1) // n_chunks
     # Ideally get m from pat (otherwise infer from one element).
     m = getattr(pat, "n_ldofs", None)
     if m is None:
@@ -149,7 +153,7 @@ def assemble_bilinear_form(
     return FluxSparseMatrix(pat, data)
 
 
-def assemble_mass_matrix(space: SpaceLike, *, lumped: bool = False, chunk_size: Optional[int] = None):
+def assemble_mass_matrix(space: SpaceLike, *, lumped: bool = False, n_chunks: Optional[int] = None):
     """
     Assemble mass matrix M_ij = ∫ N_i N_j dΩ.
     Supports scalar and vector spaces. If lumped=True, rows are summed to diagonal.
@@ -170,11 +174,15 @@ def assemble_mass_matrix(space: SpaceLike, *, lumped: bool = False, chunk_size: 
         wJ = ctx.w * ctx.test.detJ
         return jnp.einsum("qab,q->ab", base, wJ)
 
-    if chunk_size is None:
+    if n_chunks is None:
         M_e_all = jax.vmap(per_element)(ctxs)  # (n_elems, n_ldofs, n_ldofs)
         data = M_e_all.reshape(-1)
     else:
         n_elems = space.elem_dofs.shape[0]
+        if n_chunks <= 0:
+            raise ValueError("n_chunks must be a positive integer.")
+        n_chunks = min(int(n_chunks), int(n_elems))
+        chunk_size = (n_elems + n_chunks - 1) // n_chunks
         pad = (-n_elems) % chunk_size
         if pad:
             ctxs_pad = jax.tree_util.tree_map(
@@ -223,7 +231,7 @@ def assemble_linear_form(
     params: P,
     *,
     sparse: bool = False,
-    chunk_size: Optional[int] = None,
+    n_chunks: Optional[int] = None,
     dep: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """
@@ -244,12 +252,16 @@ def assemble_linear_form(
         wJ = ctx.w * ctx.test.detJ     # (n_q,)
         return (integrand * wJ[:, None]).sum(axis=0) # (m,)
 
-    if chunk_size is None:
+    if n_chunks is None:
         F_e_all = jax.vmap(per_element)(elem_data)            # (n_elems, m)
         data = F_e_all.reshape(-1)
     else:
         n_elems = space.elem_dofs.shape[0]
         m = n_ldofs
+        if n_chunks <= 0:
+            raise ValueError("n_chunks must be a positive integer.")
+        n_chunks = min(int(n_chunks), int(n_elems))
+        chunk_size = (n_elems + n_chunks - 1) // n_chunks
         pad = (-n_elems) % chunk_size
         if pad:
             elem_data_pad = jax.tree_util.tree_map(
@@ -358,7 +370,7 @@ def assemble_jacobian_global(
     return K_flat.reshape(n_dofs, n_dofs)
 
 
-def assemble_jacobian_elementwise_xla(
+def assemble_jacobian_elementwise(
     space: SpaceLike,
     res_form: ResidualForm[P],
     u: jnp.ndarray,
@@ -368,7 +380,7 @@ def assemble_jacobian_elementwise_xla(
     return_flux_matrix: bool = False,
 ):
     """
-    Assemble Jacobian with element kernels in XLA (vmap + scatter_add).
+    Assemble Jacobian with element kernels via vmap + scatter_add.
     Recompiles if n_dofs changes, but independent of element count.
     """
     from ..solver import FluxSparseMatrix  # local import to avoid circular
@@ -448,7 +460,7 @@ def assemble_residual_global(
     return F
 
 
-def assemble_residual_elementwise_xla(
+def assemble_residual_elementwise(
     space: SpaceLike,
     res_form: ResidualForm[P],
     u: jnp.ndarray,
@@ -457,7 +469,7 @@ def assemble_residual_elementwise_xla(
     sparse: bool = False,
 ):
     """
-    Assemble residual using element kernels fully in XLA (vmap + scatter_add).
+    Assemble residual using element kernels via vmap + scatter_add.
     Recompiles if n_dofs changes, but independent of element count.
     """
     elem_dofs = space.elem_dofs
@@ -485,6 +497,11 @@ def assemble_residual_elementwise_xla(
     F = jnp.zeros(n_dofs, dtype=data.dtype)
     F = jax.lax.scatter_add(F, rows[:, None], data, sdn)
     return F
+
+
+# Backward compatibility aliases (prefer assemble_*_elementwise).
+assemble_jacobian_elementwise_xla = assemble_jacobian_elementwise
+assemble_residual_elementwise_xla = assemble_residual_elementwise
 
 
 def make_element_residual_kernel(res_form: ResidualForm[P], params: P):
