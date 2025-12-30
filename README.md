@@ -30,7 +30,7 @@ where variational forms are treated as first-class, differentiable programs.
 ## Features
 - Built on JAX, enabling automatic differentiation with grad, jit, vmap, and related transformations.
 - Weak-form–centric API that keeps formulations close to code; weak forms are represented as expression trees and compiled into element kernels, enabling automatic differentiation of residuals, tangents, and objectives.
-- Two assembly approaches: weak-form-based assembly and a tensor-based (scikit-fem–style) assembly.
+- Two assembly approaches: tensor-based (scikit-fem–style) assembly and weak-form-based assembly.
 - Handles both linear and nonlinear analyses with AD in JAX.
 
 ## Usage 
@@ -55,10 +55,10 @@ As a result, both assembly approaches:
 - perform element-local tensor contractions,
 - and are fully compatible with JAX transformations such as `jit`, `vmap`, and automatic differentiation.
 
-
 ### tensor-based vs weak-form-based (diffusion example)
 
 #### tensor-based assembly
+The tensor-based assembly provides an explicit, low-level formulation with element kernels written using jax.numpy.(`jnp`).
 ```Python
 import fluxfem as ff
 import jax.numpy as jnp
@@ -146,9 +146,6 @@ solve_u_jit = jax.jit(solve_u)
 loss_theta_jit = jax.jit(loss_theta)
 grad_fn = jax.jit(jax.grad(loss_theta))
 ```
-
-
-
 
 ## Documentation
 
