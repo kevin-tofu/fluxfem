@@ -3,11 +3,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import fluxfem as ff
+
+try:  # ensure stable numeric comparisons for P2 tolerances
+    jax.config.update("jax_enable_x64", True)
+except Exception:  # pragma: no cover - defensive for older JAX
+    pass
 
 skfem = pytest.importorskip("skfem", reason="scikit-fem not installed")
 from skfem import Basis, MeshHex, MeshTet, asm  # type: ignore
@@ -103,7 +109,7 @@ def test_bilinear_form_matches_skfem(case: Case):
     K_sf = asm(diff, basis_sf).toarray()
     K_sf = K_sf[np.ix_(perm, perm)]
 
-    tol = 1e-6 if case.order == 1 else 1e-5
+    tol = 1e-6 if case.order == 1 else 1e-6
     max_diff = float(np.max(np.abs(K_ff - K_sf)))
     assert max_diff < tol, f"K mismatch vs scikit-fem ({case.element} P{case.order}): {max_diff}"
 
@@ -122,7 +128,7 @@ def test_linear_form_matches_skfem(case: Case):
     F_sf = np.asarray(asm(body_force, basis_sf))
     F_sf = F_sf[perm]
 
-    tol = 1e-6 if case.order == 1 else 1e-5
+    tol = 1e-6 if case.order == 1 else 1e-6
     max_diff = float(np.max(np.abs(F_ff - F_sf)))
     assert max_diff < tol, f"F mismatch vs scikit-fem ({case.element} P{case.order}): {max_diff}"
 
@@ -141,5 +147,5 @@ def test_functional_matches_skfem(case: Case):
         return 1.0
 
     J_sf = float(asm(volume, basis_sf))
-    tol = 1e-8 if case.order == 1 else 1e-6
+    tol = 1e-8 if case.order == 1 else 1e-7
     assert abs(J_ff - J_sf) < tol, f"J mismatch vs scikit-fem ({case.element} P{case.order}): {J_ff - J_sf}"
