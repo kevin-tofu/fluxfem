@@ -1083,6 +1083,38 @@ def compile_surface_linear(fn):
     return _form
 
 
+def compile_surface_bilinear(fn):
+    """get_compiled a surface bilinear form into a kernel (ctx, params) -> ndarray."""
+    if isinstance(fn, Expr):
+        expr = fn
+    else:
+        v = test_ref()
+        u = trial_ref()
+        p = param_ref()
+        expr = _call_user(fn, u, v, params=p)
+
+    expr = _as_expr(expr)
+    if not isinstance(expr, Expr):
+        raise ValueError("Surface bilinear form must return an Expr; use ds() in the expression.")
+
+    surface_count = _count_op(expr, "surface_measure")
+    volume_count = _count_op(expr, "volume_measure")
+    if surface_count == 0:
+        raise ValueError("Surface bilinear form must include ds().")
+    if surface_count > 1:
+        raise ValueError("Surface bilinear form must include ds() exactly once.")
+    if volume_count > 0:
+        raise ValueError("Surface bilinear form must not include dOmega().")
+
+    plan = make_eval_plan(expr)
+
+    def _form(ctx, params):
+        return eval_with_plan(plan, ctx, params)
+
+    _form._includes_measure = True  # type: ignore[attr-defined]
+    return _form
+
+
 class LinearForm:
     """Linear form wrapper with volume/surface backends."""
 
@@ -1237,6 +1269,7 @@ __all__ = [
     "compile_bilinear",
     "compile_linear",
     "compile_residual",
+    "compile_surface_bilinear",
     "compile_mixed_residual",
     "grad",
     "sym_grad",

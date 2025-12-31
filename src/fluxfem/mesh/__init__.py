@@ -3,6 +3,8 @@ from .tet import TetMesh, TetMeshPytree, StructuredTetBox, StructuredTetTensorBo
 from .base import BaseMesh, BaseMeshPytree
 from .predicate import bbox_predicate, plane_predicate, axis_plane_predicate, slab_predicate
 from .surface import SurfaceMesh, SurfaceMeshPytree
+from .supermesh import SurfaceSupermesh, build_surface_supermesh
+from .mortar import MortarMatrix, assemble_mortar_matrices
 from .io import load_gmsh_mesh, load_gmsh_hex_mesh, load_gmsh_tet_mesh, make_surface_from_facets
 
 __all__ = [
@@ -22,6 +24,10 @@ __all__ = [
     "StructuredTetTensorBox",
     "SurfaceMesh",
     "SurfaceMeshPytree",
+    "SurfaceSupermesh",
+    "build_surface_supermesh",
+    "MortarMatrix",
+    "assemble_mortar_matrices",
     "load_gmsh_mesh",
     "load_gmsh_hex_mesh",
     "load_gmsh_tet_mesh",
