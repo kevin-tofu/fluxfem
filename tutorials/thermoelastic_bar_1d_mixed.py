@@ -37,6 +37,12 @@ from fluxfem.mixed_weakform import (  # noqa: E402
     assemble_mixed_jacobian_wf,
     assemble_mixed_residual_wf,
 )
+from tutorials._thermoelastic_utils import (  # noqa: E402
+    boundary_dofs_at_x,
+    build_bar_mesh,
+    default_output_path,
+    x_bounds,
+)
 
 
 def parse_args():
@@ -55,7 +61,7 @@ def parse_args():
     p.add_argument(
         "--output",
         type=str,
-        default=os.path.join("result", "tutorials", "thermoelastic_bar_1d_mixed.vtu"),
+        default=default_output_path("thermoelastic_bar_1d_mixed.vtu"),
         help="VTU output path.",
     )
     return p.parse_args()
@@ -64,29 +70,20 @@ def parse_args():
 def main():
     args = parse_args()
 
-    mesh = ff.StructuredHexBox(
+    mesh = build_bar_mesh(
         nx=args.nx,
         ny=args.ny,
         nz=args.nz,
         lx=args.lx,
         ly=args.ly,
         lz=args.lz,
-    ).build()
+    )
     space = ff.make_hex_space(mesh, dim=1, intorder=args.intorder)
     mixed = MixedFESpace({"u": space, "T": space})
 
-    coords = np.asarray(mesh.coords)
-    xmin = float(coords[:, 0].min())
-    xmax = float(coords[:, 0].max())
-
-    dir_left = mesh.boundary_dofs_where(
-        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
-        components="x",
-    )
-    dir_right = mesh.boundary_dofs_where(
-        lambda pts: np.isclose(pts[:, 0], xmax, atol=1e-8),
-        components="x",
-    )
+    xmin, xmax, coords = x_bounds(mesh)
+    dir_left = boundary_dofs_at_x(mesh, xmin)
+    dir_right = boundary_dofs_at_x(mesh, xmax)
 
     dir_u = dir_left + mixed.field_offsets["u"]
     dir_T = np.unique(np.concatenate([dir_left, dir_right])) + mixed.field_offsets["T"]
