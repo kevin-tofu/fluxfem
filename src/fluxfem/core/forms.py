@@ -189,12 +189,22 @@ class FormContext:
         )
 
 
+@jax.tree_util.register_pytree_node_class
 @dataclass(eq=False)
 class FieldPair:
     """Named test/trial/unknown grouping for mixed formulations."""
     test: FormFieldLike
     trial: FormFieldLike
     unknown: FormFieldLike | None = None
+
+    def tree_flatten(self):
+        children = (self.test, self.trial, self.unknown)
+        return children, {}
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        test, trial, unknown = children
+        return cls(test=test, trial=trial, unknown=unknown)
 
 
 @jax.tree_util.register_pytree_node_class

@@ -1194,8 +1194,35 @@ def compile_mixed_residual(residuals: dict[str, Callable]):
         if surface_count > 0:
             raise ValueError(f"Mixed residual '{name}' must not include ds().")
 
+    class _MixedContextView:
+        def __init__(self, ctx, field_name: str):
+            self._ctx = ctx
+            self.fields = ctx.fields
+            self.x_q = ctx.x_q
+            self.w = ctx.w
+            self.elem_id = ctx.elem_id
+            self.trial_fields = ctx.trial_fields
+            self.test_fields = ctx.test_fields
+            self.unknown_fields = ctx.unknown_fields
+            self.unknown = ctx.unknown
+
+            pair = ctx.fields[field_name]
+            self.test = pair.test
+            self.trial = pair.trial
+            self.v = pair.test
+            self.u = pair.trial
+
+            if hasattr(ctx, "normal"):
+                self.normal = ctx.normal
+
+        def __getattr__(self, name: str):
+            return getattr(self._ctx, name)
+
     def _form(ctx, u_elem, params):
-        return {name: eval_with_plan(plan, ctx, params, u_elem=u_elem) for name, plan in plans.items()}
+        return {
+            name: eval_with_plan(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
+            for name, plan in plans.items()
+        }
 
     _form._includes_measure = includes_measure
     return _form
