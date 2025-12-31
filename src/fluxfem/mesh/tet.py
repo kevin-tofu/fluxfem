@@ -5,6 +5,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ..core.dtypes import NP_INDEX_DTYPE
+
 DTYPE = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
 
 
@@ -122,7 +124,7 @@ class StructuredTetBox:
                         conn_list.append([n0, n1, n2, n3, n01, n12, n02, n03, n13, n23])
 
         coords = np.asarray(coords_list, dtype=DTYPE)
-        conn = np.asarray(conn_list, dtype=np.int32)
+        conn = np.asarray(conn_list, dtype=NP_INDEX_DTYPE)
         conn = self._fix_orientation(coords, conn)
         return TetMesh(coords=jnp.array(coords), conn=jnp.array(conn))
 
@@ -173,7 +175,7 @@ class StructuredTetBox:
                             [v010, v001, v011, v111],
                         ]
                     )
-        conn = np.asarray(conn_list, dtype=np.int32)
+        conn = np.asarray(conn_list, dtype=NP_INDEX_DTYPE)
         conn = self._fix_orientation(coords, conn)
         return TetMesh(coords=jnp.array(coords), conn=jnp.array(conn))
 
@@ -245,6 +247,6 @@ class StructuredTetTensorBox:
         T[:, (5 * ne):] = t[[0, 3, 6, 7]]
 
         coords = p.T.astype(DTYPE, copy=False)
-        conn = T.T.astype(np.int32, copy=False)
+        conn = T.T.astype(NP_INDEX_DTYPE, copy=False)
         conn = self._fix_orientation(coords, conn)
         return TetMesh(coords=jnp.array(coords), conn=jnp.array(conn))

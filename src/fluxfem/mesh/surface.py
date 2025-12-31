@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Optional
 import jax
 import jax.numpy as jnp
+
+from ..core.dtypes import INDEX_DTYPE
 import numpy as np
 
 DTYPE = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
@@ -53,8 +55,8 @@ class SurfaceMesh(BaseMesh):
         node_tags: Optional[jnp.ndarray] = None,
     ) -> "SurfaceMesh":
         coords_j = jnp.asarray(coords, dtype=DTYPE)
-        facets_j = jnp.asarray(facets, dtype=jnp.int32)
-        tags_j = None if facet_tags is None else jnp.asarray(facet_tags, dtype=jnp.int32)
+        facets_j = jnp.asarray(facets, dtype=INDEX_DTYPE)
+        tags_j = None if facet_tags is None else jnp.asarray(facet_tags, dtype=INDEX_DTYPE)
         node_tags_j = None if node_tags is None else jnp.asarray(node_tags)
         return cls(coords=coords_j, conn=facets_j, cell_tags=tags_j, node_tags=node_tags_j, facet_tags=tags_j)
 
@@ -162,8 +164,8 @@ class SurfaceMeshPytree(BaseMeshPytree):
         node_tags: Optional[jnp.ndarray] = None,
     ) -> "SurfaceMeshPytree":
         coords_j = jnp.asarray(coords, dtype=DTYPE)
-        facets_j = jnp.asarray(facets, dtype=jnp.int32)
-        tags_j = None if facet_tags is None else jnp.asarray(facet_tags, dtype=jnp.int32)
+        facets_j = jnp.asarray(facets, dtype=INDEX_DTYPE)
+        tags_j = None if facet_tags is None else jnp.asarray(facet_tags, dtype=INDEX_DTYPE)
         node_tags_j = None if node_tags is None else jnp.asarray(node_tags)
         return cls(coords=coords_j, conn=facets_j, cell_tags=tags_j, node_tags=node_tags_j, facet_tags=tags_j)
 

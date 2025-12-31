@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Tuple, List, Callable
 import jax
 import jax.numpy as jnp
-from ..core.dtypes import DEFAULT_DTYPE
 import numpy as np
 
+from ..core.dtypes import DEFAULT_DTYPE, INDEX_DTYPE
 from .base import BaseMesh, BaseMeshPytree
 
 
@@ -17,10 +17,10 @@ class HexMesh(BaseMesh):
     Structured / unstructured hex mesh (8-node linear hex elements).
     
     coords: (n_nodes, 3) float32
-    conn:   (n_elems, 8) int32  # node indices of each element
+    conn:   (n_elems, 8) int64  # node indices of each element
     """
     coords: jnp.ndarray  # shape (n_nodes, 3)
-    conn: jnp.ndarray    # shape (n_elems, 8), int32
+    conn: jnp.ndarray    # shape (n_elems, 8), int64
 
     def face_node_patterns(self):
         return [
@@ -59,8 +59,8 @@ def tag_axis_minmax_facets(
     Tag boundary facets on min/max of the given axis.
 
     Returns:
-        facets: (n_facets, 4) int32, quad node ids
-        facet_tags: (n_facets,) int32, dirichlet_tag on min side, neumann_tag on max side
+        facets: (n_facets, 4) int64, quad node ids
+        facet_tags: (n_facets,) int64, dirichlet_tag on min side, neumann_tag on max side
     """
     coords = np.asarray(mesh.coords)
     conn = np.asarray(mesh.conn)
@@ -99,7 +99,7 @@ def tag_axis_minmax_facets(
                 facet_map[key] = (nodes, tag)
 
     if not facet_map:
-        return jnp.empty((0, 4), dtype=jnp.int32), jnp.empty((0,), dtype=jnp.int32)
+        return jnp.empty((0, 4), dtype=INDEX_DTYPE), jnp.empty((0,), dtype=INDEX_DTYPE)
 
     facets = []
     tags = []
@@ -107,7 +107,7 @@ def tag_axis_minmax_facets(
         facets.append(nodes)
         tags.append(tag)
 
-    return jnp.array(facets, dtype=jnp.int32), jnp.array(tags, dtype=jnp.int32)
+    return jnp.array(facets, dtype=INDEX_DTYPE), jnp.array(tags, dtype=INDEX_DTYPE)
 
 
 @dataclass
@@ -170,7 +170,7 @@ class StructuredHexBox:
                     n011 = node_id(i,     j + 1, k + 1)
                     conn_list.append([n000, n100, n110, n010, n001, n101, n111, n011])
 
-        conn = jnp.array(conn_list, dtype=jnp.int32)
+        conn = jnp.array(conn_list, dtype=INDEX_DTYPE)
         return HexMesh(coords=coords, conn=conn)
 
     def _build_hex20(self, xs, ys, zs) -> HexMesh:
@@ -242,7 +242,7 @@ class StructuredHexBox:
                     )
 
         coords = jnp.array(coords_list, dtype=DEFAULT_DTYPE)
-        conn = jnp.array(conn_list, dtype=jnp.int32)
+        conn = jnp.array(conn_list, dtype=INDEX_DTYPE)
         return HexMesh(coords=coords, conn=conn)
 
     def _build_hex27(self, xs, ys, zs) -> HexMesh:
@@ -324,5 +324,5 @@ class StructuredHexBox:
                     conn_list.append(nodes)
 
         coords = jnp.array(coords_list, dtype=DEFAULT_DTYPE)
-        conn = jnp.array(conn_list, dtype=jnp.int32)
+        conn = jnp.array(conn_list, dtype=INDEX_DTYPE)
         return HexMesh(coords=coords, conn=conn)

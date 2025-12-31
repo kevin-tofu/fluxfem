@@ -198,7 +198,7 @@ def test_structured_hex_box_connectivity():
             [0, 1, 4, 3, 6, 7, 10, 9],   # element at i=0
             [1, 2, 5, 4, 7, 8, 11, 10],  # element at i=1
         ],
-        dtype=jnp.int32,
+        dtype=jnp.int64,
     )
     assert jnp.array_equal(mesh.conn, expected_conn), f"conn mismatch:\n{mesh.conn}"
 

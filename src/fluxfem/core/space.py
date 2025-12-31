@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from .dtypes import INDEX_DTYPE
 from ..mesh import (
     BaseMesh,
     BaseMeshPytree,
@@ -79,7 +80,7 @@ class FESpaceClosure:
     """
     mesh: BaseMesh
     basis: Basis3D
-    elem_dofs: jnp.ndarray  # (n_elems, n_ldofs) int32
+    elem_dofs: jnp.ndarray  # (n_elems, n_ldofs) int64
     value_dim: int = 1      # 1=scalar, 3=vector, etc.
     _n_dofs: int | None = None
     _n_ldofs: int | None = None
@@ -251,7 +252,7 @@ def make_space(
     return FESpace(
         mesh=mesh,
         basis=basis,
-        elem_dofs=jnp.asarray(elem_dofs, dtype=jnp.int32),
+        elem_dofs=jnp.asarray(elem_dofs, dtype=INDEX_DTYPE),
         value_dim=value_dim
     )
 
@@ -320,7 +321,7 @@ def make_space_pytree(
     return FESpacePytree(
         mesh=mesh_py,
         basis=basis_py,
-        elem_dofs=jnp.asarray(elem_dofs, dtype=jnp.int32),
+        elem_dofs=jnp.asarray(elem_dofs, dtype=INDEX_DTYPE),
         value_dim=value_dim,
     )
 

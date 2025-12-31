@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 
 from ..mesh import HexMesh, StructuredHexBox
+from .dtypes import INDEX_DTYPE
 from .forms import FormContext
 from .space import FESpaceBase
 
@@ -351,7 +352,7 @@ def assemble_jacobian_global(
     jac_fun = jax.jacrev(fe_fun, argnums=0)
 
     u_elems = u[elem_dofs]  # (n_elems, n_ldofs)
-    elem_ids = jnp.arange(elem_dofs.shape[0], dtype=jnp.int32)
+    elem_ids = jnp.arange(elem_dofs.shape[0], dtype=INDEX_DTYPE)
     J_e_all = jax.vmap(jac_fun)(u_elems, elem_data, elem_ids)  # (n_elems, m, m)
 
     rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
@@ -447,7 +448,7 @@ def assemble_residual_global(
         fe = (integrand * wJ[:, None]).sum(axis=0)
         return fe
 
-    elem_ids = jnp.arange(elem_dofs.shape[0], dtype=jnp.int32)
+    elem_ids = jnp.arange(elem_dofs.shape[0], dtype=INDEX_DTYPE)
     F_e_all = jax.vmap(per_element)(elem_data, elem_dofs, elem_ids)  # (n_elems, m)
 
     rows = elem_dofs.reshape(-1)
@@ -574,24 +575,24 @@ def make_sparsity_pattern(space: SpaceLike, *, with_idx: bool = True):
     """
     from ..solver import SparsityPattern  # local import to avoid circular
 
-    elem_dofs = jnp.asarray(space.elem_dofs, dtype=jnp.int32)
+    elem_dofs = jnp.asarray(space.elem_dofs, dtype=INDEX_DTYPE)
     n_dofs = int(space.n_dofs)
     n_ldofs = int(space.n_ldofs)
 
-    rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1).astype(jnp.int32)
-    cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1).astype(jnp.int32)
+    rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1).astype(INDEX_DTYPE)
+    cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1).astype(INDEX_DTYPE)
 
     key = rows.astype(jnp.int64) * jnp.int64(n_dofs) + cols.astype(jnp.int64)
-    order = jnp.argsort(key).astype(jnp.int32)
+    order = jnp.argsort(key).astype(INDEX_DTYPE)
     rows_sorted = rows[order]
     cols_sorted = cols[order]
-    counts = jnp.bincount(rows_sorted, length=n_dofs).astype(jnp.int32)
-    indptr_j = jnp.concatenate([jnp.array([0], dtype=jnp.int32), jnp.cumsum(counts)])
-    indices_j = cols_sorted.astype(jnp.int32)
+    counts = jnp.bincount(rows_sorted, length=n_dofs).astype(INDEX_DTYPE)
+    indptr_j = jnp.concatenate([jnp.array([0], dtype=INDEX_DTYPE), jnp.cumsum(counts)])
+    indices_j = cols_sorted.astype(INDEX_DTYPE)
     perm = order
 
     if with_idx:
-        idx = (rows.astype(jnp.int64) * jnp.int64(n_dofs) + cols.astype(jnp.int64)).astype(jnp.int32)
+        idx = (rows.astype(jnp.int64) * jnp.int64(n_dofs) + cols.astype(jnp.int64)).astype(INDEX_DTYPE)
         return SparsityPattern(
             rows=rows,
             cols=cols,
@@ -708,7 +709,7 @@ def assemble_jacobian_scatter(
 
     idx = pat.idx
     if idx is None:
-        idx = (pat.rows.astype(jnp.int64) * int(pat.n_dofs) + pat.cols.astype(jnp.int64)).astype(jnp.int32)
+        idx = (pat.rows.astype(jnp.int64) * int(pat.n_dofs) + pat.cols.astype(jnp.int64)).astype(INDEX_DTYPE)
 
     n_entries = pat.n_dofs * pat.n_dofs
     sdn = jax.lax.ScatterDimensionNumbers(
@@ -792,7 +793,7 @@ def _check_structured_box_connectivity():
             [0, 1, 4, 3, 6, 7, 10, 9],   # element at i=0
             [1, 2, 5, 4, 7, 8, 11, 10],  # element at i=1
         ],
-        dtype=jnp.int32,
+        dtype=INDEX_DTYPE,
     )
     max_diff = int(jnp.max(jnp.abs(mesh.conn - expected_conn)))
     print("StructuredHexBox nx=2,ny=1,nz=1 conn matches expected:", max_diff == 0)
