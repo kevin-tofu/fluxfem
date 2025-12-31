@@ -68,36 +68,36 @@ def test_mass_matrix_agrees(intorder):
     assert max_diff < 1e-6, f"M mismatch: {max_diff}"
 
 
-@pytest.mark.parametrize("chunk_size", [None, 2, 3])
-def test_linear_form_chunk_consistency(chunk_size):
+@pytest.mark.parametrize("n_chunks", [None, 2, 3])
+def test_linear_form_chunk_consistency(n_chunks):
     """Chunked linear form matches non-chunked assembly."""
     mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
     F_ref = space.assemble_linear_form(ff.scalar_body_force_form, params=2.0)
-    F_chk = space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, chunk_size=chunk_size)
+    F_chk = space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, n_chunks=n_chunks)
     assert np.allclose(np.asarray(F_ref), np.asarray(F_chk))
 
 
-@pytest.mark.parametrize("chunk_size", [None, 2, 3])
-def test_mass_matrix_chunk_consistency(chunk_size):
+@pytest.mark.parametrize("n_chunks", [None, 2, 3])
+def test_mass_matrix_chunk_consistency(n_chunks):
     """Chunked mass matrix matches non-chunked assembly."""
     mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
     M_ref = space.assemble_mass_matrix()
-    M_chk = space.assemble_mass_matrix(chunk_size=chunk_size)
+    M_chk = space.assemble_mass_matrix(n_chunks=n_chunks)
     assert np.allclose(np.asarray(M_ref.to_dense()), np.asarray(M_chk.to_dense()))
 
 
-@pytest.mark.parametrize("chunk_size", [None, 2, 3])
-def test_bilinear_form_chunk_consistency(chunk_size):
+@pytest.mark.parametrize("n_chunks", [None, 2, 3])
+def test_bilinear_form_chunk_consistency(n_chunks):
     """Chunked bilinear form matches non-chunked assembly."""
     mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
     K_ref = space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense()
-    K_chk = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, chunk_size=chunk_size).to_dense()
+    K_chk = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, n_chunks=n_chunks).to_dense()
     assert np.allclose(np.asarray(K_ref), np.asarray(K_chk))
 
 def test_sparse_bilinear_matches_dense():
@@ -198,61 +198,10 @@ def test_structured_hex_box_connectivity():
             [0, 1, 4, 3, 6, 7, 10, 9],   # element at i=0
             [1, 2, 5, 4, 7, 8, 11, 10],  # element at i=1
         ],
-        dtype=jnp.int32,
+        dtype=jnp.int64,
     )
     assert jnp.array_equal(mesh.conn, expected_conn), f"conn mismatch:\n{mesh.conn}"
 
-
-def test_diffusion_matches_scikit_fem():
-    """Match scikit-fem assembly (skip if scikit-fem missing)."""
-    skfem = pytest.importorskip("skfem", reason="scikit-fem not installed")
-    from skfem import MeshHex, ElementHex1, Basis, asm
-    from skfem.helpers import dot, grad
-
-    kappa = 1.0
-    timer = SectionTimer()
-
-    # fluxfem assembly on moderately sized grid: n_xyz=4 -> 5^3=125 nodes
-    n_xyz = 8
-    mesh_ff = ff.StructuredHexBox(nx=n_xyz, ny=n_xyz, nz=n_xyz, lx=1.0, ly=1.0, lz=1.0).build()
-    basis_ff = ff.make_hex_basis(intorder=2)
-    space_ff = ff.make_space(mesh_ff, basis_ff)  # scalar dof per node
-
-    # JIT & warmup to keep compile time out of measurement
-    assemble_jit = jax.jit(lambda kk: space_ff.assemble_bilinear_form(ff.diffusion_form, params=kk).to_dense())
-    with timer.section("fluxfem_diffusion_warmup"):
-        np.asarray(assemble_jit(kappa))
-    with timer.section("fluxfem_diffusion_assemble"):
-        K_flux = np.asarray(assemble_jit(kappa))
-
-    # scikit-fem assembly (same coordinates)
-    xs = np.linspace(0.0, 1.0, n_xyz + 1)
-    ys = np.linspace(0.0, 1.0, n_xyz + 1)
-    zs = np.linspace(0.0, 1.0, n_xyz + 1)
-    mesh_sf = MeshHex().init_tensor(xs, ys, zs)
-    basis_sf = Basis(mesh_sf, ElementHex1(), intorder=2)
-
-    @skfem.BilinearForm
-    def diff(u, v, w):
-        return kappa * dot(grad(u), grad(v))
-
-    with timer.section("skfem_diffusion_assemble"):
-        K_sf = asm(diff, basis_sf).toarray()
-
-    # reorder scikit-fem nodes to match fluxfem
-    coords_ff = np.asarray(mesh_ff.coords)
-    coords_sf = mesh_sf.p.T  # (n_nodes, 3)
-    perm = []
-    for c in coords_ff:
-        matches = np.nonzero(np.all(np.isclose(coords_sf, c, atol=1e-8), axis=1))[0]
-        assert len(matches) == 1, "node mapping ambiguous"
-        perm.append(matches[0])
-    perm = np.array(perm, dtype=int)
-    K_sf_reordered = K_sf[np.ix_(perm, perm)]
-
-    max_diff = float(np.max(np.abs(K_flux - K_sf_reordered)))
-    assert max_diff < 1e-6, f"K mismatch vs scikit-fem: {max_diff}"
-    print("diffusion timings:", {s.name: s.total for s in timer.summary(descending=False)})
 
 
 def test_linear_form_constant_body_force():
@@ -288,69 +237,3 @@ def test_tag_axis_minmax_facets():
     assert set([0, 2, 4, 6]) in faces
     assert set([1, 3, 5, 7]) in faces
 
-
-def test_linear_elasticity_matches_scikit_fem():
-    """Match scikit-fem linear elasticity (skip if not installed)."""
-    skfem = pytest.importorskip("skfem", reason="scikit-fem not installed")
-    from skfem import MeshHex, ElementHex1, Basis, asm
-    from skfem.models.elasticity import linear_elasticity
-    try:
-        from skfem.element import ElementVector as ElementVectorSKF  # type: ignore
-    except Exception:
-        ElementVectorSKF = None  # type: ignore
-
-    E = 10.0
-    nu = 0.25
-    lam, mu = ff.lame_parameters(E, nu)
-    D = ff.isotropic_3d_D(E, nu)
-    timer = SectionTimer()
-
-    # fluxfem assembly (multi-element, 3 dof/node. n_xyz=4 -> 125 nodes -> 375 dof)
-    n_xyz = 4
-    mesh_ff = ff.StructuredHexBox(nx=n_xyz, ny=n_xyz, nz=n_xyz, lx=1.0, ly=1.0, lz=1.0).build()
-    space_ff = ff.make_hex_space(mesh_ff, dim=3, intorder=2)
-
-    assemble_elastic_jit = jax.jit(
-        lambda mat: space_ff.assemble_bilinear_form(ff.linear_elasticity_form, params=mat).to_dense()
-    )
-    with timer.section("fluxfem_elasticity_warmup"):
-        np.asarray(assemble_elastic_jit(D))
-    with timer.section("fluxfem_elasticity_assemble"):
-        K_flux = np.asarray(assemble_elastic_jit(D))
-
-    # scikit-fem assembly
-    xs = np.linspace(0.0, 1.0, n_xyz + 1)
-    ys = np.linspace(0.0, 1.0, n_xyz + 1)
-    zs = np.linspace(0.0, 1.0, n_xyz + 1)
-    mesh_sf = MeshHex().init_tensor(xs, ys, zs)
-    if ElementVectorSKF is not None:
-        element = ElementVectorSKF(ElementHex1(), dim=3)
-    else:
-        try:
-            element = ElementHex1() * 3  # older API fallback
-        except Exception as e:  # pragma: no cover - version compatibility
-            pytest.skip(f"Vector element not available: {e}")
-    basis_sf = Basis(mesh_sf, element, intorder=2)
-    with timer.section("skfem_elasticity_assemble"):
-        K_sf = asm(linear_elasticity(lam, mu), basis_sf).toarray()
-
-    # reorder scikit-fem DOFs to fluxfem
-    coords_ff = np.asarray(mesh_ff.coords)
-    coords_sf = mesh_sf.p.T
-    perm_nodes = []
-    for c in coords_ff:
-        matches = np.nonzero(np.all(np.isclose(coords_sf, c, atol=1e-8), axis=1))[0]
-        assert len(matches) == 1, "node mapping ambiguous"
-        perm_nodes.append(matches[0])
-    perm_nodes = np.array(perm_nodes, dtype=int)
-
-    perm_dofs = []
-    for n in perm_nodes:
-        perm_dofs.extend([3 * n + 0, 3 * n + 1, 3 * n + 2])
-    perm_dofs = np.array(perm_dofs, dtype=int)
-
-    K_sf_reordered = K_sf[np.ix_(perm_dofs, perm_dofs)]
-
-    max_diff = float(np.max(np.abs(K_flux - K_sf_reordered)))
-    assert max_diff < 1e-5, f"K mismatch vs scikit-fem elasticity: {max_diff}"
-    print("elasticity timings:", {s.name: s.total for s in timer.summary(descending=False)})

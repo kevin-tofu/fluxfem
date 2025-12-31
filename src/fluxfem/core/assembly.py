@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 
 from ..mesh import HexMesh, StructuredHexBox
+from .dtypes import INDEX_DTYPE
 from .forms import FormContext
 from .space import FESpaceBase
 
@@ -76,7 +77,7 @@ def assemble_bilinear_form(
     params,
     *,
     pattern=None,
-    chunk_size: Optional[int] = None,   # None -> no-chunk (old behavior)
+    n_chunks: Optional[int] = None,   # None -> no chunking
     dep: jnp.ndarray | None = None,
 ):
     """
@@ -105,13 +106,17 @@ def assemble_bilinear_form(
         return (integrand * wJ[:, None, None]).sum(axis=0)  # (m, m)
 
     # --- no-chunk path (your current implementation) ---
-    if chunk_size is None:
+    if n_chunks is None:
         K_e_all = jax.vmap(per_element)(elem_data)  # (n_elems, m, m)
         data = K_e_all.reshape(-1)
         return FluxSparseMatrix(pat, data)
 
     # --- chunked path ---
     n_elems = space.elem_dofs.shape[0]
+    if n_chunks <= 0:
+        raise ValueError("n_chunks must be a positive integer.")
+    n_chunks = min(int(n_chunks), int(n_elems))
+    chunk_size = (n_elems + n_chunks - 1) // n_chunks
     # Ideally get m from pat (otherwise infer from one element).
     m = getattr(pat, "n_ldofs", None)
     if m is None:
@@ -149,7 +154,7 @@ def assemble_bilinear_form(
     return FluxSparseMatrix(pat, data)
 
 
-def assemble_mass_matrix(space: SpaceLike, *, lumped: bool = False, chunk_size: Optional[int] = None):
+def assemble_mass_matrix(space: SpaceLike, *, lumped: bool = False, n_chunks: Optional[int] = None):
     """
     Assemble mass matrix M_ij = ∫ N_i N_j dΩ.
     Supports scalar and vector spaces. If lumped=True, rows are summed to diagonal.
@@ -170,11 +175,15 @@ def assemble_mass_matrix(space: SpaceLike, *, lumped: bool = False, chunk_size: 
         wJ = ctx.w * ctx.test.detJ
         return jnp.einsum("qab,q->ab", base, wJ)
 
-    if chunk_size is None:
+    if n_chunks is None:
         M_e_all = jax.vmap(per_element)(ctxs)  # (n_elems, n_ldofs, n_ldofs)
         data = M_e_all.reshape(-1)
     else:
         n_elems = space.elem_dofs.shape[0]
+        if n_chunks <= 0:
+            raise ValueError("n_chunks must be a positive integer.")
+        n_chunks = min(int(n_chunks), int(n_elems))
+        chunk_size = (n_elems + n_chunks - 1) // n_chunks
         pad = (-n_elems) % chunk_size
         if pad:
             ctxs_pad = jax.tree_util.tree_map(
@@ -223,7 +232,7 @@ def assemble_linear_form(
     params: P,
     *,
     sparse: bool = False,
-    chunk_size: Optional[int] = None,
+    n_chunks: Optional[int] = None,
     dep: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """
@@ -244,12 +253,16 @@ def assemble_linear_form(
         wJ = ctx.w * ctx.test.detJ     # (n_q,)
         return (integrand * wJ[:, None]).sum(axis=0) # (m,)
 
-    if chunk_size is None:
+    if n_chunks is None:
         F_e_all = jax.vmap(per_element)(elem_data)            # (n_elems, m)
         data = F_e_all.reshape(-1)
     else:
         n_elems = space.elem_dofs.shape[0]
         m = n_ldofs
+        if n_chunks <= 0:
+            raise ValueError("n_chunks must be a positive integer.")
+        n_chunks = min(int(n_chunks), int(n_elems))
+        chunk_size = (n_elems + n_chunks - 1) // n_chunks
         pad = (-n_elems) % chunk_size
         if pad:
             elem_data_pad = jax.tree_util.tree_map(
@@ -339,7 +352,7 @@ def assemble_jacobian_global(
     jac_fun = jax.jacrev(fe_fun, argnums=0)
 
     u_elems = u[elem_dofs]  # (n_elems, n_ldofs)
-    elem_ids = jnp.arange(elem_dofs.shape[0], dtype=jnp.int32)
+    elem_ids = jnp.arange(elem_dofs.shape[0], dtype=INDEX_DTYPE)
     J_e_all = jax.vmap(jac_fun)(u_elems, elem_data, elem_ids)  # (n_elems, m, m)
 
     rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
@@ -358,7 +371,7 @@ def assemble_jacobian_global(
     return K_flat.reshape(n_dofs, n_dofs)
 
 
-def assemble_jacobian_elementwise_xla(
+def assemble_jacobian_elementwise(
     space: SpaceLike,
     res_form: ResidualForm[P],
     u: jnp.ndarray,
@@ -368,7 +381,7 @@ def assemble_jacobian_elementwise_xla(
     return_flux_matrix: bool = False,
 ):
     """
-    Assemble Jacobian with element kernels in XLA (vmap + scatter_add).
+    Assemble Jacobian with element kernels via vmap + scatter_add.
     Recompiles if n_dofs changes, but independent of element count.
     """
     from ..solver import FluxSparseMatrix  # local import to avoid circular
@@ -435,7 +448,7 @@ def assemble_residual_global(
         fe = (integrand * wJ[:, None]).sum(axis=0)
         return fe
 
-    elem_ids = jnp.arange(elem_dofs.shape[0], dtype=jnp.int32)
+    elem_ids = jnp.arange(elem_dofs.shape[0], dtype=INDEX_DTYPE)
     F_e_all = jax.vmap(per_element)(elem_data, elem_dofs, elem_ids)  # (n_elems, m)
 
     rows = elem_dofs.reshape(-1)
@@ -448,7 +461,7 @@ def assemble_residual_global(
     return F
 
 
-def assemble_residual_elementwise_xla(
+def assemble_residual_elementwise(
     space: SpaceLike,
     res_form: ResidualForm[P],
     u: jnp.ndarray,
@@ -457,7 +470,7 @@ def assemble_residual_elementwise_xla(
     sparse: bool = False,
 ):
     """
-    Assemble residual using element kernels fully in XLA (vmap + scatter_add).
+    Assemble residual using element kernels via vmap + scatter_add.
     Recompiles if n_dofs changes, but independent of element count.
     """
     elem_dofs = space.elem_dofs
@@ -485,6 +498,11 @@ def assemble_residual_elementwise_xla(
     F = jnp.zeros(n_dofs, dtype=data.dtype)
     F = jax.lax.scatter_add(F, rows[:, None], data, sdn)
     return F
+
+
+# Backward compatibility aliases (prefer assemble_*_elementwise).
+assemble_jacobian_elementwise_xla = assemble_jacobian_elementwise
+assemble_residual_elementwise_xla = assemble_residual_elementwise
 
 
 def make_element_residual_kernel(res_form: ResidualForm[P], params: P):
@@ -557,24 +575,24 @@ def make_sparsity_pattern(space: SpaceLike, *, with_idx: bool = True):
     """
     from ..solver import SparsityPattern  # local import to avoid circular
 
-    elem_dofs = jnp.asarray(space.elem_dofs, dtype=jnp.int32)
+    elem_dofs = jnp.asarray(space.elem_dofs, dtype=INDEX_DTYPE)
     n_dofs = int(space.n_dofs)
     n_ldofs = int(space.n_ldofs)
 
-    rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1).astype(jnp.int32)
-    cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1).astype(jnp.int32)
+    rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1).astype(INDEX_DTYPE)
+    cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1).astype(INDEX_DTYPE)
 
     key = rows.astype(jnp.int64) * jnp.int64(n_dofs) + cols.astype(jnp.int64)
-    order = jnp.argsort(key).astype(jnp.int32)
+    order = jnp.argsort(key).astype(INDEX_DTYPE)
     rows_sorted = rows[order]
     cols_sorted = cols[order]
-    counts = jnp.bincount(rows_sorted, length=n_dofs).astype(jnp.int32)
-    indptr_j = jnp.concatenate([jnp.array([0], dtype=jnp.int32), jnp.cumsum(counts)])
-    indices_j = cols_sorted.astype(jnp.int32)
+    counts = jnp.bincount(rows_sorted, length=n_dofs).astype(INDEX_DTYPE)
+    indptr_j = jnp.concatenate([jnp.array([0], dtype=INDEX_DTYPE), jnp.cumsum(counts)])
+    indices_j = cols_sorted.astype(INDEX_DTYPE)
     perm = order
 
     if with_idx:
-        idx = (rows.astype(jnp.int64) * jnp.int64(n_dofs) + cols.astype(jnp.int64)).astype(jnp.int32)
+        idx = (rows.astype(jnp.int64) * jnp.int64(n_dofs) + cols.astype(jnp.int64)).astype(INDEX_DTYPE)
         return SparsityPattern(
             rows=rows,
             cols=cols,
@@ -691,7 +709,7 @@ def assemble_jacobian_scatter(
 
     idx = pat.idx
     if idx is None:
-        idx = (pat.rows.astype(jnp.int64) * int(pat.n_dofs) + pat.cols.astype(jnp.int64)).astype(jnp.int32)
+        idx = (pat.rows.astype(jnp.int64) * int(pat.n_dofs) + pat.cols.astype(jnp.int64)).astype(INDEX_DTYPE)
 
     n_entries = pat.n_dofs * pat.n_dofs
     sdn = jax.lax.ScatterDimensionNumbers(
@@ -775,7 +793,7 @@ def _check_structured_box_connectivity():
             [0, 1, 4, 3, 6, 7, 10, 9],   # element at i=0
             [1, 2, 5, 4, 7, 8, 11, 10],  # element at i=1
         ],
-        dtype=jnp.int32,
+        dtype=INDEX_DTYPE,
     )
     max_diff = int(jnp.max(jnp.abs(mesh.conn - expected_conn)))
     print("StructuredHexBox nx=2,ny=1,nz=1 conn matches expected:", max_diff == 0)

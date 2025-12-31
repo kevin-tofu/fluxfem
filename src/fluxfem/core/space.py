@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from .dtypes import INDEX_DTYPE
 from ..mesh import (
     BaseMesh,
     BaseMeshPytree,
@@ -79,7 +80,7 @@ class FESpaceClosure:
     """
     mesh: BaseMesh
     basis: Basis3D
-    elem_dofs: jnp.ndarray  # (n_elems, n_ldofs) int32
+    elem_dofs: jnp.ndarray  # (n_elems, n_ldofs) int64
     value_dim: int = 1      # 1=scalar, 3=vector, etc.
     _n_dofs: int | None = None
     _n_ldofs: int | None = None
@@ -156,23 +157,23 @@ class FESpaceClosure:
         )
 
     # --- Thin wrappers over functional assembly APIs (kept functional for JAX friendliness) ---
-    def assemble_bilinear_form(self, form, params, *, chunk_size=None, dep=None, **kwargs):
+    def assemble_bilinear_form(self, form, params, *, n_chunks=None, dep=None, **kwargs):
         from .assembly import assemble_bilinear_form
         if "pattern" not in kwargs or kwargs.get("pattern") is None:
             kwargs["pattern"] = self.get_sparsity_pattern(with_idx=True)
-        return assemble_bilinear_form(self, form, params, chunk_size=chunk_size, dep=dep, **kwargs)
+        return assemble_bilinear_form(self, form, params, n_chunks=n_chunks, dep=dep, **kwargs)
 
-    def assemble_linear_form(self, form, params, *, chunk_size=None, dep=None, **kwargs):
+    def assemble_linear_form(self, form, params, *, n_chunks=None, dep=None, **kwargs):
         from .assembly import assemble_linear_form
-        return assemble_linear_form(self, form, params, chunk_size=chunk_size, dep=dep, **kwargs)
+        return assemble_linear_form(self, form, params, n_chunks=n_chunks, dep=dep, **kwargs)
 
     def assemble_functional(self, form, params):
         from .assembly import assemble_functional
         return assemble_functional(self, form, params)
 
-    def assemble_mass_matrix(self, *, chunk_size=None, **kwargs):
+    def assemble_mass_matrix(self, *, n_chunks=None, **kwargs):
         from .assembly import assemble_mass_matrix
-        return assemble_mass_matrix(self, chunk_size=chunk_size, **kwargs)
+        return assemble_mass_matrix(self, n_chunks=n_chunks, **kwargs)
 
     def assemble_bilinear_dense(self, kernel, params, **kwargs):
         from .assembly import assemble_bilinear_dense
@@ -251,7 +252,7 @@ def make_space(
     return FESpace(
         mesh=mesh,
         basis=basis,
-        elem_dofs=jnp.asarray(elem_dofs, dtype=jnp.int32),
+        elem_dofs=jnp.asarray(elem_dofs, dtype=INDEX_DTYPE),
         value_dim=value_dim
     )
 
@@ -320,7 +321,7 @@ def make_space_pytree(
     return FESpacePytree(
         mesh=mesh_py,
         basis=basis_py,
-        elem_dofs=jnp.asarray(elem_dofs, dtype=jnp.int32),
+        elem_dofs=jnp.asarray(elem_dofs, dtype=INDEX_DTYPE),
         value_dim=value_dim,
     )
 

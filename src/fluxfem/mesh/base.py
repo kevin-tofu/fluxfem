@@ -5,6 +5,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+from ..core.dtypes import INDEX_DTYPE, NP_INDEX_DTYPE
+
 
 @dataclass
 class BaseMeshClosure:
@@ -178,12 +180,12 @@ class BaseMeshClosure:
     def make_node_tags(self, predicate: Callable[[np.ndarray], np.ndarray], tag: int, base: Optional[np.ndarray] = None) -> jnp.ndarray:
         """
         Build a node_tags array by applying predicate to coords and setting tag where True.
-        Returns a jnp.ndarray (int32). Does not mutate the mesh.
+        Returns a jnp.ndarray (int64). Does not mutate the mesh.
         """
-        base_tags = np.zeros(self.n_nodes, dtype=np.int32) if base is None else np.asarray(base, dtype=np.int32).copy()
+        base_tags = np.zeros(self.n_nodes, dtype=NP_INDEX_DTYPE) if base is None else np.asarray(base, dtype=NP_INDEX_DTYPE).copy()
         mask = predicate(np.asarray(self.coords))
         base_tags[mask] = int(tag)
-        return jnp.asarray(base_tags, dtype=jnp.int32)
+        return jnp.asarray(base_tags, dtype=INDEX_DTYPE)
 
     def with_node_tags(self, node_tags: np.ndarray | jnp.ndarray):
         """
@@ -217,8 +219,8 @@ class BaseMeshClosure:
 
         if not facet_map:
             if tag is None:
-                return jnp.empty((0, len(patterns[0]) if patterns else 0), dtype=jnp.int32)
-            return jnp.empty((0, len(patterns[0]) if patterns else 0), dtype=jnp.int32), jnp.empty((0,), dtype=jnp.int32)
+                return jnp.empty((0, len(patterns[0]) if patterns else 0), dtype=INDEX_DTYPE)
+            return jnp.empty((0, len(patterns[0]) if patterns else 0), dtype=INDEX_DTYPE), jnp.empty((0,), dtype=INDEX_DTYPE)
 
         facets = []
         tags = []
@@ -227,10 +229,10 @@ class BaseMeshClosure:
             if tag is not None:
                 tags.append(t if t is not None else 0)
 
-        facets_arr = jnp.array(facets, dtype=jnp.int32)
+        facets_arr = jnp.array(facets, dtype=INDEX_DTYPE)
         if tag is None:
             return facets_arr
-        return facets_arr, jnp.array(tags, dtype=jnp.int32)
+        return facets_arr, jnp.array(tags, dtype=INDEX_DTYPE)
 
 
 @jax.tree_util.register_pytree_node_class

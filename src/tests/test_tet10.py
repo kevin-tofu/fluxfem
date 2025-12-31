@@ -23,7 +23,6 @@ def test_tet10_diffusion_sum_energy():
     assert abs(K.sum()) > 0
 
 
-@pytest.mark.xfail(reason="Mapping to scikit-fem ElementTetP2 not implemented")
 def test_tet10_against_scikit_fem():
     skfem = pytest.importorskip("skfem", reason="scikit-fem not installed")
     from skfem import MeshTet, ElementTetP2, Basis, asm

@@ -4,6 +4,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+from ..core.dtypes import NP_INDEX_DTYPE
+
 DTYPE = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
 
 try:
@@ -36,10 +38,10 @@ def load_gmsh_mesh(path: str):
 
     mesh = None
     if "hexahedron" in msh.cells_dict:
-        conn = np.asarray(msh.cells_dict["hexahedron"], dtype=np.int32)
+        conn = np.asarray(msh.cells_dict["hexahedron"], dtype=NP_INDEX_DTYPE)
         mesh = HexMesh(jnp.asarray(coords), jnp.asarray(conn))
     elif "tetra" in msh.cells_dict:
-        conn = np.asarray(msh.cells_dict["tetra"], dtype=np.int32)
+        conn = np.asarray(msh.cells_dict["tetra"], dtype=NP_INDEX_DTYPE)
         mesh = TetMesh(jnp.asarray(coords), jnp.asarray(conn))
     else:
         raise ValueError("gmsh mesh does not contain hexahedron or tetra cells")
@@ -50,7 +52,7 @@ def load_gmsh_mesh(path: str):
     cell_dict = msh.cells_dict
     for fkey in ("quad", "triangle", "tri"):
         if fkey in cell_dict:
-            facets = np.asarray(cell_dict[fkey], dtype=np.int32)
+            facets = np.asarray(cell_dict[fkey], dtype=NP_INDEX_DTYPE)
             break
     tags_raw = None
     if facets is not None:
@@ -63,7 +65,7 @@ def load_gmsh_mesh(path: str):
                         tags_raw = data
                         break
         if tags_raw is not None:
-            facet_tags = np.asarray(tags_raw, dtype=np.int32)
+            facet_tags = np.asarray(tags_raw, dtype=NP_INDEX_DTYPE)
 
     return mesh, facets, facet_tags
 

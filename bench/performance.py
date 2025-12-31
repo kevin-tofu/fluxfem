@@ -58,10 +58,10 @@ def parse_args():
         help="CG max iterations for fluxfem solve timing.",
     )
     p.add_argument(
-        "--chunk-size",
+        "--n-chunks",
         type=int,
         default=None,
-        help="Chunk size for FluxFEM assembly (reduces JIT compile pressure).",
+        help="Number of chunks for FluxFEM assembly (reduces JIT compile pressure).",
     )
     p.add_argument(
         "--repeat",
@@ -138,10 +138,10 @@ def fluxfem_cases(args, backend: str):
                 params=1.0,
                 dep=dummy,
                 pattern=pattern,
-                chunk_size=args.chunk_size,
+                n_chunks=args.n_chunks,
             )
             F = space.assemble_linear_form(
-                scalar_body_force_form, params=1.0, dep=dummy, chunk_size=args.chunk_size
+                scalar_body_force_form, params=1.0, dep=dummy, n_chunks=args.n_chunks
             )
             return K, F
 
