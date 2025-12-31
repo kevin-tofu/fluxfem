@@ -67,3 +67,32 @@ def test_mixed_jacobian_consistency():
 
     assert np.allclose(np.asarray(J_dict), np.asarray(J_form), atol=1e-6)
     assert np.allclose(np.asarray(J_dict), np.asarray(J_compiled), atol=1e-6)
+
+
+def test_mixed_residual_matches_single_field():
+    """Mixed residual for one field matches single-field assembly."""
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    mixed = MixedFESpace({"u": space, "t": space})
+
+    def res_u(v, u, p):
+        return p.kappa * h_wf.gaction(v, h_wf.grad(u)) * h_wf.dOmega()
+
+    def res_t(v, _u, _p):
+        return (v * 0.0) * h_wf.dOmega()
+
+    params = ff.Params(kappa=2.0)
+    residuals = {"u": res_u, "t": res_t}
+
+    rng = np.random.default_rng(2)
+    u_vec = jnp.asarray(rng.standard_normal(mixed.n_dofs))
+    u_field = u_vec[mixed.field_slices["u"]]
+
+    mixed_form = MixedResidualForm(residuals)
+    R_mixed = assemble_mixed_residual_wf(mixed, mixed_form, u_vec, params)
+    R_u = np.asarray(R_mixed[mixed.field_slices["u"]])
+
+    single_form = ff.ResidualForm.volume(res_u)
+    R_single = space.assemble_residual(single_form.get_compiled(), u_field, params)
+
+    assert np.allclose(R_u, np.asarray(R_single))
