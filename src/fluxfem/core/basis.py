@@ -374,7 +374,7 @@ class TetQuadraticBasis10(SmallStrainBMixin, TotalLagrangeBMixin):
 
         grads = []
         for a, dLa in zip([L1, L2, L3, L4], [dL1, dL2, dL3, dL4]):
-            grads.append((2 * a - 1)[..., None] * dLa[None, :])
+            grads.append((4 * a - 1)[..., None] * dLa[None, :])
 
         dN1 = grads[0]
         dN2 = grads[1]

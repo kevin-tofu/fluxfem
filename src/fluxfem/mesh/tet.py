@@ -58,6 +58,10 @@ class StructuredTetBox:
             J = np.stack([p1 - p0, p2 - p0, p3 - p0], axis=1)
             if np.linalg.det(J) < 0:
                 tet[[1, 2]] = tet[[2, 1]]  # swap corner1/corner2
+                if tet.shape[0] == 10:
+                    # keep edge-node ordering consistent with corner swap
+                    tet[[4, 6]] = tet[[6, 4]]  # edges (0-1) <-> (0-2)
+                    tet[[8, 9]] = tet[[9, 8]]  # edges (1-3) <-> (2-3)
                 conn[idx] = tet
         return conn
 
@@ -115,7 +119,7 @@ class StructuredTetBox:
                         n12 = add_node(mid(p1, p2))
                         n13 = add_node(mid(p1, p3))
                         n23 = add_node(mid(p2, p3))
-                        conn_list.append([n0, n1, n2, n3, n01, n02, n03, n12, n13, n23])
+                        conn_list.append([n0, n1, n2, n3, n01, n12, n02, n03, n13, n23])
 
         coords = np.asarray(coords_list, dtype=DTYPE)
         conn = np.asarray(conn_list, dtype=np.int32)
