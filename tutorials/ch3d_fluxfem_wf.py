@@ -12,6 +12,7 @@ import numpy as np
 import jax.numpy as jnp
 
 import fluxfem as ff
+from fluxfem.core.mixed_space import MixedFESpace
 import fluxfem.helpers_wf as h_wf
 from fluxfem.mixed_weakform import (
     MixedResidualForm,
@@ -41,14 +42,14 @@ def run_ch_3d():
 
     mesh = ff.StructuredHexBox(nx=16, ny=16, nz=16, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2 * order)
-    mixed = ff.MixedFESpace({"c": space, "mu": space})
+    mixed = MixedFESpace({"c": space, "mu": space})
 
     rng = np.random.default_rng(0)
     mean_c0 = 0.0
     c_vec = mean_c0 + 0.01 * rng.standard_normal(space.n_dofs)
     c_vec = c_vec - (np.mean(c_vec) - mean_c0)
 
-    out_dir = "ch_output_3d_fluxfem_wf"
+    out_dir = os.path.join("result", "tutorials", "ch_output_3d_fluxfem_wf")
     os.makedirs(out_dir, exist_ok=True)
     vtufiles: List[str] = []
     times: List[float] = []
