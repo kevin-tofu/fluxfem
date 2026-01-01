@@ -47,6 +47,89 @@ def _point_in_tri(lam: np.ndarray, *, tol: float) -> bool:
     return np.all(lam >= -tol) and np.all(lam <= 1.0 + tol)
 
 
+def _plane_basis(pts: np.ndarray, *, tol: float):
+    v1 = pts[1] - pts[0]
+    v2 = pts[3] - pts[0] if pts.shape[0] > 3 else pts[2] - pts[0]
+    n = np.cross(v1, v2)
+    n_norm = np.linalg.norm(n)
+    if n_norm < tol:
+        return None, None
+    n = n / n_norm
+    t1 = v1 / np.linalg.norm(v1)
+    v2_proj = v2 - np.dot(v2, t1) * t1
+    v2_norm = np.linalg.norm(v2_proj)
+    if v2_norm < tol:
+        return None, None
+    t2 = v2_proj / v2_norm
+    return t1, t2
+
+
+def _quad_shape_values(
+    point: np.ndarray,
+    facet_nodes: np.ndarray,
+    coords: np.ndarray,
+    *,
+    tol: float,
+) -> np.ndarray:
+    pts = coords[facet_nodes]
+    basis = _plane_basis(pts, tol=tol)
+    if basis[0] is None:
+        return np.zeros((4,), dtype=float)
+    t1, t2 = basis
+    origin = pts[0]
+    local = (pts - origin) @ np.stack([t1, t2], axis=1)
+    p_local = (point - origin) @ np.stack([t1, t2], axis=1)
+    x = local[:, 0]
+    y = local[:, 1]
+    xp = float(p_local[0])
+    yp = float(p_local[1])
+
+    xi = 0.0
+    eta = 0.0
+    for _ in range(12):
+        n1 = 0.25 * (1.0 - xi) * (1.0 - eta)
+        n2 = 0.25 * (1.0 + xi) * (1.0 - eta)
+        n3 = 0.25 * (1.0 + xi) * (1.0 + eta)
+        n4 = 0.25 * (1.0 - xi) * (1.0 + eta)
+        x_m = n1 * x[0] + n2 * x[1] + n3 * x[2] + n4 * x[3]
+        y_m = n1 * y[0] + n2 * y[1] + n3 * y[2] + n4 * y[3]
+        rx = x_m - xp
+        ry = y_m - yp
+        if abs(rx) + abs(ry) < tol:
+            break
+        dndxi = np.array(
+            [
+                -0.25 * (1.0 - eta),
+                0.25 * (1.0 - eta),
+                0.25 * (1.0 + eta),
+                -0.25 * (1.0 + eta),
+            ],
+            dtype=float,
+        )
+        dndeta = np.array(
+            [
+                -0.25 * (1.0 - xi),
+                -0.25 * (1.0 + xi),
+                0.25 * (1.0 + xi),
+                0.25 * (1.0 - xi),
+            ],
+            dtype=float,
+        )
+        j11 = float(np.dot(dndxi, x))
+        j12 = float(np.dot(dndeta, x))
+        j21 = float(np.dot(dndxi, y))
+        j22 = float(np.dot(dndeta, y))
+        det = j11 * j22 - j12 * j21
+        if abs(det) < tol:
+            return np.zeros((4,), dtype=float)
+        dxi = (-j22 * rx + j12 * ry) / det
+        deta = (j21 * rx - j11 * ry) / det
+        xi += dxi
+        eta += deta
+
+    return np.array([n1, n2, n3, n4], dtype=float)
+
+
 def _facet_shape_values(
     point: np.ndarray,
     facet_nodes: np.ndarray,
@@ -68,19 +151,7 @@ def _facet_shape_values(
             return np.zeros((3,), dtype=float)
         return lam
     if n == 4:
-        tri0 = (0, 1, 2)
-        lam = _barycentric(point, pts[tri0[0]], pts[tri0[1]], pts[tri0[2]])
-        if lam is not None and _point_in_tri(lam, tol=tol):
-            out = np.zeros((4,), dtype=float)
-            out[list(tri0)] = lam
-            return out
-        tri1 = (0, 2, 3)
-        lam = _barycentric(point, pts[tri1[0]], pts[tri1[1]], pts[tri1[2]])
-        if lam is not None:
-            out = np.zeros((4,), dtype=float)
-            out[list(tri1)] = lam
-            return out
-        return np.zeros((4,), dtype=float)
+        return _quad_shape_values(point, facet_nodes, coords, tol=tol)
     raise ValueError("facet must be a triangle or quad")
 
 
