@@ -1,0 +1,232 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gmsh .msh を読み込んで解析に使う &mdash; FluxFEM 0.1.1b documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial_gmsh_msh.html" />
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a9b42864"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Usage" href="usage.html" />
+    <link rel="prev" title="Autodiff Tutorial: Inverse Diffusion" href="tutorial_autodiff.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            FluxFEM
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="project.html">Project</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="tutorial.html">Tutorial Page</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar (Simplified)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Gmsh .msh を読み込んで解析に使う</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id1">ポイント</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id2">前提</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#msh-gmsh"><code class="docutils literal notranslate"><span class="pre">.msh</span></code> の準備（Gmsh 側）</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#fluxfem">FluxFEM で読み込み</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#physical-surface">境界条件（Physical Surface タグ）</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id3">タグが無い場合のフォールバック</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">FluxFEM</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="tutorial.html">Tutorial Page</a></li>
+      <li class="breadcrumb-item active">Gmsh .msh を読み込んで解析に使う</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/tutorial_gmsh_msh.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="gmsh-msh">
+<h1>Gmsh .msh を読み込んで解析に使う<a class="headerlink" href="#gmsh-msh" title="Link to this heading"></a></h1>
+<p>このチュートリアルでは、Gmsh で作成した <code class="docutils literal notranslate"><span class="pre">.msh</span></code> を読み込み、
+FluxFEM の解析に使う最小フローを紹介します。</p>
+<section id="id1">
+<h2>ポイント<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ff.load_gmsh_mesh</span></code> は hex/tet のどちらにも対応します。</p></li>
+<li><p>境界条件は Gmsh の Physical Surface のタグ番号で指定できます。</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">.msh</span></code> に境界面（quad/tri）が含まれない場合は幾何条件で補完します。</p></li>
+</ul>
+</section>
+<section id="id2">
+<h2>前提<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">meshio</span></code> が必要です（<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> に依存関係あり）。</p></li>
+<li><p>Gmsh で解析に使いたい面を Physical Surface としてタグ付けします。</p></li>
+</ul>
+</section>
+<section id="msh-gmsh">
+<h2><code class="docutils literal notranslate"><span class="pre">.msh</span></code> の準備（Gmsh 側）<a class="headerlink" href="#msh-gmsh" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p>解析に使う面を Physical Surface としてタグ付けします。
+例:  <code class="docutils literal notranslate"><span class="pre">dirichlet_tag=1</span></code> を固定境界、<code class="docutils literal notranslate"><span class="pre">traction_tag=2</span></code> を荷重境界。</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">.msh</span></code> を書き出します（v2/v4 どちらでも可）。</p></li>
+</ol>
+<p>ここでのタグ番号は、後で <code class="docutils literal notranslate"><span class="pre">facet_tags</span></code> を使って境界条件を選ぶために使います。</p>
+</section>
+<section id="fluxfem">
+<h2>FluxFEM で読み込み<a class="headerlink" href="#fluxfem" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_wf</span>
+
+<span class="n">mesh</span><span class="p">,</span> <span class="n">facets</span><span class="p">,</span> <span class="n">facet_tags</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">load_gmsh_mesh</span><span class="p">(</span><span class="s2">&quot;mesh.msh&quot;</span><span class="p">)</span>
+
+<span class="c1"># tet/hex で空間を切り替え</span>
+<span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">ff</span><span class="o">.</span><span class="n">TetMesh</span><span class="p">):</span>
+    <span class="n">space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_tet_space</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">intorder</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_hex_space</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">intorder</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+
+<span class="c1"># 3D 線形弾性の材料行列</span>
+<span class="n">E</span> <span class="o">=</span> <span class="mf">210_000.0</span>
+<span class="n">nu</span> <span class="o">=</span> <span class="mf">0.3</span>
+<span class="n">D</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">isotropic_3d_D</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">nu</span><span class="p">)</span>
+
+<span class="n">bilinear_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D_mat</span><span class="p">:</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">,</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">matmul_std</span><span class="p">(</span><span class="n">D_mat</span><span class="p">,</span> <span class="n">u</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">))</span>
+    <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+<span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">bilinear_form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="physical-surface">
+<h2>境界条件（Physical Surface タグ）<a class="headerlink" href="#physical-surface" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">facet_tags</span></code> から境界を抽出して、Dirichlet と Neumann を設定します。</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">if</span> <span class="n">facets</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">facet_tags</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;境界面またはタグが .msh に含まれていません。&quot;</span><span class="p">)</span>
+
+<span class="n">dirichlet_tag</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">traction_tag</span> <span class="o">=</span> <span class="mi">2</span>
+
+<span class="n">facets_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">facets</span><span class="p">)</span>
+<span class="n">tags_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">facet_tags</span><span class="p">)</span>
+
+<span class="c1"># Dirichlet: タグ付き面の節点を固定</span>
+<span class="n">dirichlet_nodes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">facets_np</span><span class="p">[</span><span class="n">tags_np</span> <span class="o">==</span> <span class="n">dirichlet_tag</span><span class="p">]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+<span class="n">dir_dofs</span> <span class="o">=</span> <span class="n">mesh</span><span class="o">.</span><span class="n">node_dofs</span><span class="p">(</span><span class="n">dirichlet_nodes</span><span class="p">,</span> <span class="n">components</span><span class="o">=</span><span class="s2">&quot;xyz&quot;</span><span class="p">)</span>
+
+<span class="c1"># Neumann: タグ付き面で表面荷重</span>
+<span class="n">neumann_facets</span> <span class="o">=</span> <span class="n">facets_np</span><span class="p">[</span><span class="n">tags_np</span> <span class="o">==</span> <span class="n">traction_tag</span><span class="p">]</span>
+<span class="n">surf</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_surface_from_facets</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">mesh</span><span class="o">.</span><span class="n">coords</span><span class="p">),</span> <span class="n">neumann_facets</span><span class="p">)</span>
+<span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">p</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
+<span class="n">traction_vec</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+<span class="n">F</span> <span class="o">=</span> <span class="n">surf</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
+    <span class="n">space</span><span class="p">,</span> <span class="n">surface_form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="n">traction_vec</span>
+<span class="p">)</span>
+
+<span class="n">solver</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearSolver</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="s2">&quot;spsolve&quot;</span><span class="p">)</span>
+<span class="n">u</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">F</span><span class="p">,</span> <span class="n">dirichlet</span><span class="o">=</span><span class="p">(</span><span class="n">dir_dofs</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="n">dirichlet_mode</span><span class="o">=</span><span class="s2">&quot;condense&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="id3">
+<h2>タグが無い場合のフォールバック<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">.msh</span></code> に Physical Surface が無い場合は、座標条件で境界を選べます。
+例えば <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmin</span></code> を固定、<code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code> を荷重面にする場合:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">coords_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">mesh</span><span class="o">.</span><span class="n">coords</span><span class="p">)</span>
+<span class="n">xmin</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">coords_np</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">min</span><span class="p">())</span>
+<span class="n">xmax</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">coords_np</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+
+<span class="n">dir_dofs</span> <span class="o">=</span> <span class="n">mesh</span><span class="o">.</span><span class="n">boundary_dofs_where</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">pts</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">pts</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">xmin</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">),</span>
+    <span class="n">components</span><span class="o">=</span><span class="s2">&quot;xyz&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">neumann_facets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+    <span class="n">mesh</span><span class="o">.</span><span class="n">boundary_facets_where</span><span class="p">(</span><span class="k">lambda</span> <span class="n">pts</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">pts</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">xmax</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">))</span>
+<span class="p">)</span>
+<span class="n">surf</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_surface_from_facets</span><span class="p">(</span><span class="n">coords_np</span><span class="p">,</span> <span class="n">neumann_facets</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="tutorial_autodiff.html" class="btn btn-neutral float-left" title="Autodiff Tutorial: Inverse Diffusion" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="usage.html" class="btn btn-neutral float-right" title="Usage" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Kohei Watanabe.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

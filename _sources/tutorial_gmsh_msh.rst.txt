@@ -1,0 +1,110 @@
+Gmsh .msh を読み込んで解析に使う
+================================
+
+このチュートリアルでは、Gmsh で作成した ``.msh`` を読み込み、
+FluxFEM の解析に使う最小フローを紹介します。
+
+ポイント
+^^^^^^^^
+
+- ``ff.load_gmsh_mesh`` は hex/tet のどちらにも対応します。
+- 境界条件は Gmsh の Physical Surface のタグ番号で指定できます。
+- ``.msh`` に境界面（quad/tri）が含まれない場合は幾何条件で補完します。
+
+前提
+^^^^
+
+- ``meshio`` が必要です（``pyproject.toml`` に依存関係あり）。
+- Gmsh で解析に使いたい面を Physical Surface としてタグ付けします。
+
+``.msh`` の準備（Gmsh 側）
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1) 解析に使う面を Physical Surface としてタグ付けします。  
+   例:  ``dirichlet_tag=1`` を固定境界、``traction_tag=2`` を荷重境界。
+2) ``.msh`` を書き出します（v2/v4 どちらでも可）。
+
+ここでのタグ番号は、後で ``facet_tags`` を使って境界条件を選ぶために使います。
+
+FluxFEM で読み込み
+^^^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+   import numpy as np
+   import jax.numpy as jnp
+   import fluxfem as ff
+   import fluxfem.helpers_wf as h_wf
+
+   mesh, facets, facet_tags = ff.load_gmsh_mesh("mesh.msh")
+
+   # tet/hex で空間を切り替え
+   if isinstance(mesh, ff.TetMesh):
+       space = ff.make_tet_space(mesh, dim=3, intorder=2)
+   else:
+       space = ff.make_hex_space(mesh, dim=3, intorder=2)
+
+   # 3D 線形弾性の材料行列
+   E = 210_000.0
+   nu = 0.3
+   D = ff.isotropic_3d_D(E, nu)
+
+   bilinear_form = ff.BilinearForm.volume(
+       lambda u, v, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
+       * h_wf.dOmega()
+   )
+   K = space.assemble_bilinear_form(bilinear_form.get_compiled(), params=D)
+
+境界条件（Physical Surface タグ）
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``facet_tags`` から境界を抽出して、Dirichlet と Neumann を設定します。
+
+.. code-block:: python
+
+   if facets is None or facet_tags is None:
+       raise RuntimeError("境界面またはタグが .msh に含まれていません。")
+
+   dirichlet_tag = 1
+   traction_tag = 2
+
+   facets_np = np.asarray(facets)
+   tags_np = np.asarray(facet_tags)
+
+   # Dirichlet: タグ付き面の節点を固定
+   dirichlet_nodes = np.unique(facets_np[tags_np == dirichlet_tag].reshape(-1))
+   dir_dofs = mesh.node_dofs(dirichlet_nodes, components="xyz")
+
+   # Neumann: タグ付き面で表面荷重
+   neumann_facets = facets_np[tags_np == traction_tag]
+   surf = ff.make_surface_from_facets(np.asarray(mesh.coords), neumann_facets)
+   surface_form = ff.LinearForm.surface(lambda v, p: (v | p) * h_wf.ds())
+   traction_vec = np.array([1.0, 0.0, 0.0], dtype=float)
+   F = surf.assemble_linear_form_on_space(
+       space, surface_form.get_compiled(), params=traction_vec
+   )
+
+   solver = ff.LinearSolver(method="spsolve")
+   u, _ = solver.solve(K, F, dirichlet=(dir_dofs, None), dirichlet_mode="condense")
+
+タグが無い場合のフォールバック
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``.msh`` に Physical Surface が無い場合は、座標条件で境界を選べます。
+例えば ``x = xmin`` を固定、``x = xmax`` を荷重面にする場合:
+
+.. code-block:: python
+
+   coords_np = np.asarray(mesh.coords)
+   xmin = float(coords_np[:, 0].min())
+   xmax = float(coords_np[:, 0].max())
+
+   dir_dofs = mesh.boundary_dofs_where(
+       lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
+       components="xyz",
+   )
+
+   neumann_facets = np.asarray(
+       mesh.boundary_facets_where(lambda pts: np.allclose(pts[:, 0], xmax, atol=1e-8))
+   )
+   surf = ff.make_surface_from_facets(coords_np, neumann_facets)
