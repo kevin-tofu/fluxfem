@@ -1,33 +1,33 @@
-Gmsh .msh を読み込んで解析に使う
-================================
+Load a Gmsh .msh and use it in analysis
+=======================================
 
-このチュートリアルでは、Gmsh で作成した ``.msh`` を読み込み、
-FluxFEM の解析に使う最小フローを紹介します。
+This tutorial shows the minimal flow to load a ``.msh`` created by Gmsh
+and use it in FluxFEM analysis.
 
-ポイント
-^^^^^^^^
+Key points
+^^^^^^^^^^
 
-- ``ff.load_gmsh_mesh`` は hex/tet のどちらにも対応します。
-- 境界条件は Gmsh の Physical Surface のタグ番号で指定できます。
-- ``.msh`` に境界面（quad/tri）が含まれない場合は幾何条件で補完します。
+- ``ff.load_gmsh_mesh`` supports both hex and tet meshes.
+- Boundary conditions can be selected by the Physical Surface tag ID in Gmsh.
+- If the ``.msh`` lacks boundary faces (quad/tri), they are inferred from geometry.
 
-前提
-^^^^
+Prerequisites
+^^^^^^^^^^^^^
 
-- ``meshio`` が必要です（``pyproject.toml`` に依存関係あり）。
-- Gmsh で解析に使いたい面を Physical Surface としてタグ付けします。
+- ``meshio`` is required (already listed in ``pyproject.toml`` dependencies).
+- Tag the faces used in analysis as Physical Surface in Gmsh.
 
-``.msh`` の準備（Gmsh 側）
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+Prepare the ``.msh`` (Gmsh side)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-1) 解析に使う面を Physical Surface としてタグ付けします。  
-   例:  ``dirichlet_tag=1`` を固定境界、``traction_tag=2`` を荷重境界。
-2) ``.msh`` を書き出します（v2/v4 どちらでも可）。
+1) Tag the faces used in analysis as Physical Surface.  
+   Example: set ``dirichlet_tag=1`` for fixed boundary, ``traction_tag=2`` for load boundary.
+2) Export the ``.msh`` (either v2 or v4 is OK).
 
-ここでのタグ番号は、後で ``facet_tags`` を使って境界条件を選ぶために使います。
+These tag IDs are later used to select boundary conditions via ``facet_tags``.
 
-FluxFEM で読み込み
-^^^^^^^^^^^^^^^^^^
+Load in FluxFEM
+^^^^^^^^^^^^^^^
 
 .. code-block:: python
 
@@ -38,13 +38,13 @@ FluxFEM で読み込み
 
    mesh, facets, facet_tags = ff.load_gmsh_mesh("mesh.msh")
 
-   # tet/hex で空間を切り替え
+   # Switch space by tet/hex
    if isinstance(mesh, ff.TetMesh):
        space = ff.make_tet_space(mesh, dim=3, intorder=2)
    else:
        space = ff.make_hex_space(mesh, dim=3, intorder=2)
 
-   # 3D 線形弾性の材料行列
+   # 3D linear elastic material matrix
    E = 210_000.0
    nu = 0.3
    D = ff.isotropic_3d_D(E, nu)
@@ -55,15 +55,15 @@ FluxFEM で読み込み
    )
    K = space.assemble_bilinear_form(bilinear_form.get_compiled(), params=D)
 
-境界条件（Physical Surface タグ）
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Boundary conditions (Physical Surface tags)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``facet_tags`` から境界を抽出して、Dirichlet と Neumann を設定します。
+Extract boundaries from ``facet_tags`` and set Dirichlet and Neumann conditions.
 
 .. code-block:: python
 
    if facets is None or facet_tags is None:
-       raise RuntimeError("境界面またはタグが .msh に含まれていません。")
+       raise RuntimeError("Boundary faces or tags are not included in the .msh.")
 
    dirichlet_tag = 1
    traction_tag = 2
@@ -71,11 +71,11 @@ FluxFEM で読み込み
    facets_np = np.asarray(facets)
    tags_np = np.asarray(facet_tags)
 
-   # Dirichlet: タグ付き面の節点を固定
+   # Dirichlet: fix nodes on tagged faces
    dirichlet_nodes = np.unique(facets_np[tags_np == dirichlet_tag].reshape(-1))
    dir_dofs = mesh.node_dofs(dirichlet_nodes, components="xyz")
 
-   # Neumann: タグ付き面で表面荷重
+   # Neumann: surface traction on tagged faces
    neumann_facets = facets_np[tags_np == traction_tag]
    surf = ff.make_surface_from_facets(np.asarray(mesh.coords), neumann_facets)
    surface_form = ff.LinearForm.surface(lambda v, p: (v | p) * h_wf.ds())
@@ -87,11 +87,11 @@ FluxFEM で読み込み
    solver = ff.LinearSolver(method="spsolve")
    u, _ = solver.solve(K, F, dirichlet=(dir_dofs, None), dirichlet_mode="condense")
 
-タグが無い場合のフォールバック
+Fallback when tags are missing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``.msh`` に Physical Surface が無い場合は、座標条件で境界を選べます。
-例えば ``x = xmin`` を固定、``x = xmax`` を荷重面にする場合:
+If the ``.msh`` has no Physical Surface tags, you can select boundaries by coordinate.
+For example, fix ``x = xmin`` and apply traction on ``x = xmax``:
 
 .. code-block:: python
 

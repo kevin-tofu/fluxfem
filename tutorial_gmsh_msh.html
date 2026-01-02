@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gmsh .msh を読み込んで解析に使う &mdash; FluxFEM 0.1.1b documentation</title>
+  <title>Load a Gmsh .msh and use it in analysis &mdash; FluxFEM 0.1.1b documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
@@ -50,13 +50,13 @@
 <li class="toctree-l2"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar (Simplified)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Gmsh .msh を読み込んで解析に使う</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#id1">ポイント</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id2">前提</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#msh-gmsh"><code class="docutils literal notranslate"><span class="pre">.msh</span></code> の準備（Gmsh 側）</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem">FluxFEM で読み込み</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#physical-surface">境界条件（Physical Surface タグ）</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id3">タグが無い場合のフォールバック</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Load a Gmsh .msh and use it in analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#key-points">Key points</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#prepare-the-msh-gmsh-side">Prepare the <code class="docutils literal notranslate"><span class="pre">.msh</span></code> (Gmsh side)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load-in-fluxfem">Load in FluxFEM</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#boundary-conditions-physical-surface-tags">Boundary conditions (Physical Surface tags)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#fallback-when-tags-are-missing">Fallback when tags are missing</a></li>
 </ul>
 </li>
 </ul>
@@ -80,7 +80,7 @@
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
           <li class="breadcrumb-item"><a href="tutorial.html">Tutorial Page</a></li>
-      <li class="breadcrumb-item active">Gmsh .msh を読み込んで解析に使う</li>
+      <li class="breadcrumb-item active">Load a Gmsh .msh and use it in analysis</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/tutorial_gmsh_msh.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -90,36 +90,36 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="gmsh-msh">
-<h1>Gmsh .msh を読み込んで解析に使う<a class="headerlink" href="#gmsh-msh" title="Link to this heading"></a></h1>
-<p>このチュートリアルでは、Gmsh で作成した <code class="docutils literal notranslate"><span class="pre">.msh</span></code> を読み込み、
-FluxFEM の解析に使う最小フローを紹介します。</p>
-<section id="id1">
-<h2>ポイント<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+  <section id="load-a-gmsh-msh-and-use-it-in-analysis">
+<h1>Load a Gmsh .msh and use it in analysis<a class="headerlink" href="#load-a-gmsh-msh-and-use-it-in-analysis" title="Link to this heading"></a></h1>
+<p>This tutorial shows the minimal flow to load a <code class="docutils literal notranslate"><span class="pre">.msh</span></code> created by Gmsh
+and use it in FluxFEM analysis.</p>
+<section id="key-points">
+<h2>Key points<a class="headerlink" href="#key-points" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">ff.load_gmsh_mesh</span></code> は hex/tet のどちらにも対応します。</p></li>
-<li><p>境界条件は Gmsh の Physical Surface のタグ番号で指定できます。</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">.msh</span></code> に境界面（quad/tri）が含まれない場合は幾何条件で補完します。</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ff.load_gmsh_mesh</span></code> supports both hex and tet meshes.</p></li>
+<li><p>Boundary conditions can be selected by the Physical Surface tag ID in Gmsh.</p></li>
+<li><p>If the <code class="docutils literal notranslate"><span class="pre">.msh</span></code> lacks boundary faces (quad/tri), they are inferred from geometry.</p></li>
 </ul>
 </section>
-<section id="id2">
-<h2>前提<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<section id="prerequisites">
+<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">meshio</span></code> が必要です（<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> に依存関係あり）。</p></li>
-<li><p>Gmsh で解析に使いたい面を Physical Surface としてタグ付けします。</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">meshio</span></code> is required (already listed in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> dependencies).</p></li>
+<li><p>Tag the faces used in analysis as Physical Surface in Gmsh.</p></li>
 </ul>
 </section>
-<section id="msh-gmsh">
-<h2><code class="docutils literal notranslate"><span class="pre">.msh</span></code> の準備（Gmsh 側）<a class="headerlink" href="#msh-gmsh" title="Link to this heading"></a></h2>
+<section id="prepare-the-msh-gmsh-side">
+<h2>Prepare the <code class="docutils literal notranslate"><span class="pre">.msh</span></code> (Gmsh side)<a class="headerlink" href="#prepare-the-msh-gmsh-side" title="Link to this heading"></a></h2>
 <ol class="arabic simple">
-<li><p>解析に使う面を Physical Surface としてタグ付けします。
-例:  <code class="docutils literal notranslate"><span class="pre">dirichlet_tag=1</span></code> を固定境界、<code class="docutils literal notranslate"><span class="pre">traction_tag=2</span></code> を荷重境界。</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">.msh</span></code> を書き出します（v2/v4 どちらでも可）。</p></li>
+<li><p>Tag the faces used in analysis as Physical Surface.
+Example: set <code class="docutils literal notranslate"><span class="pre">dirichlet_tag=1</span></code> for fixed boundary, <code class="docutils literal notranslate"><span class="pre">traction_tag=2</span></code> for load boundary.</p></li>
+<li><p>Export the <code class="docutils literal notranslate"><span class="pre">.msh</span></code> (either v2 or v4 is OK).</p></li>
 </ol>
-<p>ここでのタグ番号は、後で <code class="docutils literal notranslate"><span class="pre">facet_tags</span></code> を使って境界条件を選ぶために使います。</p>
+<p>These tag IDs are later used to select boundary conditions via <code class="docutils literal notranslate"><span class="pre">facet_tags</span></code>.</p>
 </section>
-<section id="fluxfem">
-<h2>FluxFEM で読み込み<a class="headerlink" href="#fluxfem" title="Link to this heading"></a></h2>
+<section id="load-in-fluxfem">
+<h2>Load in FluxFEM<a class="headerlink" href="#load-in-fluxfem" title="Link to this heading"></a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
@@ -127,13 +127,13 @@ FluxFEM の解析に使う最小フローを紹介します。</p>
 
 <span class="n">mesh</span><span class="p">,</span> <span class="n">facets</span><span class="p">,</span> <span class="n">facet_tags</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">load_gmsh_mesh</span><span class="p">(</span><span class="s2">&quot;mesh.msh&quot;</span><span class="p">)</span>
 
-<span class="c1"># tet/hex で空間を切り替え</span>
+<span class="c1"># Switch space by tet/hex</span>
 <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">ff</span><span class="o">.</span><span class="n">TetMesh</span><span class="p">):</span>
     <span class="n">space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_tet_space</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">intorder</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
 <span class="k">else</span><span class="p">:</span>
     <span class="n">space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_hex_space</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">intorder</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
 
-<span class="c1"># 3D 線形弾性の材料行列</span>
+<span class="c1"># 3D linear elastic material matrix</span>
 <span class="n">E</span> <span class="o">=</span> <span class="mf">210_000.0</span>
 <span class="n">nu</span> <span class="o">=</span> <span class="mf">0.3</span>
 <span class="n">D</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">isotropic_3d_D</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">nu</span><span class="p">)</span>
@@ -146,11 +146,11 @@ FluxFEM の解析に使う最小フローを紹介します。</p>
 </pre></div>
 </div>
 </section>
-<section id="physical-surface">
-<h2>境界条件（Physical Surface タグ）<a class="headerlink" href="#physical-surface" title="Link to this heading"></a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">facet_tags</span></code> から境界を抽出して、Dirichlet と Neumann を設定します。</p>
+<section id="boundary-conditions-physical-surface-tags">
+<h2>Boundary conditions (Physical Surface tags)<a class="headerlink" href="#boundary-conditions-physical-surface-tags" title="Link to this heading"></a></h2>
+<p>Extract boundaries from <code class="docutils literal notranslate"><span class="pre">facet_tags</span></code> and set Dirichlet and Neumann conditions.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">if</span> <span class="n">facets</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">facet_tags</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;境界面またはタグが .msh に含まれていません。&quot;</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;Boundary faces or tags are not included in the .msh.&quot;</span><span class="p">)</span>
 
 <span class="n">dirichlet_tag</span> <span class="o">=</span> <span class="mi">1</span>
 <span class="n">traction_tag</span> <span class="o">=</span> <span class="mi">2</span>
@@ -158,11 +158,11 @@ FluxFEM の解析に使う最小フローを紹介します。</p>
 <span class="n">facets_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">facets</span><span class="p">)</span>
 <span class="n">tags_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">facet_tags</span><span class="p">)</span>
 
-<span class="c1"># Dirichlet: タグ付き面の節点を固定</span>
+<span class="c1"># Dirichlet: fix nodes on tagged faces</span>
 <span class="n">dirichlet_nodes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">facets_np</span><span class="p">[</span><span class="n">tags_np</span> <span class="o">==</span> <span class="n">dirichlet_tag</span><span class="p">]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span>
 <span class="n">dir_dofs</span> <span class="o">=</span> <span class="n">mesh</span><span class="o">.</span><span class="n">node_dofs</span><span class="p">(</span><span class="n">dirichlet_nodes</span><span class="p">,</span> <span class="n">components</span><span class="o">=</span><span class="s2">&quot;xyz&quot;</span><span class="p">)</span>
 
-<span class="c1"># Neumann: タグ付き面で表面荷重</span>
+<span class="c1"># Neumann: surface traction on tagged faces</span>
 <span class="n">neumann_facets</span> <span class="o">=</span> <span class="n">facets_np</span><span class="p">[</span><span class="n">tags_np</span> <span class="o">==</span> <span class="n">traction_tag</span><span class="p">]</span>
 <span class="n">surf</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_surface_from_facets</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">mesh</span><span class="o">.</span><span class="n">coords</span><span class="p">),</span> <span class="n">neumann_facets</span><span class="p">)</span>
 <span class="n">surface_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">surface</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span> <span class="o">|</span> <span class="n">p</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ds</span><span class="p">())</span>
@@ -176,10 +176,10 @@ FluxFEM の解析に使う最小フローを紹介します。</p>
 </pre></div>
 </div>
 </section>
-<section id="id3">
-<h2>タグが無い場合のフォールバック<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">.msh</span></code> に Physical Surface が無い場合は、座標条件で境界を選べます。
-例えば <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmin</span></code> を固定、<code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code> を荷重面にする場合:</p>
+<section id="fallback-when-tags-are-missing">
+<h2>Fallback when tags are missing<a class="headerlink" href="#fallback-when-tags-are-missing" title="Link to this heading"></a></h2>
+<p>If the <code class="docutils literal notranslate"><span class="pre">.msh</span></code> has no Physical Surface tags, you can select boundaries by coordinate.
+For example, fix <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmin</span></code> and apply traction on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code>:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">coords_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">mesh</span><span class="o">.</span><span class="n">coords</span><span class="p">)</span>
 <span class="n">xmin</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">coords_np</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">min</span><span class="p">())</span>
 <span class="n">xmax</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">coords_np</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
