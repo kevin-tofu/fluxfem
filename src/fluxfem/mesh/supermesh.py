@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import Iterable
 
 import numpy as np
@@ -79,15 +80,17 @@ def _plane_basis(normal: np.ndarray):
 
 
 def _facet_plane(pts: np.ndarray, *, tol: float):
-    v1 = pts[1] - pts[0]
-    v2 = pts[2] - pts[0]
-    n = np.cross(v1, v2)
-    n_norm = np.linalg.norm(n)
-    if n_norm < tol:
-        return None, None
-    n = n / n_norm
-    d = -float(np.dot(n, pts[0]))
-    return n, d
+    n = None
+    for i in range(len(pts) - 2):
+        v1 = pts[i + 1] - pts[i]
+        v2 = pts[i + 2] - pts[i]
+        n_candidate = np.cross(v1, v2)
+        n_norm = np.linalg.norm(n_candidate)
+        if n_norm > tol:
+            n = n_candidate / n_norm
+            d = -float(np.dot(n, pts[i]))
+            return n, d
+    return None, None
 
 
 def _coplanar(pts_a: np.ndarray, pts_b: np.ndarray, *, tol: float) -> bool:
@@ -127,16 +130,71 @@ def _unique_points(points: Iterable[np.ndarray], *, tol: float):
     return np.asarray(coords, dtype=float), indices
 
 
+def _facet_polygon_coords(coords: np.ndarray, facet: np.ndarray) -> np.ndarray:
+    n = int(len(facet))
+    if n == 9:
+        corner = [0, 2, 8, 6]
+        return coords[facet][corner]
+    return coords[facet]
+
+
+def _triangle_min_angle(p0: np.ndarray, p1: np.ndarray, p2: np.ndarray) -> float:
+    def angle(a, b, c):
+        v1 = a - b
+        v2 = c - b
+        n1 = np.linalg.norm(v1)
+        n2 = np.linalg.norm(v2)
+        if n1 == 0.0 or n2 == 0.0:
+            return 0.0
+        cosang = np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)
+        return float(np.arccos(cosang))
+
+    return min(angle(p1, p0, p2), angle(p0, p1, p2), angle(p0, p2, p1))
+
+
+def _triangulate_polygon(indices: list[int], poly2d: np.ndarray) -> list[tuple[int, int, int]]:
+    n = len(indices)
+    if n < 3:
+        return []
+    if n == 3:
+        return [(indices[0], indices[1], indices[2])]
+    if n == 4:
+        p = poly2d
+        diag_pref = os.getenv("FLUXFEM_SUPERMESH_QUAD_DIAG", "alt").lower()
+        if diag_pref == "alt":
+            return [(indices[0], indices[1], indices[3]), (indices[1], indices[2], indices[3])]
+        if diag_pref == "fan":
+            return [(indices[0], indices[1], indices[2]), (indices[0], indices[2], indices[3])]
+        min_a = min(
+            _triangle_min_angle(p[0], p[1], p[2]),
+            _triangle_min_angle(p[0], p[2], p[3]),
+        )
+        min_b = min(
+            _triangle_min_angle(p[0], p[1], p[3]),
+            _triangle_min_angle(p[1], p[2], p[3]),
+        )
+        if min_b > min_a:
+            return [(indices[0], indices[1], indices[3]), (indices[1], indices[2], indices[3])]
+        return [(indices[0], indices[1], indices[2]), (indices[0], indices[2], indices[3])]
+    tris = []
+    for i in range(1, n - 1):
+        tris.append((indices[0], indices[i], indices[i + 1]))
+    return tris
+
+
 def build_surface_supermesh(
     surface_a: SurfaceMesh,
     surface_b: SurfaceMesh,
     *,
     tol: float = 1e-8,
 ) -> SurfaceSupermesh:
+    from ..solver.bc import facet_normals
+
     coords_a = np.asarray(surface_a.coords, dtype=float)
     coords_b = np.asarray(surface_b.coords, dtype=float)
     facets_a = np.asarray(surface_a.conn, dtype=int)
     facets_b = np.asarray(surface_b.conn, dtype=int)
+    normals_a = facet_normals(surface_a, outward_from=np.mean(coords_a, axis=0), normalize=True)
 
     all_coords: list[np.ndarray] = []
     all_conn: list[tuple[int, int, int]] = []
@@ -144,17 +202,21 @@ def build_surface_supermesh(
     src_b: list[int] = []
 
     for ia, fa in enumerate(facets_a):
-        pts_a = coords_a[fa]
+        pts_a = _facet_polygon_coords(coords_a, fa)
         min_a = pts_a.min(axis=0)
         max_a = pts_a.max(axis=0)
         for ib, fb in enumerate(facets_b):
-            pts_b = coords_b[fb]
+            pts_b = _facet_polygon_coords(coords_b, fb)
             if np.any(pts_b.max(axis=0) < min_a - tol) or np.any(pts_b.min(axis=0) > max_a + tol):
                 continue
             if not _coplanar(pts_a, pts_b, tol=tol):
                 continue
 
             n, _d = _facet_plane(pts_a, tol=tol)
+            if n is not None:
+                n_ref = normals_a[int(ia)]
+                if np.dot(n, n_ref) < 0.0:
+                    n = -n
             t1, t2, _ = _plane_basis(n)
             origin = pts_a[0]
 
@@ -171,14 +233,29 @@ def build_surface_supermesh(
             inter_np = np.asarray(inter)
             if abs(_polygon_area_2d(inter_np)) <= tol:
                 continue
+            center = np.mean(inter_np, axis=0)
+            angles = np.arctan2(inter_np[:, 1] - center[1], inter_np[:, 0] - center[0])
+            order = np.argsort(angles)
+            inter_np = inter_np[order]
 
             inter_3d = origin[None, :] + inter_np[:, 0:1] * t1 + inter_np[:, 1:2] * t2
             coords_local, idx = _unique_points(inter_3d, tol=tol)
             base = len(all_coords)
             for p in coords_local:
                 all_coords.append(p)
-            for i in range(1, len(idx) - 1):
-                all_conn.append((base + idx[0], base + idx[i], base + idx[i + 1]))
+            tris = _triangulate_polygon(idx, inter_np)
+            for a_idx, b_idx, c_idx in tris:
+                a_id = base + a_idx
+                b_id = base + b_idx
+                c_id = base + c_idx
+                if n is not None:
+                    pa = all_coords[a_id]
+                    pb = all_coords[b_id]
+                    pc = all_coords[c_id]
+                    n_tri = np.cross(pb - pa, pc - pa)
+                    if np.dot(n_tri, n) < 0.0:
+                        b_id, c_id = c_id, b_id
+                all_conn.append((a_id, b_id, c_id))
                 src_a.append(ia)
                 src_b.append(ib)
 

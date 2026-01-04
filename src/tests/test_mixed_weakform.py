@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 from fluxfem.core.mixed_space import MixedFESpace
-from fluxfem.mixed_weakform import (
+from fluxfem.core.mixed_weakform import (
     MixedResidualForm,
     assemble_mixed_jacobian_wf,
     assemble_mixed_residual_wf,

@@ -32,7 +32,7 @@ import fluxfem as ff  # noqa: E402
 import fluxfem.helpers_wf as h_wf  # noqa: E402
 from fluxfem.core.mixed_space import MixedFESpace  # noqa: E402
 from fluxfem.core.weakform import einsum  # noqa: E402
-from fluxfem.mixed_weakform import (  # noqa: E402
+from fluxfem.core.mixed_weakform import (  # noqa: E402
     MixedResidualForm,
     assemble_mixed_jacobian_wf,
     assemble_mixed_residual_wf,

@@ -11,8 +11,8 @@ from typing import Callable, Mapping
 
 import jax.numpy as jnp
 
-from .core.mixed_space import MixedFESpace
-from .core.weakform import MixedWeakForm
+from .mixed_space import MixedFESpace
+from .weakform import MixedWeakForm
 
 MixedResiduals = Mapping[str, Callable]
 

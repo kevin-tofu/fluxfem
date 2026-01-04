@@ -396,6 +396,16 @@ class Params:
         return cls(**dict(zip(keys, values)))
 
 
+class _ZeroField:
+    """Field-like object that evaluates to zeros with the same shape."""
+
+    def __init__(self, base):
+        self.N = jnp.zeros_like(base.N)
+        self.gradN = None if getattr(base, "gradN", None) is None else jnp.zeros_like(base.gradN)
+        self.value_dim = int(getattr(base, "value_dim", 1))
+        self.basis = getattr(base, "basis", None)
+
+
 def trial_ref(name: str | None = "u") -> FieldRef:
     """Create a symbolic trial field reference."""
     return FieldRef(role="trial", name=name)
@@ -416,12 +426,34 @@ def param_ref() -> ParamRef:
     return ParamRef()
 
 
+def zero_ref(name: str) -> FieldRef:
+    """Create a zero-valued field reference (shape derived from context)."""
+    return FieldRef("zero", name)
+
+
 def _eval_field(
     obj: Any,
     ctx: VolumeContext | SurfaceContext,
     params: ParamsLike,
 ) -> FormFieldLike:
     if isinstance(obj, FieldRef):
+        if obj.role == "zero":
+            if obj.name is None:
+                raise ValueError("zero_ref requires a named field.")
+            base = None
+            if getattr(ctx, "test_fields", None) is not None and obj.name in ctx.test_fields:
+                base = ctx.test_fields[obj.name]
+            if base is None and getattr(ctx, "trial_fields", None) is not None and obj.name in ctx.trial_fields:
+                base = ctx.trial_fields[obj.name]
+            if base is None and getattr(ctx, "fields", None) is not None and obj.name in ctx.fields:
+                group = ctx.fields[obj.name]
+                if hasattr(group, "test"):
+                    base = group.test
+                elif hasattr(group, "trial"):
+                    base = group.trial
+            if base is None:
+                raise ValueError(f"zero_ref could not resolve field '{obj.name}'.")
+            return _ZeroField(base)
         if obj.name is not None:
             mixed_fields = getattr(ctx, "fields", None)
             if mixed_fields is not None and obj.name in mixed_fields:
@@ -1043,7 +1075,10 @@ def eval_with_plan(
             continue
         if op == "einsum":
             subscripts = args[0]
-            operands = [get(arg) for arg in args[1:]]
+            operands = [
+                (jnp.asarray(arg) if isinstance(arg, tuple) else arg)
+                for arg in (get(arg) for arg in args[1:])
+            ]
             vals[i] = jnp.einsum(subscripts, *operands)
             continue
 
@@ -1260,6 +1295,66 @@ def compile_mixed_residual(residuals: dict[str, Callable]):
     return _form
 
 
+def compile_mixed_surface_residual(residuals: dict[str, Callable]):
+    """get_compiled mixed surface residuals keyed by field name."""
+    compiled = {}
+    plans = {}
+    includes_measure = {}
+    for name, fn in residuals.items():
+        if isinstance(fn, Expr):
+            expr = fn
+        else:
+            v = test_ref(name)
+            u = unknown_ref(name)
+            p = param_ref()
+            expr = _call_user(fn, v, u, params=p)
+        expr = _as_expr(expr)
+        if not isinstance(expr, Expr):
+            raise TypeError(f"Mixed surface residual '{name}' must return an Expr.")
+        compiled[name] = expr
+        plans[name] = make_eval_plan(expr)
+        volume_count = _count_op(compiled[name], "volume_measure")
+        surface_count = _count_op(compiled[name], "surface_measure")
+        includes_measure[name] = surface_count == 1
+        if surface_count == 0:
+            raise ValueError(f"Mixed surface residual '{name}' must include ds().")
+        if surface_count > 1:
+            raise ValueError(f"Mixed surface residual '{name}' must include ds() exactly once.")
+        if volume_count > 0:
+            raise ValueError(f"Mixed surface residual '{name}' must not include dOmega().")
+
+    class _MixedContextView:
+        def __init__(self, ctx, field_name: str):
+            self._ctx = ctx
+            self.fields = ctx.fields
+            self.x_q = ctx.x_q
+            self.w = ctx.w
+            self.detJ = ctx.detJ
+            self.normal = getattr(ctx, "normal", None)
+            self.trial_fields = ctx.trial_fields
+            self.test_fields = ctx.test_fields
+            self.unknown_fields = ctx.unknown_fields
+            self.unknown = getattr(ctx, "unknown", None)
+
+            pair = ctx.fields[field_name]
+            self.test = pair.test
+            self.trial = pair.trial
+            self.v = pair.test
+            self.u = pair.trial
+
+        def __getattr__(self, name: str):
+            return getattr(self._ctx, name)
+
+    def _form(ctx, u_elem, params):
+        return {
+            name: eval_with_plan(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
+            for name, plan in plans.items()
+        }
+
+    _form._includes_measure = includes_measure
+    return _form
+
+
 class MixedWeakForm:
     """Container for mixed weak-form residuals keyed by field name."""
 
@@ -1289,6 +1384,7 @@ __all__ = [
     "trial_ref",
     "test_ref",
     "unknown_ref",
+    "zero_ref",
     "param_ref",
     "Params",
     "MixedWeakForm",
@@ -1297,6 +1393,7 @@ __all__ = [
     "compile_linear",
     "compile_residual",
     "compile_surface_bilinear",
+    "compile_mixed_surface_residual",
     "compile_mixed_residual",
     "grad",
     "sym_grad",

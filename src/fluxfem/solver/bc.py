@@ -404,8 +404,17 @@ def facet_normals(surface: SurfaceMesh, *, outward_from: npt.ArrayLike | None = 
     for i, facet in enumerate(facets):
         if len(facet) < 3:
             continue
-        p0, p1, p2 = coords[facet[0]], coords[facet[1]], coords[facet[2]]
-        n = np.cross(p1 - p0, p2 - p0)
+        n = None
+        p0 = coords[facet[0]]
+        for j in range(1, len(facet) - 1):
+            p1 = coords[facet[j]]
+            p2 = coords[facet[j + 1]]
+            n_candidate = np.cross(p1 - p0, p2 - p0)
+            if np.linalg.norm(n_candidate) > 0.0:
+                n = n_candidate
+                break
+        if n is None:
+            continue
         if normalize:
             norm = np.linalg.norm(n)
             n = n / norm if norm != 0.0 else n
