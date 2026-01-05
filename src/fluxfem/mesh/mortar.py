@@ -217,6 +217,7 @@ def _tri_quadrature(order: int) -> tuple[np.ndarray, np.ndarray]:
             ],
             dtype=float,
         )
+        weights *= 0.5
         return pts, weights
     raise NotImplementedError("triangle quadrature order > 5 is not implemented")
 

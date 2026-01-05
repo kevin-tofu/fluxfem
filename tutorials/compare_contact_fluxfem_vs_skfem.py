@@ -1114,7 +1114,7 @@ if __name__ == "__main__":
     h = 1.0
     grad_source = os.getenv("GRAD_SOURCE", "volume")
     dof_source = os.getenv("DOF_SOURCE", "volume")
-    quad_order = int(os.getenv("QUAD_ORDER", "1"))
+    quad_order = int(os.getenv("QUAD_ORDER", "5"))
     if quad_order > 5:
         print(f"[compare] quad_order={quad_order} not supported; using quad_order=5")
         quad_order = 5
