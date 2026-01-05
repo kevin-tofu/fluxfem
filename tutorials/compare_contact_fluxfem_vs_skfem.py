@@ -633,7 +633,10 @@ def _diag_hex27_quad_compare(quad_order: int) -> None:
     m1t, orig1 = mesh.trace("contact", mtype=skfem.MeshQuad, project=lambda p: p[[0, 1]])
     m2t, orig2 = mesh.trace("contact", mtype=skfem.MeshQuad, project=lambda p: p[[0, 1]])
     m12, t1, t2 = intersect(m1t, m2t)
-    quad1 = elementwise_quadrature(m1t, m12, t1)
+    try:
+        quad1 = elementwise_quadrature(m1t, m12, t1, intorder=quad_order)
+    except TypeError:
+        quad1 = elementwise_quadrature(m1t, m12, t1)
     fb = FacetBasis(mesh, ElementVectorH1(ElementHex2()), facets=orig1[t1], quadrature=quad1)
 
     if fb.X.shape[1] == 0:
@@ -963,8 +966,12 @@ def build_skfem_contact(
     m1t, orig1 = mesh_a.trace("contact", mtype=trace_type, project=lambda p: p[[0, 1]])
     m2t, orig2 = mesh_b.trace("contact", mtype=trace_type, project=lambda p: p[[0, 1]])
     m12, t1, t2 = intersect(m1t, m2t)
-    quad1 = elementwise_quadrature(m1t, m12, t1)
-    quad2 = elementwise_quadrature(m2t, m12, t2)
+    try:
+        quad1 = elementwise_quadrature(m1t, m12, t1, intorder=quad_order)
+        quad2 = elementwise_quadrature(m2t, m12, t2, intorder=quad_order)
+    except TypeError:
+        quad1 = elementwise_quadrature(m1t, m12, t1)
+        quad2 = elementwise_quadrature(m2t, m12, t2)
 
     elem_v = ElementVectorH1(elem_s)
     basis_scalar_a = skfem.Basis(mesh_a, elem_s)
@@ -973,6 +980,25 @@ def build_skfem_contact(
     basis_vec_b = skfem.Basis(mesh_b, elem_v)
     fb_u_top = FacetBasis(mesh_a, elem_v, facets=orig1[t1], quadrature=quad1)
     fb_u_bot = FacetBasis(mesh_b, elem_v, facets=orig2[t2], quadrature=quad2)
+
+    if os.getenv("DIAG_DUMP_SKFEM_QP", "0") == "1":
+        quad_pts_top = np.asarray(fb_u_top.X[:, 0, :]).T
+        quad_w_top = np.asarray(fb_u_top.W[0, :])
+        np.savez("quad_top.npz", quad_pts=quad_pts_top, quad_w=quad_w_top)
+        print(
+            "[diag] dumped skfem quad -> quad_top.npz",
+            f"pts={quad_pts_top.shape}",
+            f"w={quad_w_top.shape}",
+        )
+
+        quad_pts_bot = np.asarray(fb_u_bot.X[:, 0, :]).T
+        quad_w_bot = np.asarray(fb_u_bot.W[0, :])
+        np.savez("quad_bot.npz", quad_pts=quad_pts_bot, quad_w=quad_w_bot)
+        print(
+            "[diag] dumped skfem quad -> quad_bot.npz",
+            f"pts={quad_pts_bot.shape}",
+            f"w={quad_w_bot.shape}",
+        )
     fbasis = fb_u_top * fb_u_bot
 
     E, nu = 210e9, 0.3
@@ -1095,7 +1121,7 @@ if __name__ == "__main__":
     h = 1.0
     grad_source = os.getenv("GRAD_SOURCE", "volume")
     dof_source = os.getenv("DOF_SOURCE", "volume")
-    quad_order = int(os.getenv("QUAD_ORDER", "1"))
+    quad_order = int(os.getenv("QUAD_ORDER", "5"))
     if quad_order > 5:
         print(f"[compare] quad_order={quad_order} not supported; using quad_order=5")
         quad_order = 5

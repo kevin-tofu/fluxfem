@@ -35,6 +35,8 @@ class NonlinearAnalysis:
         Unscaled external load vector (scaled by load factor in `external_for_load`).
     dirichlet : tuple | None
         (dofs, values) for Dirichlet boundary conditions.
+    extra_terms : list[callable] | None
+        Optional extra term assemblers returning (K, f[, metrics]).
     jacobian_pattern : Any | None
         Optional sparsity pattern to reuse between load steps.
     dtype : Any
@@ -46,6 +48,7 @@ class NonlinearAnalysis:
     params: Any
     base_external_vector: Any | None = None
     dirichlet: tuple | None = None
+    extra_terms: list[Callable] | None = None
     jacobian_pattern: Any | None = None
     dtype: Any = jnp.float64
 
@@ -210,6 +213,7 @@ class NewtonSolveRunner:
                             external_vector=external,
                             callback=cb,
                             jacobian_pattern=self.analysis.jacobian_pattern,
+                            extra_terms=self.analysis.extra_terms,
                         )
                         exception = None
                     except Exception as e:  # pragma: no cover - defensive
@@ -279,6 +283,7 @@ def solve_nonlinear(
     *,
     dirichlet: tuple | None = None,
     base_external_vector=None,
+    extra_terms=None,
     dtype=jnp.float64,
     maxiter: int = 20,
     tol: float = 1e-8,
@@ -303,6 +308,7 @@ def solve_nonlinear(
         params=params,
         base_external_vector=base_external_vector,
         dirichlet=dirichlet,
+        extra_terms=extra_terms,
         dtype=dtype,
         jacobian_pattern=jacobian_pattern,
     )

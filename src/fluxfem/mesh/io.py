@@ -4,7 +4,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from ..core.dtypes import NP_INDEX_DTYPE
+from .dtypes import NP_INDEX_DTYPE
 
 DTYPE = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
 

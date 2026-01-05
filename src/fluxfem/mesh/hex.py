@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..core.dtypes import DEFAULT_DTYPE, INDEX_DTYPE
+from .dtypes import DEFAULT_DTYPE, INDEX_DTYPE
 from .base import BaseMesh, BaseMeshPytree
 
 

@@ -5,7 +5,7 @@ from typing import Optional
 import jax
 import jax.numpy as jnp
 
-from ..core.dtypes import INDEX_DTYPE
+from .dtypes import INDEX_DTYPE
 import numpy as np
 
 DTYPE = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32

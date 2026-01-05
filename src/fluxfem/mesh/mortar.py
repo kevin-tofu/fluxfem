@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
-from typing import Iterable
+from typing import Iterable, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from .surface import SurfaceMesh
-from ..core.forms import FieldPair
+if TYPE_CHECKING:
+    from ..core.forms import FieldPair
+    from ..core.weakform import Params as WeakParams
 
 
 @dataclass(eq=False)
@@ -29,7 +31,7 @@ class SurfaceMixedFormField:
 @dataclass(eq=False)
 class SurfaceMixedFormContext:
     """Surface mixed context for weak-form evaluation on supermesh."""
-    fields: dict[str, FieldPair]
+    fields: dict[str, "FieldPair"]
     x_q: np.ndarray
     w: np.ndarray
     detJ: np.ndarray
@@ -47,6 +49,13 @@ _DEBUG_CONTACT_MAP_ONCE = False
 _DEBUG_CONTACT_N_ONCE = False
 _DEBUG_PROJECTION_DIAG = os.getenv("FLUXFEM_PROJ_DIAG")
 _DEBUG_PROJECTION_DIAG_MAX = int(os.getenv("FLUXFEM_PROJ_DIAG_MAX", "20")) if _DEBUG_PROJECTION_DIAG else 0
+_DEBUG_CONTACT_PROJ_ONCE = False
+_DEBUG_PROJ_QP_CACHE = None
+_DEBUG_PROJ_QP_SOURCE = None
+_DEBUG_PROJ_QP_DUMPED = False
+_PROJ_DIAG_STATS = None
+_PROJ_DIAG_COUNT = 0
+_PROJ_DIAG_CONTEXT: dict[str, int | str] = {}
 
 
 @dataclass(eq=False)
@@ -96,6 +105,36 @@ def _facet_area_estimate(facet_nodes: np.ndarray, coords: np.ndarray) -> float:
     for i in range(1, len(pts) - 1):
         area += _tri_area(p0, pts[i], pts[i + 1])
     return float(area)
+
+
+def _facet_triangles(coords: np.ndarray, facet_nodes: np.ndarray) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    n = int(len(facet_nodes))
+    if n in {3, 6}:
+        corner = facet_nodes[:3]
+        pts = coords[corner]
+        return [(pts[0], pts[1], pts[2])]
+    if n == 4:
+        corner = facet_nodes
+    elif n == 8:
+        corner = facet_nodes[:4]
+    elif n == 9:
+        corner = facet_nodes[[0, 2, 8, 6]]
+    else:
+        corner = facet_nodes
+    pts = coords[corner]
+    if len(pts) < 3:
+        return []
+    if len(pts) == 3:
+        return [(pts[0], pts[1], pts[2])]
+    tris = [(pts[0], pts[1], pts[2])]
+    if len(pts) >= 4:
+        tris.append((pts[0], pts[2], pts[3]))
+    if len(pts) > 4:
+        for i in range(2, len(pts) - 1):
+            tris.append((pts[0], pts[i], pts[i + 1]))
+    return tris
+
+
 
 
 def _tri_centroid(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
@@ -192,8 +231,225 @@ def _tri_quadrature(order: int) -> tuple[np.ndarray, np.ndarray]:
             ],
             dtype=float,
         )
+        weights *= 0.5
         return pts, weights
     raise NotImplementedError("triangle quadrature order > 5 is not implemented")
+
+
+def _proj_diag_enabled() -> bool:
+    return os.getenv("FLUXFEM_PROJ_DIAG", "0") == "1"
+
+
+def _proj_diag_max() -> int:
+    return int(os.getenv("FLUXFEM_PROJ_DIAG_MAX", "20"))
+
+
+def _proj_diag_reset() -> None:
+    global _PROJ_DIAG_STATS, _PROJ_DIAG_COUNT
+    _PROJ_DIAG_STATS = {
+        "total": 0,
+        "fail": 0,
+        "by_code": {},
+    }
+    _PROJ_DIAG_COUNT = 0
+
+
+def _proj_diag_set_context(
+    *,
+    fa: int,
+    fb: int,
+    face_a: str,
+    face_b: str,
+    elem_a: int,
+    elem_b: int,
+) -> None:
+    _PROJ_DIAG_CONTEXT.clear()
+    _PROJ_DIAG_CONTEXT.update(
+        {
+            "fa": int(fa),
+            "fb": int(fb),
+            "face_a": face_a,
+            "face_b": face_b,
+            "elem_a": int(elem_a),
+            "elem_b": int(elem_b),
+        }
+    )
+
+
+def _proj_diag_attempt() -> None:
+    if _PROJ_DIAG_STATS is None:
+        return
+    _PROJ_DIAG_STATS["total"] += 1
+
+
+def _proj_diag_log(
+    code: str,
+    *,
+    iters: int,
+    res_norm: float,
+    delta_norm: float | None,
+    detJ: float | None,
+    point: np.ndarray,
+    local: np.ndarray,
+    in_ref_domain: bool,
+) -> None:
+    global _PROJ_DIAG_COUNT
+    if _PROJ_DIAG_STATS is None:
+        return
+    _PROJ_DIAG_STATS["fail"] += 1
+    by_code = _PROJ_DIAG_STATS["by_code"]
+    by_code[code] = by_code.get(code, 0) + 1
+    if _PROJ_DIAG_COUNT >= _proj_diag_max():
+        return
+    _PROJ_DIAG_COUNT += 1
+    ctx = " ".join(f"{k}={v}" for k, v in _PROJ_DIAG_CONTEXT.items()) if _PROJ_DIAG_CONTEXT else "ctx=unknown"
+    det_str = "None" if detJ is None else f"{detJ:.6e}"
+    delta_str = "None" if delta_norm is None else f"{delta_norm:.6e}"
+    print(
+        "[fluxfem][proj][fail]",
+        f"code={code}",
+        ctx,
+        f"iters={iters}",
+        f"res={res_norm:.6e}",
+        f"delta={delta_str}",
+        f"detJ={det_str}",
+        f"in_ref={bool(in_ref_domain)}",
+        f"point={point.tolist()}",
+        f"local={local.tolist()}",
+    )
+
+
+def _proj_diag_report() -> None:
+    if _PROJ_DIAG_STATS is None:
+        return
+    total = _PROJ_DIAG_STATS["total"]
+    fail = _PROJ_DIAG_STATS["fail"]
+    by_code = _PROJ_DIAG_STATS["by_code"]
+    print("[fluxfem][proj][diag] total=", total, "fail=", fail, "by_code=", by_code)
+
+
+def _facet_label(facet: np.ndarray) -> str:
+    n = int(len(facet))
+    if n == 3:
+        return "tri3"
+    if n == 4:
+        return "quad4"
+    if n == 6:
+        return "tri6"
+    if n == 8:
+        return "quad8"
+    if n == 9:
+        return "quad9"
+    return f"n{n}"
+
+
+def _diag_quad_override(diag_force: bool, mode: str, path: str) -> tuple[np.ndarray, np.ndarray] | None:
+    global _DEBUG_PROJ_QP_CACHE, _DEBUG_PROJ_QP_SOURCE
+    if not diag_force or mode != "load" or not path:
+        return None
+    if _DEBUG_PROJ_QP_CACHE is None:
+        data = np.load(path)
+        _DEBUG_PROJ_QP_CACHE = (np.asarray(data["quad_pts"], dtype=float), np.asarray(data["quad_w"], dtype=float))
+        _DEBUG_PROJ_QP_SOURCE = f"file:{path}"
+    return _DEBUG_PROJ_QP_CACHE
+
+
+def _diag_quad_dump(diag_force: bool, mode: str, path: str, quad_pts: np.ndarray, quad_w: np.ndarray) -> None:
+    global _DEBUG_PROJ_QP_DUMPED
+    if not diag_force or mode != "dump" or not path or _DEBUG_PROJ_QP_DUMPED:
+        return
+    np.savez(path, quad_pts=np.asarray(quad_pts, dtype=float), quad_w=np.asarray(quad_w, dtype=float))
+    _DEBUG_PROJ_QP_DUMPED = True
+
+
+def _volume_local_coords(point: np.ndarray, elem_coords: np.ndarray, *, tol: float):
+    n_nodes = elem_coords.shape[0]
+    if n_nodes in {4, 10}:
+        corner_coords = elem_coords[:4]
+        M = np.stack([corner_coords[:, 0], corner_coords[:, 1], corner_coords[:, 2], np.ones(4)], axis=1)
+        rhs = np.array([point[0], point[1], point[2], 1.0], dtype=float)
+        try:
+            lam = np.linalg.solve(M.T, rhs)
+        except np.linalg.LinAlgError:
+            return None
+        return lam
+    if n_nodes == 8:
+        _, xi, eta, zeta = _hex8_shape_and_local(point, elem_coords, tol=tol)
+        return np.array([xi, eta, zeta], dtype=float)
+    if n_nodes == 20:
+        _, xi, eta, zeta = _hex20_shape_and_local(point, elem_coords, tol=tol)
+        return np.array([xi, eta, zeta], dtype=float)
+    if n_nodes == 27:
+        _, xi, eta, zeta = _hex27_shape_and_local(point, elem_coords, tol=tol)
+        return np.array([xi, eta, zeta], dtype=float)
+    return None
+
+
+def _diag_contact_projection(
+    *,
+    fa: int,
+    fb: int,
+    quad_pts: np.ndarray,
+    quad_w: np.ndarray,
+    x_q: np.ndarray,
+    Na: np.ndarray,
+    Nb: np.ndarray,
+    nodes_a: np.ndarray,
+    nodes_b: np.ndarray,
+    dofs_a: np.ndarray,
+    dofs_b: np.ndarray,
+    elem_coords_a: np.ndarray | None,
+    elem_coords_b: np.ndarray | None,
+    na: np.ndarray | None,
+    nb: np.ndarray | None,
+    normal: np.ndarray | None,
+    normal_source: str,
+    normal_sign: float,
+    detJ: float,
+    diag_facet: int,
+    diag_max_q: int,
+    quad_source: str,
+    tol: float,
+) -> None:
+    global _DEBUG_CONTACT_PROJ_ONCE
+    if _DEBUG_CONTACT_PROJ_ONCE:
+        return
+    if diag_facet >= 0 and fa != diag_facet:
+        return
+    samples = min(diag_max_q, int(x_q.shape[0]))
+    print("[fluxfem][diag][proj] first facet")
+    print(f"  fa={fa} fb={fb} quad_source={quad_source}")
+    print(f"  quad_pts={quad_pts.tolist()} quad_w={quad_w.tolist()}")
+    print(f"  normal_source={normal_source} normal_sign={normal_sign}")
+    print(f"  n_master={None if na is None else na.tolist()}")
+    print(f"  n_slave={None if nb is None else nb.tolist()}")
+    print(f"  n_used={None if normal is None else normal.tolist()}")
+    if normal is not None and na is not None:
+        print(f"  dot(n_used,n_master)={float(np.dot(normal, na)):.6e}")
+    if normal is not None and nb is not None:
+        print(f"  dot(n_used,n_slave)={float(np.dot(normal, nb)):.6e}")
+    print(f"  detJ={float(detJ):.6e}")
+    print(f"  nodes_a={nodes_a.tolist()} nodes_b={nodes_b.tolist()}")
+    print(f"  dofs_a={dofs_a.tolist()} dofs_b={dofs_b.tolist()}")
+    for qi in range(samples):
+        nsum_a = float(np.sum(Na[qi]))
+        nsum_b = float(np.sum(Nb[qi]))
+        xq = x_q[qi]
+        msg = f"  q{qi} x={xq.tolist()} sum(Na)={nsum_a:.6e} sum(Nb)={nsum_b:.6e}"
+        if elem_coords_a is not None:
+            xa = Na[qi] @ elem_coords_a
+            msg += f" x_a={xa.tolist()} |x_a-x_q|={float(np.linalg.norm(xa - xq)):.6e}"
+            local_a = _volume_local_coords(xq, elem_coords_a, tol=tol)
+            if local_a is not None:
+                msg += f" xi_a={local_a.tolist()}"
+        if elem_coords_b is not None:
+            xb = Nb[qi] @ elem_coords_b
+            msg += f" x_b={xb.tolist()} |x_b-x_q|={float(np.linalg.norm(xb - xq)):.6e}"
+            local_b = _volume_local_coords(xq, elem_coords_b, tol=tol)
+            if local_b is not None:
+                msg += f" xi_b={local_b.tolist()}"
+        print(msg)
+    _DEBUG_CONTACT_PROJ_ONCE = True
 
 
 def _barycentric(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray):
@@ -242,6 +498,8 @@ def _quad_shape_and_local(
     *,
     tol: float,
 ) -> tuple[np.ndarray, float, float]:
+    if _proj_diag_enabled():
+        _proj_diag_attempt()
     pts = coords[facet_nodes]
     basis = _plane_basis(pts, tol=tol)
     if basis[0] is None:
@@ -257,7 +515,11 @@ def _quad_shape_and_local(
 
     xi = 0.0
     eta = 0.0
+    res_norm = 0.0
+    detJ = None
+    iters = 0
     for _ in range(12):
+        iters += 1
         n1 = 0.25 * (1.0 - xi) * (1.0 - eta)
         n2 = 0.25 * (1.0 + xi) * (1.0 - eta)
         n3 = 0.25 * (1.0 + xi) * (1.0 + eta)
@@ -266,6 +528,7 @@ def _quad_shape_and_local(
         y_m = n1 * y[0] + n2 * y[1] + n3 * y[2] + n4 * y[3]
         rx = x_m - xp
         ry = y_m - yp
+        res_norm = float(np.hypot(rx, ry))
         if abs(rx) + abs(ry) < tol:
             break
         dndxi = np.array(
@@ -291,12 +554,51 @@ def _quad_shape_and_local(
         j21 = float(np.dot(dndxi, y))
         j22 = float(np.dot(dndeta, y))
         det = j11 * j22 - j12 * j21
+        detJ = float(det)
         if abs(det) < tol:
+            if _proj_diag_enabled():
+                _proj_diag_log(
+                    "SINGULAR_H",
+                    iters=iters,
+                    res_norm=res_norm,
+                    delta_norm=None,
+                    detJ=detJ,
+                    point=point,
+                    local=np.array([xi, eta], dtype=float),
+                    in_ref_domain=False,
+                )
             return np.zeros((4,), dtype=float), xi, eta
         dxi = (-j22 * rx + j12 * ry) / det
         deta = (j21 * rx - j11 * ry) / det
         xi += dxi
         eta += deta
+        if not np.isfinite(xi) or not np.isfinite(eta):
+            if _proj_diag_enabled():
+                _proj_diag_log(
+                    "NAN_INF",
+                    iters=iters,
+                    res_norm=res_norm,
+                    delta_norm=float(np.hypot(dxi, deta)),
+                    detJ=detJ,
+                    point=point,
+                    local=np.array([xi, eta], dtype=float),
+                    in_ref_domain=False,
+                )
+            return np.zeros((4,), dtype=float), 0.0, 0.0
+
+    in_ref = max(abs(xi), abs(eta)) <= 1.0 + tol
+    if _proj_diag_enabled() and (not in_ref or res_norm > tol):
+        code = "OUTSIDE_DOMAIN" if not in_ref else "NEWTON_NO_CONVERGE"
+        _proj_diag_log(
+            code,
+            iters=iters,
+            res_norm=res_norm,
+            delta_norm=None,
+            detJ=detJ,
+            point=point,
+            local=np.array([xi, eta], dtype=float),
+            in_ref_domain=in_ref,
+        )
 
     return np.array([n1, n2, n3, n4], dtype=float), xi, eta
 
@@ -817,6 +1119,8 @@ def _hex8_shape_and_local(
     *,
     tol: float,
 ) -> tuple[np.ndarray, float, float, float]:
+    if _proj_diag_enabled():
+        _proj_diag_attempt()
     signs = np.array(
         [
             [-1.0, -1.0, -1.0],
@@ -833,11 +1137,16 @@ def _hex8_shape_and_local(
     xi = 0.0
     eta = 0.0
     zeta = 0.0
+    res_norm = 0.0
+    detJ = None
+    iters = 0
     for _ in range(12):
+        iters += 1
         n = 0.125 * (1.0 + xi * signs[:, 0]) * (1.0 + eta * signs[:, 1]) * (1.0 + zeta * signs[:, 2])
         x = n @ elem_coords
         r = x - point
-        if np.linalg.norm(r) < tol:
+        res_norm = float(np.linalg.norm(r))
+        if res_norm < tol:
             break
         dN_dxi = 0.125 * signs[:, 0] * (1.0 + eta * signs[:, 1]) * (1.0 + zeta * signs[:, 2])
         dN_deta = 0.125 * signs[:, 1] * (1.0 + xi * signs[:, 0]) * (1.0 + zeta * signs[:, 2])
@@ -850,15 +1159,63 @@ def _hex8_shape_and_local(
             ],
             axis=1,
         )
+        detJ = float(np.linalg.det(J))
         try:
             delta = np.linalg.solve(J, r)
         except np.linalg.LinAlgError:
+            if _proj_diag_enabled():
+                _proj_diag_log(
+                    "SINGULAR_H",
+                    iters=iters,
+                    res_norm=res_norm,
+                    delta_norm=None,
+                    detJ=detJ,
+                    point=point,
+                    local=np.array([xi, eta, zeta], dtype=float),
+                    in_ref_domain=False,
+                )
             return np.zeros((8,), dtype=float), 0.0, 0.0, 0.0
+        delta_norm = float(np.linalg.norm(delta))
         xi -= float(delta[0])
         eta -= float(delta[1])
         zeta -= float(delta[2])
+        if not np.isfinite(xi) or not np.isfinite(eta) or not np.isfinite(zeta):
+            if _proj_diag_enabled():
+                _proj_diag_log(
+                    "NAN_INF",
+                    iters=iters,
+                    res_norm=res_norm,
+                    delta_norm=delta_norm,
+                    detJ=detJ,
+                    point=point,
+                    local=np.array([xi, eta, zeta], dtype=float),
+                    in_ref_domain=False,
+                )
+            return np.zeros((8,), dtype=float), 0.0, 0.0, 0.0
     if max(abs(xi), abs(eta), abs(zeta)) > 1.0 + tol:
+        if _proj_diag_enabled():
+            _proj_diag_log(
+                "OUTSIDE_DOMAIN",
+                iters=iters,
+                res_norm=res_norm,
+                delta_norm=None,
+                detJ=detJ,
+                point=point,
+                local=np.array([xi, eta, zeta], dtype=float),
+                in_ref_domain=False,
+            )
         return np.zeros((8,), dtype=float), xi, eta, zeta
+    if _proj_diag_enabled() and res_norm > tol:
+        _proj_diag_log(
+            "NEWTON_NO_CONVERGE",
+            iters=iters,
+            res_norm=res_norm,
+            delta_norm=None,
+            detJ=detJ,
+            point=point,
+            local=np.array([xi, eta, zeta], dtype=float),
+            in_ref_domain=True,
+        )
     n = 0.125 * (1.0 + xi * signs[:, 0]) * (1.0 + eta * signs[:, 1]) * (1.0 + zeta * signs[:, 2])
     return n, xi, eta, zeta
 
@@ -1756,6 +2113,7 @@ def assemble_mixed_surface_residual(
     to pick which field acts as the master when normal_source is "master"/"slave".
     dof_source="volume" assembles into element nodes (requires elem_conn_* mappings).
     """
+    from ..core.forms import FieldPair
     coords_a = np.asarray(surface_a.coords, dtype=float)
     coords_b = np.asarray(surface_b.coords, dtype=float)
     facets_a = np.asarray(surface_a.conn, dtype=int)
@@ -1797,6 +2155,16 @@ def assemble_mixed_surface_residual(
     if grad_source == "surface" and not _DEBUG_SURFACE_SOURCE_ONCE:
         print("[fluxfem] using surface gradN in mortar")
         _DEBUG_SURFACE_SOURCE_ONCE = True
+    proj_diag = _proj_diag_enabled()
+    if proj_diag:
+        _proj_diag_reset()
+    diag_force = os.getenv("FLUXFEM_PROJ_DIAG_FORCE", "0") == "1"
+    diag_qp_mode = os.getenv("FLUXFEM_PROJ_DIAG_QP_MODE", "").strip().lower()
+    diag_qp_path = os.getenv("FLUXFEM_PROJ_DIAG_QP_PATH", "").strip()
+    diag_normal = os.getenv("FLUXFEM_PROJ_DIAG_NORMAL", "").strip().lower()
+    diag_facet = int(os.getenv("FLUXFEM_PROJ_DIAG_FACET", "-1"))
+    diag_max_q = int(os.getenv("FLUXFEM_PROJ_DIAG_MAX_Q", "3"))
+    diag_abs_detj = os.getenv("FLUXFEM_PROJ_DIAG_ABS_DETJ", "1") == "1"
 
     if normal_from is not None:
         if normal_from not in {"master", "slave"}:
@@ -1808,6 +2176,8 @@ def assemble_mixed_surface_residual(
             normal_source = "a" if master_name == field_a else "b"
         else:
             normal_source = "b" if master_name == field_a else "a"
+    if diag_force and diag_normal:
+        normal_source = diag_normal
     if normal_source not in {"a", "b", "avg", "master", "slave"}:
         raise ValueError("normal_source must be 'a', 'b', 'avg', 'master', or 'slave'")
     if normal_source == "master":
@@ -1903,11 +2273,19 @@ def assemble_mixed_surface_residual(
             if area_ref > 0.0 and area < area_scale * area_ref:
                 continue
         detJ = 2.0 * area
+        if diag_force and diag_abs_detj:
+            detJ = abs(detJ)
         if quad_order <= 0:
             quad_pts = np.array([[1.0 / 3.0, 1.0 / 3.0]], dtype=float)
             quad_w = np.array([0.5], dtype=float)
         else:
             quad_pts, quad_w = _tri_quadrature(quad_order)
+        quad_source = "fluxfem"
+        quad_override = _diag_quad_override(diag_force, diag_qp_mode, diag_qp_path)
+        if quad_override is not None:
+            quad_pts, quad_w = quad_override
+            quad_source = _DEBUG_PROJ_QP_SOURCE or "override"
+        _diag_quad_dump(diag_force, diag_qp_mode, diag_qp_path, quad_pts, quad_w)
 
         facet_a = facets_a[int(fa)]
         facet_b = facets_b[int(fb)]
@@ -1921,27 +2299,38 @@ def assemble_mixed_surface_residual(
         Na = None
         Nb = None
 
+        elem_id_a = -1
         elem_nodes_a = None
         elem_coords_a = None
         if use_elem_a:
-            elem_id = int(facet_to_elem_a[int(fa)])
-            if elem_id < 0:
+            elem_id_a = int(facet_to_elem_a[int(fa)])
+            if elem_id_a < 0:
                 raise ValueError("facet_to_elem_a has invalid mapping")
-            elem_nodes_a = np.asarray(elem_conn_a[elem_id], dtype=int)
+            elem_nodes_a = np.asarray(elem_conn_a[elem_id_a], dtype=int)
             elem_coords_a = coords_a[elem_nodes_a]
             if elem_coords_a.shape[0] not in {4, 8, 10, 20, 27}:
                 raise NotImplementedError("surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only")
 
+        elem_id_b = -1
         elem_nodes_b = None
         elem_coords_b = None
         if use_elem_b:
-            elem_id = int(facet_to_elem_b[int(fb)])
-            if elem_id < 0:
+            elem_id_b = int(facet_to_elem_b[int(fb)])
+            if elem_id_b < 0:
                 raise ValueError("facet_to_elem_b has invalid mapping")
-            elem_nodes_b = np.asarray(elem_conn_b[elem_id], dtype=int)
+            elem_nodes_b = np.asarray(elem_conn_b[elem_id_b], dtype=int)
             elem_coords_b = coords_b[elem_nodes_b]
             if elem_coords_b.shape[0] not in {4, 8, 10, 20, 27}:
                 raise NotImplementedError("surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only")
+        if proj_diag:
+            _proj_diag_set_context(
+                fa=int(fa),
+                fb=int(fb),
+                face_a=_facet_label(facet_a),
+                face_b=_facet_label(facet_b),
+                elem_a=elem_id_a,
+                elem_b=elem_id_b,
+            )
 
         if grad_source == "surface":
             gradNa = np.array(
@@ -1992,6 +2381,34 @@ def assemble_mixed_surface_residual(
                 normal = na if na is not None else nb
         if normal is not None:
             normal = normal_sign * normal
+        if diag_force:
+            dofs_a = _global_dof_indices(nodes_a, value_dim_a, int(offset_a))
+            dofs_b = _global_dof_indices(nodes_b, value_dim_b, int(offset_b))
+            _diag_contact_projection(
+                fa=int(fa),
+                fb=int(fb),
+                quad_pts=quad_pts,
+                quad_w=quad_w,
+                x_q=x_q,
+                Na=Na,
+                Nb=Nb,
+                nodes_a=nodes_a,
+                nodes_b=nodes_b,
+                dofs_a=dofs_a,
+                dofs_b=dofs_b,
+                elem_coords_a=elem_coords_a if dof_source == "volume" else None,
+                elem_coords_b=elem_coords_b if dof_source == "volume" else None,
+                na=na,
+                nb=nb,
+                normal=normal,
+                normal_source=normal_source,
+                normal_sign=normal_sign,
+                detJ=detJ,
+                diag_facet=diag_facet,
+                diag_max_q=diag_max_q,
+                quad_source=quad_source,
+                tol=tol,
+            )
 
         field_a_obj = SurfaceMixedFormField(
             N=Na,
@@ -2040,6 +2457,8 @@ def assemble_mixed_surface_residual(
                 fe = np.einsum("qi,q->i", np.asarray(fe_field), wJ)
             dofs = _global_dof_indices(facet, value_dim, int(offset))
             R[dofs] += fe
+    if proj_diag:
+        _proj_diag_report()
     return R
 
 
@@ -2082,6 +2501,7 @@ def assemble_mixed_surface_jacobian(
     to pick which field acts as the master when normal_source is "master"/"slave".
     dof_source="volume" assembles into element nodes (requires elem_conn_* mappings).
     """
+    from ..core.forms import FieldPair
     coords_a = np.asarray(surface_a.coords, dtype=float)
     coords_b = np.asarray(surface_b.coords, dtype=float)
     facets_a = np.asarray(surface_a.conn, dtype=int)
@@ -2129,6 +2549,16 @@ def assemble_mixed_surface_jacobian(
         _DEBUG_SURFACE_SOURCE_ONCE = True
     diag_map = os.getenv("FLUXFEM_DIAG_CONTACT_MAP", "0") == "1"
     diag_n = os.getenv("FLUXFEM_DIAG_CONTACT_N", "0") == "1"
+    proj_diag = _proj_diag_enabled()
+    if proj_diag:
+        _proj_diag_reset()
+    diag_force = os.getenv("FLUXFEM_PROJ_DIAG_FORCE", "0") == "1"
+    diag_qp_mode = os.getenv("FLUXFEM_PROJ_DIAG_QP_MODE", "").strip().lower()
+    diag_qp_path = os.getenv("FLUXFEM_PROJ_DIAG_QP_PATH", "").strip()
+    diag_normal = os.getenv("FLUXFEM_PROJ_DIAG_NORMAL", "").strip().lower()
+    diag_facet = int(os.getenv("FLUXFEM_PROJ_DIAG_FACET", "-1"))
+    diag_max_q = int(os.getenv("FLUXFEM_PROJ_DIAG_MAX_Q", "3"))
+    diag_abs_detj = os.getenv("FLUXFEM_PROJ_DIAG_ABS_DETJ", "1") == "1"
 
     if normal_from is not None:
         if normal_from not in {"master", "slave"}:
@@ -2140,6 +2570,8 @@ def assemble_mixed_surface_jacobian(
             normal_source = "a" if master_name == field_a else "b"
         else:
             normal_source = "b" if master_name == field_a else "a"
+    if diag_force and diag_normal:
+        normal_source = diag_normal
     if normal_source not in {"a", "b", "avg", "master", "slave"}:
         raise ValueError("normal_source must be 'a', 'b', 'avg', 'master', or 'slave'")
     if normal_source == "master":
@@ -2260,11 +2692,19 @@ def assemble_mixed_surface_jacobian(
             if area_ref > 0.0 and area < area_scale * area_ref:
                 continue
         detJ = 2.0 * area
+        if diag_force and diag_abs_detj:
+            detJ = abs(detJ)
         if quad_order <= 0:
             quad_pts = np.array([[1.0 / 3.0, 1.0 / 3.0]], dtype=float)
             quad_w = np.array([0.5], dtype=float)
         else:
             quad_pts, quad_w = _tri_quadrature(quad_order)
+        quad_source = "fluxfem"
+        quad_override = _diag_quad_override(diag_force, diag_qp_mode, diag_qp_path)
+        if quad_override is not None:
+            quad_pts, quad_w = quad_override
+            quad_source = _DEBUG_PROJ_QP_SOURCE or "override"
+        _diag_quad_dump(diag_force, diag_qp_mode, diag_qp_path, quad_pts, quad_w)
 
         facet_a = facets_a[int(fa)]
         facet_b = facets_b[int(fb)]
@@ -2278,29 +2718,40 @@ def assemble_mixed_surface_jacobian(
         Na = None
         Nb = None
 
+        elem_id_a = -1
         elem_nodes_a = None
         elem_coords_a = None
         local_a = None
         if use_elem_a:
-            elem_id = int(facet_to_elem_a[int(fa)])
-            if elem_id < 0:
+            elem_id_a = int(facet_to_elem_a[int(fa)])
+            if elem_id_a < 0:
                 raise ValueError("facet_to_elem_a has invalid mapping")
-            elem_nodes_a = np.asarray(elem_conn_a[elem_id], dtype=int)
+            elem_nodes_a = np.asarray(elem_conn_a[elem_id_a], dtype=int)
             elem_coords_a = coords_a[elem_nodes_a]
             if elem_coords_a.shape[0] not in {4, 8, 10, 20, 27}:
                 raise NotImplementedError("surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only")
 
+        elem_id_b = -1
         elem_nodes_b = None
         elem_coords_b = None
         local_b = None
         if use_elem_b:
-            elem_id = int(facet_to_elem_b[int(fb)])
-            if elem_id < 0:
+            elem_id_b = int(facet_to_elem_b[int(fb)])
+            if elem_id_b < 0:
                 raise ValueError("facet_to_elem_b has invalid mapping")
-            elem_nodes_b = np.asarray(elem_conn_b[elem_id], dtype=int)
+            elem_nodes_b = np.asarray(elem_conn_b[elem_id_b], dtype=int)
             elem_coords_b = coords_b[elem_nodes_b]
             if elem_coords_b.shape[0] not in {4, 8, 10, 20, 27}:
                 raise NotImplementedError("surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only")
+        if proj_diag:
+            _proj_diag_set_context(
+                fa=int(fa),
+                fb=int(fb),
+                face_a=_facet_label(facet_a),
+                face_b=_facet_label(facet_b),
+                elem_a=elem_id_a,
+                elem_b=elem_id_b,
+            )
 
         if grad_source == "surface":
             gradNa = np.array(
@@ -2446,6 +2897,32 @@ def assemble_mixed_surface_jacobian(
 
         dofs_a = _global_dof_indices(nodes_a, value_dim_a, int(offset_a))
         dofs_b = _global_dof_indices(nodes_b, value_dim_b, int(offset_b))
+        if diag_force:
+            _diag_contact_projection(
+                fa=int(fa),
+                fb=int(fb),
+                quad_pts=quad_pts,
+                quad_w=quad_w,
+                x_q=x_q,
+                Na=Na,
+                Nb=Nb,
+                nodes_a=nodes_a,
+                nodes_b=nodes_b,
+                dofs_a=dofs_a,
+                dofs_b=dofs_b,
+                elem_coords_a=elem_coords_a if dof_source == "volume" else None,
+                elem_coords_b=elem_coords_b if dof_source == "volume" else None,
+                na=na,
+                nb=nb,
+                normal=normal,
+                normal_source=normal_source,
+                normal_sign=normal_sign,
+                detJ=detJ,
+                diag_facet=diag_facet,
+                diag_max_q=diag_max_q,
+                quad_source=quad_source,
+                tol=tol,
+            )
         dofs = np.concatenate([dofs_a, dofs_b], axis=0)
         for i, gi in enumerate(dofs):
             for j, gj in enumerate(dofs):
@@ -2457,7 +2934,342 @@ def assemble_mixed_surface_jacobian(
                 else:
                     K_dense[int(gi), int(gj)] += val
 
+    if proj_diag:
+        _proj_diag_report()
     if sparse:
         return np.asarray(rows, dtype=int), np.asarray(cols, dtype=int), np.asarray(data, dtype=float), n_total
     assert K_dense is not None
     return K_dense
+
+
+def assemble_nitsche_onesided_dirichlet(
+    surface_slave: SurfaceMesh,
+    u_hat_fn,
+    params: "WeakParams",
+    *,
+    surface_master: SurfaceMesh | None = None,
+    u_master: np.ndarray | None = None,
+    value_dim: int = 3,
+    elem_conn: np.ndarray | None = None,
+    facet_to_elem: np.ndarray | None = None,
+    elem_conn_master: np.ndarray | None = None,
+    facet_to_elem_master: np.ndarray | None = None,
+    grad_source: str = "volume",
+    dof_source: str = "volume",
+    quad_order: int = 2,
+    normal_sign: float = 1.0,
+    tol: float = 1e-8,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Assemble one-sided (slave-only) Nitsche matrices without supermesh.
+
+    The master side is treated as prescribed displacement u_hat(x). Provide
+    either u_hat_fn(x_q) or u_master with master element mappings to evaluate
+    u_hat at slave quadrature points.
+
+    Note: this implementation currently assumes volume-trace bases for both
+    gradients and DOFs. Surface-only bases are not supported here yet.
+    """
+    from ..core.forms import FieldPair
+    coords_s = np.asarray(surface_slave.coords, dtype=float)
+    facets_s = np.asarray(surface_slave.conn, dtype=int)
+    coords_m = np.asarray(surface_master.coords, dtype=float) if surface_master is not None else coords_s
+    facets_m = np.asarray(surface_master.conn, dtype=int) if surface_master is not None else facets_s
+    n_s = int(coords_s.shape[0] * value_dim)
+    K = np.zeros((n_s, n_s), dtype=float)
+    f = np.zeros((n_s,), dtype=float)
+
+    normals_s = surface_slave.facet_normals() if hasattr(surface_slave, "facet_normals") else None
+    use_elem = elem_conn is not None and facet_to_elem is not None
+    use_master = u_master is not None
+
+    if use_master:
+        if surface_master is None:
+            raise ValueError("surface_master is required when u_master is provided")
+        if elem_conn_master is None or facet_to_elem_master is None:
+            raise ValueError("elem_conn_master and facet_to_elem_master are required when u_master is provided")
+    else:
+        if u_hat_fn is None:
+            raise ValueError("u_hat_fn or u_master must be provided")
+        if surface_master is None:
+            surface_master = surface_slave
+
+    if grad_source != "volume" or dof_source != "volume":
+        raise ValueError("one-sided Nitsche currently supports only volume/volume")
+
+    from ..core.weakform import Params, compile_mixed_surface_residual, param_ref, test_ref, unknown_ref
+    import fluxfem.helpers_wf as h_wf
+
+    u = unknown_ref("u")
+    v = test_ref("u")
+    p = param_ref()
+    n = h_wf.normal()
+    t_u = h_wf.traction(u, n, p)
+    t_v = h_wf.traction(v, n, p)
+    sym_term = h_wf.einsum("qia,qi->qa", t_v, u.val)
+    sym_term_hat = h_wf.einsum("qia,qi->qa", t_v, p.u_hat)
+    expr = (
+        -h_wf.dot(v, t_u)
+        - sym_term
+        + (p.alpha * p.inv_h) * h_wf.dot(v, u.val)
+        + sym_term_hat
+        - (p.alpha * p.inv_h) * h_wf.dot(v, p.u_hat)
+    ) * h_wf.ds()
+    res_form = compile_mixed_surface_residual({"u": expr})
+    includes_measure = res_form._includes_measure
+
+    quad_pts, quad_w = _tri_quadrature(quad_order) if quad_order > 0 else (np.array([[1.0 / 3.0, 1.0 / 3.0]]), np.array([0.5]))
+
+    for f_id, facet in enumerate(facets_s):
+        triangles = _facet_triangles(coords_s, facet)
+        if not triangles:
+            continue
+        area_f = _facet_area_estimate(facet, coords_s)
+        if area_f <= tol:
+            continue
+        inv_h = 1.0 / max(np.sqrt(area_f), tol)
+
+        elem_nodes = None
+        elem_coords = None
+        local = None
+        if use_elem:
+            elem_id = int(facet_to_elem[int(f_id)])
+            if elem_id < 0:
+                raise ValueError("facet_to_elem has invalid mapping")
+            elem_nodes = np.asarray(elem_conn[elem_id], dtype=int)
+            elem_coords = coords_s[elem_nodes]
+
+        for a, b, c in triangles:
+            area = _tri_area(a, b, c)
+            if area <= tol:
+                continue
+            detJ = 2.0 * area
+            x_q = np.array([a + r * (b - a) + s * (c - a) for r, s in quad_pts], dtype=float)
+            if use_master:
+                if dof_source == "surface":
+                    facet_m = facets_m[int(f_id)]
+                    u_master_local = _gather_u_local(u_master, facet_m, value_dim).reshape(-1, value_dim)
+                    N_master = np.array(
+                        [_facet_shape_values(pt, facet_m, coords_m, tol=tol) for pt in x_q],
+                        dtype=float,
+                    )
+                    u_hat = N_master @ u_master_local
+                else:
+                    elem_id_m = int(facet_to_elem_master[int(f_id)])
+                    if elem_id_m < 0:
+                        raise ValueError("facet_to_elem_master has invalid mapping")
+                    elem_nodes_m = np.asarray(elem_conn_master[elem_id_m], dtype=int)
+                    elem_coords_m = coords_m[elem_nodes_m]
+                    u_master_local = _gather_u_local(u_master, elem_nodes_m, value_dim).reshape(-1, value_dim)
+                    N_master = _volume_shape_values_at_points(x_q, elem_coords_m, tol=tol)
+                    u_hat = N_master @ u_master_local
+            else:
+                u_hat = np.asarray(u_hat_fn(x_q), dtype=float)
+                if u_hat.shape[0] != x_q.shape[0]:
+                    raise ValueError("u_hat_fn must return shape (n_q, value_dim)")
+
+            gradN = None
+            nodes = facet
+            N = None
+
+            if grad_source == "surface":
+                gradN = np.array(
+                    [_surface_gradN(pt, facet, coords_s, tol=tol) for pt in x_q],
+                    dtype=float,
+                )
+            if use_elem and grad_source == "volume":
+                local = _local_indices(elem_nodes, facet)
+                gradN = _tet_gradN_at_points(x_q, elem_coords, local=local, tol=tol)
+
+            if dof_source == "volume":
+                if not use_elem or elem_nodes is None or elem_coords is None:
+                    raise ValueError("dof_source 'volume' requires elem_conn and facet_to_elem")
+                nodes = elem_nodes
+                N = _volume_shape_values_at_points(x_q, elem_coords, tol=tol)
+                if grad_source == "volume":
+                    gradN = _tet_gradN_at_points(x_q, elem_coords, tol=tol)
+            else:
+                N = np.array([_facet_shape_values(pt, facet, coords_s, tol=tol) for pt in x_q], dtype=float)
+
+            field = SurfaceMixedFormField(
+                N=N,
+                gradN=gradN,
+                value_dim=value_dim,
+                basis=_SurfaceBasis(dofs_per_node=value_dim),
+            )
+            fields = {"u": FieldPair(test=field, trial=field)}
+            normal = normals_s[int(f_id)] if normals_s is not None else None
+            if normal is not None:
+                normal = normal_sign * normal
+            normal_q = None if normal is None else np.repeat(normal[None, :], quad_pts.shape[0], axis=0)
+            ctx = SurfaceMixedFormContext(
+                fields=fields,
+                x_q=x_q,
+                w=quad_w,
+                detJ=np.array([detJ], dtype=float),
+                normal=normal_q,
+                trial_fields={"u": field},
+                test_fields={"u": field},
+                unknown_fields={"u": field},
+            )
+            params_local = Params(
+                lam=params.lam,
+                mu=params.mu,
+                alpha=params.alpha,
+                inv_h=inv_h,
+                u_hat=u_hat,
+            )
+            u_zero = np.zeros((len(nodes) * value_dim,), dtype=float)
+            u_dict = {"u": u_zero}
+            sizes = (u_zero.shape[0],)
+            slices = {"u": slice(0, sizes[0])}
+
+            def _res_local(u_vec):
+                u_local = {"u": u_vec[slices["u"]]}
+                fe_q = res_form(ctx, u_local, params_local)["u"]
+                if includes_measure.get("u", False):
+                    fe = jnp.sum(jnp.asarray(fe_q), axis=0)
+                else:
+                    wJ = jnp.asarray(ctx.w) * jnp.asarray(ctx.detJ)
+                    fe = jnp.einsum("qi,q->i", jnp.asarray(fe_q), wJ)
+                return fe
+
+            J_local = jax.jacrev(_res_local)(jnp.asarray(u_zero))
+            f_local = np.asarray(_res_local(jnp.asarray(u_zero)))
+            k_local = np.asarray(J_local)
+
+            dofs = _global_dof_indices(nodes, value_dim, 0)
+            for i, gi in enumerate(dofs):
+                f[int(gi)] += float(f_local[i])
+                for j, gj in enumerate(dofs):
+                    K[int(gi), int(gj)] += float(k_local[i, j])
+
+    return K, f
+
+
+def assemble_contact_onesided_floor(
+    surface_slave: SurfaceMesh,
+    u: np.ndarray,
+    *,
+    n: np.ndarray | None = None,
+    c: float,
+    k: float,
+    beta: float,
+    value_dim: int = 3,
+    elem_conn: np.ndarray | None = None,
+    facet_to_elem: np.ndarray | None = None,
+    quad_order: int = 2,
+    normal_sign: float = 1.0,
+    tol: float = 1e-8,
+    return_metrics: bool = False,
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, dict[str, float]]:
+    """
+    Assemble one-sided contact penalty against a rigid plane g = n·x - c.
+
+    Uses softplus for a smooth contact pressure:
+        p(g) = k * softplus(-g; beta)
+    with softplus(z; beta) = (1 / beta) * log(1 + exp(beta z)).
+
+    Note: the resulting stiffness matrix can be nonsymmetric; avoid CG.
+    """
+    if elem_conn is None or facet_to_elem is None:
+        raise ValueError("elem_conn and facet_to_elem are required")
+    if beta <= 0.0:
+        raise ValueError("beta must be positive")
+
+    import jax
+    import jax.numpy as jnp
+
+    coords_s = np.asarray(surface_slave.coords, dtype=float)
+    facets_s = np.asarray(surface_slave.conn, dtype=int)
+    n_s = int(coords_s.shape[0] * value_dim)
+    K = np.zeros((n_s, n_s), dtype=float)
+    f = np.zeros((n_s,), dtype=float)
+
+    normals_s = surface_slave.facet_normals() if hasattr(surface_slave, "facet_normals") else None
+    if n is not None:
+        n = np.asarray(n, dtype=float).reshape(-1)
+        if n.shape[0] != 3:
+            raise ValueError("n must be a 3-vector")
+        n_norm = np.linalg.norm(n)
+        if n_norm <= tol:
+            raise ValueError("n must be non-zero")
+        n = (n / n_norm) * float(normal_sign)
+    elif normals_s is None:
+        raise ValueError("surface normals are required when n is not provided")
+
+    penetration = 0.0
+    min_g = float("inf")
+    quad_pts, quad_w = _tri_quadrature(quad_order) if quad_order > 0 else (np.array([[1.0 / 3.0, 1.0 / 3.0]]), np.array([0.5]))
+
+    for f_id, facet in enumerate(facets_s):
+        triangles = _facet_triangles(coords_s, facet)
+        if not triangles:
+            continue
+        area_f = _facet_area_estimate(facet, coords_s)
+        if area_f <= tol:
+            continue
+
+        elem_id = int(facet_to_elem[int(f_id)])
+        if elem_id < 0:
+            raise ValueError("facet_to_elem has invalid mapping")
+        elem_nodes = np.asarray(elem_conn[elem_id], dtype=int)
+        elem_coords = coords_s[elem_nodes]
+        u_local = _gather_u_local(u, elem_nodes, value_dim).reshape(-1, value_dim)
+
+        if n is not None:
+            normal = n
+        else:
+            normal = normal_sign * normals_s[int(f_id)]
+
+        for a, b, c_tri in triangles:
+            area = _tri_area(a, b, c_tri)
+            if area <= tol:
+                continue
+            detJ = 2.0 * area
+            x_q_ref = np.array([a + r * (b - a) + s * (c_tri - a) for r, s in quad_pts], dtype=float)
+            N = _volume_shape_values_at_points(x_q_ref, elem_coords, tol=tol)
+
+            normal_q = np.repeat(normal[None, :], quad_pts.shape[0], axis=0)
+
+            u_q_np = N @ u_local
+            x_q_cur = x_q_ref + u_q_np
+            g_np = np.sum(normal_q * x_q_cur, axis=1) - float(c)
+            min_g = min(min_g, float(np.min(g_np)))
+            z_np = -float(beta) * g_np
+            z_clip = np.minimum(z_np, 30.0)
+            softplus_np = np.where(z_np > 30.0, z_np, np.log1p(np.exp(z_clip))) / float(beta)
+            penetration += float(np.sum(softplus_np * quad_w) * detJ)
+
+            def _res_local(u_vec):
+                u_loc = u_vec.reshape(-1, value_dim)
+                u_q = jnp.einsum("qi,ia->qa", jnp.asarray(N), u_loc)
+                x_q_j = jnp.asarray(x_q_ref)
+                n_q = jnp.asarray(normal_q)
+                x_q_cur_j = x_q_j + u_q
+                g = jnp.einsum("qa,qa->q", n_q, x_q_cur_j) - float(c)
+                p = float(k) * jax.nn.softplus(-float(beta) * g) / float(beta)
+                t = p[:, None] * n_q
+                wJ = jnp.asarray(quad_w) * float(detJ)
+                nodal = jnp.einsum("qi,qa,q->ia", jnp.asarray(N), t, wJ)
+                return nodal.reshape(-1)
+
+            u_vec0 = np.asarray(u_local.reshape(-1), dtype=float)
+            f_local = np.asarray(_res_local(jnp.asarray(u_vec0)))
+            k_local = np.asarray(jax.jacrev(_res_local)(jnp.asarray(u_vec0)))
+
+            dofs = _global_dof_indices(elem_nodes, value_dim, 0)
+            for i, gi in enumerate(dofs):
+                f[int(gi)] += float(f_local[i])
+                for j, gj in enumerate(dofs):
+                    K[int(gi), int(gj)] += float(k_local[i, j])
+
+    if return_metrics:
+        if min_g == float("inf"):
+            min_g = 0.0
+        metrics = {
+            "penetration": float(penetration),
+            "min_g": float(min_g),
+        }
+        return K, f, metrics
+    return K, f
