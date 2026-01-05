@@ -973,6 +973,25 @@ def build_skfem_contact(
     basis_vec_b = skfem.Basis(mesh_b, elem_v)
     fb_u_top = FacetBasis(mesh_a, elem_v, facets=orig1[t1], quadrature=quad1)
     fb_u_bot = FacetBasis(mesh_b, elem_v, facets=orig2[t2], quadrature=quad2)
+
+    if os.getenv("DIAG_DUMP_SKFEM_QP", "0") == "1":
+        quad_pts_top = np.asarray(fb_u_top.X[:, 0, :]).T
+        quad_w_top = np.asarray(fb_u_top.W[0, :])
+        np.savez("quad_top.npz", quad_pts=quad_pts_top, quad_w=quad_w_top)
+        print(
+            "[diag] dumped skfem quad -> quad_top.npz",
+            f"pts={quad_pts_top.shape}",
+            f"w={quad_w_top.shape}",
+        )
+
+        quad_pts_bot = np.asarray(fb_u_bot.X[:, 0, :]).T
+        quad_w_bot = np.asarray(fb_u_bot.W[0, :])
+        np.savez("quad_bot.npz", quad_pts=quad_pts_bot, quad_w=quad_w_bot)
+        print(
+            "[diag] dumped skfem quad -> quad_bot.npz",
+            f"pts={quad_pts_bot.shape}",
+            f"w={quad_w_bot.shape}",
+        )
     fbasis = fb_u_top * fb_u_bot
 
     E, nu = 210e9, 0.3

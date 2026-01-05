@@ -5,7 +5,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from ..core.dtypes import INDEX_DTYPE, NP_INDEX_DTYPE
+from .dtypes import INDEX_DTYPE, NP_INDEX_DTYPE
 
 
 @dataclass

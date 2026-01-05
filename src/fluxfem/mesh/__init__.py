@@ -1,6 +1,6 @@
+from .base import BaseMesh, BaseMeshPytree
 from .hex import HexMesh, HexMeshPytree, StructuredHexBox, tag_axis_minmax_facets
 from .tet import TetMesh, TetMeshPytree, StructuredTetBox, StructuredTetTensorBox
-from .base import BaseMesh, BaseMeshPytree
 from .predicate import bbox_predicate, plane_predicate, axis_plane_predicate, slab_predicate
 from .surface import SurfaceMesh, SurfaceMeshPytree
 from .supermesh import SurfaceSupermesh, build_surface_supermesh

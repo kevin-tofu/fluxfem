@@ -39,6 +39,7 @@ def newton_solve(
     ls_c: float = 1e-4,
     external_vector=None,
     jacobian_pattern=None,
+    extra_terms=None,
 ):
     """
     Gridap-style Newton–Raphson solver on free DOFs only.
@@ -51,6 +52,7 @@ def newton_solve(
     - linear_preconditioner: forwarded to cg_solve/cg_solve_jax (None | "jacobi" | "block_jacobi" | callable).
     - linear_tol: CG tolerance (defaults to 0.1 * tol if not provided).
     - jacobian_pattern: optional SparsityPattern to reuse sparsity across load steps.
+    - extra_terms: optional list of callbacks returning (K, f[, metrics]) for extra terms.
     """
 
     if dirichlet is not None:
@@ -65,6 +67,9 @@ def newton_solve(
     else:
         dir_dofs = dir_vals = None
         free_dofs = np.arange(space.n_dofs, dtype=int)
+
+    if extra_terms is not None and linear_solver in ("cg", "cg_jax", "cg_custom"):
+        raise ValueError("extra_terms may yield nonsymmetric K; avoid CG-based solvers")
 
     free_dofs_j = jnp.asarray(free_dofs, dtype=jnp.int32)
     # For block-Jacobi (3x3 per node) we keep node ids of free dofs.
@@ -145,6 +150,39 @@ def newton_solve(
         u_full = u_full.at[dir_dofs_j].set(dir_vals_j)
         return u_full
 
+    extra_metrics = None
+
+    def _call_extra(u_full_vec):
+        if extra_terms is None:
+            return None
+        K_sum = None
+        f_sum = None
+        metrics_sum = {}
+        for term in extra_terms:
+            out = term(np.asarray(u_full_vec))
+            if out is None:
+                continue
+            if len(out) == 2:
+                Kc, fc = out
+                metrics = None
+            else:
+                Kc, fc, metrics = out
+            Kc = np.asarray(Kc, dtype=float)
+            fc = np.asarray(fc, dtype=float)
+            if K_sum is None:
+                K_sum = Kc
+            else:
+                K_sum = K_sum + Kc
+            if f_sum is None:
+                f_sum = fc
+            else:
+                f_sum = f_sum + fc
+            if isinstance(metrics, dict):
+                metrics_sum.update(metrics)
+        if K_sum is None or f_sum is None:
+            return None
+        return K_sum, f_sum, (metrics_sum or None)
+
     def eval_residual(u_free_vec):
         """Residual on free DOFs only."""
         u_full = expand_full(u_free_vec)
@@ -161,12 +199,20 @@ def newton_solve(
     jac_kernel = make_element_jacobian_kernel(res_form, params)
 
     def assemble_R(u_full_vec):
-        return assemble_residual_scatter(space, res_form, u_full_vec, params, kernel=res_kernel)
+        nonlocal extra_metrics
+        R = assemble_residual_scatter(space, res_form, u_full_vec, params, kernel=res_kernel)
+        extra_out = _call_extra(u_full_vec)
+        if extra_out is not None:
+            _Kc, fc, metrics = extra_out
+            extra_metrics = metrics
+            R = R + jnp.asarray(fc, dtype=R.dtype)
+        return R
 
     eff_linear_tol = linear_tol if linear_tol is not None else max(0.1 * tol, 1e-12)
 
     def assemble_J(u_full_vec):
-        return assemble_jacobian_scatter(
+        nonlocal extra_metrics
+        J = assemble_jacobian_scatter(
             space,
             res_form,
             u_full_vec,
@@ -176,6 +222,15 @@ def newton_solve(
             return_flux_matrix=True,
             pattern=J_pattern,
         )
+        extra_out = _call_extra(u_full_vec)
+        if extra_out is not None:
+            Kc, _fc, metrics = extra_out
+            extra_metrics = metrics
+            rows = np.asarray(J.pattern.rows, dtype=int)
+            cols = np.asarray(J.pattern.cols, dtype=int)
+            data = jnp.asarray(J.data) + jnp.asarray(Kc[rows, cols], dtype=J.data.dtype)
+            J = J.with_data(data)
+        return J
 
     # Initial residual/Jacobian
     R_full_init = assemble_R(expand_full(u))
@@ -210,7 +265,10 @@ def newton_solve(
         )
 
     if callback is not None:
-        callback({"iter": 0, "res_inf": res0_inf, "res_two": res0_two, "rel_residual": 1.0, "alpha": 1.0, "step_norm": np.nan})
+        payload = {"iter": 0, "res_inf": res0_inf, "res_two": res0_two, "rel_residual": 1.0, "alpha": 1.0, "step_norm": np.nan}
+        if extra_metrics is not None:
+            payload["extra_metrics"] = extra_metrics
+        callback(payload)
 
     J = assemble_J(u_full)
     finite_j = jnp.all(jnp.isfinite(J.data))
@@ -218,6 +276,10 @@ def newton_solve(
         n_bad = int(jnp.size(J.data) - jnp.count_nonzero(jnp.isfinite(J.data)))
         raise RuntimeError(f"[newton] init Jacobian has non-finite entries: {n_bad}")
     J_free = restrict_free_matrix(J)
+    lin_info = {}
+    step_norm = float("nan")
+    linear_converged = True
+    lr = None
     for k in range(maxiter):
         # --- Newton residual (iteration start) ---
         t_iter0 = time.perf_counter()
@@ -232,8 +294,14 @@ def newton_solve(
             raise RuntimeError("[newton] residual became non-finite; aborting.")
 
         crit = max(atol, tol * res0_inf)
+        contact_log = ""
+        if extra_metrics is not None and isinstance(extra_metrics, dict):
+            min_g = extra_metrics.get("min_g")
+            pen = extra_metrics.get("penetration")
+            if min_g is not None and pen is not None:
+                contact_log = f" min_g={float(min_g):.3e} pen={float(pen):.3e}"
         print(
-            f"[newton] k={k:02d} START  |R|inf={res_prev_inf_f:.3e} |R|2={res_prev_two_f:.3e}  crit={crit:.3e}",
+            f"[newton] k={k:02d} START  |R|inf={res_prev_inf_f:.3e} |R|2={res_prev_two_f:.3e}  crit={crit:.3e}{contact_log}",
             flush=True,
         )
 
@@ -362,20 +430,21 @@ def newton_solve(
 
         # callback
         if callback is not None:
-            callback(
-                {
-                    "iter": k + 1,
-                    "res_inf": res_trial_inf,
-                    "res_two": res_trial_two,
-                    "rel_residual": res_trial_inf / res0_inf,
-                    "alpha": alpha,
-                    "step_norm": step_norm,
-                    "linear_iters": lin_info.get("iters"),
-                    "linear_converged": linear_converged,
-                    "linear_residual": lr,
-                    "nan_detected": bool(np.isnan(res_trial_inf)),
-                }
-            )
+            payload = {
+                "iter": k + 1,
+                "res_inf": res_trial_inf,
+                "res_two": res_trial_two,
+                "rel_residual": res_trial_inf / res0_inf,
+                "alpha": alpha,
+                "step_norm": step_norm,
+                "linear_iters": lin_info.get("iters"),
+                "linear_converged": linear_converged,
+                "linear_residual": lr,
+                "nan_detected": bool(np.isnan(res_trial_inf)),
+            }
+            if extra_metrics is not None:
+                payload["extra_metrics"] = extra_metrics
+            callback(payload)
 
         # --- Convergence check ---
         if res_trial_inf < crit and linear_converged and not np.isnan(res_trial_inf):
@@ -398,3 +467,23 @@ def newton_solve(
                 stop_reason="converged",
                 nan_detected=bool(np.isnan(res_trial_inf)),
             )
+
+    res_final_inf = float(jnp.linalg.norm(R_free, ord=jnp.inf))
+    res_final_two = float(jnp.linalg.norm(R_free, ord=2))
+    return u_full, SolverResult(
+        converged=False,
+        iters=maxiter,
+        residual_norm=res_final_inf,
+        residual0=res0_inf,
+        rel_residual=(res_final_inf / res0_inf if res0_inf != 0.0 else float("inf")),
+        line_search_steps=0,
+        linear_iters=lin_info.get("iters"),
+        linear_converged=linear_converged,
+        linear_residual=lr,
+        tol=tol,
+        atol=atol,
+        stopping_criterion=crit,
+        step_norm=step_norm,
+        stop_reason="maxiter",
+        nan_detected=bool(np.isnan(res_final_inf)),
+    )
