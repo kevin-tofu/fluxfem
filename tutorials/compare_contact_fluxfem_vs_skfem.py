@@ -633,7 +633,10 @@ def _diag_hex27_quad_compare(quad_order: int) -> None:
     m1t, orig1 = mesh.trace("contact", mtype=skfem.MeshQuad, project=lambda p: p[[0, 1]])
     m2t, orig2 = mesh.trace("contact", mtype=skfem.MeshQuad, project=lambda p: p[[0, 1]])
     m12, t1, t2 = intersect(m1t, m2t)
-    quad1 = elementwise_quadrature(m1t, m12, t1)
+    try:
+        quad1 = elementwise_quadrature(m1t, m12, t1, intorder=quad_order)
+    except TypeError:
+        quad1 = elementwise_quadrature(m1t, m12, t1)
     fb = FacetBasis(mesh, ElementVectorH1(ElementHex2()), facets=orig1[t1], quadrature=quad1)
 
     if fb.X.shape[1] == 0:
@@ -963,8 +966,12 @@ def build_skfem_contact(
     m1t, orig1 = mesh_a.trace("contact", mtype=trace_type, project=lambda p: p[[0, 1]])
     m2t, orig2 = mesh_b.trace("contact", mtype=trace_type, project=lambda p: p[[0, 1]])
     m12, t1, t2 = intersect(m1t, m2t)
-    quad1 = elementwise_quadrature(m1t, m12, t1)
-    quad2 = elementwise_quadrature(m2t, m12, t2)
+    try:
+        quad1 = elementwise_quadrature(m1t, m12, t1, intorder=quad_order)
+        quad2 = elementwise_quadrature(m2t, m12, t2, intorder=quad_order)
+    except TypeError:
+        quad1 = elementwise_quadrature(m1t, m12, t1)
+        quad2 = elementwise_quadrature(m2t, m12, t2)
 
     elem_v = ElementVectorH1(elem_s)
     basis_scalar_a = skfem.Basis(mesh_a, elem_s)
