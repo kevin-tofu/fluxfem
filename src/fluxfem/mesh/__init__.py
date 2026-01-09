@@ -2,7 +2,7 @@ from .base import BaseMesh, BaseMeshPytree
 from .hex import HexMesh, HexMeshPytree, StructuredHexBox, tag_axis_minmax_facets
 from .tet import TetMesh, TetMeshPytree, StructuredTetBox, StructuredTetTensorBox
 from .predicate import bbox_predicate, plane_predicate, axis_plane_predicate, slab_predicate
-from .surface import SurfaceMesh, SurfaceMeshPytree
+from .surface import SurfaceMesh, SurfaceMeshPytree, SurfaceWithElemConn, surface_with_elem_conn
 from .supermesh import SurfaceSupermesh, build_surface_supermesh
 from .mortar import (
     MortarMatrix,
@@ -12,7 +12,7 @@ from .mortar import (
     assemble_mixed_surface_jacobian,
     assemble_mixed_surface_residual,
 )
-from .contact import ContactSurfaceSpace
+from .contact import ContactSurfaceSpace, ContactSide
 from .io import load_gmsh_mesh, load_gmsh_hex_mesh, load_gmsh_tet_mesh, make_surface_from_facets
 
 __all__ = [
@@ -32,6 +32,8 @@ __all__ = [
     "StructuredTetTensorBox",
     "SurfaceMesh",
     "SurfaceMeshPytree",
+    "SurfaceWithElemConn",
+    "surface_with_elem_conn",
     "SurfaceSupermesh",
     "build_surface_supermesh",
     "MortarMatrix",
@@ -41,6 +43,7 @@ __all__ = [
     "map_surface_facets_to_tet_elements",
     "map_surface_facets_to_hex_elements",
     "ContactSurfaceSpace",
+    "ContactSide",
     "load_gmsh_mesh",
     "load_gmsh_hex_mesh",
     "load_gmsh_tet_mesh",

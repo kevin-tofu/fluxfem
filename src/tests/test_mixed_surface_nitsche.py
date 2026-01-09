@@ -4,7 +4,6 @@ import jax.numpy as jnp
 
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
-from fluxfem.mesh import mortar as mortar_mod
 from fluxfem.physics import operators as ops
 
 
@@ -20,8 +19,6 @@ def _assemble_contact(
     *,
     elem_conn: np.ndarray | None,
     quad_order: int,
-    grad_source: str,
-    dof_source: str,
 ) -> np.ndarray:
     surf_a = ff.SurfaceMesh.from_facets(coords, facets)
     surf_b = ff.SurfaceMesh.from_facets(coords, facets)
@@ -42,51 +39,9 @@ def _assemble_contact(
         u_a,
         u_b,
         params,
-        grad_source=grad_source,
-        dof_source=dof_source,
         normal_source="a",
     )
     return np.asarray(J)
-
-
-def _expected_surface_sym_grad(
-    coords: np.ndarray,
-    facets: np.ndarray,
-    params: ff.Params,
-    *,
-    quad_order: int,
-) -> np.ndarray:
-    surf = ff.SurfaceMesh.from_facets(coords, facets)
-    sm = ff.build_surface_supermesh(surf, surf, tol=1e-8)
-    if sm.conn.shape[0] == 0:
-        return np.zeros((coords.shape[0] * 3, coords.shape[0] * 3), dtype=float)
-
-    quad_pts, quad_w = mortar_mod._tri_quadrature(quad_order)
-    facet = facets[0]
-    n = surf.facet_normals()[0]
-    n_nodes = coords.shape[0]
-    expected = np.zeros((n_nodes * 3, n_nodes * 3), dtype=float)
-    for tri, fa in zip(sm.conn, sm.source_facets_a):
-        if int(fa) != 0:
-            continue
-        a, b, c = sm.coords[tri]
-        area = mortar_mod._tri_area(a, b, c)
-        if area <= 0.0:
-            continue
-        detJ = 2.0 * area
-        for (r, s), w in zip(quad_pts, quad_w):
-            x_q = a + r * (b - a) + s * (c - a)
-            N = mortar_mod._facet_shape_values(x_q, facet, coords, tol=1e-12)
-            gradN = mortar_mod._surface_gradN(x_q, facet, coords, tol=1e-12)[None, :, :]
-            field = _DummyField(gradN=gradN, dofs_per_node=3)
-            B = np.asarray(ops.sym_grad(field))[0]
-            t_coeff = params.c @ B
-            weight = float(w * detJ)
-            for a_idx in range(len(facet)):
-                for d in range(3):
-                    row = a_idx * 3 + d
-                    expected[row, :] += weight * N[a_idx] * n[d] * t_coeff
-    return expected
 
 
 def test_mixed_surface_sym_grad_tet4():
@@ -106,8 +61,6 @@ def test_mixed_surface_sym_grad_tet4():
         facets,
         elem_conn=conn,
         quad_order=1,
-        grad_source="volume",
-        dof_source="volume",
     )
     params = ff.Params(c=np.ones(6, dtype=float))
 
@@ -127,74 +80,6 @@ def test_mixed_surface_sym_grad_tet4():
 
     n_a = coords.shape[0] * 3
     assert np.any(np.abs(expected[:, 9:12]) > 0.0)
-    assert np.allclose(J[:n_a, :n_a], expected, atol=1e-6)
-    assert np.allclose(J[:n_a, n_a:], 0.0, atol=1e-12)
-    assert np.allclose(J[n_a:, :n_a], 0.0, atol=1e-12)
-    assert np.allclose(J[n_a:, n_a:], 0.0, atol=1e-12)
-
-
-def test_mixed_surface_sym_grad_tri6():
-    coords = np.array(
-        [
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.5, 0.0, 0.0],
-            [0.5, 0.5, 0.0],
-            [0.0, 0.5, 0.0],
-        ],
-        dtype=float,
-    )
-    facets = np.array([[0, 1, 2, 3, 4, 5]], dtype=int)
-    J = _assemble_contact(
-        coords,
-        facets,
-        elem_conn=None,
-        quad_order=1,
-        grad_source="surface",
-        dof_source="surface",
-    )
-    params = ff.Params(c=np.ones(6, dtype=float))
-
-    expected = _expected_surface_sym_grad(coords, facets, params, quad_order=1)
-
-    n_a = coords.shape[0] * 3
-    assert np.any(np.abs(expected[9:, :]) > 0.0)
-    assert np.allclose(J[:n_a, :n_a], expected, atol=1e-6)
-    assert np.allclose(J[:n_a, n_a:], 0.0, atol=1e-12)
-    assert np.allclose(J[n_a:, :n_a], 0.0, atol=1e-12)
-    assert np.allclose(J[n_a:, n_a:], 0.0, atol=1e-12)
-
-
-def test_mixed_surface_sym_grad_quad8():
-    coords = np.array(
-        [
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.5, 0.0, 0.0],
-            [1.0, 0.5, 0.0],
-            [0.5, 1.0, 0.0],
-            [0.0, 0.5, 0.0],
-        ],
-        dtype=float,
-    )
-    facets = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=int)
-    J = _assemble_contact(
-        coords,
-        facets,
-        elem_conn=None,
-        quad_order=1,
-        grad_source="surface",
-        dof_source="surface",
-    )
-    params = ff.Params(c=np.ones(6, dtype=float))
-
-    expected = _expected_surface_sym_grad(coords, facets, params, quad_order=1)
-
-    n_a = coords.shape[0] * 3
-    assert np.any(np.abs(expected[12:, :]) > 0.0)
     assert np.allclose(J[:n_a, :n_a], expected, atol=1e-6)
     assert np.allclose(J[:n_a, n_a:], 0.0, atol=1e-12)
     assert np.allclose(J[n_a:, :n_a], 0.0, atol=1e-12)

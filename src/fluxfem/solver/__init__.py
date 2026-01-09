@@ -1,9 +1,16 @@
-from .sparse import SparsityPattern, FluxSparseMatrix
+from .sparse import (
+    SparsityPattern,
+    FluxSparseMatrix,
+    coalesce_coo,
+    concat_flux,
+    block_diag_flux,
+)
 from .dirichlet import (
     enforce_dirichlet_dense,
     enforce_dirichlet_sparse,
     free_dofs,
     condense_dirichlet_fluxsparse,
+    condense_dirichlet_fluxsparse_coo,
     condense_dirichlet_dense,
     expand_dirichlet_solution,
 )
@@ -25,10 +32,14 @@ from .solver import LinearSolver, NonlinearSolver
 __all__ = [
     "SparsityPattern",
     "FluxSparseMatrix",
+    "coalesce_coo",
+    "concat_flux",
+    "block_diag_flux",
     "enforce_dirichlet_dense",
     "enforce_dirichlet_sparse",
     "free_dofs",
     "condense_dirichlet_fluxsparse",
+    "condense_dirichlet_fluxsparse_coo",
     "condense_dirichlet_dense",
     "expand_dirichlet_solution",
     "cg_solve",

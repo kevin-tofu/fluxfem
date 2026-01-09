@@ -24,15 +24,22 @@ from skfem.io.json import from_file
 from pathlib import Path
 
 
+top_nx = int(os.getenv("SK_TOP_NX_PTS", "20"))
+top_ny = int(os.getenv("SK_TOP_NY_PTS", "20"))
+top_nz = int(os.getenv("SK_TOP_NZ_PTS", "10"))
+bot_nx = int(os.getenv("SK_BOT_NX_PTS", "20"))
+bot_ny = int(os.getenv("SK_BOT_NY_PTS", "20"))
+bot_nz = int(os.getenv("SK_BOT_NZ_PTS", "5"))
+
 mesh_top = skfem.MeshTet.init_tensor(
-    np.linspace(0, 2, 20),
-    np.linspace(0, 2, 20),
-    np.linspace(0, 1, 10)
+    np.linspace(0, 2, top_nx),
+    np.linspace(0, 2, top_ny),
+    np.linspace(0, 1, top_nz)
 )
 mesh_bot = skfem.MeshTet.init_tensor(
-    np.linspace(0.5, 1.5, 20),
-    np.linspace(0.5, 1.5, 20),
-    np.linspace(-0.5, 0.0, 5)
+    np.linspace(0.5, 1.5, bot_nx),
+    np.linspace(0.5, 1.5, bot_ny),
+    np.linspace(-0.5, 0.0, bot_nz)
 )
 
 
@@ -218,6 +225,16 @@ if log_path:
     with open(log_path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(summary_lines) + "\n")
     print(f"wrote summary log: {log_path}")
+
+npz_path = os.getenv("NITSCHE_SKFEM_U_NPZ")
+if npz_path:
+    n_top_nodes = mesh_top.p.shape[1]
+    n_bot_nodes = mesh_bot.p.shape[1]
+    points = np.vstack([mesh_top.p.T, mesh_bot.p.T])
+    n_nodes_total = n_top_nodes + n_bot_nodes
+    u_nodes = u[: n_nodes_total * 3].reshape(n_nodes_total, 3)
+    np.savez(npz_path, u=u, points=points, u_nodes=u_nodes)
+    print(f"wrote displacement npz: {npz_path}")
 
 
 def export_combined_vtu(

@@ -234,6 +234,201 @@ class BaseMeshClosure:
             return facets_arr
         return facets_arr, jnp.array(tags, dtype=INDEX_DTYPE)
 
+    def boundary_facets_plane(
+        self,
+        axis: int = 2,
+        value: float = 0.0,
+        *,
+        tol: float = 1e-8,
+        tag: int | None = None,
+    ):
+        """
+        Boundary facets on the plane x[axis] == value (within tol).
+        """
+        def pred(face: np.ndarray) -> bool:
+            return bool(np.allclose(face[:, axis], value, atol=tol))
+        return self.boundary_facets_where(pred, tag=tag)
+
+    def facets_on_plane(
+        self,
+        axis: int = 2,
+        value: float = 0.0,
+        *,
+        tol: float = 1e-8,
+        tag: int | None = None,
+    ):
+        """Alias for boundary_facets_plane (skfem-like naming)."""
+        return self.boundary_facets_plane(axis=axis, value=value, tol=tol, tag=tag)
+
+    def boundary_facets_plane_box(
+        self,
+        axis: int,
+        value: float,
+        *,
+        ranges: Sequence[tuple[float, float] | None] | None = None,
+        mode: str = "centroid",
+        tol: float = 1e-8,
+        tag: int | None = None,
+    ):
+        """
+        Boundary facets on a plane with additional box constraints.
+
+        ranges: sequence of (min, max) or None per axis. The plane axis can be None.
+        mode: "centroid" checks the face centroid, "all" requires all vertices inside.
+        """
+        dim = int(np.asarray(self.coords).shape[1])
+        if ranges is None:
+            ranges = [None] * dim
+        if len(ranges) != dim:
+            raise ValueError("ranges must have length equal to mesh dimension.")
+        if mode not in ("centroid", "all"):
+            raise ValueError("mode must be 'centroid' or 'all'.")
+
+        def pred(face: np.ndarray) -> bool:
+            if not np.allclose(face[:, axis], value, atol=tol):
+                return False
+            pts = face.mean(axis=0)[None, :] if mode == "centroid" else face
+            for ax, bounds in enumerate(ranges):
+                if bounds is None or ax == axis:
+                    continue
+                lo, hi = bounds
+                if np.any(pts[:, ax] < lo - tol) or np.any(pts[:, ax] > hi + tol):
+                    return False
+            return True
+
+        return self.boundary_facets_where(pred, tag=tag)
+
+    def facets_on_plane_box(
+        self,
+        axis: int,
+        value: float,
+        *,
+        x: tuple[float, float] | None = None,
+        y: tuple[float, float] | None = None,
+        z: tuple[float, float] | None = None,
+        ranges: Sequence[tuple[float, float] | None] | None = None,
+        mode: str = "centroid",
+        tol: float = 1e-8,
+        tag: int | None = None,
+    ):
+        """
+        Alias for boundary_facets_plane_box with axis-aligned range helpers.
+        Provide x/y/z or a full ranges sequence.
+        """
+        dim = int(np.asarray(self.coords).shape[1])
+        if ranges is None:
+            ranges = [None] * dim
+            if dim > 0:
+                ranges[0] = x
+            if dim > 1:
+                ranges[1] = y
+            if dim > 2:
+                ranges[2] = z
+        return self.boundary_facets_plane_box(
+            axis=axis,
+            value=value,
+            ranges=ranges,
+            mode=mode,
+            tol=tol,
+            tag=tag,
+        )
+
+    def boundary_dofs_plane(
+        self,
+        axis: int = 2,
+        value: float = 0.0,
+        *,
+        components: Sequence[int] | str = "xyz",
+        dof_per_node: Optional[int] = None,
+        tol: float = 1e-8,
+    ) -> np.ndarray:
+        """
+        DOF indices for boundary nodes on the plane x[axis] == value (within tol).
+        """
+        def pred(coords: np.ndarray) -> np.ndarray:
+            return np.isclose(coords[:, axis], value, atol=tol)
+        return self.boundary_dofs_where(pred, components=components, dof_per_node=dof_per_node)
+
+    def elements_touching_nodes(self, nodes: Iterable[int]) -> np.ndarray:
+        """
+        Return element indices that touch any node in the provided set.
+        """
+        nodes_arr = np.asarray(list(nodes), dtype=int)
+        if nodes_arr.size == 0:
+            return np.asarray([], dtype=int)
+        mark = np.zeros(self.n_nodes, dtype=bool)
+        mark[nodes_arr] = True
+        conn = np.asarray(self.conn)
+        return np.nonzero(np.any(mark[conn], axis=1))[0]
+
+    def nodes_from_facets(self, facets: np.ndarray | jnp.ndarray) -> np.ndarray:
+        """
+        Return unique node indices contained in the given facets array.
+        """
+        facets_arr = np.asarray(facets, dtype=int)
+        if facets_arr.size == 0:
+            return np.asarray([], dtype=int)
+        return np.unique(facets_arr.reshape(-1))
+
+    def elements_from_nodes(self, nodes: Iterable[int]) -> np.ndarray:
+        """
+        Alias for elements_touching_nodes (skfem-like naming).
+        """
+        return self.elements_touching_nodes(nodes)
+
+    def elements_from_facets(self, facets: np.ndarray | jnp.ndarray, *, mode: str = "touching") -> np.ndarray:
+        """
+        Return element indices associated with facets.
+
+        mode:
+            - "touching": any element sharing at least one facet node.
+            - "adjacent": elements that own the facet (exact face match).
+        """
+        if mode not in ("touching", "adjacent"):
+            raise ValueError("mode must be 'touching' or 'adjacent'.")
+        facets_arr = np.asarray(facets, dtype=int)
+        if facets_arr.size == 0:
+            return np.asarray([], dtype=int)
+        if mode == "touching":
+            nodes = self.nodes_from_facets(facets_arr)
+            return self.elements_touching_nodes(nodes)
+
+        patterns = self.face_node_patterns()
+        facet_keys = {tuple(sorted(face)) for face in facets_arr}
+        conn = np.asarray(self.conn)
+        elems = []
+        for e_idx, elem_conn in enumerate(conn):
+            for pattern in patterns:
+                face_nodes = tuple(sorted(int(elem_conn[i]) for i in pattern))
+                if face_nodes in facet_keys:
+                    elems.append(e_idx)
+                    break
+        return np.asarray(elems, dtype=int)
+
+    def elements_touching_facets(self, facets: np.ndarray | jnp.ndarray) -> np.ndarray:
+        """
+        Return element indices that touch any node in the provided facets.
+        """
+        facets_arr = np.asarray(facets, dtype=int)
+        if facets_arr.size == 0:
+            return np.asarray([], dtype=int)
+        nodes = np.unique(facets_arr.reshape(-1))
+        return self.elements_touching_nodes(nodes)
+
+    def surface_from_facets(self, facets, *, facet_tags=None):
+        """
+        Build a SurfaceMesh from facet connectivity.
+        """
+        from .surface import SurfaceMesh
+        return SurfaceMesh.from_facets(self.coords, facets, facet_tags=facet_tags, node_tags=self.node_tags)
+
+    def surface_with_elem_conn_from_facets(self, facets, *, mode: str = "touching"):
+        """
+        Build a SurfaceMesh and matching elem_conn for the given facets.
+        """
+        from .surface import surface_with_elem_conn
+        return surface_with_elem_conn(self, facets, mode=mode)
+
 
 @jax.tree_util.register_pytree_node_class
 class BaseMeshPytree(BaseMeshClosure):

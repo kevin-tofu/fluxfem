@@ -119,6 +119,22 @@ class SurfaceMesh(BaseMesh):
         n_total_nodes = int(getattr(space, "mesh", self).n_nodes)
         return self.assemble_linear_form(form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
+
+@dataclass(frozen=True)
+class SurfaceWithElemConn:
+    surface: SurfaceMesh
+    elem_conn: np.ndarray
+
+
+def surface_with_elem_conn(mesh: BaseMesh, facets, *, mode: str = "touching") -> SurfaceWithElemConn:
+    """
+    Build a SurfaceMesh from facets and return it with a matching elem_conn array.
+    """
+    surface = SurfaceMesh.from_facets(mesh.coords, facets, node_tags=mesh.node_tags)
+    elems = mesh.elements_from_facets(facets, mode=mode)
+    elem_conn = np.asarray(mesh.conn, dtype=int)[elems]
+    return SurfaceWithElemConn(surface=surface, elem_conn=elem_conn)
+
     def assemble_traction(
         self,
         traction,

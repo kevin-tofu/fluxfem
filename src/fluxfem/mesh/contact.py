@@ -14,6 +14,32 @@ from .mortar import (
 )
 from .supermesh import build_surface_supermesh
 from .surface import SurfaceMesh
+from .base import BaseMesh
+
+
+@dataclass(frozen=True)
+class ContactSide:
+    surface: SurfaceMesh
+    elem_conn: np.ndarray | None
+    value_dim: int
+    space: object | None = None
+
+    @classmethod
+    def from_facets(cls, mesh: BaseMesh, facets: np.ndarray, space, *, mode: str = "touching"):
+        side = mesh.surface_with_elem_conn_from_facets(facets, mode=mode)
+        value_dim = int(getattr(space, "value_dim", 1))
+        return cls(surface=side.surface, elem_conn=side.elem_conn, value_dim=value_dim, space=space)
+
+    @classmethod
+    def from_surfaces(
+        cls,
+        surface: SurfaceMesh,
+        *,
+        elem_conn: np.ndarray | None = None,
+        value_dim: int = 1,
+        space: object | None = None,
+    ):
+        return cls(surface=surface, elem_conn=elem_conn, value_dim=int(value_dim), space=space)
 
 
 @dataclass(eq=False)
@@ -37,6 +63,10 @@ class ContactSurfaceSpace:
     quad_order: int = 1
     normal_sign: float | None = None
     tol: float = 1e-8
+    backend: str = "jax"
+    fd_eps: float = 1e-6
+    fd_mode: str = "central"
+    batch_jac: bool | None = None
 
     @classmethod
     def from_surfaces(
@@ -53,6 +83,10 @@ class ContactSurfaceSpace:
         quad_order: int = 1,
         normal_sign: float | None = None,
         tol: float = 1e-8,
+        backend: str = "jax",
+        fd_eps: float = 1e-6,
+        fd_mode: str = "central",
+        batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
         sm = build_surface_supermesh(surface_master, surface_slave, tol=tol)
         facet_map_master = None
@@ -89,6 +123,88 @@ class ContactSurfaceSpace:
             quad_order=quad_order,
             normal_sign=normal_sign,
             tol=tol,
+            backend=backend,
+            fd_eps=fd_eps,
+            fd_mode=fd_mode,
+            batch_jac=batch_jac,
+        )
+
+    @classmethod
+    def from_surfaces_and_spaces(
+        cls,
+        surface_master: SurfaceMesh,
+        surface_slave: SurfaceMesh,
+        space_master,
+        space_slave,
+        *,
+        elem_conn_master: np.ndarray | None = None,
+        elem_conn_slave: np.ndarray | None = None,
+        field_master: str = "a",
+        field_slave: str = "b",
+        value_dim_master: int | None = None,
+        value_dim_slave: int | None = None,
+        quad_order: int = 1,
+        normal_sign: float | None = None,
+        tol: float = 1e-8,
+        backend: str = "jax",
+        fd_eps: float = 1e-6,
+        fd_mode: str = "central",
+        batch_jac: bool | None = None,
+    ) -> "ContactSurfaceSpace":
+        if value_dim_master is None:
+            value_dim_master = int(getattr(space_master, "value_dim", 1))
+        if value_dim_slave is None:
+            value_dim_slave = int(getattr(space_slave, "value_dim", 1))
+        return cls.from_surfaces(
+            surface_master,
+            surface_slave,
+            elem_conn_master=elem_conn_master,
+            elem_conn_slave=elem_conn_slave,
+            field_master=field_master,
+            field_slave=field_slave,
+            value_dim_master=value_dim_master,
+            value_dim_slave=value_dim_slave,
+            quad_order=quad_order,
+            normal_sign=normal_sign,
+            tol=tol,
+            backend=backend,
+            fd_eps=fd_eps,
+            fd_mode=fd_mode,
+            batch_jac=batch_jac,
+        )
+
+    @classmethod
+    def from_sides(
+        cls,
+        master: ContactSide,
+        slave: ContactSide,
+        *,
+        field_master: str = "a",
+        field_slave: str = "b",
+        quad_order: int = 1,
+        normal_sign: float | None = None,
+        tol: float = 1e-8,
+        backend: str = "jax",
+        fd_eps: float = 1e-6,
+        fd_mode: str = "central",
+        batch_jac: bool | None = None,
+    ) -> "ContactSurfaceSpace":
+        return cls.from_surfaces(
+            master.surface,
+            slave.surface,
+            elem_conn_master=master.elem_conn,
+            elem_conn_slave=slave.elem_conn,
+            field_master=field_master,
+            field_slave=field_slave,
+            value_dim_master=master.value_dim,
+            value_dim_slave=slave.value_dim,
+            quad_order=quad_order,
+            normal_sign=normal_sign,
+            tol=tol,
+            backend=backend,
+            fd_eps=fd_eps,
+            fd_mode=fd_mode,
+            batch_jac=batch_jac,
         )
 
     @classmethod
@@ -108,6 +224,10 @@ class ContactSurfaceSpace:
         quad_order: int = 1,
         normal_sign: float | None = None,
         tol: float = 1e-8,
+        backend: str = "jax",
+        fd_eps: float = 1e-6,
+        fd_mode: str = "central",
+        batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
         surface_master = SurfaceMesh.from_facets(coords_master, facets_master)
         surface_slave = SurfaceMesh.from_facets(coords_slave, facets_slave)
@@ -123,6 +243,10 @@ class ContactSurfaceSpace:
             quad_order=quad_order,
             normal_sign=normal_sign,
             tol=tol,
+            backend=backend,
+            fd_eps=fd_eps,
+            fd_mode=fd_mode,
+            batch_jac=batch_jac,
         )
 
     def _split_fields(self, u: Mapping[str, np.ndarray] | Sequence[np.ndarray]):
@@ -150,6 +274,12 @@ class ContactSurfaceSpace:
             return 1.0
         return 1.0 if np.sum(dots) >= 0.0 else -1.0
 
+    def _resolve_backend(self, backend: str | None) -> str:
+        use_backend = self.backend if backend is None else backend
+        if use_backend not in {"jax", "numpy"}:
+            raise ValueError("backend must be 'jax' or 'numpy'")
+        return use_backend
+
     def assemble_mortar_matrices(self):
         return assemble_mortar_matrices(
             self.supermesh_coords,
@@ -167,8 +297,6 @@ class ContactSurfaceSpace:
         params,
         *,
         normal_sign: float | None = None,
-        dof_source: str = "volume",
-        grad_source: str = "volume",
         normal_source: str = "master",
     ):
         u_master, u_slave = self._split_fields(u)
@@ -199,8 +327,8 @@ class ContactSurfaceSpace:
             normal_from="master",
             master_field=self.field_master,
             normal_sign=normal_sign,
-            grad_source=grad_source,
-            dof_source=dof_source,
+            grad_source="volume",
+            dof_source="volume",
             quad_order=self.quad_order,
             tol=self.tol,
         )
@@ -212,16 +340,18 @@ class ContactSurfaceSpace:
         params,
         *,
         normal_sign: float | None = None,
-        dof_source: str = "volume",
-        grad_source: str = "volume",
         normal_source: str = "master",
         sparse: bool = False,
+        backend: str | None = None,
+        batch_jac: bool | None = None,
     ):
         u_master, u_slave = self._split_fields(u)
         if normal_sign is None:
             normal_sign = self.normal_sign
         if normal_sign is None:
             normal_sign = self._auto_normal_sign()
+        use_backend = self._resolve_backend(backend)
+        use_batch_jac = self.batch_jac if batch_jac is None else batch_jac
         return assemble_mixed_surface_jacobian(
             self.supermesh_coords,
             self.supermesh_conn,
@@ -245,23 +375,25 @@ class ContactSurfaceSpace:
             normal_from="master",
             master_field=self.field_master,
             normal_sign=normal_sign,
-            grad_source=grad_source,
-            dof_source=dof_source,
+            grad_source="volume",
+            dof_source="volume",
             quad_order=self.quad_order,
             tol=self.tol,
             sparse=sparse,
+            backend=use_backend,
+            batch_jac=use_batch_jac,
+            fd_eps=self.fd_eps,
+            fd_mode=self.fd_mode,
         )
 
     def assemble_bilinear(
         self,
         bilin,
         u_master,
-        u_slave,
-        params,
+        u_slave=None,
+        params=None,
         *,
         sparse: bool = False,
-        dof_source: str = "volume",
-        grad_source: str = "volume",
         normal_source: str = "master",
     ):
         """
@@ -272,8 +404,26 @@ class ContactSurfaceSpace:
         - The bilinear must be linear in v1 and v2 and include ds() in its expression.
         - When building dot products, prefer dot(v1, ...) and dot(v2, ...) to keep shapes consistent.
         - Normal orientation, grad_source, and dof_source are fixed internally for simplicity.
+        - u_master/u_slave can be passed as a single mapping/length-2 sequence; in that case,
+          pass params as the next positional arg or a keyword.
         """
         from ..core.weakform import compile_mixed_surface_residual, unknown_ref, test_ref, param_ref, zero_ref
+
+        def _is_field_pair(obj) -> bool:
+            if isinstance(obj, Mapping):
+                return True
+            return isinstance(obj, Sequence) and not hasattr(obj, "shape")
+
+        if params is None:
+            if u_slave is None:
+                raise TypeError("params is required")
+            if _is_field_pair(u_master):
+                params = u_slave
+                u_master, u_slave = self._split_fields(u_master)
+            else:
+                raise TypeError("params is required")
+        elif u_slave is None:
+            u_master, u_slave = self._split_fields(u_master)
 
         v1 = test_ref(self.field_master)
         v2 = test_ref(self.field_slave)
@@ -291,8 +441,6 @@ class ContactSurfaceSpace:
             {self.field_master: u_master, self.field_slave: u_slave},
             params,
             normal_sign=None,
-            dof_source=dof_source,
-            grad_source=grad_source,
             normal_source=normal_source,
             sparse=sparse,
         )

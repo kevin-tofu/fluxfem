@@ -846,8 +846,6 @@ def build_fluxfem_contact(
     h: float,
     use_penalty: bool,
     use_traction: bool,
-    grad_source: str,
-    dof_source: str,
     normal_sign: float | None,
     quad_order: int,
 ) -> np.ndarray:
@@ -859,13 +857,11 @@ def build_fluxfem_contact(
 
     surf_a = ff.SurfaceMesh.from_facets(coords, facets)
     surf_b = ff.SurfaceMesh.from_facets(coords, facets)
-    contact = ff.ContactSurfaceSpace.from_surfaces(
-        surf_a,
-        surf_b,
-        elem_conn_master=conn,
-        elem_conn_slave=conn,
-        value_dim_master=3,
-        value_dim_slave=3,
+    side_a = ff.ContactSide.from_surfaces(surf_a, elem_conn=conn, value_dim=3)
+    side_b = ff.ContactSide.from_surfaces(surf_b, elem_conn=conn, value_dim=3)
+    contact = ff.ContactSurfaceSpace.from_sides(
+        side_a,
+        side_b,
         quad_order=quad_order,
         normal_sign=normal_sign,
     )
@@ -898,8 +894,6 @@ def build_fluxfem_contact(
         u_b,
         params=params,
         sparse=False,
-        grad_source=grad_source,
-        dof_source=dof_source,
     )
     return np.asarray(K)
 
@@ -1119,8 +1113,6 @@ def _vector_perm_for_skfem(
 if __name__ == "__main__":
     alpha = 10.0
     h = 1.0
-    grad_source = os.getenv("GRAD_SOURCE", "volume")
-    dof_source = os.getenv("DOF_SOURCE", "volume")
     quad_order = int(os.getenv("QUAD_ORDER", "5"))
     if quad_order > 5:
         print(f"[compare] quad_order={quad_order} not supported; using quad_order=5")
@@ -1141,7 +1133,6 @@ if __name__ == "__main__":
     ]
     elems = ["hex8", "hex27", "tet4", "tet10"]
 
-    print(f"[compare] grad_source={grad_source} dof_source={dof_source}")
     for elem in elems:
         if not _enabled(elem):
             continue
@@ -1173,8 +1164,6 @@ if __name__ == "__main__":
                 h=h_use,
                 use_penalty=use_penalty,
                 use_traction=use_traction,
-                grad_source=grad_source,
-                dof_source=dof_source,
                 normal_sign=sign,
                 quad_order=quad_order,
             )
