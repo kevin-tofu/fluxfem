@@ -8,6 +8,8 @@ import numpy as np
 from .mortar import (
     assemble_mixed_surface_jacobian,
     assemble_mixed_surface_residual,
+    assemble_onesided_bilinear,
+    assemble_contact_onesided_floor,
     assemble_mortar_matrices,
     map_surface_facets_to_tet_elements,
     map_surface_facets_to_hex_elements,
@@ -25,10 +27,21 @@ class ContactSide:
     space: object | None = None
 
     @classmethod
-    def from_facets(cls, mesh: BaseMesh, facets: np.ndarray, space, *, mode: str = "touching"):
+    def from_facets(
+        cls,
+        mesh: BaseMesh,
+        facets: np.ndarray,
+        space=None,
+        *,
+        value_dim: int | None = None,
+        mode: str = "touching",
+    ):
         side = mesh.surface_with_elem_conn_from_facets(facets, mode=mode)
-        value_dim = int(getattr(space, "value_dim", 1))
-        return cls(surface=side.surface, elem_conn=side.elem_conn, value_dim=value_dim, space=space)
+        if value_dim is None:
+            if space is None:
+                raise ValueError("space or value_dim is required for ContactSide.from_facets")
+            value_dim = int(getattr(space, "value_dim", 1))
+        return cls(surface=side.surface, elem_conn=side.elem_conn, value_dim=int(value_dim), space=space)
 
     @classmethod
     def from_surfaces(
@@ -40,6 +53,237 @@ class ContactSide:
         space: object | None = None,
     ):
         return cls(surface=surface, elem_conn=elem_conn, value_dim=int(value_dim), space=space)
+
+
+def _facet_map_for_elem_conn(surface: SurfaceMesh, elem_conn: np.ndarray | None) -> np.ndarray:
+    if elem_conn is None:
+        raise ValueError("elem_conn is required to build facet_to_elem mapping.")
+    if elem_conn.shape[1] in {4, 10}:
+        return map_surface_facets_to_tet_elements(surface, elem_conn)
+    if elem_conn.shape[1] in {8, 20, 27}:
+        return map_surface_facets_to_hex_elements(surface, elem_conn)
+    raise NotImplementedError("elem_conn must be tet4/tet10/hex8/hex20/hex27")
+
+
+def facet_gap_values(
+    coords: np.ndarray,
+    facets: np.ndarray,
+    u: np.ndarray,
+    n: np.ndarray,
+    c: float,
+    *,
+    value_dim: int | None = None,
+    reduce: str = "min",
+) -> tuple[np.ndarray, float]:
+    """
+    Compute per-facet gap values for a one-sided contact plane.
+
+    Returns (g_f, min_g_all) where g_f is reduced per facet and min_g_all is
+    the global minimum node gap.
+    """
+    coords_np = np.asarray(coords, dtype=float)
+    if value_dim is None:
+        value_dim = int(coords_np.shape[1])
+    u_nodes = np.asarray(u, dtype=float).reshape(-1, value_dim)
+    x_cur = coords_np + u_nodes
+    g_all = np.dot(x_cur, np.asarray(n, dtype=float)) - float(c)
+    min_g_all = float(np.min(g_all)) if g_all.size else 0.0
+    if facets is None or len(facets) == 0:
+        return np.zeros((0,), dtype=float), min_g_all
+    if reduce == "min":
+        g_f = np.array([np.min(g_all[np.asarray(facet, dtype=int)]) for facet in facets], dtype=float)
+    elif reduce == "mean":
+        g_f = np.array([np.mean(g_all[np.asarray(facet, dtype=int)]) for facet in facets], dtype=float)
+    else:
+        raise ValueError("reduce must be 'min' or 'mean'")
+    return g_f, min_g_all
+
+
+def active_contact_facets(
+    coords: np.ndarray,
+    facets: np.ndarray,
+    u: np.ndarray,
+    n: np.ndarray,
+    c: float,
+    *,
+    value_dim: int | None = None,
+    reduce: str = "min",
+    threshold: float = 0.0,
+) -> tuple[np.ndarray, float]:
+    """Return active facet indices and global minimum gap for one-sided contact."""
+    g_f, min_g_all = facet_gap_values(
+        coords,
+        facets,
+        u,
+        n,
+        c,
+        value_dim=value_dim,
+        reduce=reduce,
+    )
+    active_ids = np.nonzero(g_f < threshold)[0]
+    return active_ids, min_g_all
+
+
+@dataclass(frozen=True)
+class OneSidedContact:
+    side: ContactSide
+    n: np.ndarray | None
+    c: float
+    k: float
+    beta: float
+    quad_order: int = 2
+    normal_sign: float = 1.0
+    tol: float = 1e-8
+    facet_map: np.ndarray | None = None
+
+    @classmethod
+    def from_side(
+        cls,
+        side: ContactSide,
+        *,
+        n: np.ndarray | None,
+        c: float,
+        k: float,
+        beta: float,
+        quad_order: int = 2,
+        normal_sign: float = 1.0,
+        tol: float = 1e-8,
+        facet_map: np.ndarray | None = None,
+    ) -> "OneSidedContact":
+        if facet_map is None:
+            facet_map = _facet_map_for_elem_conn(side.surface, side.elem_conn)
+        return cls(
+            side=side,
+            n=n,
+            c=float(c),
+            k=float(k),
+            beta=float(beta),
+            quad_order=int(quad_order),
+            normal_sign=float(normal_sign),
+            tol=float(tol),
+            facet_map=facet_map,
+        )
+
+    def assemble(self, u, *, return_metrics: bool = False):
+        return assemble_contact_onesided_floor(
+            self.side.surface,
+            np.asarray(u, dtype=float),
+            n=None if self.n is None else np.asarray(self.n, dtype=float),
+            c=self.c,
+            k=self.k,
+            beta=self.beta,
+            value_dim=self.side.value_dim,
+            elem_conn=np.asarray(self.side.elem_conn) if self.side.elem_conn is not None else None,
+            facet_to_elem=self.facet_map,
+            quad_order=self.quad_order,
+            normal_sign=self.normal_sign,
+            tol=self.tol,
+            return_metrics=return_metrics,
+        )
+
+
+@dataclass(eq=False)
+class OneSidedContactSurfaceSpace:
+    """Surface wrapper for one-sided (Dirichlet) contact assembly."""
+
+    surface_slave: SurfaceMesh
+    elem_conn_slave: np.ndarray
+    facet_to_elem_slave: np.ndarray
+    value_dim: int = 1
+    quad_order: int = 2
+    normal_sign: float = 1.0
+    tol: float = 1e-8
+    surface_master: SurfaceMesh | None = None
+    elem_conn_master: np.ndarray | None = None
+    facet_to_elem_master: np.ndarray | None = None
+
+    @classmethod
+    def from_side(
+        cls,
+        side: ContactSide,
+        *,
+        surface_master: SurfaceMesh | None = None,
+        elem_conn_master: np.ndarray | None = None,
+        facet_to_elem_master: np.ndarray | None = None,
+        quad_order: int = 2,
+        normal_sign: float = 1.0,
+        tol: float = 1e-8,
+    ) -> "OneSidedContactSurfaceSpace":
+        if side.elem_conn is None:
+            raise ValueError("side.elem_conn is required for one-sided assembly")
+        facet_map_slave = _facet_map_for_elem_conn(side.surface, side.elem_conn)
+        facet_map_master = facet_to_elem_master
+        if surface_master is not None and elem_conn_master is not None and facet_map_master is None:
+            facet_map_master = _facet_map_for_elem_conn(surface_master, elem_conn_master)
+        return cls(
+            surface_slave=side.surface,
+            elem_conn_slave=np.asarray(side.elem_conn, dtype=int),
+            facet_to_elem_slave=np.asarray(facet_map_slave, dtype=int),
+            value_dim=int(side.value_dim),
+            quad_order=int(quad_order),
+            normal_sign=float(normal_sign),
+            tol=float(tol),
+            surface_master=surface_master,
+            elem_conn_master=None if elem_conn_master is None else np.asarray(elem_conn_master, dtype=int),
+            facet_to_elem_master=None if facet_map_master is None else np.asarray(facet_map_master, dtype=int),
+        )
+
+    @classmethod
+    def from_facets(
+        cls,
+        mesh: BaseMesh,
+        facets: np.ndarray,
+        space=None,
+        *,
+        surface_master: SurfaceMesh | None = None,
+        elem_conn_master: np.ndarray | None = None,
+        facet_to_elem_master: np.ndarray | None = None,
+        value_dim: int | None = None,
+        quad_order: int = 2,
+        normal_sign: float = 1.0,
+        tol: float = 1e-8,
+        mode: str = "touching",
+    ) -> "OneSidedContactSurfaceSpace":
+        side = ContactSide.from_facets(mesh, facets, space, value_dim=value_dim, mode=mode)
+        return cls.from_side(
+            side,
+            surface_master=surface_master,
+            elem_conn_master=elem_conn_master,
+            facet_to_elem_master=facet_to_elem_master,
+            quad_order=quad_order,
+            normal_sign=normal_sign,
+            tol=tol,
+        )
+
+    def assemble_bilinear(
+        self,
+        u_hat_fn,
+        params: "WeakParams",
+        *,
+        u_master: np.ndarray | None = None,
+        grad_source: str = "volume",
+        dof_source: str = "volume",
+        quad_order: int | None = None,
+        normal_sign: float | None = None,
+        tol: float | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        return assemble_onesided_bilinear(
+            self.surface_slave,
+            u_hat_fn,
+            params,
+            surface_master=self.surface_master,
+            u_master=u_master,
+            value_dim=self.value_dim,
+            elem_conn=self.elem_conn_slave,
+            facet_to_elem=self.facet_to_elem_slave,
+            elem_conn_master=self.elem_conn_master,
+            facet_to_elem_master=self.facet_to_elem_master,
+            grad_source=grad_source,
+            dof_source=dof_source,
+            quad_order=self.quad_order if quad_order is None else int(quad_order),
+            normal_sign=self.normal_sign if normal_sign is None else float(normal_sign),
+            tol=self.tol if tol is None else float(tol),
+        )
 
 
 @dataclass(eq=False)
@@ -66,6 +310,7 @@ class ContactSurfaceSpace:
     backend: str = "jax"
     fd_eps: float = 1e-6
     fd_mode: str = "central"
+    fd_block_size: int = 1
     batch_jac: bool | None = None
 
     @classmethod
@@ -86,6 +331,7 @@ class ContactSurfaceSpace:
         backend: str = "jax",
         fd_eps: float = 1e-6,
         fd_mode: str = "central",
+        fd_block_size: int = 1,
         batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
         sm = build_surface_supermesh(surface_master, surface_slave, tol=tol)
@@ -126,6 +372,7 @@ class ContactSurfaceSpace:
             backend=backend,
             fd_eps=fd_eps,
             fd_mode=fd_mode,
+            fd_block_size=fd_block_size,
             batch_jac=batch_jac,
         )
 
@@ -149,6 +396,7 @@ class ContactSurfaceSpace:
         backend: str = "jax",
         fd_eps: float = 1e-6,
         fd_mode: str = "central",
+        fd_block_size: int = 1,
         batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
         if value_dim_master is None:
@@ -170,6 +418,7 @@ class ContactSurfaceSpace:
             backend=backend,
             fd_eps=fd_eps,
             fd_mode=fd_mode,
+            fd_block_size=fd_block_size,
             batch_jac=batch_jac,
         )
 
@@ -187,6 +436,7 @@ class ContactSurfaceSpace:
         backend: str = "jax",
         fd_eps: float = 1e-6,
         fd_mode: str = "central",
+        fd_block_size: int = 1,
         batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
         return cls.from_surfaces(
@@ -204,6 +454,7 @@ class ContactSurfaceSpace:
             backend=backend,
             fd_eps=fd_eps,
             fd_mode=fd_mode,
+            fd_block_size=fd_block_size,
             batch_jac=batch_jac,
         )
 
@@ -384,6 +635,7 @@ class ContactSurfaceSpace:
             batch_jac=use_batch_jac,
             fd_eps=self.fd_eps,
             fd_mode=self.fd_mode,
+            fd_block_size=self.fd_block_size,
         )
 
     def assemble_bilinear(
@@ -407,7 +659,14 @@ class ContactSurfaceSpace:
         - u_master/u_slave can be passed as a single mapping/length-2 sequence; in that case,
           pass params as the next positional arg or a keyword.
         """
-        from ..core.weakform import compile_mixed_surface_residual, unknown_ref, test_ref, param_ref, zero_ref
+        from ..core.weakform import (
+            compile_mixed_surface_residual,
+            compile_mixed_surface_residual_numpy,
+            unknown_ref,
+            test_ref,
+            param_ref,
+            zero_ref,
+        )
 
         def _is_field_pair(obj) -> bool:
             if isinstance(obj, Mapping):
@@ -435,7 +694,11 @@ class ContactSurfaceSpace:
 
         expr_a = bilin(v1, z2, u1, u2, p)
         expr_b = bilin(z1, v2, u1, u2, p)
-        res_form = compile_mixed_surface_residual({self.field_master: expr_a, self.field_slave: expr_b})
+        use_backend = self._resolve_backend(None)
+        if use_backend == "numpy":
+            res_form = compile_mixed_surface_residual_numpy({self.field_master: expr_a, self.field_slave: expr_b})
+        else:
+            res_form = compile_mixed_surface_residual({self.field_master: expr_a, self.field_slave: expr_b})
         return self.assemble_jacobian(
             res_form,
             {self.field_master: u_master, self.field_slave: u_slave},
@@ -443,7 +706,15 @@ class ContactSurfaceSpace:
             normal_sign=None,
             normal_source=normal_source,
             sparse=sparse,
+            backend=use_backend,
         )
 
 
-__all__ = ["ContactSurfaceSpace"]
+__all__ = [
+    "ContactSide",
+    "OneSidedContact",
+    "OneSidedContactSurfaceSpace",
+    "ContactSurfaceSpace",
+    "facet_gap_values",
+    "active_contact_facets",
+]

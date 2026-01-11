@@ -1,4 +1,4 @@
-from .base import BaseMesh, BaseMeshPytree
+from .base import BaseMesh, BaseMeshPytree, SurfaceWithFacetMap
 from .hex import HexMesh, HexMeshPytree, StructuredHexBox, tag_axis_minmax_facets
 from .tet import TetMesh, TetMeshPytree, StructuredTetBox, StructuredTetTensorBox
 from .predicate import bbox_predicate, plane_predicate, axis_plane_predicate, slab_predicate
@@ -7,17 +7,34 @@ from .supermesh import SurfaceSupermesh, build_surface_supermesh
 from .mortar import (
     MortarMatrix,
     assemble_mortar_matrices,
+    assemble_contact_onesided_floor,
     map_surface_facets_to_tet_elements,
     map_surface_facets_to_hex_elements,
     assemble_mixed_surface_jacobian,
     assemble_mixed_surface_residual,
+    tri_area,
+    tri_quadrature,
+    facet_triangles,
+    facet_shape_values,
+    volume_shape_values_at_points,
+    quad_shape_and_local,
+    quad9_shape_values,
+    hex27_gradN,
 )
-from .contact import ContactSurfaceSpace, ContactSide
+from .contact import (
+    ContactSurfaceSpace,
+    ContactSide,
+    OneSidedContact,
+    OneSidedContactSurfaceSpace,
+    facet_gap_values,
+    active_contact_facets,
+)
 from .io import load_gmsh_mesh, load_gmsh_hex_mesh, load_gmsh_tet_mesh, make_surface_from_facets
 
 __all__ = [
     "BaseMesh",
     "BaseMeshPytree",
+    "SurfaceWithFacetMap",
     "bbox_predicate",
     "plane_predicate",
     "axis_plane_predicate",
@@ -38,12 +55,25 @@ __all__ = [
     "build_surface_supermesh",
     "MortarMatrix",
     "assemble_mortar_matrices",
+    "assemble_contact_onesided_floor",
     "assemble_mixed_surface_residual",
     "assemble_mixed_surface_jacobian",
     "map_surface_facets_to_tet_elements",
     "map_surface_facets_to_hex_elements",
+    "tri_area",
+    "tri_quadrature",
+    "facet_triangles",
+    "facet_shape_values",
+    "volume_shape_values_at_points",
+    "quad_shape_and_local",
+    "quad9_shape_values",
+    "hex27_gradN",
     "ContactSurfaceSpace",
     "ContactSide",
+    "OneSidedContact",
+    "OneSidedContactSurfaceSpace",
+    "facet_gap_values",
+    "active_contact_facets",
     "load_gmsh_mesh",
     "load_gmsh_hex_mesh",
     "load_gmsh_tet_mesh",

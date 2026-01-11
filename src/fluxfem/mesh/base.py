@@ -429,6 +429,21 @@ class BaseMeshClosure:
         from .surface import surface_with_elem_conn
         return surface_with_elem_conn(self, facets, mode=mode)
 
+    def surface_with_facet_map_from_facets(self, facets):
+        """
+        Build a SurfaceMesh and facet-to-element map for the given facets.
+        """
+        surface = self.surface_from_facets(facets)
+        conn = np.asarray(self.conn, dtype=int)
+        from .mortar import map_surface_facets_to_tet_elements, map_surface_facets_to_hex_elements
+        if conn.shape[1] in {4, 10}:
+            facet_map = map_surface_facets_to_tet_elements(surface, conn)
+        elif conn.shape[1] in {8, 20, 27}:
+            facet_map = map_surface_facets_to_hex_elements(surface, conn)
+        else:
+            raise NotImplementedError("elem_conn must be tet/hex (4/10/8/20/27)")
+        return SurfaceWithFacetMap(surface=surface, facet_map=facet_map)
+
 
 @jax.tree_util.register_pytree_node_class
 class BaseMeshPytree(BaseMeshClosure):
@@ -444,3 +459,7 @@ class BaseMeshPytree(BaseMeshClosure):
 
 
 BaseMesh = BaseMeshClosure
+@dataclass(frozen=True)
+class SurfaceWithFacetMap:
+    surface: object
+    facet_map: np.ndarray

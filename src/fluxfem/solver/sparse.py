@@ -196,6 +196,11 @@ class FluxSparseMatrix:
         """Return a new FluxSparseMatrix sharing the same pattern with updated data."""
         return FluxSparseMatrix(self.pattern, data)
 
+    def add_dense(self, dense):
+        """Return a new FluxSparseMatrix with dense entries added on the pattern."""
+        dense_vals = jnp.asarray(dense)[self.pattern.rows, self.pattern.cols]
+        return FluxSparseMatrix(self.pattern, self.data + dense_vals)
+
     def to_coo(self):
         return self.pattern.rows, self.pattern.cols, self.data, self.pattern.n_dofs
 

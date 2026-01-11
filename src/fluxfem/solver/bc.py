@@ -118,6 +118,27 @@ def make_vector_surface_load_form(load_fn):
     return _form
 
 
+def traction_vector(traction, traction_dir: str) -> np.ndarray:
+    """
+    Resolve traction magnitude and direction string into a vector.
+    """
+    dir_map = {
+        "x": (1.0, 0.0, 0.0),
+        "xpos": (1.0, 0.0, 0.0),
+        "xneg": (-1.0, 0.0, 0.0),
+        "y": (0.0, 1.0, 0.0),
+        "ypos": (0.0, 1.0, 0.0),
+        "yneg": (0.0, -1.0, 0.0),
+        "z": (0.0, 0.0, 1.0),
+        "zpos": (0.0, 0.0, 1.0),
+        "zneg": (0.0, 0.0, -1.0),
+    }
+    key = traction_dir.strip().lower()
+    if key not in dir_map:
+        raise ValueError("TRACTION_DIR must be one of x/xpos/xneg/y/ypos/yneg/z/zpos/zneg")
+    return float(traction) * np.asarray(dir_map[key], dtype=float)
+
+
 def _surface_quadrature(node_coords: np.ndarray):
     m = node_coords.shape[0]
     if m == 4:

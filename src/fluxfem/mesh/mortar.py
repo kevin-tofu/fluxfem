@@ -88,6 +88,52 @@ def _tri_area(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
     return 0.5 * float(np.linalg.norm(np.cross(b - a, c - a)))
 
 
+def tri_area(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
+    """Public wrapper for triangle area (used in contact diagnostics)."""
+    return _tri_area(a, b, c)
+
+
+def tri_quadrature(order: int) -> tuple[np.ndarray, np.ndarray]:
+    """Public wrapper for triangle quadrature."""
+    return _tri_quadrature(order)
+
+
+def facet_triangles(coords: np.ndarray, facet_nodes: np.ndarray) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Public wrapper for facet triangulation."""
+    return _facet_triangles(coords, facet_nodes)
+
+
+def facet_shape_values(point: np.ndarray, facet_nodes: np.ndarray, coords: np.ndarray, *, tol: float) -> np.ndarray:
+    """Public wrapper for facet shape values at a point."""
+    return _facet_shape_values(point, facet_nodes, coords, tol=tol)
+
+
+def volume_shape_values_at_points(x_q: np.ndarray, elem_coords: np.ndarray, *, tol: float) -> np.ndarray:
+    """Public wrapper for volume shape values at quadrature points."""
+    return _volume_shape_values_at_points(x_q, elem_coords, tol=tol)
+
+
+def quad_shape_and_local(
+    point: np.ndarray,
+    quad_nodes: np.ndarray,
+    corner_coords: np.ndarray,
+    *,
+    tol: float,
+) -> tuple[np.ndarray, float, float]:
+    """Public wrapper for quad shape values and local coordinates."""
+    return _quad_shape_and_local(point, quad_nodes, corner_coords, tol=tol)
+
+
+def quad9_shape_values(xi: float, eta: float) -> np.ndarray:
+    """Public wrapper for quad9 shape values."""
+    return _quad9_shape_values(xi, eta)
+
+
+def hex27_gradN(point: np.ndarray, elem_coords: np.ndarray, *, tol: float) -> np.ndarray:
+    """Public wrapper for hex27 gradN (diagnostics)."""
+    return _hex27_gradN(point, elem_coords, tol=tol)
+
+
 def _quad_quadrature(order: int) -> tuple[np.ndarray, np.ndarray]:
     if order <= 1:
         order = 2
@@ -2514,6 +2560,7 @@ def assemble_mixed_surface_jacobian(
     batch_jac: bool | None = None,
     fd_eps: float = 1e-6,
     fd_mode: str = "central",
+    fd_block_size: int = 1,
 ):
     """
     Assemble mixed surface Jacobian over a supermesh (centroid quadrature).
@@ -2526,6 +2573,16 @@ def assemble_mixed_surface_jacobian(
     _mortar_dbg(
         f"[mortar] enter assemble_mixed_surface_jacobian quad_order={quad_order} backend={backend}"
     )
+    trace = os.getenv("FLUXFEM_MORTAR_TRACE", "0") not in ("0", "", "false", "False")
+    trace_max = int(os.getenv("FLUXFEM_MORTAR_TRACE_MAX", "5"))
+    trace_every = int(os.getenv("FLUXFEM_MORTAR_TRACE_EVERY", "50"))
+    trace_fd_max = int(os.getenv("FLUXFEM_MORTAR_TRACE_FD_MAX", "5"))
+    def _trace(msg: str) -> None:
+        if trace:
+            print(msg, flush=True)
+    def _trace_time(msg: str, t0: float) -> None:
+        if trace:
+            print(f"{msg}: {time.perf_counter() - t0:.6f}s", flush=True)
     coords_a = np.asarray(surface_a.coords, dtype=float)
     coords_b = np.asarray(surface_b.coords, dtype=float)
     facets_a = np.asarray(surface_a.conn, dtype=int)
@@ -2535,6 +2592,11 @@ def assemble_mixed_surface_jacobian(
     if offset_b is None:
         offset_b = offset_a + n_a
     n_total = int(offset_b + n_b)
+    if trace:
+        _trace("[CONTACT] assemble_mixed_surface_jacobian ENTER")
+        _trace(f"[CONTACT] shapes: coords_a={coords_a.shape} coords_b={coords_b.shape} supermesh={supermesh_conn.shape}")
+        _trace(f"[CONTACT] dtypes: coords_a={coords_a.dtype} coords_b={coords_b.dtype} supermesh={supermesh_conn.dtype}")
+        _trace(f"[CONTACT] finite: coords_a={np.isfinite(coords_a).all()} coords_b={np.isfinite(coords_b).all()}")
 
     normals_a = None
     normals_b = None
@@ -2924,11 +2986,18 @@ def assemble_mixed_surface_jacobian(
             return K_dense
 
     _mortar_dbg("[mortar] step: supermesh loop START")
-    for (tri, a, b, c), fa, fb in zip(
-        _iter_supermesh_tris(supermesh_coords, supermesh_conn),
-        source_facets_a,
-        source_facets_b,
+    t_loop = time.perf_counter()
+    for it, ((tri, a, b, c), fa, fb) in enumerate(
+        zip(
+            _iter_supermesh_tris(supermesh_coords, supermesh_conn),
+            source_facets_a,
+            source_facets_b,
+        )
     ):
+        log_tri = trace and (it < trace_max or it % trace_every == 0)
+        if log_tri:
+            _trace(f"[CONTACT] tri {it} start fa={int(fa)} fb={int(fb)}")
+        t_geom = time.perf_counter()
         area = _tri_area(a, b, c)
         if area <= tol:
             continue
@@ -2954,6 +3023,8 @@ def assemble_mixed_surface_jacobian(
         facet_a = facets_a[int(fa)]
         facet_b = facets_b[int(fb)]
         x_q = np.array([a + r * (b - a) + s * (c - a) for r, s in quad_pts], dtype=float)
+        if log_tri:
+            _trace_time(f"[CONTACT] tri {it} geom_done", t_geom)
 
         gradNa = None
         gradNb = None
@@ -2998,6 +3069,7 @@ def assemble_mixed_surface_jacobian(
                 elem_b=elem_id_b,
             )
 
+        t_basis = time.perf_counter()
         if grad_source == "surface":
             gradNa = np.array(
                 [_surface_gradN(pt, facet_a, coords_a, tol=tol) for pt in x_q],
@@ -3030,6 +3102,8 @@ def assemble_mixed_surface_jacobian(
         else:
             Na = np.array([_facet_shape_values(pt, facet_a, coords_a, tol=tol) for pt in x_q], dtype=float)
             Nb = np.array([_facet_shape_values(pt, facet_b, coords_b, tol=tol) for pt in x_q], dtype=float)
+        if log_tri:
+            _trace_time(f"[CONTACT] tri {it} basis_done", t_basis)
 
         global _DEBUG_CONTACT_MAP_ONCE
         if diag_map and not _DEBUG_CONTACT_MAP_ONCE:
@@ -3147,10 +3221,11 @@ def assemble_mixed_surface_jacobian(
                     fe = np.sum(np.asarray(fe_field), axis=0)
                 else:
                     wJ = np.asarray(ctx.w) * np.asarray(ctx.detJ)
-                    fe = np.einsum("qi,q->i", np.asarray(fe_field), wJ)
+                    fe = np.einsum("qi...,q->i...", np.asarray(fe_field), wJ)
                 res_parts.append(np.asarray(fe))
             return np.concatenate(res_parts, axis=0)
 
+        t_jac = time.perf_counter()
         if backend == "jax":
             J_local = jax.jacrev(_res_local)(jnp.asarray(u_local))
             J_local_np = np.asarray(J_local)
@@ -3158,19 +3233,60 @@ def assemble_mixed_surface_jacobian(
             n_ldofs = int(u_local.shape[0])
             J_local_np = np.zeros((n_ldofs, n_ldofs), dtype=float)
             u_base = np.asarray(u_local, dtype=float)
+            if log_tri:
+                _trace(f"[CONTACT] tri {it} fd_start n_ldofs={n_ldofs} fd_mode={fd_mode}")
             r0 = _res_local_np(u_base) if fd_mode == "forward" else None
-            for i in range(n_ldofs):
-                u_p = u_base.copy()
-                u_p[i] += fd_eps
-                r_p = _res_local_np(u_p)
-                if fd_mode == "central":
-                    u_m = u_base.copy()
-                    u_m[i] -= fd_eps
-                    r_m = _res_local_np(u_m)
-                    col = (r_p - r_m) / (2.0 * fd_eps)
-                else:
-                    col = (r_p - r0) / fd_eps
-                J_local_np[:, i] = np.asarray(col, dtype=float)
+            if log_tri and fd_mode == "forward":
+                _trace(f"[CONTACT] tri {it} fd_r0_done")
+            block = max(1, int(fd_block_size))
+            if block <= 1:
+                for i in range(n_ldofs):
+                    log_fd = log_tri and i < trace_fd_max
+                    if log_fd:
+                        _trace(f"[CONTACT] tri {it} fd_col {i} start")
+                    u_p = u_base.copy()
+                    u_p[i] += fd_eps
+                    t_rp = time.perf_counter()
+                    r_p = _res_local_np(u_p)
+                    if log_fd:
+                        _trace_time(f"[CONTACT] tri {it} fd_col {i} r_p", t_rp)
+                    if fd_mode == "central":
+                        u_m = u_base.copy()
+                        u_m[i] -= fd_eps
+                        t_rm = time.perf_counter()
+                        r_m = _res_local_np(u_m)
+                        if log_fd:
+                            _trace_time(f"[CONTACT] tri {it} fd_col {i} r_m", t_rm)
+                        col = (r_p - r_m) / (2.0 * fd_eps)
+                    else:
+                        col = (r_p - r0) / fd_eps
+                    J_local_np[:, i] = np.asarray(col, dtype=float)
+                    if log_fd:
+                        _trace(f"[CONTACT] tri {it} fd_col {i} done")
+            else:
+                for i0 in range(0, n_ldofs, block):
+                    idxs = np.arange(i0, min(i0 + block, n_ldofs))
+                    u_block = np.repeat(u_base[:, None], idxs.size, axis=1)
+                    for bi, idx in enumerate(idxs):
+                        u_block[idx, bi] += fd_eps
+                    t_rp = time.perf_counter()
+                    r_p = _res_local_np(u_block)
+                    if log_tri and i0 < trace_fd_max:
+                        _trace_time(f"[CONTACT] tri {it} fd_block r_p", t_rp)
+                    if fd_mode == "central":
+                        u_block_m = np.repeat(u_base[:, None], idxs.size, axis=1)
+                        for bi, idx in enumerate(idxs):
+                            u_block_m[idx, bi] -= fd_eps
+                        t_rm = time.perf_counter()
+                        r_m = _res_local_np(u_block_m)
+                        if log_tri and i0 < trace_fd_max:
+                            _trace_time(f"[CONTACT] tri {it} fd_block r_m", t_rm)
+                        cols = (r_p - r_m) / (2.0 * fd_eps)
+                    else:
+                        cols = (r_p - r0[:, None]) / fd_eps
+                    J_local_np[:, idxs] = np.asarray(cols, dtype=float)
+        if log_tri:
+            _trace_time(f"[CONTACT] tri {it} jac_done", t_jac)
 
         dofs_a = _global_dof_indices(nodes_a, value_dim_a, int(offset_a))
         dofs_b = _global_dof_indices(nodes_b, value_dim_b, int(offset_b))
@@ -3201,15 +3317,13 @@ def assemble_mixed_surface_jacobian(
                 tol=tol,
             )
         dofs = np.concatenate([dofs_a, dofs_b], axis=0)
-        for i, gi in enumerate(dofs):
-            for j, gj in enumerate(dofs):
-                val = float(J_local_np[i, j])
-                if sparse:
-                    rows.append(int(gi))
-                    cols.append(int(gj))
-                    data.append(val)
-                else:
-                    K_dense[int(gi), int(gj)] += val
+        if sparse:
+            n_ldofs = int(dofs.shape[0])
+            rows.extend(np.repeat(dofs, n_ldofs).tolist())
+            cols.extend(np.tile(dofs, n_ldofs).tolist())
+            data.extend(J_local_np.reshape(-1).tolist())
+        else:
+            K_dense[np.ix_(dofs, dofs)] += J_local_np
 
 
     if proj_diag:
@@ -3220,7 +3334,7 @@ def assemble_mixed_surface_jacobian(
     return K_dense
 
 
-def assemble_nitsche_onesided_dirichlet(
+def assemble_onesided_bilinear(
     surface_slave: SurfaceMesh,
     u_hat_fn,
     params: "WeakParams",
@@ -3275,7 +3389,13 @@ def assemble_nitsche_onesided_dirichlet(
     if grad_source != "volume" or dof_source != "volume":
         raise ValueError("one-sided Nitsche currently supports only volume/volume")
 
-    from ..core.weakform import Params, compile_mixed_surface_residual, param_ref, test_ref, unknown_ref
+    from ..core.weakform import (
+        Params,
+        compile_mixed_surface_residual_numpy,
+        param_ref,
+        test_ref,
+        unknown_ref,
+    )
     import fluxfem.helpers_wf as h_wf
 
     u = unknown_ref("u")
@@ -3293,7 +3413,7 @@ def assemble_nitsche_onesided_dirichlet(
         + sym_term_hat
         - (p.alpha * p.inv_h) * h_wf.dot(v, p.u_hat)
     ) * h_wf.ds()
-    res_form = compile_mixed_surface_residual({"u": expr})
+    res_form = compile_mixed_surface_residual_numpy({"u": expr})
     includes_measure = res_form._includes_measure
 
     quad_pts, quad_w = _tri_quadrature(quad_order) if quad_order > 0 else (np.array([[1.0 / 3.0, 1.0 / 3.0]]), np.array([0.5]))
@@ -3402,25 +3522,36 @@ def assemble_nitsche_onesided_dirichlet(
             sizes = (u_zero.shape[0],)
             slices = {"u": slice(0, sizes[0])}
 
-            def _res_local(u_vec):
+            def _res_local_np_single(u_vec: np.ndarray) -> np.ndarray:
                 u_local = {"u": u_vec[slices["u"]]}
                 fe_q = res_form(ctx, u_local, params_local)["u"]
                 if includes_measure.get("u", False):
-                    fe = jnp.sum(jnp.asarray(fe_q), axis=0)
-                else:
-                    wJ = jnp.asarray(ctx.w) * jnp.asarray(ctx.detJ)
-                    fe = jnp.einsum("qi,q->i", jnp.asarray(fe_q), wJ)
-                return fe
+                    return np.sum(np.asarray(fe_q), axis=0)
+                wJ = np.asarray(ctx.w) * np.asarray(ctx.detJ)
+                return np.einsum("qi,q->i", np.asarray(fe_q), wJ)
 
-            J_local = jax.jacrev(_res_local)(jnp.asarray(u_zero))
-            f_local = np.asarray(_res_local(jnp.asarray(u_zero)))
-            k_local = np.asarray(J_local)
+            def _res_local_np(u_vec: np.ndarray) -> np.ndarray:
+                if u_vec.ndim == 1:
+                    return _res_local_np_single(u_vec)
+                out = np.empty((u_vec.shape[0], u_vec.shape[1]), dtype=float)
+                for col in range(u_vec.shape[1]):
+                    out[:, col] = _res_local_np_single(u_vec[:, col])
+                return out
+
+            f_local = _res_local_np(u_zero)
+            n_ldofs = int(u_zero.shape[0])
+            k_local = np.zeros((n_ldofs, n_ldofs), dtype=float)
+            block = max(1, int(os.getenv("FLUXFEM_ONESIDE_BLOCK_SIZE", "16")))
+            for start in range(0, n_ldofs, block):
+                idxs = np.arange(start, min(n_ldofs, start + block), dtype=int)
+                u_block = np.zeros((n_ldofs, idxs.size), dtype=float)
+                u_block[idxs, np.arange(idxs.size, dtype=int)] = 1.0
+                r_block = _res_local_np(u_block)
+                k_local[:, idxs] = r_block - f_local[:, None]
 
             dofs = _global_dof_indices(nodes, value_dim, 0)
-            for i, gi in enumerate(dofs):
-                f[int(gi)] += float(f_local[i])
-                for j, gj in enumerate(dofs):
-                    K[int(gi), int(gj)] += float(k_local[i, j])
+            f[dofs] += f_local
+            K[np.ix_(dofs, dofs)] += k_local
 
     return K, f
 
