@@ -143,6 +143,29 @@ def free_dofs(n_dofs: int, dir_dofs) -> np.ndarray:
     return np.nonzero(mask)[0]
 
 
+def restrict_flux_to_free(K: FluxSparseMatrix, free: np.ndarray, *, coalesce: bool = True) -> FluxSparseMatrix:
+    """
+    Restrict a FluxSparseMatrix to free DOFs and return the condensed matrix.
+    """
+    free = np.asarray(free, dtype=np.int32)
+    g2l = -np.ones(K.n_dofs, dtype=np.int32)
+    g2l[free] = np.arange(free.size, dtype=np.int32)
+
+    rows = np.asarray(K.pattern.rows)
+    cols = np.asarray(K.pattern.cols)
+    data = np.asarray(K.data)
+    r2 = g2l[rows]
+    c2 = g2l[cols]
+    mask = (r2 >= 0) & (c2 >= 0)
+    K_free = FluxSparseMatrix(
+        jnp.asarray(r2[mask]),
+        jnp.asarray(c2[mask]),
+        jnp.asarray(data[mask]),
+        int(free.size),
+    )
+    return K_free.coalesce() if coalesce else K_free
+
+
 def condense_dirichlet_dense(K, F, dofs, vals):
     """
     Eliminate Dirichlet dofs for dense/CSR matrices and return condensed system.

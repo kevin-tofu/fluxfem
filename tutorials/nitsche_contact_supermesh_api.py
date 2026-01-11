@@ -605,21 +605,7 @@ def run_fluxfem_demo(
         F_free = (F_j - K.matvec(u_dir))[free_j]
     _mark("apply dirichlet")
 
-    g2l = -np.ones(n_total, dtype=np.int32)
-    g2l[free] = np.arange(free.size, dtype=np.int32)
-    rows = np.asarray(K.pattern.rows)
-    cols = np.asarray(K.pattern.cols)
-    data = np.asarray(K.data)
-    r2 = g2l[rows]
-    c2 = g2l[cols]
-    mask = (r2 >= 0) & (c2 >= 0)
-    K_free = ff.FluxSparseMatrix(
-        jnp.asarray(r2[mask]),
-        jnp.asarray(c2[mask]),
-        jnp.asarray(data[mask]),
-        int(free.size),
-    )
-    K_free = K_free.coalesce()
+    K_free = ff.restrict_flux_to_free(K, free)
     _mark("build K_free")
 
     mv_free = jax.jit(K_free.matvec)
@@ -918,21 +904,7 @@ def run_fluxfem_oneside_demo(
         F_free = (F_j - K.matvec(u_dir))[free_j]
     _mark("apply dirichlet")
 
-    g2l = -np.ones(n_total, dtype=np.int32)
-    g2l[free] = np.arange(free.size, dtype=np.int32)
-    rows = np.asarray(K.pattern.rows)
-    cols = np.asarray(K.pattern.cols)
-    data = np.asarray(K.data)
-    r2 = g2l[rows]
-    c2 = g2l[cols]
-    mask = (r2 >= 0) & (c2 >= 0)
-    K_free = ff.FluxSparseMatrix(
-        jnp.asarray(r2[mask]),
-        jnp.asarray(c2[mask]),
-        jnp.asarray(data[mask]),
-        int(free.size),
-    )
-    K_free = K_free.coalesce()
+    K_free = ff.restrict_flux_to_free(K, free)
     _mark("build K_free")
 
     mv_free = jax.jit(K_free.matvec)

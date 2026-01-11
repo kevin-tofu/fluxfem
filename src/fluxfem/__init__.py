@@ -172,6 +172,7 @@ __all__ = [
     "condense_dirichlet_fluxsparse",
     "condense_dirichlet_fluxsparse_coo",
     "condense_dirichlet_dense",
+    "restrict_flux_to_free",
     "expand_dirichlet_solution",
     "cg_solve",
     "NonlinearAnalysis",

@@ -2820,11 +2820,102 @@ def assemble_mixed_surface_jacobian(
         batch_items = []
         dofs_batch = []
         u_local_batch = []
+        batch_rows: list[np.ndarray] = []
+        batch_cols: list[np.ndarray] = []
+        batch_data: list[np.ndarray] = []
+        batch_size = int(os.getenv("FLUXFEM_MORTAR_BATCH_SIZE", "128"))
+        if batch_size <= 0:
+            batch_size = 0
         n_q = None
         n_nodes_a = None
         n_nodes_b = None
         n_a_local_const = None
         n_b_local_const = None
+        batch_failed = False
+        jit_batch = _env_flag("FLUXFEM_MORTAR_BATCH_JIT", False)
+
+        def _make_jac_fun(n_a_local: int, n_b_local: int):
+            def _res_local_batch(u_vec, Na, Nb, gradNa, gradNb, x_q, w, detJ, normal):
+                field_a_obj = SurfaceMixedFormField(
+                    N=Na,
+                    gradN=gradNa,
+                    value_dim=value_dim_a,
+                    basis=_SurfaceBasis(dofs_per_node=value_dim_a),
+                )
+                field_b_obj = SurfaceMixedFormField(
+                    N=Nb,
+                    gradN=gradNb,
+                    value_dim=value_dim_b,
+                    basis=_SurfaceBasis(dofs_per_node=value_dim_b),
+                )
+                fields = {
+                    field_a: FieldPair(test=field_a_obj, trial=field_a_obj),
+                    field_b: FieldPair(test=field_b_obj, trial=field_b_obj),
+                }
+                normal_q = jnp.repeat(normal[None, :], x_q.shape[0], axis=0)
+                ctx = SurfaceMixedFormContext(
+                    fields=fields,
+                    x_q=x_q,
+                    w=w,
+                    detJ=detJ,
+                    normal=normal_q,
+                    trial_fields={field_a: field_a_obj, field_b: field_b_obj},
+                    test_fields={field_a: field_a_obj, field_b: field_b_obj},
+                    unknown_fields={field_a: field_a_obj, field_b: field_b_obj},
+                )
+                u_dict = {
+                    field_a: u_vec[:n_a_local],
+                    field_b: u_vec[n_a_local:],
+                }
+                fe_q = res_form(ctx, u_dict, params)
+                res_parts = []
+                for name in (field_a, field_b):
+                    fe_field = fe_q[name]
+                    if includes_measure.get(name, False):
+                        fe = jnp.sum(jnp.asarray(fe_field), axis=0)
+                    else:
+                        wJ = jnp.asarray(ctx.w) * jnp.asarray(ctx.detJ)
+                        fe = jnp.einsum("qi,q->i", jnp.asarray(fe_field), wJ)
+                    res_parts.append(fe)
+                return jnp.concatenate(res_parts, axis=0)
+
+            jac_fun = jax.vmap(jax.jacrev(_res_local_batch))
+            return jax.jit(jac_fun) if jit_batch else jac_fun
+
+        jac_fun_cache: dict[tuple[int, int], object] = {}
+
+        def _emit_batch(
+            Na_b,
+            Nb_b,
+            gradNa_b,
+            gradNb_b,
+            x_q_b,
+            w_b,
+            detJ_b,
+            normal_b,
+            u_local_b,
+            dofs_batch_np,
+            n_a_local,
+            n_b_local,
+        ) -> None:
+            key = (n_a_local, n_b_local)
+            jac_fun = jac_fun_cache.get(key)
+            if jac_fun is None:
+                jac_fun = _make_jac_fun(n_a_local, n_b_local)
+                jac_fun_cache[key] = jac_fun
+            J_b = jac_fun(u_local_b, Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b)
+            J_b_np = np.asarray(J_b)
+            n_ldofs = dofs_batch_np.shape[1]
+            rows = np.repeat(dofs_batch_np, n_ldofs, axis=1).reshape(-1)
+            cols = np.tile(dofs_batch_np, (1, n_ldofs)).reshape(-1)
+            data = J_b_np.reshape(-1)
+            if sparse:
+                batch_rows.append(rows)
+                batch_cols.append(cols)
+                batch_data.append(data)
+            else:
+                assert K_dense is not None
+                K_dense[rows, cols] += data
         for (tri, a, b, c), fa, fb in zip(
             _iter_supermesh_tris(supermesh_coords, supermesh_conn),
             source_facets_a,
@@ -2878,7 +2969,7 @@ def assemble_mixed_surface_jacobian(
             if normal is not None:
                 normal = normal_sign * normal
             if normal is None:
-                batch_items = []
+                batch_failed = True
                 break
 
             u_elem = {
@@ -2902,17 +2993,81 @@ def assemble_mixed_surface_jacobian(
                 n_a_local_const = dofs_a.shape[0]
                 n_b_local_const = dofs_b.shape[0]
             else:
-                if Na.shape[0] != n_q or Nb.shape[0] != n_q:
-                    batch_items = []
-                    break
-                if Na.shape[1] != n_nodes_a or Nb.shape[1] != n_nodes_b:
-                    batch_items = []
-                    break
-                if dofs_a.shape[0] != n_a_local_const or dofs_b.shape[0] != n_b_local_const:
-                    batch_items = []
-                    break
+                shape_mismatch = (
+                    Na.shape[0] != n_q
+                    or Nb.shape[0] != n_q
+                    or Na.shape[1] != n_nodes_a
+                    or Nb.shape[1] != n_nodes_b
+                    or dofs_a.shape[0] != n_a_local_const
+                    or dofs_b.shape[0] != n_b_local_const
+                )
+                if shape_mismatch:
+                    if batch_items:
+                        Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b = zip(*batch_items)
+                        Na_b = jnp.asarray(np.stack(Na_b, axis=0))
+                        Nb_b = jnp.asarray(np.stack(Nb_b, axis=0))
+                        gradNa_b = jnp.asarray(np.stack(gradNa_b, axis=0))
+                        gradNb_b = jnp.asarray(np.stack(gradNb_b, axis=0))
+                        x_q_b = jnp.asarray(np.stack(x_q_b, axis=0))
+                        w_b = jnp.asarray(np.stack(w_b, axis=0))
+                        detJ_b = jnp.asarray(np.array(detJ_b, dtype=float)).reshape(-1, 1)
+                        normal_b = jnp.asarray(np.stack(normal_b, axis=0))
+                        u_local_b = jnp.asarray(np.stack(u_local_batch, axis=0))
+                        dofs_batch_np = np.asarray(dofs_batch, dtype=int)
+                        _emit_batch(
+                            Na_b,
+                            Nb_b,
+                            gradNa_b,
+                            gradNb_b,
+                            x_q_b,
+                            w_b,
+                            detJ_b,
+                            normal_b,
+                            u_local_b,
+                            dofs_batch_np,
+                            int(n_a_local_const),
+                            int(n_b_local_const),
+                        )
+                    batch_items = [(Na, Nb, gradNa, gradNb, x_q, quad_w, detJ, normal)]
+                    dofs_batch = [dofs]
+                    u_local_batch = [u_local]
+                    n_q = Na.shape[0]
+                    n_nodes_a = Na.shape[1]
+                    n_nodes_b = Nb.shape[1]
+                    n_a_local_const = dofs_a.shape[0]
+                    n_b_local_const = dofs_b.shape[0]
 
-        if batch_items:
+            if batch_size and len(batch_items) >= batch_size:
+                Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b = zip(*batch_items)
+                Na_b = jnp.asarray(np.stack(Na_b, axis=0))
+                Nb_b = jnp.asarray(np.stack(Nb_b, axis=0))
+                gradNa_b = jnp.asarray(np.stack(gradNa_b, axis=0))
+                gradNb_b = jnp.asarray(np.stack(gradNb_b, axis=0))
+                x_q_b = jnp.asarray(np.stack(x_q_b, axis=0))
+                w_b = jnp.asarray(np.stack(w_b, axis=0))
+                detJ_b = jnp.asarray(np.array(detJ_b, dtype=float)).reshape(-1, 1)
+                normal_b = jnp.asarray(np.stack(normal_b, axis=0))
+                u_local_b = jnp.asarray(np.stack(u_local_batch, axis=0))
+                dofs_batch_np = np.asarray(dofs_batch, dtype=int)
+                _emit_batch(
+                    Na_b,
+                    Nb_b,
+                    gradNa_b,
+                    gradNb_b,
+                    x_q_b,
+                    w_b,
+                    detJ_b,
+                    normal_b,
+                    u_local_b,
+                    dofs_batch_np,
+                    int(n_a_local_const),
+                    int(n_b_local_const),
+                )
+                batch_items = []
+                dofs_batch = []
+                u_local_batch = []
+
+        if not batch_failed and batch_items:
             Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b = zip(*batch_items)
             Na_b = jnp.asarray(np.stack(Na_b, axis=0))
             Nb_b = jnp.asarray(np.stack(Nb_b, axis=0))
@@ -2923,66 +3078,34 @@ def assemble_mixed_surface_jacobian(
             detJ_b = jnp.asarray(np.array(detJ_b, dtype=float)).reshape(-1, 1)
             normal_b = jnp.asarray(np.stack(normal_b, axis=0))
             u_local_b = jnp.asarray(np.stack(u_local_batch, axis=0))
-
-            n_a_local_const = int(n_a_local_const)
-            n_b_local_const = int(n_b_local_const)
-
-            def _res_local_batch(u_vec, Na, Nb, gradNa, gradNb, x_q, w, detJ, normal):
-                field_a_obj = SurfaceMixedFormField(
-                    N=Na,
-                    gradN=gradNa,
-                    value_dim=value_dim_a,
-                    basis=_SurfaceBasis(dofs_per_node=value_dim_a),
-                )
-                field_b_obj = SurfaceMixedFormField(
-                    N=Nb,
-                    gradN=gradNb,
-                    value_dim=value_dim_b,
-                    basis=_SurfaceBasis(dofs_per_node=value_dim_b),
-                )
-                fields = {
-                    field_a: FieldPair(test=field_a_obj, trial=field_a_obj),
-                    field_b: FieldPair(test=field_b_obj, trial=field_b_obj),
-                }
-                normal_q = jnp.repeat(normal[None, :], x_q.shape[0], axis=0)
-                ctx = SurfaceMixedFormContext(
-                    fields=fields,
-                    x_q=x_q,
-                    w=w,
-                    detJ=detJ,
-                    normal=normal_q,
-                    trial_fields={field_a: field_a_obj, field_b: field_b_obj},
-                    test_fields={field_a: field_a_obj, field_b: field_b_obj},
-                    unknown_fields={field_a: field_a_obj, field_b: field_b_obj},
-                )
-                u_dict = {
-                    field_a: u_vec[:n_a_local_const],
-                    field_b: u_vec[n_a_local_const:],
-                }
-                fe_q = res_form(ctx, u_dict, params)
-                res_parts = []
-                for name in (field_a, field_b):
-                    fe_field = fe_q[name]
-                    if includes_measure.get(name, False):
-                        fe = jnp.sum(jnp.asarray(fe_field), axis=0)
-                    else:
-                        wJ = jnp.asarray(ctx.w) * jnp.asarray(ctx.detJ)
-                        fe = jnp.einsum("qi,q->i", jnp.asarray(fe_field), wJ)
-                    res_parts.append(fe)
-                return jnp.concatenate(res_parts, axis=0)
-
-            jac_fun = jax.jacrev(_res_local_batch)
-            J_b = jax.vmap(jac_fun)(u_local_b, Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b)
-            J_b_np = np.asarray(J_b)
             dofs_batch_np = np.asarray(dofs_batch, dtype=int)
-            n_ldofs = dofs_batch_np.shape[1]
-            rows = np.repeat(dofs_batch_np, n_ldofs, axis=1).reshape(-1)
-            cols = np.tile(dofs_batch_np, (1, n_ldofs)).reshape(-1)
-            data = J_b_np.reshape(-1)
+            _emit_batch(
+                Na_b,
+                Nb_b,
+                gradNa_b,
+                gradNb_b,
+                x_q_b,
+                w_b,
+                detJ_b,
+                normal_b,
+                u_local_b,
+                dofs_batch_np,
+                int(n_a_local_const),
+                int(n_b_local_const),
+            )
+
+        if not batch_failed and (batch_rows or (not sparse and K_dense is not None)):
             if sparse:
+                if batch_rows:
+                    rows = np.concatenate(batch_rows)
+                    cols = np.concatenate(batch_cols)
+                    data = np.concatenate(batch_data)
+                else:
+                    rows = np.zeros((0,), dtype=int)
+                    cols = np.zeros((0,), dtype=int)
+                    data = np.zeros((0,), dtype=float)
                 return rows, cols, data, n_total
             assert K_dense is not None
-            K_dense[rows, cols] += data
             return K_dense
 
     _mortar_dbg("[mortar] step: supermesh loop START")
