@@ -6,6 +6,30 @@ import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 
 
+def _penalty_bilinear(v1, v2, u1, u2, p):
+    ju = u1.val - u2.val
+    term = (p.alpha * p.inv_h) * (h_wf.dot(v1, ju) - h_wf.dot(v2, ju))
+    return term * h_wf.ds()
+
+
+def _make_contact(coords, facets, conn, *, value_dim=3, quad_order=1):
+    surf_a = ff.SurfaceMesh.from_facets(coords, facets)
+    surf_b = ff.SurfaceMesh.from_facets(coords, facets)
+    return ff.ContactSurfaceSpace.from_surfaces(
+        surf_a,
+        surf_b,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=value_dim,
+        value_dim_slave=value_dim,
+        quad_order=quad_order,
+    )
+
+
+def _penalty_params():
+    return ff.Params(alpha=10.0, inv_h=1.0)
+
+
 def test_contact_surface_bilinear_wrapper():
     coords = np.array(
         [
@@ -18,23 +42,7 @@ def test_contact_surface_bilinear_wrapper():
     )
     conn = np.array([[0, 1, 2, 3]], dtype=int)
     facets = np.array([[0, 1, 2]], dtype=int)
-    surf_a = ff.SurfaceMesh.from_facets(coords, facets)
-    surf_b = ff.SurfaceMesh.from_facets(coords, facets)
-
-    contact = ff.ContactSurfaceSpace.from_surfaces(
-        surf_a,
-        surf_b,
-        elem_conn_master=conn,
-        elem_conn_slave=conn,
-        value_dim_master=3,
-        value_dim_slave=3,
-        quad_order=1,
-    )
-
-    def bilin(v1, v2, u1, u2, p):
-        ju = u1.val - u2.val
-        term = (p.alpha * p.inv_h) * (h_wf.dot(v1, ju) - h_wf.dot(v2, ju))
-        return term * h_wf.ds()
+    contact = _make_contact(coords, facets, conn)
 
     def res_a(v, u, p):
         u2 = ff.unknown_ref("b")
@@ -50,9 +58,9 @@ def test_contact_surface_bilinear_wrapper():
 
     u_a = jnp.zeros(coords.shape[0] * 3)
     u_b = jnp.zeros(coords.shape[0] * 3)
-    params = ff.Params(alpha=10.0, inv_h=1.0)
+    params = _penalty_params()
 
-    J_bilin = contact.assemble_bilinear(bilin, u_a, u_b, params)
+    J_bilin = contact.assemble_bilinear(_penalty_bilinear, u_a, u_b, params)
     J_res = contact.assemble_jacobian(res_form, {"a": u_a, "b": u_b}, params)
 
     assert np.allclose(np.asarray(J_bilin), np.asarray(J_res), atol=1e-10)
@@ -76,29 +84,13 @@ def test_contact_surface_bilinear_tet10_mid_edge_dofs():
     )
     conn = np.array([[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]], dtype=int)
     facets = np.array([[0, 1, 2]], dtype=int)
-    surf_a = ff.SurfaceMesh.from_facets(coords, facets)
-    surf_b = ff.SurfaceMesh.from_facets(coords, facets)
-
-    contact = ff.ContactSurfaceSpace.from_surfaces(
-        surf_a,
-        surf_b,
-        elem_conn_master=conn,
-        elem_conn_slave=conn,
-        value_dim_master=3,
-        value_dim_slave=3,
-        quad_order=1,
-    )
-
-    def bilin(v1, v2, u1, u2, p):
-        ju = u1.val - u2.val
-        term = (p.alpha * p.inv_h) * (h_wf.dot(v1, ju) - h_wf.dot(v2, ju))
-        return term * h_wf.ds()
+    contact = _make_contact(coords, facets, conn)
 
     u_a = jnp.zeros(coords.shape[0] * 3)
     u_b = jnp.zeros(coords.shape[0] * 3)
-    params = ff.Params(alpha=10.0, inv_h=1.0)
+    params = _penalty_params()
 
-    J = np.asarray(contact.assemble_bilinear(bilin, u_a, u_b, params))
+    J = np.asarray(contact.assemble_bilinear(_penalty_bilinear, u_a, u_b, params))
     n_dofs = coords.shape[0] * 3
     assert J.shape == (2 * n_dofs, 2 * n_dofs)
     # Edge-midpoint nodes on the face (4-6) should contribute.
@@ -122,29 +114,13 @@ def test_contact_surface_bilinear_hex8_face_dofs():
     )
     conn = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=int)
     facets = np.array([[0, 1, 2, 3]], dtype=int)
-    surf_a = ff.SurfaceMesh.from_facets(coords, facets)
-    surf_b = ff.SurfaceMesh.from_facets(coords, facets)
-
-    contact = ff.ContactSurfaceSpace.from_surfaces(
-        surf_a,
-        surf_b,
-        elem_conn_master=conn,
-        elem_conn_slave=conn,
-        value_dim_master=3,
-        value_dim_slave=3,
-        quad_order=1,
-    )
-
-    def bilin(v1, v2, u1, u2, p):
-        ju = u1.val - u2.val
-        term = (p.alpha * p.inv_h) * (h_wf.dot(v1, ju) - h_wf.dot(v2, ju))
-        return term * h_wf.ds()
+    contact = _make_contact(coords, facets, conn)
 
     u_a = jnp.zeros(coords.shape[0] * 3)
     u_b = jnp.zeros(coords.shape[0] * 3)
-    params = ff.Params(alpha=10.0, inv_h=1.0)
+    params = _penalty_params()
 
-    J = np.asarray(contact.assemble_bilinear(bilin, u_a, u_b, params))
+    J = np.asarray(contact.assemble_bilinear(_penalty_bilinear, u_a, u_b, params))
     n_dofs = coords.shape[0] * 3
     assert J.shape == (2 * n_dofs, 2 * n_dofs)
     # Top face nodes (4-7) should not contribute on the z=0 interface.
@@ -180,29 +156,13 @@ def test_contact_surface_bilinear_hex20_edge_dofs():
     )
     conn = np.array([[i for i in range(20)]], dtype=int)
     facets = np.array([[0, 1, 2, 3]], dtype=int)
-    surf_a = ff.SurfaceMesh.from_facets(coords, facets)
-    surf_b = ff.SurfaceMesh.from_facets(coords, facets)
-
-    contact = ff.ContactSurfaceSpace.from_surfaces(
-        surf_a,
-        surf_b,
-        elem_conn_master=conn,
-        elem_conn_slave=conn,
-        value_dim_master=3,
-        value_dim_slave=3,
-        quad_order=1,
-    )
-
-    def bilin(v1, v2, u1, u2, p):
-        ju = u1.val - u2.val
-        term = (p.alpha * p.inv_h) * (h_wf.dot(v1, ju) - h_wf.dot(v2, ju))
-        return term * h_wf.ds()
+    contact = _make_contact(coords, facets, conn)
 
     u_a = jnp.zeros(coords.shape[0] * 3)
     u_b = jnp.zeros(coords.shape[0] * 3)
-    params = ff.Params(alpha=10.0, inv_h=1.0)
+    params = _penalty_params()
 
-    J = np.asarray(contact.assemble_bilinear(bilin, u_a, u_b, params))
+    J = np.asarray(contact.assemble_bilinear(_penalty_bilinear, u_a, u_b, params))
     n_dofs = coords.shape[0] * 3
     assert J.shape == (2 * n_dofs, 2 * n_dofs)
     edge_slice = slice(8 * 3, 12 * 3)  # bottom face edge mids

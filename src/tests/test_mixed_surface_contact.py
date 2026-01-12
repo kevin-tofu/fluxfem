@@ -6,7 +6,7 @@ import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 
 
-def test_mixed_surface_penalty_matches_mortar():
+def _two_square_surfaces():
     coords = np.array(
         [
             [0.0, 0.0, 0.0],
@@ -24,9 +24,33 @@ def test_mixed_surface_penalty_matches_mortar():
     facets_b = np.array([[4, 5, 6, 7]], dtype=int)
     surf_a = ff.SurfaceMesh.from_facets(coords, facets_a)
     surf_b = ff.SurfaceMesh.from_facets(coords, facets_b)
-    sm = ff.build_surface_supermesh(surf_a, surf_b, tol=1e-8)
+    return coords, surf_a, surf_b
+
+
+def _assemble_surface_jacobian(contact, res_form, u_a, u_b):
+    return ff.assemble_mixed_surface_jacobian(
+        contact.supermesh_coords,
+        contact.supermesh_conn,
+        contact.source_facets_master,
+        contact.source_facets_slave,
+        contact.surface_master,
+        contact.surface_slave,
+        res_form,
+        u_a,
+        u_b,
+        params={},
+        grad_source="surface",
+        dof_source="surface",
+        sparse=False,
+    )
+
+
+def test_mixed_surface_penalty_matches_mortar():
+    coords, surf_a, surf_b = _two_square_surfaces()
+    contact_ab = ff.ContactSurfaceSpace.from_surfaces(surf_a, surf_b, tol=1e-8)
 
     def res_a(v, u, _p):
+        # Penalty coupling uses the opposing side's unknown.
         u_b = ff.unknown_ref("b")
         return (v * (u.val - u_b.val)) * h_wf.ds()
 
@@ -39,27 +63,13 @@ def test_mixed_surface_penalty_matches_mortar():
     u_a = jnp.asarray(rng.standard_normal(surf_a.n_nodes))
     u_b = jnp.asarray(rng.standard_normal(surf_b.n_nodes))
 
-    J = ff.assemble_mixed_surface_jacobian(
-        sm.coords,
-        sm.conn,
-        sm.source_facets_a,
-        sm.source_facets_b,
-        surf_a,
-        surf_b,
-        res_form,
-        u_a,
-        u_b,
-        params={},
-        sparse=False,
-    )
+    J = _assemble_surface_jacobian(contact_ab, res_form, u_a, u_b)
     J = np.asarray(J)
 
-    M_aa, M_ab = ff.assemble_mortar_matrices(
-        sm.coords, sm.conn, sm.source_facets_a, sm.source_facets_b, surf_a, surf_b
-    )
-    M_bb, M_ba = ff.assemble_mortar_matrices(
-        sm.coords, sm.conn, sm.source_facets_b, sm.source_facets_a, surf_b, surf_a
-    )
+    # Mortar matrices provide an independent assembly path for the same coupling.
+    M_aa, M_ab = contact_ab.assemble_mortar_matrices()
+    contact_ba = ff.ContactSurfaceSpace.from_surfaces(surf_b, surf_a, tol=1e-8)
+    M_bb, M_ba = contact_ba.assemble_mortar_matrices()
 
     n_a = surf_a.n_nodes
     n_b = surf_b.n_nodes
