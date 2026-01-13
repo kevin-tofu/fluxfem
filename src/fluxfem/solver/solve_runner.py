@@ -74,6 +74,7 @@ class NewtonLoopConfig:
     linear_maxiter: int | None = None
     linear_tol: float | None = None
     linear_preconditioner: Any | None = None
+    matfree_mode: str = "linearize"
     load_sequence: Sequence[float] | None = None
     n_steps: int = 1
 
@@ -98,6 +99,7 @@ class NewtonSolveRunner:
     def __init__(self, analysis: NonlinearAnalysis, config: NewtonLoopConfig):
         self.analysis = analysis
         self.config = config
+        self._matfree_cache: dict[str, Any] = {}
 
     def run(
         self,
@@ -157,6 +159,16 @@ class NewtonSolveRunner:
                     schedule.append(lf_clamped)
                     prev = lf_clamped
                 history: List[LoadStepResult] = []
+                matfree_cache = None
+                if self.config.linear_preconditioner == "diag0":
+                    n_free = self.analysis.space.n_dofs
+                    if self.analysis.dirichlet is not None:
+                        n_free -= len(self.analysis.dirichlet[0])
+                    cached_free = self._matfree_cache.get("n_free_dofs")
+                    if cached_free is not None and cached_free != n_free:
+                        self._matfree_cache.clear()
+                    self._matfree_cache["n_free_dofs"] = n_free
+                    matfree_cache = self._matfree_cache
                 for step_i, load_factor in enumerate(schedule, start=1):
                     with timer.section("step"):
                         external = self.analysis.external_for_load(load_factor)
@@ -206,6 +218,8 @@ class NewtonSolveRunner:
                             linear_maxiter=self.config.linear_maxiter,
                             linear_tol=self.config.linear_tol,
                             linear_preconditioner=self.config.linear_preconditioner,
+                            matfree_cache=matfree_cache,
+                            matfree_mode=self.config.matfree_mode,
                             dirichlet=self.analysis.dirichlet,
                             line_search=self.config.line_search,
                             max_ls=self.config.max_ls,
@@ -292,6 +306,7 @@ def solve_nonlinear(
     linear_maxiter: int | None = None,
     linear_tol: float | None = None,
     linear_preconditioner=None,
+    matfree_mode: str = "linearize",
     line_search: bool = False,
     max_ls: int = 10,
     ls_c: float = 1e-4,
@@ -320,6 +335,7 @@ def solve_nonlinear(
         linear_maxiter=linear_maxiter,
         linear_tol=linear_tol,
         linear_preconditioner=linear_preconditioner,
+        matfree_mode=matfree_mode,
         line_search=line_search,
         max_ls=max_ls,
         ls_c=ls_c,

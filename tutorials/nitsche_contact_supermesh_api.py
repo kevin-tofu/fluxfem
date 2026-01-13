@@ -385,6 +385,7 @@ def run_fluxfem_demo(
     npz_path: str | None = None,
     verbose: bool = True,
     return_nodes: bool = False,
+    reuse_setup: bool = False,
 ) -> NitscheContactResult:
     import os
     import time
@@ -438,72 +439,140 @@ def run_fluxfem_demo(
     if timing:
         _mark("start")
 
+    reuse_flag = reuse_setup or os.getenv("FLUXFEM_REUSE_SETUP", "0") not in ("0", "", "false", "False")
+    cache_key = (
+        int(params.nx_top),
+        int(params.ny_top),
+        int(params.nz_top),
+        int(params.nx_bot),
+        int(params.ny_bot),
+        int(params.nz_bot),
+        int(params.quad_order),
+        str(contact_backend),
+        bool(batch_jac),
+        float(fd_eps),
+        str(fd_mode),
+        int(fd_block_size),
+    )
+    cache = getattr(run_fluxfem_demo, "_setup_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(run_fluxfem_demo, "_setup_cache", cache)
+
     lam, mu = _lame_parameters(params)
     D = _isotropic_3d_D(lam, mu, dtype=jnp.asarray(0.0).dtype)
     _mark("material params")
 
-    box_top = ff.StructuredTetTensorBox(
-        nx=params.nx_top,
-        ny=params.ny_top,
-        nz=params.nz_top,
-        lx=2.0,
-        ly=2.0,
-        lz=1.0,
-        origin=(0.0, 0.0, 0.0),
-    )
-    box_bot = ff.StructuredTetTensorBox(
-        nx=params.nx_bot,
-        ny=params.ny_bot,
-        nz=params.nz_bot,
-        lx=1.0,
-        ly=1.0,
-        lz=0.5,
-        origin=(0.5, 0.5, -0.5),
-    )
-    mesh_top = box_top.build()
-    mesh_bot = box_bot.build()
-    _mark("mesh build")
+    cached_setup = cache.get(cache_key) if reuse_flag else None
+    if cached_setup is None:
+        box_top = ff.StructuredTetTensorBox(
+            nx=params.nx_top,
+            ny=params.ny_top,
+            nz=params.nz_top,
+            lx=2.0,
+            ly=2.0,
+            lz=1.0,
+            origin=(0.0, 0.0, 0.0),
+        )
+        box_bot = ff.StructuredTetTensorBox(
+            nx=params.nx_bot,
+            ny=params.ny_bot,
+            nz=params.nz_bot,
+            lx=1.0,
+            ly=1.0,
+            lz=0.5,
+            origin=(0.5, 0.5, -0.5),
+        )
+        mesh_top = box_top.build()
+        mesh_bot = box_bot.build()
+        _mark("mesh build")
 
-    space_top = ff.make_tet_space(mesh_top, dim=3)
-    space_bot = ff.make_tet_space(mesh_bot, dim=3)
-    _mark("space build")
+        space_top = ff.make_tet_space(mesh_top, dim=3)
+        space_bot = ff.make_tet_space(mesh_bot, dim=3)
+        _mark("space build")
+    else:
+        box_top = cached_setup["box_top"]
+        box_bot = cached_setup["box_bot"]
+        mesh_top = cached_setup["mesh_top"]
+        mesh_bot = cached_setup["mesh_bot"]
+        space_top = cached_setup["space_top"]
+        space_bot = cached_setup["space_bot"]
+        _mark("mesh build")
+        _mark("space build")
 
     K1 = space_top.assemble_bilinear_form(ff.linear_elasticity_form, params=D, n_chunks=n_chunks)
     _mark("K1 assemble")
     K2 = space_bot.assemble_bilinear_form(ff.linear_elasticity_form, params=D, n_chunks=n_chunks)
     _mark("K2 assemble")
 
-    contact_facets_top = mesh_top.facets_on_plane(axis=2, value=0.0)
-    contact_facets_bot = mesh_bot.facets_on_plane(axis=2, value=0.0)
-    x0, y0, _ = box_bot.origin
-    x1 = x0 + box_bot.lx
-    y1 = y0 + box_bot.ly
-    dx_top, dy_top, _ = _mesh_spacing(box_top)
-    pad = 2.0 * min(dx_top, dy_top)
-    contact_facets_top = mesh_top.facets_on_plane_box(
-        axis=2,
-        value=0.0,
-        x=(x0 - pad, x1 + pad),
-        y=(y0 - pad, y1 + pad),
-        mode="centroid",
-    )
-    force_facets_top = mesh_top.facets_on_plane(axis=2, value=1.0)
-    dirichlet_facets_bot = mesh_bot.facets_on_plane(axis=2, value=-0.5)
-    _mark("boundary facets")
+    if cached_setup is None:
+        contact_facets_top = mesh_top.facets_on_plane(axis=2, value=0.0)
+        contact_facets_bot = mesh_bot.facets_on_plane(axis=2, value=0.0)
+        x0, y0, _ = box_bot.origin
+        x1 = x0 + box_bot.lx
+        y1 = y0 + box_bot.ly
+        dx_top, dy_top, _ = _mesh_spacing(box_top)
+        pad = 2.0 * min(dx_top, dy_top)
+        contact_facets_top = mesh_top.facets_on_plane_box(
+            axis=2,
+            value=0.0,
+            x=(x0 - pad, x1 + pad),
+            y=(y0 - pad, y1 + pad),
+            mode="centroid",
+        )
+        force_facets_top = mesh_top.facets_on_plane(axis=2, value=1.0)
+        dirichlet_facets_bot = mesh_bot.facets_on_plane(axis=2, value=-0.5)
+        _mark("boundary facets")
 
-    side_top = ff.ContactSide.from_facets(mesh_top, contact_facets_top, space_top)
-    side_bot = ff.ContactSide.from_facets(mesh_bot, contact_facets_bot, space_bot)
-    contact = ff.ContactSurfaceSpace.from_sides(
-        side_top,
-        side_bot,
-        quad_order=int(params.quad_order),
-        backend=contact_backend,
-        batch_jac=batch_jac,
-        fd_eps=fd_eps,
-        fd_mode=fd_mode,
-        fd_block_size=fd_block_size,
-    )
-    _mark("contact setup")
+        if timing:
+            t_setup = time.perf_counter()
+        side_top = ff.ContactSide.from_facets(mesh_top, contact_facets_top, space_top)
+        if timing:
+            print(f"[timing] contact setup: side_top {time.perf_counter() - t_setup:.3f}s", flush=True)
+            t_setup = time.perf_counter()
+        side_bot = ff.ContactSide.from_facets(mesh_bot, contact_facets_bot, space_bot)
+        if timing:
+            print(f"[timing] contact setup: side_bot {time.perf_counter() - t_setup:.3f}s", flush=True)
+            t_setup = time.perf_counter()
+        contact = ff.ContactSurfaceSpace.from_sides(
+            side_top,
+            side_bot,
+            quad_order=int(params.quad_order),
+            backend=contact_backend,
+            batch_jac=batch_jac,
+            fd_eps=fd_eps,
+            fd_mode=fd_mode,
+            fd_block_size=fd_block_size,
+        )
+        if timing:
+            print(
+                f"[timing] contact setup: supermesh {time.perf_counter() - t_setup:.3f}s "
+                f"n_tris={int(contact.supermesh_conn.shape[0])}",
+                flush=True,
+            )
+        _mark("contact setup")
+        if reuse_flag:
+            cache[cache_key] = {
+                "box_top": box_top,
+                "box_bot": box_bot,
+                "mesh_top": mesh_top,
+                "mesh_bot": mesh_bot,
+                "space_top": space_top,
+                "space_bot": space_bot,
+                "contact_facets_top": contact_facets_top,
+                "contact_facets_bot": contact_facets_bot,
+                "force_facets_top": force_facets_top,
+                "dirichlet_facets_bot": dirichlet_facets_bot,
+                "contact": contact,
+            }
+    else:
+        contact_facets_top = cached_setup["contact_facets_top"]
+        contact_facets_bot = cached_setup["contact_facets_bot"]
+        force_facets_top = cached_setup["force_facets_top"]
+        dirichlet_facets_bot = cached_setup["dirichlet_facets_bot"]
+        contact = cached_setup["contact"]
+        _mark("boundary facets")
+        _mark("contact setup")
     if verbose and contact_backend == "numpy":
         print("[contact] numpy backend uses FD for Jacobian (non-differentiable)", flush=True)
 

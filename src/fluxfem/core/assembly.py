@@ -17,6 +17,17 @@ Kernel = Callable[[FormContext, P], Array]
 ResidualForm = Callable[[FormContext, Array, P], Array]
 ElementDofMapper = Callable[[Array], Array]
 
+def _get_pattern(space: SpaceLike, *, with_idx: bool):
+    if hasattr(space, "get_sparsity_pattern"):
+        return space.get_sparsity_pattern(with_idx=with_idx)
+    return None
+
+
+def _get_elem_rows(space: SpaceLike):
+    if hasattr(space, "get_elem_rows"):
+        return space.get_elem_rows()
+    return space.elem_dofs.reshape(-1)
+
 
 class SpaceLike(FESpaceBase, Protocol):
     pass
@@ -48,11 +59,15 @@ def assemble_bilinear_dense(
 
     # ---- scatter into COO format ----
     # row/col indices (n_elems, n_ldofs, n_ldofs)
-    rows = jnp.repeat(elem_dofs, n_ldofs, axis=1)        # (n_elems, n_ldofs*n_ldofs)
-    cols = jnp.tile(elem_dofs, (1, n_ldofs))             # (n_elems, n_ldofs*n_ldofs)
-
-    rows = rows.reshape(-1)
-    cols = cols.reshape(-1)
+    pat = _get_pattern(space, with_idx=False)
+    if pat is None:
+        rows = jnp.repeat(elem_dofs, n_ldofs, axis=1)        # (n_elems, n_ldofs*n_ldofs)
+        cols = jnp.tile(elem_dofs, (1, n_ldofs))             # (n_elems, n_ldofs*n_ldofs)
+        rows = rows.reshape(-1)
+        cols = cols.reshape(-1)
+    else:
+        rows = pat.rows
+        cols = pat.cols
     data = K_e_all.reshape(-1)
 
     # Flatten indices for segment_sum via (row * n_dofs + col)
@@ -79,6 +94,8 @@ def assemble_bilinear_form(
     pattern=None,
     n_chunks: Optional[int] = None,   # None -> no chunking
     dep: jnp.ndarray | None = None,
+    kernel=None,
+    jit: bool = True,
 ):
     """
     Assemble a sparse bilinear form into a FluxSparseMatrix.
@@ -105,9 +122,12 @@ def assemble_bilinear_form(
         wJ = ctx.w * ctx.test.detJ                         # (n_q,)
         return (integrand * wJ[:, None, None]).sum(axis=0)  # (m, m)
 
+    if kernel is None:
+        kernel = make_element_bilinear_kernel(form, params, jit=jit)
+
     # --- no-chunk path (your current implementation) ---
     if n_chunks is None:
-        K_e_all = jax.vmap(per_element)(elem_data)  # (n_elems, m, m)
+        K_e_all = jax.vmap(kernel)(elem_data)  # (n_elems, m, m)
         data = K_e_all.reshape(-1)
         return FluxSparseMatrix(pat, data)
 
@@ -120,7 +140,7 @@ def assemble_bilinear_form(
     # Ideally get m from pat (otherwise infer from one element).
     m = getattr(pat, "n_ldofs", None)
     if m is None:
-        m = per_element(jax.tree_util.tree_map(lambda x: x[0], elem_data)).shape[0]
+        m = kernel(jax.tree_util.tree_map(lambda x: x[0], elem_data)).shape[0]
 
     # Pad to fixed-size chunks for JIT stability.
     pad = (-n_elems) % chunk_size
@@ -146,7 +166,7 @@ def assemble_bilinear_form(
             lambda x: _slice_first_dim(x, start, chunk_size),
             elem_data_pad,
         )
-        Ke = jax.vmap(per_element)(ctx_chunk)             # (chunk, m, m)
+        Ke = jax.vmap(kernel)(ctx_chunk)             # (chunk, m, m)
         return Ke.reshape(-1)                             # (chunk*m*m,)
 
     data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
@@ -214,8 +234,13 @@ def assemble_mass_matrix(space: SpaceLike, *, lumped: bool = False, n_chunks: Op
         data = data_chunks.reshape(-1)[: n_elems * n_ldofs * n_ldofs]
 
     elem_dofs = space.elem_dofs
-    rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
-    cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1)
+    pat = _get_pattern(space, with_idx=False)
+    if pat is None:
+        rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
+        cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1)
+    else:
+        rows = pat.rows
+        cols = pat.cols
 
     if lumped:
         n_dofs = space.n_dofs
@@ -292,7 +317,7 @@ def assemble_linear_form(
         data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
         data = data_chunks.reshape(-1)[: n_elems * m]
 
-    rows = elem_dofs.reshape(-1)
+    rows = _get_elem_rows(space)
 
     if sparse:
         return rows, data, n_dofs
@@ -355,8 +380,13 @@ def assemble_jacobian_global(
     elem_ids = jnp.arange(elem_dofs.shape[0], dtype=INDEX_DTYPE)
     J_e_all = jax.vmap(jac_fun)(u_elems, elem_data, elem_ids)  # (n_elems, m, m)
 
-    rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
-    cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1)
+    pat = _get_pattern(space, with_idx=False)
+    if pat is None:
+        rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
+        cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1)
+    else:
+        rows = pat.rows
+        cols = pat.cols
     data = J_e_all.reshape(-1)
 
     if sparse:
@@ -401,8 +431,13 @@ def assemble_jacobian_elementwise(
     u_elems = u[elem_dofs]
     J_e_all = jax.vmap(jac_fun)(u_elems, ctxs)  # (n_elems, m, m)
 
-    rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
-    cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1)
+    pat = _get_pattern(space, with_idx=False)
+    if pat is None:
+        rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
+        cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1)
+    else:
+        rows = pat.rows
+        cols = pat.cols
     data = J_e_all.reshape(-1)
 
     if sparse:
@@ -451,7 +486,7 @@ def assemble_residual_global(
     elem_ids = jnp.arange(elem_dofs.shape[0], dtype=INDEX_DTYPE)
     F_e_all = jax.vmap(per_element)(elem_data, elem_dofs, elem_ids)  # (n_elems, m)
 
-    rows = elem_dofs.reshape(-1)
+    rows = _get_elem_rows(space)
     data = F_e_all.reshape(-1)
 
     if sparse:
@@ -484,7 +519,7 @@ def assemble_residual_elementwise(
 
     u_elems = u[elem_dofs]
     F_e_all = jax.vmap(per_element)(ctxs, u_elems)  # (n_elems, m)
-    rows = elem_dofs.reshape(-1)
+    rows = _get_elem_rows(space)
     data = F_e_all.reshape(-1)
 
     if sparse:
@@ -503,6 +538,19 @@ def assemble_residual_elementwise(
 # Backward compatibility aliases (prefer assemble_*_elementwise).
 assemble_jacobian_elementwise_xla = assemble_jacobian_elementwise
 assemble_residual_elementwise_xla = assemble_residual_elementwise
+
+
+def make_element_bilinear_kernel(form, params, *, jit: bool = True):
+    """Element kernel: (ctx) -> Ke."""
+
+    def per_element(ctx: FormContext):
+        integrand = form(ctx, params)
+        if getattr(form, "_includes_measure", False):
+            return integrand.sum(axis=0)
+        wJ = ctx.w * ctx.test.detJ
+        return (integrand * wJ[:, None, None]).sum(axis=0)
+
+    return jax.jit(per_element) if jit else per_element
 
 
 def make_element_residual_kernel(res_form: ResidualForm[P], params: P):
@@ -664,7 +712,7 @@ def assemble_residual_scatter(
         bad = int(jnp.count_nonzero(~jnp.isfinite(elem_res)))
         raise RuntimeError(f"[assemble_residual_scatter] elem_res nonfinite: {bad}")
 
-    rows = elem_dofs.reshape(-1)
+    rows = _get_elem_rows(space)
     data = elem_res.reshape(-1)
 
     if sparse:

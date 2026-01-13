@@ -187,8 +187,39 @@ def build_surface_supermesh(
     surface_b: SurfaceMesh,
     *,
     tol: float = 1e-8,
+    cache_enabled: bool | None = None,
+    cache_trace: bool | None = None,
 ) -> SurfaceSupermesh:
     from ..solver.bc import facet_normals
+    import hashlib
+
+    if cache_enabled is None:
+        cache_enabled = os.getenv("FLUXFEM_SUPERMESH_CACHE", "0") not in ("0", "", "false", "False")
+    if cache_trace is None:
+        cache_trace = os.getenv("FLUXFEM_SUPERMESH_CACHE_TRACE", "0") not in ("0", "", "false", "False")
+
+    def _array_sig(arr: np.ndarray) -> tuple:
+        arr_c = np.ascontiguousarray(arr)
+        h = hashlib.blake2b(arr_c.view(np.uint8), digest_size=8).hexdigest()
+        return (arr_c.shape, str(arr_c.dtype), h)
+    if cache_enabled:
+        global _SUPERMESH_CACHE
+        try:
+            _SUPERMESH_CACHE
+        except NameError:
+            _SUPERMESH_CACHE = {}
+        key = (
+            _array_sig(np.asarray(surface_a.coords)),
+            _array_sig(np.asarray(surface_a.conn)),
+            _array_sig(np.asarray(surface_b.coords)),
+            _array_sig(np.asarray(surface_b.conn)),
+            float(tol),
+        )
+        cached = _SUPERMESH_CACHE.get(key)
+        if cached is not None:
+            if cache_trace:
+                print(f"[supermesh] cache hit n_tris={int(cached.conn.shape[0])}", flush=True)
+            return cached
 
     coords_a = np.asarray(surface_a.coords, dtype=float)
     coords_b = np.asarray(surface_b.coords, dtype=float)
@@ -260,18 +291,26 @@ def build_surface_supermesh(
                 src_b.append(ib)
 
     if not all_conn:
-        return SurfaceSupermesh(
+        sm = SurfaceSupermesh(
             coords=np.zeros((0, 3), dtype=float),
             conn=np.zeros((0, 3), dtype=int),
             source_facets_a=np.zeros((0,), dtype=int),
             source_facets_b=np.zeros((0,), dtype=int),
         )
+        if cache_enabled:
+            _SUPERMESH_CACHE[key] = sm
+        return sm
 
     coords = np.asarray(all_coords, dtype=float)
     conn = np.asarray(all_conn, dtype=int)
-    return SurfaceSupermesh(
+    sm = SurfaceSupermesh(
         coords=coords,
         conn=conn,
         source_facets_a=np.asarray(src_a, dtype=int),
         source_facets_b=np.asarray(src_b, dtype=int),
     )
+    if cache_enabled:
+        _SUPERMESH_CACHE[key] = sm
+        if cache_trace:
+            print(f"[supermesh] cache store n_tris={int(sm.conn.shape[0])}", flush=True)
+    return sm

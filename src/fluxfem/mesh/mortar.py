@@ -2188,20 +2188,26 @@ def assemble_mixed_surface_residual(
     n_total = int(offset_b + n_b)
     R = np.zeros((n_total,), dtype=float)
 
+    t_norm = time.perf_counter()
     normals_a = None
     normals_b = None
     if hasattr(surface_a, "facet_normals"):
         normals_a = surface_a.facet_normals()
     if hasattr(surface_b, "facet_normals"):
         normals_b = surface_b.facet_normals()
+    if trace:
+        _trace_time("[CONTACT] normals_done", t_norm)
 
     area_scale = float(os.getenv("FLUXFEM_SMALL_TRI_EPS_SCALE", "0.0"))
     skip_small_tri = os.getenv("FLUXFEM_SKIP_SMALL_TRI", "0") == "1" and area_scale > 0.0
     facet_area_a = None
     facet_area_b = None
     if area_scale > 0.0:
+        t_area = time.perf_counter()
         facet_area_a = np.array([_facet_area_estimate(fa, coords_a) for fa in facets_a], dtype=float)
         facet_area_b = np.array([_facet_area_estimate(fb, coords_b) for fb in facets_b], dtype=float)
+        if trace:
+            _trace_time("[CONTACT] facet_area_done", t_area)
 
     includes_measure = getattr(res_form, "_includes_measure", {})
 
@@ -2583,6 +2589,7 @@ def assemble_mixed_surface_jacobian(
     def _trace_time(msg: str, t0: float) -> None:
         if trace:
             print(f"{msg}: {time.perf_counter() - t0:.6f}s", flush=True)
+    t_prep = time.perf_counter()
     coords_a = np.asarray(surface_a.coords, dtype=float)
     coords_b = np.asarray(surface_b.coords, dtype=float)
     facets_a = np.asarray(surface_a.conn, dtype=int)
@@ -2597,6 +2604,29 @@ def assemble_mixed_surface_jacobian(
         _trace(f"[CONTACT] shapes: coords_a={coords_a.shape} coords_b={coords_b.shape} supermesh={supermesh_conn.shape}")
         _trace(f"[CONTACT] dtypes: coords_a={coords_a.dtype} coords_b={coords_b.dtype} supermesh={supermesh_conn.dtype}")
         _trace(f"[CONTACT] finite: coords_a={np.isfinite(coords_a).all()} coords_b={np.isfinite(coords_b).all()}")
+        _trace_time("[CONTACT] prep_done", t_prep)
+
+    guard = os.getenv("FLUXFEM_CONTACT_GUARD", "0") == "1"
+    detj_eps = float(os.getenv("FLUXFEM_CONTACT_DETJ_EPS", "0.0"))
+    tri_timeout = float(os.getenv("FLUXFEM_CONTACT_TRI_TIMEOUT_S", "0.0"))
+    skip_nonfinite = os.getenv("FLUXFEM_CONTACT_SKIP_NONFINITE", "1") == "1"
+    if guard:
+        if not (np.isfinite(coords_a).all() and np.isfinite(coords_b).all()):
+            raise RuntimeError("[CONTACT] non-finite coords in contact surfaces")
+        if not np.isfinite(supermesh_coords).all():
+            raise RuntimeError("[CONTACT] non-finite supermesh coords")
+        if supermesh_conn.size:
+            min_idx = int(supermesh_conn.min())
+            max_idx = int(supermesh_conn.max())
+            if min_idx < 0 or max_idx >= supermesh_coords.shape[0]:
+                raise RuntimeError(
+                    f"[CONTACT] supermesh_conn index out of range: min={min_idx} max={max_idx} n={supermesh_coords.shape[0]}"
+                )
+        if len(supermesh_conn) != len(source_facets_a) or len(supermesh_conn) != len(source_facets_b):
+            raise RuntimeError(
+                "[CONTACT] supermesh_conn and source_facets lengths mismatch "
+                f"conn={len(supermesh_conn)} fa={len(source_facets_a)} fb={len(source_facets_b)}"
+            )
 
     normals_a = None
     normals_b = None
@@ -2817,6 +2847,8 @@ def assemble_mixed_surface_jacobian(
         and not proj_diag
         and not diag_force
     ):
+        if trace:
+            _trace("[CONTACT] batch_jac_enter")
         batch_items = []
         dofs_batch = []
         u_local_batch = []
@@ -2879,6 +2911,8 @@ def assemble_mixed_surface_jacobian(
                     res_parts.append(fe)
                 return jnp.concatenate(res_parts, axis=0)
 
+            if trace:
+                _trace(f"[CONTACT] batch_jac_build n_a={n_a_local} n_b={n_b_local} jit={jit_batch}")
             jac_fun = jax.vmap(jax.jacrev(_res_local_batch))
             return jax.jit(jac_fun) if jit_batch else jac_fun
 
@@ -2897,14 +2931,38 @@ def assemble_mixed_surface_jacobian(
             dofs_batch_np,
             n_a_local,
             n_b_local,
+            batch_n,
         ) -> None:
+            if trace:
+                _trace(f"[CONTACT] batch_emit start n={int(Na_b.shape[0])}")
+            if batch_size and batch_n < batch_size:
+                pad = int(batch_size - batch_n)
+                if trace:
+                    _trace(f"[CONTACT] batch_pad n={batch_n} target={batch_size}")
+
+                def _pad_batch(x, pad_value: float = 0.0):
+                    pad_width = [(0, pad)] + [(0, 0)] * (x.ndim - 1)
+                    return jnp.pad(jnp.asarray(x), pad_width, mode="constant", constant_values=pad_value)
+
+                Na_b = _pad_batch(Na_b)
+                Nb_b = _pad_batch(Nb_b)
+                gradNa_b = _pad_batch(gradNa_b)
+                gradNb_b = _pad_batch(gradNb_b)
+                x_q_b = _pad_batch(x_q_b)
+                w_b = _pad_batch(w_b)
+                detJ_b = _pad_batch(detJ_b)
+                normal_b = _pad_batch(normal_b)
+                u_local_b = _pad_batch(u_local_b)
             key = (n_a_local, n_b_local)
             jac_fun = jac_fun_cache.get(key)
             if jac_fun is None:
                 jac_fun = _make_jac_fun(n_a_local, n_b_local)
                 jac_fun_cache[key] = jac_fun
+            t_batch = time.perf_counter()
             J_b = jac_fun(u_local_b, Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b)
-            J_b_np = np.asarray(J_b)
+            J_b_np = np.asarray(J_b)[:batch_n]
+            if trace:
+                _trace_time("[CONTACT] batch_emit jac_done", t_batch)
             n_ldofs = dofs_batch_np.shape[1]
             rows = np.repeat(dofs_batch_np, n_ldofs, axis=1).reshape(-1)
             cols = np.tile(dofs_batch_np, (1, n_ldofs)).reshape(-1)
@@ -3027,6 +3085,7 @@ def assemble_mixed_surface_jacobian(
                             dofs_batch_np,
                             int(n_a_local_const),
                             int(n_b_local_const),
+                            int(Na_b.shape[0]),
                         )
                     batch_items = [(Na, Nb, gradNa, gradNb, x_q, quad_w, detJ, normal)]
                     dofs_batch = [dofs]
@@ -3062,6 +3121,7 @@ def assemble_mixed_surface_jacobian(
                     dofs_batch_np,
                     int(n_a_local_const),
                     int(n_b_local_const),
+                    int(Na_b.shape[0]),
                 )
                 batch_items = []
                 dofs_batch = []
@@ -3092,6 +3152,7 @@ def assemble_mixed_surface_jacobian(
                 dofs_batch_np,
                 int(n_a_local_const),
                 int(n_b_local_const),
+                int(Na_b.shape[0]),
             )
 
         if not batch_failed and (batch_rows or (not sparse and K_dense is not None)):
@@ -3108,6 +3169,11 @@ def assemble_mixed_surface_jacobian(
             assert K_dense is not None
             return K_dense
 
+        if trace:
+            _trace("[CONTACT] batch_jac_fallback")
+
+    if trace:
+        _trace("[CONTACT] supermesh_loop_enter")
     _mortar_dbg("[mortar] step: supermesh loop START")
     t_loop = time.perf_counter()
     for it, ((tri, a, b, c), fa, fb) in enumerate(
@@ -3118,6 +3184,10 @@ def assemble_mixed_surface_jacobian(
         )
     ):
         log_tri = trace and (it < trace_max or it % trace_every == 0)
+        t_tri0 = time.perf_counter()
+        def _tri_check(stage: str) -> None:
+            if tri_timeout > 0.0 and (time.perf_counter() - t_tri0) > tri_timeout:
+                raise RuntimeError(f"[CONTACT] tri {it} timeout at {stage}")
         if log_tri:
             _trace(f"[CONTACT] tri {it} start fa={int(fa)} fb={int(fb)}")
         t_geom = time.perf_counter()
@@ -3131,6 +3201,17 @@ def assemble_mixed_surface_jacobian(
         detJ = 2.0 * area
         if diag_force and diag_abs_detj:
             detJ = abs(detJ)
+        if guard:
+            if not np.isfinite(detJ):
+                if log_tri:
+                    _trace(f"[CONTACT] tri {it} detJ non-finite; skip")
+                if skip_nonfinite:
+                    continue
+                raise RuntimeError(f"[CONTACT] tri {it} detJ non-finite")
+            if detj_eps > 0.0 and abs(detJ) < detj_eps:
+                if log_tri:
+                    _trace(f"[CONTACT] tri {it} detJ too small {detJ:.3e}; skip")
+                continue
         if quad_order <= 0:
             quad_pts = np.array([[1.0 / 3.0, 1.0 / 3.0]], dtype=float)
             quad_w = np.array([0.5], dtype=float)
@@ -3146,8 +3227,15 @@ def assemble_mixed_surface_jacobian(
         facet_a = facets_a[int(fa)]
         facet_b = facets_b[int(fb)]
         x_q = np.array([a + r * (b - a) + s * (c - a) for r, s in quad_pts], dtype=float)
+        if guard and not np.isfinite(x_q).all():
+            if log_tri:
+                _trace(f"[CONTACT] tri {it} x_q non-finite; skip")
+            if skip_nonfinite:
+                continue
+            raise RuntimeError(f"[CONTACT] tri {it} x_q non-finite")
         if log_tri:
             _trace_time(f"[CONTACT] tri {it} geom_done", t_geom)
+        _tri_check("geom_done")
 
         gradNa = None
         gradNb = None
@@ -3225,8 +3313,15 @@ def assemble_mixed_surface_jacobian(
         else:
             Na = np.array([_facet_shape_values(pt, facet_a, coords_a, tol=tol) for pt in x_q], dtype=float)
             Nb = np.array([_facet_shape_values(pt, facet_b, coords_b, tol=tol) for pt in x_q], dtype=float)
+        if guard and (not np.isfinite(Na).all() or not np.isfinite(Nb).all()):
+            if log_tri:
+                _trace(f"[CONTACT] tri {it} N non-finite; skip")
+            if skip_nonfinite:
+                continue
+            raise RuntimeError(f"[CONTACT] tri {it} N non-finite")
         if log_tri:
             _trace_time(f"[CONTACT] tri {it} basis_done", t_basis)
+        _tri_check("basis_done")
 
         global _DEBUG_CONTACT_MAP_ONCE
         if diag_map and not _DEBUG_CONTACT_MAP_ONCE:
@@ -3410,6 +3505,7 @@ def assemble_mixed_surface_jacobian(
                     J_local_np[:, idxs] = np.asarray(cols, dtype=float)
         if log_tri:
             _trace_time(f"[CONTACT] tri {it} jac_done", t_jac)
+        _tri_check("jac_done")
 
         dofs_a = _global_dof_indices(nodes_a, value_dim_a, int(offset_a))
         dofs_b = _global_dof_indices(nodes_b, value_dim_b, int(offset_b))
@@ -3439,6 +3535,7 @@ def assemble_mixed_surface_jacobian(
                 quad_source=quad_source,
                 tol=tol,
             )
+        t_scatter = time.perf_counter()
         dofs = np.concatenate([dofs_a, dofs_b], axis=0)
         if sparse:
             n_ldofs = int(dofs.shape[0])
@@ -3447,6 +3544,9 @@ def assemble_mixed_surface_jacobian(
             data.extend(J_local_np.reshape(-1).tolist())
         else:
             K_dense[np.ix_(dofs, dofs)] += J_local_np
+        if log_tri:
+            _trace_time(f"[CONTACT] tri {it} scatter_done", t_scatter)
+        _tri_check("scatter_done")
 
 
     if proj_diag:

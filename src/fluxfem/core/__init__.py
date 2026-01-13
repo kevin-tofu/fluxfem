@@ -51,7 +51,6 @@ from .assembly import (
     make_scalar_body_force_form,
     constant_body_force_form,
 )
-from ..physics.elasticity.linear import vector_body_force_form, constant_body_force_vector_form
 from .interp import eval_shape_functions_hex8, interpolate_field_at_element_points
 from .weakform import (
     Expr,
@@ -158,7 +157,6 @@ from .basis import (
 )
 import importlib
 
-from ..physics import lame_parameters, isotropic_3d_D
 from .solver import spdirect_solve_cpu, spdirect_solve_gpu, spdirect_solve_jax, coo_to_csr
 
 _SOLVER_EXPORTS = {
@@ -268,8 +266,6 @@ __all__ = [
     "scalar_body_force_form",
     "make_scalar_body_force_form",
     "constant_body_force_form",
-    "vector_body_force_form",
-    "constant_body_force_vector_form",
     "eval_shape_functions_hex8",
     "interpolate_field_at_element_points",
     "Expr",
@@ -374,8 +370,6 @@ __all__ = [
     "TetLinearBasisPytree",
     "TetQuadraticBasis10",
     "TetQuadraticBasis10Pytree",
-    "lame_parameters",
-    "isotropic_3d_D",
     "spdirect_solve_cpu",
     "spdirect_solve_gpu",
     "spdirect_solve_jax",

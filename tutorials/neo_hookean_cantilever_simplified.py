@@ -8,6 +8,7 @@ Hyperelastic cantilever (Neo-Hookean) — minimal FluxFEM demo.
 - Newton solve, then write VTU (optional).
 """
 
+import os
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -18,13 +19,37 @@ jax.config.update("jax_enable_x64", True)
 
 
 def main():
+    def _env_int(name: str, default: int) -> int:
+        val = os.environ.get(name)
+        if not val:
+            return default
+        try:
+            return int(val)
+        except ValueError:
+            return default
+    def _env_float(name: str, default: float) -> float:
+        val = os.environ.get(name)
+        if not val:
+            return default
+        try:
+            return float(val)
+        except ValueError:
+            return default
+    def _env_str(name: str, default: str) -> str:
+        val = os.environ.get(name)
+        if not val:
+            return default
+        return val
+
     # --------------------
     # Parameters (edit here)
     # --------------------
     dtype = jnp.float64
 
     # geometry / mesh
-    nx, ny, nz = 20, 4, 4
+    nx = _env_int("FF_NX", 20)
+    ny = _env_int("FF_NY", 4)
+    nz = _env_int("FF_NZ", 4)
     lx, ly, lz = 100.0, 10.0, 10.0
     intorder = 2
 
@@ -38,18 +63,20 @@ def main():
     body_force = (0.0, 0.0, 0.0)  # (fx, fy, fz)
 
     # nonlinear solve
-    nstep = 200
-    maxiter = 80
-    tol, atol = 1e-4, 1e-10
+    nstep = _env_int("FF_NSTEP", 200)
+    maxiter = _env_int("FF_MAXITER", 80)
+    tol = _env_float("FF_TOL", 1e-4)
+    atol = _env_float("FF_ATOL", 1e-10)
     line_search = False
 
     # linear solver options
-    linear_solver = "cg"          # "cg" or "spsolve"
-    linear_precond = "jacobi"     # "none", "jacobi", "block_jacobi"
+    linear_solver = "cg_matfree"  # "cg", "cg_matfree", or "spsolve"
+    linear_precond = _env_str("FF_PRECOND", "none")  # "none", "diag0", "jacobi", "block_jacobi"
     linear_tol = None
+    matfree_mode = _env_str("FF_MATFREE_MODE", "linearize")  # "linearize" or "jvp"
 
     # output
-    output_vtu = "result.vtu"     # set None to disable
+    output_vtu = _env_str("FF_OUTPUT_VTU", "result.vtu")  # set None to disable
 
     # --------------------
     # Build mesh & space
@@ -114,6 +141,7 @@ def main():
         linear_solver=linear_solver,
         linear_preconditioner=(None if linear_precond == "none" else linear_precond),
         linear_tol=linear_tol,
+        matfree_mode=matfree_mode,
         n_steps=nstep,
     )
     runner = ff.NewtonSolveRunner(analysis, newton_cfg)

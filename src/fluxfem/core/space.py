@@ -86,6 +86,7 @@ class FESpaceClosure:
     _n_ldofs: int | None = None
     data: SpaceData | None = None
     _pattern_cache: dict[bool, object] = field(default_factory=dict, repr=False)
+    _elem_rows_cache: jnp.ndarray | None = field(default=None, repr=False)
 
     def __post_init__(self):
         # Ensure value_dim is a Python int (avoid tracers).
@@ -116,6 +117,14 @@ class FESpaceClosure:
     def n_ldofs(self) -> int:
         assert self._n_ldofs is not None
         return self._n_ldofs
+
+    def get_elem_rows(self) -> jnp.ndarray:
+        cached = self._elem_rows_cache
+        if cached is not None:
+            return cached
+        rows = self.elem_dofs.reshape(-1)
+        self._elem_rows_cache = rows
+        return rows
 
     def build_form_contexts(self, dep: jnp.ndarray | None = None) -> FormContext:
         def _tie_in(x, y):
@@ -149,7 +158,8 @@ class FESpaceClosure:
                 )
 
         test = jax.vmap(make_field)(elem_coords)
-        trial = jax.vmap(make_field)(elem_coords)
+        # Test/trial share the same field data for single-space bilinear forms.
+        trial = test
 
         return FormContext(
             test=test, trial=trial, x_q=x_q,

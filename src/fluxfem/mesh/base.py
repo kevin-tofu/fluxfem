@@ -258,7 +258,39 @@ class BaseMeshClosure:
         tag: int | None = None,
     ):
         """Alias for boundary_facets_plane (skfem-like naming)."""
-        return self.boundary_facets_plane(axis=axis, value=value, tol=tol, tag=tag)
+        cache = getattr(self, "_boundary_facets_cache", None)
+        key = ("plane", int(axis), float(value), float(tol), int(tag) if tag is not None else None)
+        if cache is not None and key in cache:
+            return cache[key]
+        coords = np.asarray(self.coords)
+        conn = np.asarray(self.conn)
+        patterns = self.face_node_patterns()
+        if patterns:
+            facets_list = []
+            for pattern in patterns:
+                face_nodes = conn[:, pattern]
+                face_coords = coords[face_nodes]
+                mask = np.all(np.isclose(face_coords[..., axis], value, atol=tol), axis=1)
+                if np.any(mask):
+                    facets_list.append(face_nodes[mask])
+            if facets_list:
+                facets = np.concatenate(facets_list, axis=0)
+                keys = np.sort(facets, axis=1)
+                _, idx = np.unique(keys, axis=0, return_index=True)
+                facets = facets[np.sort(idx)]
+            else:
+                facets = np.empty((0, len(patterns[0])), dtype=int)
+            facets = jnp.asarray(facets, dtype=INDEX_DTYPE)
+            if tag is not None:
+                tags = jnp.full((facets.shape[0],), int(tag), dtype=INDEX_DTYPE)
+                facets = (facets, tags)
+        else:
+            facets = self.boundary_facets_plane(axis=axis, value=value, tol=tol, tag=tag)
+        if cache is None:
+            cache = {}
+            setattr(self, "_boundary_facets_cache", cache)
+        cache[key] = facets
+        return facets
 
     def boundary_facets_plane_box(
         self,
@@ -324,14 +356,75 @@ class BaseMeshClosure:
                 ranges[1] = y
             if dim > 2:
                 ranges[2] = z
-        return self.boundary_facets_plane_box(
-            axis=axis,
-            value=value,
-            ranges=ranges,
-            mode=mode,
-            tol=tol,
-            tag=tag,
+        cache = getattr(self, "_boundary_facets_cache", None)
+        ranges_key = tuple(ranges)
+        key = (
+            "plane_box",
+            int(axis),
+            float(value),
+            ranges_key,
+            str(mode),
+            float(tol),
+            int(tag) if tag is not None else None,
         )
+        if cache is not None and key in cache:
+            return cache[key]
+        coords = np.asarray(self.coords)
+        conn = np.asarray(self.conn)
+        patterns = self.face_node_patterns()
+        if patterns:
+            facets_list = []
+            for pattern in patterns:
+                face_nodes = conn[:, pattern]
+                face_coords = coords[face_nodes]
+                mask = np.all(np.isclose(face_coords[..., axis], value, atol=tol), axis=1)
+                if np.any(mask):
+                    if mode == "centroid":
+                        pts = face_coords[mask].mean(axis=1)
+                        mask_local = np.ones(pts.shape[0], dtype=bool)
+                        for ax, bounds in enumerate(ranges):
+                            if bounds is None or ax == axis:
+                                continue
+                            lo, hi = bounds
+                            mask_local &= (pts[:, ax] >= lo - tol) & (pts[:, ax] <= hi + tol)
+                        face_nodes = face_nodes[mask][mask_local]
+                    else:
+                        face_coords = face_coords[mask]
+                        mask_local = np.ones(face_coords.shape[0], dtype=bool)
+                        for ax, bounds in enumerate(ranges):
+                            if bounds is None or ax == axis:
+                                continue
+                            lo, hi = bounds
+                            in_range = (face_coords[..., ax] >= lo - tol) & (face_coords[..., ax] <= hi + tol)
+                            mask_local &= np.all(in_range, axis=1)
+                        face_nodes = face_nodes[mask][mask_local]
+                    if face_nodes.size:
+                        facets_list.append(face_nodes)
+            if facets_list:
+                facets = np.concatenate(facets_list, axis=0)
+                keys = np.sort(facets, axis=1)
+                _, idx = np.unique(keys, axis=0, return_index=True)
+                facets = facets[np.sort(idx)]
+            else:
+                facets = np.empty((0, len(patterns[0])), dtype=int)
+            facets = jnp.asarray(facets, dtype=INDEX_DTYPE)
+            if tag is not None:
+                tags = jnp.full((facets.shape[0],), int(tag), dtype=INDEX_DTYPE)
+                facets = (facets, tags)
+        else:
+            facets = self.boundary_facets_plane_box(
+                axis=axis,
+                value=value,
+                ranges=ranges,
+                mode=mode,
+                tol=tol,
+                tag=tag,
+            )
+        if cache is None:
+            cache = {}
+            setattr(self, "_boundary_facets_cache", cache)
+        cache[key] = facets
+        return facets
 
     def boundary_dofs_plane(
         self,

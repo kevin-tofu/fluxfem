@@ -333,7 +333,57 @@ class ContactSurfaceSpace:
         fd_mode: str = "central",
         fd_block_size: int = 1,
         batch_jac: bool | None = None,
+        setup_cache_enabled: bool | None = None,
+        setup_cache_trace: bool | None = None,
     ) -> "ContactSurfaceSpace":
+        import hashlib
+        import os
+
+        if setup_cache_enabled is None:
+            setup_cache_enabled = os.getenv("FLUXFEM_CONTACT_SETUP_CACHE", "0") not in ("0", "", "false", "False")
+        if setup_cache_trace is None:
+            setup_cache_trace = os.getenv("FLUXFEM_CONTACT_SETUP_CACHE_TRACE", "0") not in ("0", "", "false", "False")
+
+        def _array_sig(arr: np.ndarray) -> tuple:
+            arr_c = np.ascontiguousarray(arr)
+            h = hashlib.blake2b(arr_c.view(np.uint8), digest_size=8).hexdigest()
+            return (arr_c.shape, str(arr_c.dtype), h)
+
+        if setup_cache_enabled:
+            global _CONTACT_SETUP_CACHE
+            try:
+                _CONTACT_SETUP_CACHE
+            except NameError:
+                _CONTACT_SETUP_CACHE = {}
+            key = (
+                _array_sig(np.asarray(surface_master.coords)),
+                _array_sig(np.asarray(surface_master.conn)),
+                _array_sig(np.asarray(surface_slave.coords)),
+                _array_sig(np.asarray(surface_slave.conn)),
+                None if elem_conn_master is None else _array_sig(np.asarray(elem_conn_master)),
+                None if elem_conn_slave is None else _array_sig(np.asarray(elem_conn_slave)),
+                field_master,
+                field_slave,
+                int(value_dim_master),
+                int(value_dim_slave),
+                int(quad_order),
+                float(normal_sign) if normal_sign is not None else None,
+                float(tol),
+                backend,
+                float(fd_eps),
+                fd_mode,
+                int(fd_block_size),
+                bool(batch_jac) if batch_jac is not None else None,
+            )
+            cached = _CONTACT_SETUP_CACHE.get(key)
+            if cached is not None:
+                if setup_cache_trace:
+                    print(
+                        f"[contact] setup cache hit n_tris={int(cached.supermesh_conn.shape[0])}",
+                        flush=True,
+                    )
+                return cached
+
         sm = build_surface_supermesh(surface_master, surface_slave, tol=tol)
         facet_map_master = None
         facet_map_slave = None
@@ -351,7 +401,7 @@ class ContactSurfaceSpace:
                 facet_map_slave = map_surface_facets_to_hex_elements(surface_slave, elem_conn_slave)
             else:
                 raise NotImplementedError("elem_conn_slave must be tet4/tet10/hex8/hex20/hex27")
-        return cls(
+        obj = cls(
             surface_master=surface_master,
             surface_slave=surface_slave,
             supermesh_coords=sm.coords,
@@ -375,6 +425,14 @@ class ContactSurfaceSpace:
             fd_block_size=fd_block_size,
             batch_jac=batch_jac,
         )
+        if setup_cache_enabled:
+            _CONTACT_SETUP_CACHE[key] = obj
+            if setup_cache_trace:
+                print(
+                    f"[contact] setup cache store n_tris={int(obj.supermesh_conn.shape[0])}",
+                    flush=True,
+                )
+        return obj
 
     @classmethod
     def from_surfaces_and_spaces(
@@ -438,6 +496,8 @@ class ContactSurfaceSpace:
         fd_mode: str = "central",
         fd_block_size: int = 1,
         batch_jac: bool | None = None,
+        setup_cache_enabled: bool | None = None,
+        setup_cache_trace: bool | None = None,
     ) -> "ContactSurfaceSpace":
         return cls.from_surfaces(
             master.surface,
@@ -456,6 +516,8 @@ class ContactSurfaceSpace:
             fd_mode=fd_mode,
             fd_block_size=fd_block_size,
             batch_jac=batch_jac,
+            setup_cache_enabled=setup_cache_enabled,
+            setup_cache_trace=setup_cache_trace,
         )
 
     @classmethod
@@ -479,6 +541,8 @@ class ContactSurfaceSpace:
         fd_eps: float = 1e-6,
         fd_mode: str = "central",
         batch_jac: bool | None = None,
+        setup_cache_enabled: bool | None = None,
+        setup_cache_trace: bool | None = None,
     ) -> "ContactSurfaceSpace":
         surface_master = SurfaceMesh.from_facets(coords_master, facets_master)
         surface_slave = SurfaceMesh.from_facets(coords_slave, facets_slave)
@@ -498,6 +562,8 @@ class ContactSurfaceSpace:
             fd_eps=fd_eps,
             fd_mode=fd_mode,
             batch_jac=batch_jac,
+            setup_cache_enabled=setup_cache_enabled,
+            setup_cache_trace=setup_cache_trace,
         )
 
     def _split_fields(self, u: Mapping[str, np.ndarray] | Sequence[np.ndarray]):

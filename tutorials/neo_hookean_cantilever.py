@@ -47,7 +47,7 @@ def parse_args():
     p.add_argument("--nstep", type=int, default=env_default("NSTEP", 200, int))
     p.add_argument("--maxiter", type=int, default=env_default("MAXITER", 80, int))
     p.add_argument("--tol", type=float, default=env_default("TOL", 1e-4, float))
-    p.add_argument("--atol", type=float, default=env_default("ATOL", 1e-6, float))
+    p.add_argument("--atol", type=float, default=env_default("ATOL", 1e-5, float))
     p.add_argument("--line-search", action="store_true")
     p.add_argument("--max-ls", type=int, default=env_default("MAX_LS", 30, int))
     p.add_argument("--ls-c", type=float, default=env_default("LS_C", 1e-4, float))

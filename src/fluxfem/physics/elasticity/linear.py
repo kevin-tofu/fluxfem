@@ -1,6 +1,5 @@
 import jax.numpy as jnp
 
-from ...core.assembly import assemble_linear_form
 from ...core.forms import FormContext, vector_load_form
 from ...core.basis import build_B_matrices
 from ...physics.operators import sym_grad
@@ -26,7 +25,7 @@ def linear_elasticity_form(ctx: FormContext, D: jnp.ndarray) -> jnp.ndarray:
     symmetric-gradient operator for the test/trial fields.
     """
     Bu = sym_grad(ctx.trial)                 # (n_q, 6, ndofs_e)
-    Bv = sym_grad(ctx.test)                  # (n_q, 6, ndofs_e)
+    Bv = Bu if ctx.test is ctx.trial else sym_grad(ctx.test)
     return jnp.einsum("qik,kl,qlm->qim", jnp.swapaxes(Bv, 1, 2), D, Bu)
 
 
@@ -41,6 +40,7 @@ def assemble_constant_body_force(space, gravity_vec, density: float, *, sparse: 
     gravity_vec: length-3 array-like (direction and magnitude of g)
     density: scalar density (consistent with unit system)
     """
+    from ...core.assembly import assemble_linear_form
     g = jnp.asarray(gravity_vec)
     f_vec = density * g
     return assemble_linear_form(space, vector_body_force_form, params=f_vec, sparse=sparse)
