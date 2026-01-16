@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 import fluxfem as ff
+import fluxfem.helpers_wf as h_wf
 
 
 def _make_space():
@@ -132,7 +133,10 @@ def test_make_element_kernel_dispatch():
     K_ref = space.assemble_bilinear_form(ff.diffusion_form, 1.0)
     assert np.allclose(np.asarray(K.to_dense()), np.asarray(K_ref.to_dense()))
 
-    ker_res = ff.make_element_kernel(ff.neo_hookean_residual_form, {"mu": 1.0, "lam": 2.0}, kind="residual")
-    R = space.assemble_residual(ff.neo_hookean_residual_form, u0, {"mu": 1.0, "lam": 2.0}, kernel=ker_res)
-    R_ref = space.assemble_residual(ff.neo_hookean_residual_form, u0, {"mu": 1.0, "lam": 2.0})
+    def simple_residual(ctx, u_elem, _params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    ker_res = ff.make_element_kernel(simple_residual, None, kind="residual")
+    R = space.assemble_residual(simple_residual, u0, None, kernel=ker_res)
+    R_ref = space.assemble_residual(simple_residual, u0, None)
     assert np.allclose(np.asarray(R), np.asarray(R_ref))
