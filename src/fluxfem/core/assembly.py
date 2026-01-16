@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Callable, Optional, Protocol, TYPE_CHECKING, TypeAlias, TypeVar
+from typing import Any, Callable, Literal, Optional, Protocol, TYPE_CHECKING, TypeAlias, TypeVar
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -46,6 +46,12 @@ class ElementResidualKernel(Protocol):
 class ElementJacobianKernel(Protocol):
     def __call__(self, u_elem: Array, ctx: FormContext) -> Array: ...
 
+ElementKernel: TypeAlias = (
+    ElementBilinearKernel
+    | ElementLinearKernel
+    | ElementResidualKernel
+    | ElementJacobianKernel
+)
 def _get_pattern(space: SpaceLike, *, with_idx: bool) -> SparsityPattern | None:
     if hasattr(space, "get_sparsity_pattern"):
         return space.get_sparsity_pattern(with_idx=with_idx)
@@ -960,6 +966,41 @@ def element_jacobian(
         return element_residual(res_form, ctx, u_local, params)
 
     return jax.jacfwd(_r_elem)(u_elem)
+
+
+def make_element_kernel(
+    form: Kernel[P] | ResidualForm[P],
+    params: P,
+    *,
+    kind: Literal["bilinear", "linear", "residual", "jacobian"],
+    jit: bool = True,
+) -> ElementKernel:
+    """
+    Unified entry point for element kernels.
+
+    kind:
+      - "bilinear": kernel(ctx) -> (n_ldofs, n_ldofs)
+      - "linear": kernel(ctx) -> (n_ldofs,)
+      - "residual": kernel(ctx, u_elem) -> (n_ldofs,)
+      - "jacobian": kernel(u_elem, ctx) -> (n_ldofs, n_ldofs)
+    """
+    kind = kind.lower()
+    if kind == "bilinear":
+        return make_element_bilinear_kernel(form, params, jit=jit)
+    if kind == "linear":
+        def per_element(ctx: FormContext):
+            integrand = form(ctx, params)
+            if getattr(form, "_includes_measure", False):
+                return integrand.sum(axis=0)
+            wJ = ctx.w * ctx.test.detJ
+            return (integrand * wJ[:, None]).sum(axis=0)
+
+        return jax.jit(per_element) if jit else per_element
+    if kind == "residual":
+        return make_element_residual_kernel(form, params)
+    if kind == "jacobian":
+        return make_element_jacobian_kernel(form, params)
+    raise ValueError(f"Unknown kernel kind: {kind}")
 
 
 def make_sparsity_pattern(space: SpaceLike, *, with_idx: bool = True) -> SparsityPattern:

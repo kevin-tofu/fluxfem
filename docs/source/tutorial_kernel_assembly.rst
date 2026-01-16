@@ -39,6 +39,46 @@ The kernel **must return the integrated element contribution** (not the integran
    ker_F = jax.jit(linear_kernel)
    F = space.assemble_linear_form(ff.scalar_body_force_form, 2.0, kernel=ker_F)
 
+You can also use the unified entry point for all kernel kinds:
+
+.. code-block:: python
+
+   # bilinear: kernel(ctx) -> (n_ldofs, n_ldofs)
+   ker_K = ff.make_element_kernel(ff.diffusion_form, 1.0, kind="bilinear")
+   K = space.assemble_bilinear_form(ff.diffusion_form, 1.0, kernel=ker_K)
+
+   # linear: kernel(ctx) -> (n_ldofs,)
+   ker_F = ff.make_element_kernel(ff.scalar_body_force_form, 2.0, kind="linear")
+   F = space.assemble_linear_form(ff.scalar_body_force_form, 2.0, kernel=ker_F)
+
+   # residual: kernel(ctx, u_elem) -> (n_ldofs,)
+   ker_R = ff.make_element_kernel(res_form, params, kind="residual")
+   R = space.assemble_residual(res_form, u, params, kernel=ker_R)
+
+   # jacobian: kernel(u_elem, ctx) -> (n_ldofs, n_ldofs)
+   ker_J = ff.make_element_kernel(res_form, params, kind="jacobian")
+   J = space.assemble_jacobian(res_form, u, params, kernel=ker_J, sparse=False)
+
+
+Using compiled DSL forms
+------------------------
+
+The kernel helpers also work with weak-form DSL objects as long as you pass
+the compiled form (``get_compiled()``).
+
+.. code-block:: python
+
+   import fluxfem as ff
+   import fluxfem.helpers_wf as h_wf
+
+   form_wf = ff.BilinearForm.volume(
+       lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
+   ).get_compiled()
+
+   params = ff.Params(kappa=1.0)
+   ker = ff.make_element_bilinear_kernel(form_wf, params, jit=True)
+   K = space.assemble_bilinear_form(form_wf, params, kernel=ker)
+
 
 Residual and Jacobian
 ---------------------

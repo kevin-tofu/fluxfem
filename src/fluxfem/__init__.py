@@ -63,6 +63,7 @@ __all__ = [
     "make_element_residual_kernel",
     "make_element_bilinear_kernel",
     "make_element_jacobian_kernel",
+    "make_element_kernel",
     "element_residual",
     "element_jacobian",
     "make_sparsity_pattern",
