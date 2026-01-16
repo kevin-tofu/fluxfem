@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import jax.numpy as jnp
 
-from .sparse import FluxSparseMatrix
+from .sparse import FluxSparseMatrix, coalesce_coo
 
 
 def _normalize_dirichlet(dofs, vals):
@@ -76,6 +76,63 @@ def condense_dirichlet_fluxsparse(A: FluxSparseMatrix, F, dofs, vals):
     return K_ff, F_free, free, dir_arr, dir_vals_arr
 
 
+def condense_dirichlet_fluxsparse_coo(
+    A: FluxSparseMatrix,
+    F,
+    dofs,
+    vals,
+    *,
+    coalesce: bool = True,
+):
+    """
+    Condense Dirichlet DOFs for a FluxSparseMatrix using COO filtering.
+    Returns: (K_free, F_free, free_dofs, dir_dofs, dir_vals)
+    """
+    dir_arr, dir_vals_arr = _normalize_dirichlet(dofs, vals)
+    n_total = int(A.n_dofs)
+    mask = np.ones(n_total, dtype=bool)
+    mask[dir_arr] = False
+    free = np.nonzero(mask)[0]
+
+    rows = np.asarray(A.pattern.rows, dtype=np.int64)
+    cols = np.asarray(A.pattern.cols, dtype=np.int64)
+    data = np.asarray(A.data)
+
+    g2l = -np.ones(n_total, dtype=np.int32)
+    g2l[free] = np.arange(free.size, dtype=np.int32)
+    r2 = g2l[rows]
+    c2 = g2l[cols]
+    keep = (r2 >= 0) & (c2 >= 0)
+
+    rows_f = r2[keep]
+    cols_f = c2[keep]
+    data_f = data[keep]
+    if coalesce:
+        rows_f, cols_f, data_f = coalesce_coo(rows_f, cols_f, data_f)
+
+    K_free = FluxSparseMatrix(rows_f, cols_f, data_f, int(free.size))
+
+    F_arr = np.asarray(F, dtype=float)
+    F_free = F_arr[free]
+    if dir_arr.size > 0 and not np.allclose(dir_vals_arr, 0.0):
+        dir_full = np.zeros(n_total, dtype=F_arr.dtype)
+        dir_full[dir_arr] = dir_vals_arr
+        mask_fd = mask[rows] & (~mask[cols])
+        if np.any(mask_fd):
+            rows_fd = rows[mask_fd]
+            cols_fd = cols[mask_fd]
+            data_fd = data[mask_fd]
+            contrib = data_fd * dir_full[cols_fd]
+            delta = np.zeros(n_total, dtype=F_arr.dtype)
+            np.add.at(delta, rows_fd, contrib)
+            if F_free.ndim == 2:
+                F_free = F_free - delta[free][:, None]
+            else:
+                F_free = F_free - delta[free]
+
+    return K_free, jnp.asarray(F_free), free, dir_arr, dir_vals_arr
+
+
 def free_dofs(n_dofs: int, dir_dofs) -> np.ndarray:
     """
     Return free DOF indices given total DOFs and Dirichlet DOFs.
@@ -84,6 +141,29 @@ def free_dofs(n_dofs: int, dir_dofs) -> np.ndarray:
     mask = np.ones(int(n_dofs), dtype=bool)
     mask[dir_set] = False
     return np.nonzero(mask)[0]
+
+
+def restrict_flux_to_free(K: FluxSparseMatrix, free: np.ndarray, *, coalesce: bool = True) -> FluxSparseMatrix:
+    """
+    Restrict a FluxSparseMatrix to free DOFs and return the condensed matrix.
+    """
+    free = np.asarray(free, dtype=np.int32)
+    g2l = -np.ones(K.n_dofs, dtype=np.int32)
+    g2l[free] = np.arange(free.size, dtype=np.int32)
+
+    rows = np.asarray(K.pattern.rows)
+    cols = np.asarray(K.pattern.cols)
+    data = np.asarray(K.data)
+    r2 = g2l[rows]
+    c2 = g2l[cols]
+    mask = (r2 >= 0) & (c2 >= 0)
+    K_free = FluxSparseMatrix(
+        jnp.asarray(r2[mask]),
+        jnp.asarray(c2[mask]),
+        jnp.asarray(data[mask]),
+        int(free.size),
+    )
+    return K_free.coalesce() if coalesce else K_free
 
 
 def condense_dirichlet_dense(K, F, dofs, vals):

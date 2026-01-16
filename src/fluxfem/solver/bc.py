@@ -118,6 +118,27 @@ def make_vector_surface_load_form(load_fn):
     return _form
 
 
+def traction_vector(traction, traction_dir: str) -> np.ndarray:
+    """
+    Resolve traction magnitude and direction string into a vector.
+    """
+    dir_map = {
+        "x": (1.0, 0.0, 0.0),
+        "xpos": (1.0, 0.0, 0.0),
+        "xneg": (-1.0, 0.0, 0.0),
+        "y": (0.0, 1.0, 0.0),
+        "ypos": (0.0, 1.0, 0.0),
+        "yneg": (0.0, -1.0, 0.0),
+        "z": (0.0, 0.0, 1.0),
+        "zpos": (0.0, 0.0, 1.0),
+        "zneg": (0.0, 0.0, -1.0),
+    }
+    key = traction_dir.strip().lower()
+    if key not in dir_map:
+        raise ValueError("TRACTION_DIR must be one of x/xpos/xneg/y/ypos/yneg/z/zpos/zneg")
+    return float(traction) * np.asarray(dir_map[key], dtype=float)
+
+
 def _surface_quadrature(node_coords: np.ndarray):
     m = node_coords.shape[0]
     if m == 4:
@@ -404,8 +425,17 @@ def facet_normals(surface: SurfaceMesh, *, outward_from: npt.ArrayLike | None = 
     for i, facet in enumerate(facets):
         if len(facet) < 3:
             continue
-        p0, p1, p2 = coords[facet[0]], coords[facet[1]], coords[facet[2]]
-        n = np.cross(p1 - p0, p2 - p0)
+        n = None
+        p0 = coords[facet[0]]
+        for j in range(1, len(facet) - 1):
+            p1 = coords[facet[j]]
+            p2 = coords[facet[j + 1]]
+            n_candidate = np.cross(p1 - p0, p2 - p0)
+            if np.linalg.norm(n_candidate) > 0.0:
+                n = n_candidate
+                break
+        if n is None:
+            continue
         if normalize:
             norm = np.linalg.norm(n)
             n = n / norm if norm != 0.0 else n

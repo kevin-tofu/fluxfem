@@ -1,6 +1,6 @@
 [project]
 name = "fluxfem"
-version = "0.1.6"
+version = "0.1.7"
 description = ""
 authors = [
     {name = "Kohei Watanabe",email = "koheitech001@gmail.com"}
@@ -19,12 +19,12 @@ dependencies = [
     "matplotlib (>=3.10.7,<4.0.0)",
     # Note: jax versioning currently around 0.8.x. Allow up to next minor.
     "jax (>=0.8.2,<0.9.0)",
-    "jaxlib (>=0.8.2,<0.9.0)"
+    "jaxlib (>=0.8.2,<0.9.0)",
 ]
 
 [tool.poetry]
 name = "fluxfem"
-version = "0.1.6"
+version = "0.1.7"
 description = "FluxFEM: A weak-form-centric differentiable finite element framework in JAX"
 authors = ["Kohei Watanabe <koheitech001@gmail.com>"]
 readme = "README.md"
@@ -59,6 +59,7 @@ sphinx-rtd-theme = { version = "^3.0.2", python = ">=3.11" }
 myst-parser = { version = "^4.0.1", python = ">=3.11" }
 sphinx-autodoc-typehints = { version = "^3.2.0", python = ">=3.11" }
 sphinx-sitemap = { version = "^2.6.0", python = ">=3.11" }
+shapely = "^2.1.2"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

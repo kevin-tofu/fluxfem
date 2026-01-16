@@ -12,6 +12,79 @@ except Exception:  # pragma: no cover
     sp = None
 
 
+def coalesce_coo(rows, cols, data):
+    """
+    Sum duplicate COO entries by sorting (CPU-friendly).
+    Returns (rows_u, cols_u, data_u) as NumPy arrays.
+    """
+    r = np.asarray(rows, dtype=np.int64)
+    c = np.asarray(cols, dtype=np.int64)
+    d = np.asarray(data)
+    if r.size == 0:
+        return r, c, d
+    order = np.lexsort((c, r))
+    r_s = r[order]
+    c_s = c[order]
+    d_s = d[order]
+    new_group = np.ones(r_s.size, dtype=bool)
+    new_group[1:] = (r_s[1:] != r_s[:-1]) | (c_s[1:] != c_s[:-1])
+    starts = np.nonzero(new_group)[0]
+    r_u = r_s[starts]
+    c_u = c_s[starts]
+    d_u = np.add.reduceat(d_s, starts)
+    return r_u, c_u, d_u
+
+
+def _normalize_flux_mats(mats):
+    if len(mats) == 1 and isinstance(mats[0], (list, tuple)):
+        mats = tuple(mats[0])
+    if not mats:
+        raise ValueError("At least one FluxSparseMatrix is required.")
+    return mats
+
+
+def concat_flux(*mats, n_dofs: int | None = None):
+    """
+    Concatenate COO entries from multiple FluxSparseMatrix objects.
+    All matrices must share the same n_dofs unless n_dofs is provided.
+    """
+    mats = _normalize_flux_mats(mats)
+    if n_dofs is None:
+        n_dofs = int(mats[0].n_dofs)
+        for mat in mats[1:]:
+            if int(mat.n_dofs) != n_dofs:
+                raise ValueError("All matrices must share n_dofs for concat_flux.")
+    rows_list = [np.asarray(mat.pattern.rows, dtype=np.int32) for mat in mats]
+    cols_list = [np.asarray(mat.pattern.cols, dtype=np.int32) for mat in mats]
+    data_list = [np.asarray(mat.data) for mat in mats]
+    rows = np.concatenate(rows_list) if rows_list else np.asarray([], dtype=np.int32)
+    cols = np.concatenate(cols_list) if cols_list else np.asarray([], dtype=np.int32)
+    data = np.concatenate(data_list) if data_list else np.asarray([], dtype=float)
+    return FluxSparseMatrix(rows, cols, data, int(n_dofs))
+
+
+def block_diag_flux(*mats):
+    """Block-diagonal concatenation for FluxSparseMatrix objects."""
+    mats = _normalize_flux_mats(mats)
+    rows_out = []
+    cols_out = []
+    data_out = []
+    offset = 0
+    for mat in mats:
+        rows = np.asarray(mat.pattern.rows, dtype=np.int32)
+        cols = np.asarray(mat.pattern.cols, dtype=np.int32)
+        data = np.asarray(mat.data)
+        if rows.size:
+            rows_out.append(rows + offset)
+            cols_out.append(cols + offset)
+            data_out.append(data)
+        offset += int(mat.n_dofs)
+    rows = np.concatenate(rows_out) if rows_out else np.asarray([], dtype=np.int32)
+    cols = np.concatenate(cols_out) if cols_out else np.asarray([], dtype=np.int32)
+    data = np.concatenate(data_out) if data_out else np.asarray([], dtype=float)
+    return FluxSparseMatrix(rows, cols, data, int(offset))
+
+
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class SparsityPattern:
@@ -88,15 +161,22 @@ class FluxSparseMatrix:
             values = jnp.asarray(values)
         else:
             # Legacy signature: FluxSparseMatrix(rows, cols, data, n_dofs)
-            r_np = np.asarray(rows_or_pattern, dtype=np.int32)
-            c_np = np.asarray(cols, dtype=np.int32)
-            diag_idx_np = np.nonzero(r_np == c_np)[0].astype(np.int32)
+            r_j = jnp.asarray(rows_or_pattern, dtype=jnp.int32)
+            c_j = jnp.asarray(cols, dtype=jnp.int32)
+            is_tracer = isinstance(rows_or_pattern, jax.core.Tracer) or isinstance(cols, jax.core.Tracer)
+            diag_idx_j = None
+            if not is_tracer:
+                diag_idx_j = jnp.nonzero(r_j == c_j)[0].astype(jnp.int32)
+            if n_dofs is None:
+                if is_tracer:
+                    raise ValueError("n_dofs must be provided when constructing FluxSparseMatrix under JIT.")
+                n_dofs = int(np.asarray(cols).max()) + 1
             pattern = SparsityPattern(
-                rows=jnp.asarray(r_np),
-                cols=jnp.asarray(c_np),
-                n_dofs=int(n_dofs) if n_dofs is not None else int(c_np.max()) + 1,
+                rows=r_j,
+                cols=c_j,
+                n_dofs=int(n_dofs) if n_dofs is not None else int(np.asarray(cols).max()) + 1,
                 idx=None,
-                diag_idx=jnp.asarray(diag_idx_np),
+                diag_idx=diag_idx_j,
             )
             values = jnp.asarray(data)
 
@@ -123,8 +203,22 @@ class FluxSparseMatrix:
         """Return a new FluxSparseMatrix sharing the same pattern with updated data."""
         return FluxSparseMatrix(self.pattern, data)
 
+    def add_dense(self, dense):
+        """Return a new FluxSparseMatrix with dense entries added on the pattern."""
+        dense_vals = jnp.asarray(dense)[self.pattern.rows, self.pattern.cols]
+        return FluxSparseMatrix(self.pattern, self.data + dense_vals)
+
     def to_coo(self):
         return self.pattern.rows, self.pattern.cols, self.data, self.pattern.n_dofs
+
+    @property
+    def nnz(self) -> int:
+        return int(self.data.shape[0])
+
+    def coalesce(self):
+        """Return a new FluxSparseMatrix with duplicate entries summed."""
+        rows_u, cols_u, data_u = coalesce_coo(self.pattern.rows, self.pattern.cols, self.data)
+        return FluxSparseMatrix(rows_u, cols_u, data_u, self.pattern.n_dofs)
 
     def to_csr(self):
         if sp is None:

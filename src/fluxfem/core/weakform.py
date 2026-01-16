@@ -396,6 +396,26 @@ class Params:
         return cls(**dict(zip(keys, values)))
 
 
+class _ZeroField:
+    """Field-like object that evaluates to zeros with the same shape."""
+
+    def __init__(self, base):
+        self.N = jnp.zeros_like(base.N)
+        self.gradN = None if getattr(base, "gradN", None) is None else jnp.zeros_like(base.gradN)
+        self.value_dim = int(getattr(base, "value_dim", 1))
+        self.basis = getattr(base, "basis", None)
+
+
+class _ZeroFieldNp:
+    """Numpy variant of a zero-valued field (for numpy backend evaluation)."""
+
+    def __init__(self, base):
+        self.N = np.zeros_like(base.N)
+        self.gradN = None if getattr(base, "gradN", None) is None else np.zeros_like(base.gradN)
+        self.value_dim = int(getattr(base, "value_dim", 1))
+        self.basis = getattr(base, "basis", None)
+
+
 def trial_ref(name: str | None = "u") -> FieldRef:
     """Create a symbolic trial field reference."""
     return FieldRef(role="trial", name=name)
@@ -416,12 +436,99 @@ def param_ref() -> ParamRef:
     return ParamRef()
 
 
+def zero_ref(name: str) -> FieldRef:
+    """Create a zero-valued field reference (shape derived from context)."""
+    return FieldRef("zero", name)
+
+
 def _eval_field(
     obj: Any,
     ctx: VolumeContext | SurfaceContext,
     params: ParamsLike,
 ) -> FormFieldLike:
     if isinstance(obj, FieldRef):
+        if obj.role == "zero":
+            if obj.name is None:
+                raise ValueError("zero_ref requires a named field.")
+            base = None
+            if getattr(ctx, "test_fields", None) is not None and obj.name in ctx.test_fields:
+                base = ctx.test_fields[obj.name]
+            if base is None and getattr(ctx, "trial_fields", None) is not None and obj.name in ctx.trial_fields:
+                base = ctx.trial_fields[obj.name]
+            if base is None and getattr(ctx, "fields", None) is not None and obj.name in ctx.fields:
+                group = ctx.fields[obj.name]
+                if hasattr(group, "test"):
+                    base = group.test
+                elif hasattr(group, "trial"):
+                    base = group.trial
+            if base is None:
+                raise ValueError(f"zero_ref could not resolve field '{obj.name}'.")
+            return _ZeroField(base)
+        if obj.name is not None:
+            mixed_fields = getattr(ctx, "fields", None)
+            if mixed_fields is not None and obj.name in mixed_fields:
+                group = mixed_fields[obj.name]
+                if hasattr(group, "trial") and obj.role == "trial":
+                    return group.trial
+                if hasattr(group, "test") and obj.role == "test":
+                    return group.test
+                if hasattr(group, "unknown") and obj.role == "unknown":
+                    return group.unknown if group.unknown is not None else group.trial
+            if obj.role == "trial" and getattr(ctx, "trial_fields", None) is not None:
+                if obj.name in ctx.trial_fields:
+                    return ctx.trial_fields[obj.name]
+            if obj.role == "test" and getattr(ctx, "test_fields", None) is not None:
+                if obj.name in ctx.test_fields:
+                    return ctx.test_fields[obj.name]
+            if obj.role == "unknown" and getattr(ctx, "unknown_fields", None) is not None:
+                if obj.name in ctx.unknown_fields:
+                    return ctx.unknown_fields[obj.name]
+            fields = getattr(ctx, "fields", None)
+            if fields is not None and obj.name in fields:
+                group = fields[obj.name]
+                if isinstance(group, dict):
+                    if obj.role in group:
+                        return group[obj.role]
+                    if "field" in group:
+                        return group["field"]
+                return group
+        if obj.role == "trial":
+            return ctx.trial
+        if obj.role == "test":
+            if hasattr(ctx, "test"):
+                return ctx.test
+            if hasattr(ctx, "v"):
+                return ctx.v
+            raise ValueError("Surface context is missing test field.")
+        if obj.role == "unknown":
+            return getattr(ctx, "unknown", ctx.trial)
+        raise ValueError(f"Unknown field role: {obj.role}")
+    raise TypeError("Expected a field reference for this operator.")
+
+
+def _eval_field_np(
+    obj: Any,
+    ctx: VolumeContext | SurfaceContext,
+    params: ParamsLike,
+) -> FormFieldLike:
+    if isinstance(obj, FieldRef):
+        if obj.role == "zero":
+            if obj.name is None:
+                raise ValueError("zero_ref requires a named field.")
+            base = None
+            if getattr(ctx, "test_fields", None) is not None and obj.name in ctx.test_fields:
+                base = ctx.test_fields[obj.name]
+            if base is None and getattr(ctx, "trial_fields", None) is not None and obj.name in ctx.trial_fields:
+                base = ctx.trial_fields[obj.name]
+            if base is None and getattr(ctx, "fields", None) is not None and obj.name in ctx.fields:
+                group = ctx.fields[obj.name]
+                if hasattr(group, "test"):
+                    base = group.test
+                elif hasattr(group, "trial"):
+                    base = group.trial
+            if base is None:
+                raise ValueError(f"zero_ref could not resolve field '{obj.name}'.")
+            return _ZeroFieldNp(base)
         if obj.name is not None:
             mixed_fields = getattr(ctx, "fields", None)
             if mixed_fields is not None and obj.name in mixed_fields:
@@ -498,6 +605,16 @@ def _basis_outer(test: FieldRef, trial: FieldRef, ctx, params):
     return jnp.einsum("qi,qj->qij", v_field.N, u_field.N)
 
 
+def _basis_outer_np(test: FieldRef, trial: FieldRef, ctx, params):
+    v_field = _eval_field_np(test, ctx, params)
+    u_field = _eval_field_np(trial, ctx, params)
+    if getattr(v_field, "value_dim", 1) != 1 or getattr(u_field, "value_dim", 1) != 1:
+        raise ValueError(
+            "inner/outer is only defined for scalar fields; use dot/action/einsum for vector/tensor cases."
+        )
+    return np.einsum("qi,qj->qij", v_field.N, u_field.N)
+
+
 def _eval_unknown_value(field_ref: FieldRef, field: FormFieldLike, u_elem: UElement):
     u_local = _extract_unknown_elem(field_ref, u_elem)
     value_dim = int(getattr(field, "value_dim", 1))
@@ -505,6 +622,21 @@ def _eval_unknown_value(field_ref: FieldRef, field: FormFieldLike, u_elem: UElem
         return jnp.einsum("qa,a->q", field.N, u_local)
     u_nodes = u_local.reshape((-1, value_dim))
     return jnp.einsum("qa,ai->qi", field.N, u_nodes)
+
+
+def _eval_unknown_value_np(field_ref: FieldRef, field: FormFieldLike, u_elem: UElement):
+    u_local = _extract_unknown_elem(field_ref, u_elem)
+    value_dim = int(getattr(field, "value_dim", 1))
+    u_arr = np.asarray(u_local)
+    if value_dim == 1:
+        if u_arr.ndim == 2:
+            return np.einsum("qa,ab->qb", field.N, u_arr)
+        return np.einsum("qa,a->q", field.N, u_arr)
+    if u_arr.ndim == 2:
+        u_nodes = u_arr.reshape((-1, value_dim, u_arr.shape[1]))
+        return np.einsum("qa,aib->qib", field.N, u_nodes)
+    u_nodes = u_arr.reshape((-1, value_dim))
+    return np.einsum("qa,ai->qi", field.N, u_nodes)
 
 
 def _eval_unknown_grad(field_ref: FieldRef, field: FormFieldLike, u_elem: UElement):
@@ -516,6 +648,88 @@ def _eval_unknown_grad(field_ref: FieldRef, field: FormFieldLike, u_elem: UEleme
         return jnp.einsum("qaj,a->qj", field.gradN, u_local)
     u_nodes = u_local.reshape((-1, value_dim))
     return jnp.einsum("qaj,ai->qij", field.gradN, u_nodes)
+
+
+def _eval_unknown_grad_np(field_ref: FieldRef, field: FormFieldLike, u_elem: UElement):
+    u_local = _extract_unknown_elem(field_ref, u_elem)
+    if u_local is None:
+        raise ValueError("u_elem is required to evaluate unknown field gradient.")
+    value_dim = int(getattr(field, "value_dim", 1))
+    u_arr = np.asarray(u_local)
+    if value_dim == 1:
+        if u_arr.ndim == 2:
+            return np.einsum("qaj,ab->qjb", field.gradN, u_arr)
+        return np.einsum("qaj,a->qj", field.gradN, u_arr)
+    if u_arr.ndim == 2:
+        u_nodes = u_arr.reshape((-1, value_dim, u_arr.shape[1]))
+        return np.einsum("qaj,aib->qijb", field.gradN, u_nodes)
+    u_nodes = u_arr.reshape((-1, value_dim))
+    return np.einsum("qaj,ai->qij", field.gradN, u_nodes)
+
+
+def _vector_load_form_np(field: Any, load_vec: Any) -> np.ndarray:
+    lv = np.asarray(load_vec)
+    if lv.ndim == 1:
+        lv = lv[None, :]
+    elif lv.ndim not in (2, 3):
+        raise ValueError("load_vec must be shape (dim,), (n_q, dim), or (n_q, dim, batch)")
+    if lv.shape[0] == 1:
+        lv = np.broadcast_to(lv, (field.N.shape[0], lv.shape[1]))
+    elif lv.shape[0] != field.N.shape[0]:
+        raise ValueError("load_vec must be shape (dim,) or (n_q, dim)")
+    if lv.ndim == 3:
+        load = field.N[..., None, None] * lv[:, None, :, :]
+        return load.reshape(load.shape[0], -1, load.shape[-1])
+    load = field.N[..., None] * lv[:, None, :]
+    return load.reshape(load.shape[0], -1)
+
+
+def _sym_grad_np(field) -> np.ndarray:
+    gradN = np.asarray(field.gradN)
+    dofs = int(getattr(field.basis, "dofs_per_node", 3))
+    n_q, n_nodes, _ = gradN.shape
+    n_dofs = dofs * n_nodes
+    B = np.zeros((n_q, 6, n_dofs), dtype=gradN.dtype)
+    for a in range(n_nodes):
+        col = dofs * a
+        dNdx = gradN[:, a, 0]
+        dNdy = gradN[:, a, 1]
+        dNdz = gradN[:, a, 2]
+        B[:, 0, col + 0] = dNdx
+        B[:, 1, col + 1] = dNdy
+        B[:, 2, col + 2] = dNdz
+        B[:, 3, col + 0] = dNdy
+        B[:, 3, col + 1] = dNdx
+        B[:, 4, col + 1] = dNdz
+        B[:, 4, col + 2] = dNdy
+        B[:, 5, col + 0] = dNdz
+        B[:, 5, col + 2] = dNdx
+    return B
+
+
+def _sym_grad_u_np(field, u_elem: Any) -> np.ndarray:
+    B = _sym_grad_np(field)
+    u_arr = np.asarray(u_elem)
+    if u_arr.ndim == 2:
+        return np.einsum("qik,kb->qib", B, u_arr)
+    return np.einsum("qik,k->qi", B, u_arr)
+
+
+def _ddot_np(a: Any, b: Any, c: Any | None = None) -> np.ndarray:
+    if c is None:
+        return np.einsum("...ij,...ij->...", a, b)
+    a_t = np.swapaxes(a, -1, -2)
+    return np.einsum("...ik,kl,...lm->...im", a_t, b, c)
+
+
+def _dot_np(a: Any, b: Any) -> np.ndarray:
+    if hasattr(a, "N") and getattr(a, "value_dim", None) is not None:
+        return _vector_load_form_np(a, b)
+    return np.matmul(a, b)
+
+
+def _transpose_last2_np(a: Any) -> np.ndarray:
+    return np.swapaxes(a, -1, -2)
 
 
 def grad(field) -> Expr:
@@ -1043,8 +1257,298 @@ def eval_with_plan(
             continue
         if op == "einsum":
             subscripts = args[0]
-            operands = [get(arg) for arg in args[1:]]
+            operands = [
+                (jnp.asarray(arg) if isinstance(arg, tuple) else arg)
+                for arg in (get(arg) for arg in args[1:])
+            ]
             vals[i] = jnp.einsum(subscripts, *operands)
+            continue
+
+        raise ValueError(f"Unknown Expr op: {op}")
+
+    return vals[index[id(plan.expr)]]
+
+
+def eval_with_plan_numpy(
+    plan: EvalPlan,
+    ctx: VolumeContext | SurfaceContext,
+    params: ParamsLike,
+    u_elem: UElement | None = None,
+):
+    nodes = plan.nodes
+    index = plan.index
+    vals: list[Any] = [None] * len(nodes)
+
+    def get(obj):
+        if isinstance(obj, Expr):
+            return vals[index[id(obj)]]
+        if isinstance(obj, FieldRef):
+            raise TypeError(
+                "FieldRef must be wrapped with .val/.grad/.sym_grad or used as the first arg of dot/action."
+            )
+        if isinstance(obj, ParamRef):
+            return params
+        return obj
+
+    for i, node in enumerate(nodes):
+        op = node.op
+        args = node.args
+
+        if op == "lit":
+            vals[i] = args[0]
+            continue
+        if op == "getattr":
+            base = get(args[0])
+            name = args[1]
+            if isinstance(base, dict):
+                vals[i] = base[name]
+            else:
+                vals[i] = getattr(base, name)
+            continue
+        if op == "value":
+            ref = args[0]
+            assert isinstance(ref, FieldRef)
+            field = _eval_field_np(ref, ctx, params)
+            if ref.role == "unknown":
+                vals[i] = _eval_unknown_value_np(ref, field, u_elem)
+            else:
+                vals[i] = field.N
+            continue
+        if op == "grad":
+            ref = args[0]
+            assert isinstance(ref, FieldRef)
+            field = _eval_field_np(ref, ctx, params)
+            if ref.role == "unknown":
+                vals[i] = _eval_unknown_grad_np(ref, field, u_elem)
+            else:
+                vals[i] = field.gradN
+            continue
+        if op == "pow":
+            base = get(args[0])
+            exp = get(args[1])
+            vals[i] = base**exp
+            continue
+        if op == "eye":
+            vals[i] = np.eye(int(args[0]))
+            continue
+        if op == "det":
+            vals[i] = np.linalg.det(get(args[0]))
+            continue
+        if op == "inv":
+            vals[i] = np.linalg.inv(get(args[0]))
+            continue
+        if op == "transpose":
+            vals[i] = np.swapaxes(get(args[0]), -1, -2)
+            continue
+        if op == "log":
+            vals[i] = np.log(get(args[0]))
+            continue
+        if op == "surface_normal":
+            normal = getattr(ctx, "normal", None)
+            if normal is None:
+                raise ValueError("surface normal is not available in context")
+            vals[i] = normal
+            continue
+        if op == "surface_measure":
+            if not hasattr(ctx, "w") or not hasattr(ctx, "detJ"):
+                raise TypeError("surface measure requires SurfaceContext.")
+            vals[i] = ctx.w * ctx.detJ
+            continue
+        if op == "volume_measure":
+            if not hasattr(ctx, "w") or not hasattr(ctx, "test"):
+                raise TypeError("volume measure requires VolumeContext.")
+            vals[i] = ctx.w * ctx.test.detJ
+            continue
+        if op == "sym_grad":
+            ref = args[0]
+            assert isinstance(ref, FieldRef)
+            field = _eval_field_np(ref, ctx, params)
+            if ref.role == "unknown":
+                if u_elem is None:
+                    raise ValueError("u_elem is required to evaluate unknown sym_grad.")
+                u_local = _extract_unknown_elem(ref, u_elem)
+                vals[i] = _sym_grad_u_np(field, u_local)
+            else:
+                vals[i] = _sym_grad_np(field)
+            continue
+        if op == "outer":
+            a, b = args
+            if not isinstance(a, FieldRef) or not isinstance(b, FieldRef):
+                raise TypeError("outer expects FieldRef operands.")
+            test, trial = a, b
+            vals[i] = _basis_outer_np(test, trial, ctx, params)
+            continue
+        if op == "add":
+            vals[i] = get(args[0]) + get(args[1])
+            continue
+        if op == "sub":
+            vals[i] = get(args[0]) - get(args[1])
+            continue
+        if op == "mul":
+            a = get(args[0])
+            b = get(args[1])
+            if hasattr(a, "ndim") and hasattr(b, "ndim"):
+                if a.ndim == 1 and b.ndim == 2 and a.shape[0] == b.shape[0]:
+                    a = a[:, None]
+                elif b.ndim == 1 and a.ndim == 2 and b.shape[0] == a.shape[0]:
+                    b = b[:, None]
+                elif a.ndim >= 2 and b.ndim == 1 and a.shape[0] == b.shape[0]:
+                    b = b.reshape((b.shape[0],) + (1,) * (a.ndim - 1))
+                elif b.ndim >= 2 and a.ndim == 1 and b.shape[0] == a.shape[0]:
+                    a = a.reshape((a.shape[0],) + (1,) * (b.ndim - 1))
+            vals[i] = a * b
+            continue
+        if op == "matmul":
+            a = get(args[0])
+            b = get(args[1])
+            if (
+                hasattr(a, "ndim")
+                and hasattr(b, "ndim")
+                and a.ndim == 3
+                and b.ndim == 3
+                and a.shape[0] == b.shape[0]
+                and a.shape[-1] == b.shape[-1]
+            ):
+                vals[i] = np.einsum("qia,qja->qij", a, b)
+            else:
+                raise TypeError(
+                    "Expr '@' (matmul) is FEM-specific; use matmul_std(a, b) for standard matmul."
+                )
+            continue
+        if op == "matmul_std":
+            a = get(args[0])
+            b = get(args[1])
+            vals[i] = np.matmul(a, b)
+            continue
+        if op == "neg":
+            vals[i] = -get(args[0])
+            continue
+        if op == "dot":
+            ref = args[0]
+            if isinstance(ref, FieldRef):
+                vals[i] = _dot_np(_eval_field_np(ref, ctx, params), get(args[1]))
+            else:
+                a = get(args[0])
+                b = get(args[1])
+                if (
+                    hasattr(a, "ndim")
+                    and hasattr(b, "ndim")
+                    and a.ndim >= 3
+                    and b.ndim >= 3
+                    and a.shape[0] == b.shape[0]
+                    and a.shape[1] == b.shape[1]
+                ):
+                    vals[i] = np.einsum("qi...,qj...->qij...", a, b)
+                else:
+                    vals[i] = np.matmul(a, b)
+            continue
+        if op == "sdot":
+            ref = args[0]
+            if isinstance(ref, FieldRef):
+                vals[i] = _dot_np(_eval_field_np(ref, ctx, params), get(args[1]))
+            else:
+                a = get(args[0])
+                b = get(args[1])
+                if (
+                    hasattr(a, "ndim")
+                    and hasattr(b, "ndim")
+                    and a.ndim >= 3
+                    and b.ndim >= 3
+                    and a.shape[0] == b.shape[0]
+                    and a.shape[1] == b.shape[1]
+                ):
+                    vals[i] = np.einsum("qi...,qj...->qij...", a, b)
+                else:
+                    vals[i] = np.matmul(a, b)
+            continue
+        if op == "ddot":
+            if len(args) == 2:
+                a = get(args[0])
+                b = get(args[1])
+                if (
+                    hasattr(a, "ndim")
+                    and hasattr(b, "ndim")
+                    and a.ndim == 3
+                    and b.ndim == 3
+                    and a.shape[0] == b.shape[0]
+                    and a.shape[1] == b.shape[1]
+                ):
+                    vals[i] = np.einsum("qik,qim->qkm", a, b)
+                else:
+                    vals[i] = _ddot_np(a, b)
+            else:
+                vals[i] = _ddot_np(get(args[0]), get(args[1]), get(args[2]))
+            continue
+        if op == "inner":
+            a = get(args[0])
+            b = get(args[1])
+            vals[i] = np.einsum("...i,...i->...", a, b)
+            continue
+        if op == "action":
+            ref = args[0]
+            assert isinstance(ref, FieldRef)
+            if isinstance(args[1], FieldRef):
+                raise ValueError("action expects a scalar expression; use u.val for unknowns.")
+            v_field = _eval_field_np(ref, ctx, params)
+            s = get(args[1])
+            value_dim = int(getattr(v_field, "value_dim", 1))
+            if value_dim == 1:
+                if v_field.N.ndim != 2:
+                    raise ValueError("action expects scalar test field with N shape (q, ndofs).")
+                if hasattr(s, "ndim") and s.ndim not in (0, 1):
+                    raise ValueError("action expects scalar s with shape (q,) or scalar.")
+                vals[i] = v_field.N * s
+            else:
+                if hasattr(s, "ndim") and s.ndim not in (1, 2):
+                    raise ValueError("action expects vector s with shape (q, dim) or (dim,).")
+                vals[i] = _dot_np(v_field, s)
+            continue
+        if op == "gaction":
+            ref = args[0]
+            assert isinstance(ref, FieldRef)
+            v_field = _eval_field_np(ref, ctx, params)
+            q = get(args[1])
+            if v_field.gradN.ndim != 3:
+                raise ValueError("gaction expects test gradient with shape (q, ndofs, dim).")
+            if not hasattr(q, "ndim"):
+                raise ValueError("gaction expects q with shape (q, dim) or (q, dim, dim).")
+            if q.ndim == 2:
+                vals[i] = np.einsum("qaj,qj->qa", v_field.gradN, q)
+            elif q.ndim == 3:
+                if int(getattr(v_field, "value_dim", 1)) == 1:
+                    raise ValueError("gaction tensor flux requires vector test field.")
+                vals[i] = np.einsum("qij,qaj->qai", q, v_field.gradN).reshape(q.shape[0], -1)
+            else:
+                raise ValueError("gaction expects q with shape (q, dim) or (q, dim, dim).")
+            continue
+        if op == "transpose_last2":
+            vals[i] = _transpose_last2_np(get(args[0]))
+            continue
+        if op == "einsum":
+            subscripts = args[0]
+            operands = [
+                (np.asarray(arg) if isinstance(arg, tuple) else arg)
+                for arg in (get(arg) for arg in args[1:])
+            ]
+            if "..." not in subscripts:
+                has_extra = False
+                parts = subscripts.split("->")
+                in_terms = parts[0].split(",")
+                out_term = parts[1] if len(parts) > 1 else None
+                updated_terms = []
+                for term, opnd in zip(in_terms, operands):
+                    if hasattr(opnd, "ndim") and opnd.ndim > len(term):
+                        has_extra = True
+                        updated_terms.append(term + "...")
+                    else:
+                        updated_terms.append(term)
+                if has_extra:
+                    if out_term is not None:
+                        out_term = out_term + "..."
+                        subscripts = ",".join(updated_terms) + "->" + out_term
+                    else:
+                        subscripts = ",".join(updated_terms)
+            vals[i] = np.einsum(subscripts, *operands)
             continue
 
         raise ValueError(f"Unknown Expr op: {op}")
@@ -1073,6 +1577,38 @@ def compile_surface_linear(fn):
         raise ValueError("Surface linear form must include ds() exactly once.")
     if volume_count > 0:
         raise ValueError("Surface linear form must not include dOmega().")
+
+    plan = make_eval_plan(expr)
+
+    def _form(ctx, params):
+        return eval_with_plan(plan, ctx, params)
+
+    _form._includes_measure = True  # type: ignore[attr-defined]
+    return _form
+
+
+def compile_surface_bilinear(fn):
+    """get_compiled a surface bilinear form into a kernel (ctx, params) -> ndarray."""
+    if isinstance(fn, Expr):
+        expr = fn
+    else:
+        v = test_ref()
+        u = trial_ref()
+        p = param_ref()
+        expr = _call_user(fn, u, v, params=p)
+
+    expr = _as_expr(expr)
+    if not isinstance(expr, Expr):
+        raise ValueError("Surface bilinear form must return an Expr; use ds() in the expression.")
+
+    surface_count = _count_op(expr, "surface_measure")
+    volume_count = _count_op(expr, "volume_measure")
+    if surface_count == 0:
+        raise ValueError("Surface bilinear form must include ds().")
+    if surface_count > 1:
+        raise ValueError("Surface bilinear form must include ds() exactly once.")
+    if volume_count > 0:
+        raise ValueError("Surface bilinear form must not include dOmega().")
 
     plan = make_eval_plan(expr)
 
@@ -1194,8 +1730,155 @@ def compile_mixed_residual(residuals: dict[str, Callable]):
         if surface_count > 0:
             raise ValueError(f"Mixed residual '{name}' must not include ds().")
 
+    class _MixedContextView:
+        def __init__(self, ctx, field_name: str):
+            self._ctx = ctx
+            self.fields = ctx.fields
+            self.x_q = ctx.x_q
+            self.w = ctx.w
+            self.elem_id = ctx.elem_id
+            self.trial_fields = ctx.trial_fields
+            self.test_fields = ctx.test_fields
+            self.unknown_fields = ctx.unknown_fields
+            self.unknown = ctx.unknown
+
+            pair = ctx.fields[field_name]
+            self.test = pair.test
+            self.trial = pair.trial
+            self.v = pair.test
+            self.u = pair.trial
+
+            if hasattr(ctx, "normal"):
+                self.normal = ctx.normal
+
+        def __getattr__(self, name: str):
+            return getattr(self._ctx, name)
+
     def _form(ctx, u_elem, params):
-        return {name: eval_with_plan(plan, ctx, params, u_elem=u_elem) for name, plan in plans.items()}
+        return {
+            name: eval_with_plan(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
+            for name, plan in plans.items()
+        }
+
+    _form._includes_measure = includes_measure
+    return _form
+
+
+def compile_mixed_surface_residual(residuals: dict[str, Callable]):
+    """get_compiled mixed surface residuals keyed by field name."""
+    compiled = {}
+    plans = {}
+    includes_measure = {}
+    for name, fn in residuals.items():
+        if isinstance(fn, Expr):
+            expr = fn
+        else:
+            v = test_ref(name)
+            u = unknown_ref(name)
+            p = param_ref()
+            expr = _call_user(fn, v, u, params=p)
+        expr = _as_expr(expr)
+        if not isinstance(expr, Expr):
+            raise TypeError(f"Mixed surface residual '{name}' must return an Expr.")
+        compiled[name] = expr
+        plans[name] = make_eval_plan(expr)
+        volume_count = _count_op(compiled[name], "volume_measure")
+        surface_count = _count_op(compiled[name], "surface_measure")
+        includes_measure[name] = surface_count == 1
+        if surface_count == 0:
+            raise ValueError(f"Mixed surface residual '{name}' must include ds().")
+        if surface_count > 1:
+            raise ValueError(f"Mixed surface residual '{name}' must include ds() exactly once.")
+        if volume_count > 0:
+            raise ValueError(f"Mixed surface residual '{name}' must not include dOmega().")
+
+    class _MixedContextView:
+        def __init__(self, ctx, field_name: str):
+            self._ctx = ctx
+            self.fields = ctx.fields
+            self.x_q = ctx.x_q
+            self.w = ctx.w
+            self.detJ = ctx.detJ
+            self.normal = getattr(ctx, "normal", None)
+            self.trial_fields = ctx.trial_fields
+            self.test_fields = ctx.test_fields
+            self.unknown_fields = ctx.unknown_fields
+            self.unknown = getattr(ctx, "unknown", None)
+
+            pair = ctx.fields[field_name]
+            self.test = pair.test
+            self.trial = pair.trial
+            self.v = pair.test
+            self.u = pair.trial
+
+        def __getattr__(self, name: str):
+            return getattr(self._ctx, name)
+
+    def _form(ctx, u_elem, params):
+        return {
+            name: eval_with_plan(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
+            for name, plan in plans.items()
+        }
+
+    _form._includes_measure = includes_measure
+    return _form
+
+
+def compile_mixed_surface_residual_numpy(residuals: dict[str, Callable]):
+    """Mixed surface residual compiled for numpy evaluation."""
+    compiled = {}
+    plans = {}
+    includes_measure = {}
+    for name, fn in residuals.items():
+        if isinstance(fn, Expr):
+            expr = fn
+        else:
+            v = test_ref(name)
+            u = unknown_ref(name)
+            p = param_ref()
+            expr = _call_user(fn, v, u, params=p)
+        expr = _as_expr(expr)
+        if not isinstance(expr, Expr):
+            raise TypeError(f"Mixed surface residual '{name}' must return an Expr.")
+        compiled[name] = expr
+        plans[name] = make_eval_plan(expr)
+        volume_count = _count_op(compiled[name], "volume_measure")
+        surface_count = _count_op(compiled[name], "surface_measure")
+        includes_measure[name] = surface_count == 1
+        if surface_count == 0:
+            raise ValueError(f"Mixed surface residual '{name}' must include ds().")
+        if surface_count > 1:
+            raise ValueError(f"Mixed surface residual '{name}' must include ds() exactly once.")
+        if volume_count > 0:
+            raise ValueError(f"Mixed surface residual '{name}' must not include dOmega().")
+
+    class _MixedContextView:
+        def __init__(self, ctx, field_name: str):
+            self._ctx = ctx
+            self.fields = ctx.fields
+            self.x_q = ctx.x_q
+            self.w = ctx.w
+            self.detJ = ctx.detJ
+            self.normal = getattr(ctx, "normal", None)
+            self.trial_fields = ctx.trial_fields
+            self.test_fields = ctx.test_fields
+            self.unknown_fields = ctx.unknown_fields
+            self.unknown = getattr(ctx, "unknown", None)
+
+            pair = ctx.fields[field_name]
+            self.test = pair.test
+            self.trial = pair.trial
+            self.v = pair.test
+            self.u = pair.trial
+
+        def __getattr__(self, name: str):
+            return getattr(self._ctx, name)
+
+    def _form(ctx, u_elem, params):
+        return {
+            name: eval_with_plan_numpy(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
+            for name, plan in plans.items()
+        }
 
     _form._includes_measure = includes_measure
     return _form
@@ -1230,6 +1913,7 @@ __all__ = [
     "trial_ref",
     "test_ref",
     "unknown_ref",
+    "zero_ref",
     "param_ref",
     "Params",
     "MixedWeakForm",
@@ -1237,6 +1921,9 @@ __all__ = [
     "compile_bilinear",
     "compile_linear",
     "compile_residual",
+    "compile_surface_bilinear",
+    "compile_mixed_surface_residual",
+    "compile_mixed_surface_residual_numpy",
     "compile_mixed_residual",
     "grad",
     "sym_grad",

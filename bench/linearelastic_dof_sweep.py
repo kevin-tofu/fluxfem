@@ -17,16 +17,16 @@ Disable CG benchmark (skip cg_solve timing + plotting + CSV column):
   PYTHONPATH=src python bench/linearelastic_dof_sweep.py --no-cg
 
 Custom sweep and settings:
-  PYTHONPATH=src python bench/linearelastic_dof_sweep.py --sizes 8 12 16 20 --repeats 5 --intorder 2
+  PYTHONPATH=src python bench/linearelastic_dof_sweep.py --sizes 8 12 16 20 --repeats 5 --intorder 2 --warmup 1
 
 Environment variable equivalents (optional):
-  SIZES="8,12,16,20" NY_MULT=1.0 NZ_MULT=1.0 REPEATS=5 INTORDER=2 PLOT="solve_benchmark.png"
+  SIZES="8,12,16,20" NY_MULT=1.0 NZ_MULT=1.0 REPEATS=5 WARMUP=1 INTORDER=2 PLOT="solve_benchmark.png"
 
 Notes
 -----
 - This script enables JAX x64 by default (jax_enable_x64=True).
 - scikit-fem comparison is skipped if scikit-fem is not installed.
-- IMPORTANT: For fluxfem assembly, the first measured sample includes JIT compile + execute.
+- IMPORTANT: Use --warmup to exclude JIT compilation from timing statistics.
   We report the distribution over `--repeats` samples (min/mean/max), not just the mean.
 """
 
@@ -38,6 +38,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import jax
@@ -56,7 +57,6 @@ from fluxfem import (
     StructuredHexBox,
     SurfaceMesh,
     cg_solve,
-    cg_solve_jax,
     constant_body_force_vector_form,
     lame_parameters,
     isotropic_3d_D,
@@ -66,6 +66,11 @@ from fluxfem import (
     LinearSolver,
     tag_axis_minmax_facets,
 )
+
+try:
+    from fluxfem import cg_solve_jax
+except ImportError:
+    cg_solve_jax = None
 
 
 def env_default(name: str, default, cast):
@@ -105,6 +110,30 @@ def parse_args():
     p.add_argument("--nu", type=float, default=env_default("NU", 0.3, float))
     p.add_argument("--intorder", type=int, default=env_default("INTORDER", 2, int))
     p.add_argument("--repeats", type=int, default=env_default("REPEATS", 3, int), help="Number of repetitions per timing (>=1).")
+    p.add_argument(
+        "--warmup",
+        type=int,
+        default=env_default("WARMUP", 1, int),
+        help="Warmup iterations (excluded from timing statistics).",
+    )
+    p.add_argument(
+        "--kernel-jit",
+        action=argparse.BooleanOptionalAction,
+        default=env_default("KERNEL_JIT", True, lambda v: str(v).lower() not in {"0", "false", "no"}),
+        help="JIT the element kernel inside assemble_bilinear_form (default: enabled).",
+    )
+    p.add_argument(
+        "--breakdown",
+        action=argparse.BooleanOptionalAction,
+        default=env_default("BREAKDOWN", True, lambda v: str(v).lower() not in {"0", "false", "no"}),
+        help="Measure kernel/backend timing breakdown (default: enabled).",
+    )
+    p.add_argument(
+        "--kernel-breakdown",
+        action=argparse.BooleanOptionalAction,
+        default=env_default("KERNEL_BREAKDOWN", False, lambda v: str(v).lower() in {"1", "true", "yes"}),
+        help="Measure sym_grad vs B^T D B timing inside the element kernel (default: disabled).",
+    )
     p.add_argument("--cg-tol", type=float, default=env_default("CG_TOL", 1e-8, float))
     p.add_argument("--cg-maxiter", type=int, default=env_default("CG_MAXITER", 5000, int))
     p.add_argument(
@@ -369,6 +398,8 @@ def summarize(samples: np.ndarray) -> dict[str, float]:
 def assemble_fluxfem_case(n: int, args, dtype):
     if args.repeats < 1:
         raise ValueError("--repeats must be >= 1")
+    if args.warmup < 0:
+        raise ValueError("--warmup must be >= 0")
 
     mesh, ny, nz = make_structured_mesh(n, args.ny_mult, args.nz_mult, args.lx, args.ly, args.lz)
     mesh = mesh.__class__(
@@ -390,13 +421,23 @@ def assemble_fluxfem_case(n: int, args, dtype):
     )
 
     D = isotropic_3d_D(args.E, args.nu)
+    D = jnp.asarray(D)
     f_body = jnp.array([args.fx, args.fy, args.fz], dtype=dtype)
+
+    from fluxfem.core.assembly import make_element_bilinear_kernel
+    from fluxfem.physics.operators import sym_grad
+
+    form_const = lambda ctx, _p: linear_elasticity_form(ctx, D)
+    kernel = make_element_bilinear_kernel(form_const, None, jit=args.kernel_jit)
+    elem_data = space.build_form_contexts()
 
     assemble_K = jax.jit(
         lambda: space.assemble_bilinear_form(
-            linear_elasticity_form,
-            params=D,
+            form_const,
+            params=None,
             pattern=pattern,
+            kernel=kernel,
+            jit=False,
         )
     )
     assemble_F = jax.jit(
@@ -405,21 +446,116 @@ def assemble_fluxfem_case(n: int, args, dtype):
         )
     )
 
-    # IMPORTANT: do NOT warm up here.
-    # We include first-call JIT compile cost in the samples.
+    if args.breakdown:
+        kernel_stage = jax.jit(lambda: jax.vmap(kernel)(elem_data))
+        backend_stage = jax.jit(lambda Ke: FluxSparseMatrix(pattern, Ke.reshape(-1)))
+    if args.kernel_breakdown:
+        def _sym(ctx):
+            Bu = sym_grad(ctx.trial)
+            Bv = Bu if ctx.test is ctx.trial else sym_grad(ctx.test)
+            return Bu, Bv
 
-    assembly_times = []
-    last_K = None
-    last_F = None
+        sym_stage = jax.jit(lambda: jax.vmap(_sym)(elem_data))
+        bdb_stage = jax.jit(
+            lambda Bu, Bv: jnp.einsum(
+                "eqik,kl,eqlm->eqim", jnp.swapaxes(Bv, 2, 3), D, Bu
+            )
+        )
 
-    timer = SectionTimer()
-    for _ in range(args.repeats):
-        with timer.section("assemble_flux"):
-            K_tmp = assemble_K()
-            jax.block_until_ready(K_tmp.data)
+    # Warmup: exclude compile/first-call overhead from timing stats.
+    warmup_times = []
+    kernel_warm = []
+    backend_warm = []
+    sym_warm = []
+    bdb_warm = []
+    if args.warmup:
+        for _ in range(args.warmup):
+            t0 = time.perf_counter()
+            if args.breakdown:
+                Ke_all = kernel_stage()
+                jax.block_until_ready(Ke_all)
+                t_kernel = time.perf_counter() - t0
+
+                t1 = time.perf_counter()
+                K_tmp = backend_stage(Ke_all)
+                jax.block_until_ready(K_tmp.data)
+                t_backend = time.perf_counter() - t1
+            else:
+                K_tmp = assemble_K()
+                jax.block_until_ready(K_tmp.data)
+                t_kernel = float("nan")
+                t_backend = float("nan")
+
+            if args.kernel_breakdown:
+                t_sym0 = time.perf_counter()
+                Bu, Bv = sym_stage()
+                jax.block_until_ready(Bu)
+                t_sym = time.perf_counter() - t_sym0
+
+                t_bdb0 = time.perf_counter()
+                bdb = bdb_stage(Bu, Bv)
+                jax.block_until_ready(bdb)
+                t_bdb = time.perf_counter() - t_bdb0
+            else:
+                t_sym = float("nan")
+                t_bdb = float("nan")
 
             F_tmp = assemble_F()
             jax.block_until_ready(F_tmp)
+            if traction_surf is not None:
+                F_tmp = traction_surf.assemble_load(
+                    load=np.array([args.traction, 0.0, 0.0], dtype=float),
+                    dim=3,
+                    n_total_nodes=mesh.n_nodes,
+                    F0=F_tmp,
+                )
+            warmup_times.append(time.perf_counter() - t0)
+            kernel_warm.append(t_kernel)
+            backend_warm.append(t_backend)
+            sym_warm.append(t_sym)
+            bdb_warm.append(t_bdb)
+
+    assembly_times = []
+    kernel_times = []
+    backend_times = []
+    sym_times = []
+    bdb_times = []
+    last_K = None
+    last_F = None
+
+    for _ in range(args.repeats):
+        t0 = time.perf_counter()
+        if args.breakdown:
+            Ke_all = kernel_stage()
+            jax.block_until_ready(Ke_all)
+            t_kernel = time.perf_counter() - t0
+
+            t1 = time.perf_counter()
+            K_tmp = backend_stage(Ke_all)
+            jax.block_until_ready(K_tmp.data)
+            t_backend = time.perf_counter() - t1
+        else:
+            K_tmp = assemble_K()
+            jax.block_until_ready(K_tmp.data)
+            t_kernel = float("nan")
+            t_backend = float("nan")
+
+        if args.kernel_breakdown:
+            t_sym0 = time.perf_counter()
+            Bu, Bv = sym_stage()
+            jax.block_until_ready(Bu)
+            t_sym = time.perf_counter() - t_sym0
+
+            t_bdb0 = time.perf_counter()
+            bdb = bdb_stage(Bu, Bv)
+            jax.block_until_ready(bdb)
+            t_bdb = time.perf_counter() - t_bdb0
+        else:
+            t_sym = float("nan")
+            t_bdb = float("nan")
+
+        F_tmp = assemble_F()
+        jax.block_until_ready(F_tmp)
 
         if traction_surf is not None:
             F_tmp = traction_surf.assemble_load(
@@ -429,7 +565,11 @@ def assemble_fluxfem_case(n: int, args, dtype):
                 F0=F_tmp,
             )
 
-        assembly_times.append(timer.last("assemble_flux"))
+        assembly_times.append(time.perf_counter() - t0)
+        kernel_times.append(t_kernel)
+        backend_times.append(t_backend)
+        sym_times.append(t_sym)
+        bdb_times.append(t_bdb)
         last_K = K_tmp
         last_F = np.asarray(F_tmp, dtype=float)
 
@@ -439,10 +579,24 @@ def assemble_fluxfem_case(n: int, args, dtype):
     K_ff, F_free, free = condense_flux_dirichlet(last_K, last_F, dir_dofs, dir_vals)
 
     backend = jax.default_backend()
+    solve_sps_warm = np.full((args.warmup,), np.nan, dtype=float)
+    residual_sps_warm = np.full((args.warmup,), np.nan, dtype=float)
     if backend == "gpu" and not args.gpu_spsolve:
         solve_sps_times = np.full((args.repeats,), np.nan, dtype=float)
         residual_sps = np.full((args.repeats,), np.nan, dtype=float)
     else:
+        if args.warmup:
+            solve_sps_warm, residual_sps_warm = time_spsolve_samples(
+                last_K,
+                last_F,
+                (dir_dofs, dir_vals),
+                K_ff,
+                F_free,
+                free,
+                args.warmup,
+                backend,
+                args.spsolve_impl,
+            )
         solve_sps_times, residual_sps = time_spsolve_samples(
             last_K,
             last_F,
@@ -455,10 +609,17 @@ def assemble_fluxfem_case(n: int, args, dtype):
             args.spsolve_impl,
         )
 
+    solve_cg_warm = np.full((args.warmup,), np.nan, dtype=float)
+    cg_iters_warm = np.full((args.warmup,), np.nan, dtype=float)
+    residual_cg_warm = np.full((args.warmup,), np.nan, dtype=float)
     if args.no_cg:
         solve_cg_times = np.full((args.repeats,), np.nan, dtype=float)
         cg_iters = np.full((args.repeats,), np.nan, dtype=float)
     else:
+        if args.warmup:
+            solve_cg_warm, cg_iters_warm, residual_cg_warm = time_flux_cg_samples(
+                K_ff, F_free, args.warmup, args.cg_tol, args.cg_maxiter, args.cg_impl, args.cg_matvec, args.cg_precon
+            )
         solve_cg_times, cg_iters, residual_cg = time_flux_cg_samples(
             K_ff, F_free, args.repeats, args.cg_tol, args.cg_maxiter, args.cg_impl, args.cg_matvec, args.cg_precon
         )
@@ -471,11 +632,25 @@ def assemble_fluxfem_case(n: int, args, dtype):
         "nz": nz,
         "dofs_total": int(space.n_dofs),
         "free_dofs": int(K_ff.shape[0]),
+        "assembly_warmup_samples": np.asarray(warmup_times, dtype=float),
         "assembly_samples": np.asarray(assembly_times, dtype=float),
+        "kernel_warmup_samples": np.asarray(kernel_warm, dtype=float),
+        "backend_warmup_samples": np.asarray(backend_warm, dtype=float),
+        "kernel_samples": np.asarray(kernel_times, dtype=float),
+        "backend_samples": np.asarray(backend_times, dtype=float),
+        "kernel_sym_warmup_samples": np.asarray(sym_warm, dtype=float),
+        "kernel_bdb_warmup_samples": np.asarray(bdb_warm, dtype=float),
+        "kernel_sym_samples": np.asarray(sym_times, dtype=float),
+        "kernel_bdb_samples": np.asarray(bdb_times, dtype=float),
+        "solve_spsolve_warmup_samples": solve_sps_warm,
         "solve_spsolve_samples": solve_sps_times,
+        "residual_spsolve_warmup_samples": residual_sps_warm,
         "residual_spsolve_samples": residual_sps,
+        "solve_cg_warmup_samples": solve_cg_warm,
         "solve_cg_samples": solve_cg_times,
+        "residual_cg_warmup_samples": residual_cg_warm,
         "residual_cg_samples": residual_cg,
+        "cg_iters_warmup_samples": cg_iters_warm,
         "cg_iters_samples": cg_iters,
     }
 
@@ -483,6 +658,8 @@ def assemble_fluxfem_case(n: int, args, dtype):
 def assemble_skfem_case(n: int, ny: int, nz: int, args):
     if args.repeats < 1:
         raise ValueError("--repeats must be >= 1")
+    if args.warmup < 0:
+        raise ValueError("--warmup must be >= 0")
     if importlib.util.find_spec("skfem") is None:
         return None
 
@@ -514,7 +691,19 @@ def assemble_skfem_case(n: int, ny: int, nz: int, args):
         facets = mesh.facets_satisfying(lambda x: np.isclose(x[0], args.lx, atol=1e-8))
         fbasis = basis.boundary(facets=facets)
 
-    # Assembly samples (includes any first-call overhead on the first repetition).
+    # Warmup samples (excluded from timing stats).
+    warmup_times = []
+    if args.warmup:
+        warm_timer = SectionTimer()
+        for _ in range(args.warmup):
+            with warm_timer.section("assemble_skfem_warm"):
+                K = asm(linear_elasticity(Lambda=lam, Mu=mu), basis)
+                F = asm(body_force, basis)
+                if fbasis is not None:
+                    F += asm(traction_load, fbasis)
+            warmup_times.append(warm_timer.last("assemble_skfem_warm"))
+
+    # Assembly samples.
     assembly_times = []
     last_K = None
     last_F = None
@@ -536,6 +725,16 @@ def assemble_skfem_case(n: int, ny: int, nz: int, args):
     dir_dofs = basis.get_dofs(lambda x: np.isclose(x[0], 0.0, atol=1e-8))
     Kc, Fc = condense(last_K, last_F, D=dir_dofs, expand=False)
 
+    solve_warm = []
+    residual_warm = []
+    if args.warmup:
+        solve_timer = SectionTimer()
+        for _ in range(args.warmup):
+            with solve_timer.section("solve_skfem_warm"):
+                u = solve(Kc, Fc)
+            solve_warm.append(solve_timer.last("solve_skfem_warm"))
+            residual_warm.append(_residual_error(Kc, Fc, u))
+
     solve_times = []
     residual_errors = []
     solve_timer = SectionTimer()
@@ -548,8 +747,11 @@ def assemble_skfem_case(n: int, ny: int, nz: int, args):
     return {
         "dofs_total": int(basis.N),
         "free_dofs": int(Kc.shape[0]),
+        "assembly_warmup_samples": np.asarray(warmup_times, dtype=float),
         "assembly_samples": np.asarray(assembly_times, dtype=float),
+        "solve_warmup_samples": np.asarray(solve_warm, dtype=float),
         "solve_samples": np.asarray(solve_times, dtype=float),
+        "residual_solve_warmup_samples": np.asarray(residual_warm, dtype=float),
         "residual_solve_samples": np.asarray(residual_errors, dtype=float),
     }
 
@@ -599,6 +801,10 @@ if __name__ == "__main__":
                 str(args.intorder),
                 "--repeats",
                 str(args.repeats),
+                "--warmup",
+                str(args.warmup),
+                "--breakdown" if args.breakdown else "--no-breakdown",
+                "--kernel-breakdown" if args.kernel_breakdown else "--no-kernel-breakdown",
                 "--cg-tol",
                 str(args.cg_tol),
                 "--cg-maxiter",
@@ -660,6 +866,7 @@ if __name__ == "__main__":
         print(f"\n--- n={n}, ny={flux_res['ny']}, nz={flux_res['nz']} ---")
 
         asm_stats = summarize(flux_res["assembly_samples"])
+        asm_warm_stats = summarize(flux_res["assembly_warmup_samples"]) if args.warmup else None
         sps_stats = summarize(flux_res["solve_spsolve_samples"])
         residual_sps_stats = summarize(flux_res["residual_spsolve_samples"])
 
@@ -669,6 +876,19 @@ if __name__ == "__main__":
             f"spsolve mean={sps_stats['mean']:.3e}s [min={sps_stats['min']:.3e}, max={sps_stats['max']:.3e}]"
             f", residual_spsolve med={residual_sps_stats['median']:.3e}"
         )
+        if asm_warm_stats is not None:
+            msg += (
+                f", assembly warm mean={asm_warm_stats['mean']:.3e}s"
+                f" [min={asm_warm_stats['min']:.3e}, max={asm_warm_stats['max']:.3e}]"
+            )
+        if args.breakdown:
+            kern_stats = summarize(flux_res["kernel_samples"])
+            back_stats = summarize(flux_res["backend_samples"])
+            msg += f", kernel mean={kern_stats['mean']:.3e}s, backend mean={back_stats['mean']:.3e}s"
+        if args.kernel_breakdown:
+            sym_stats = summarize(flux_res["kernel_sym_samples"])
+            bdb_stats = summarize(flux_res["kernel_bdb_samples"])
+            msg += f", sym_grad mean={sym_stats['mean']:.3e}s, bdb mean={bdb_stats['mean']:.3e}s"
         if not args.no_cg:
             cg_stats = summarize(flux_res["solve_cg_samples"])
             it_stats = summarize(flux_res["cg_iters_samples"])
@@ -702,7 +922,14 @@ if __name__ == "__main__":
         raise SystemExit("No fluxfem results collected.")
 
     # CSV-style table: report mean and range (min/max). (No longer only mean.)
-    header = "\nDOF (free), flux_asm_mean[s], flux_asm_min[s], flux_asm_max[s], flux_sps_mean[s], flux_sps_min[s], flux_sps_max[s], flux_res_sps_median"
+    header = "\nDOF (free), flux_asm_mean[s], flux_asm_min[s], flux_asm_max[s]"
+    if args.warmup:
+        header += ", flux_asm_warm_mean[s], flux_asm_warm_min[s], flux_asm_warm_max[s]"
+    if args.breakdown:
+        header += ", flux_kernel_mean[s], flux_backend_mean[s]"
+    if args.kernel_breakdown:
+        header += ", flux_sym_grad_mean[s], flux_bdb_mean[s]"
+    header += ", flux_sps_mean[s], flux_sps_min[s], flux_sps_max[s], flux_res_sps_median"
     if not args.no_cg:
         header += ", flux_cg_mean[s], flux_cg_min[s], flux_cg_max[s], flux_cg_iters_median, flux_res_cg_median"
     if skfem_results:
@@ -715,11 +942,19 @@ if __name__ == "__main__":
         asm = summarize(res["assembly_samples"])
         sps = summarize(res["solve_spsolve_samples"])
         res_sps = summarize(res["residual_spsolve_samples"])
-        row = (
-            f"{res['free_dofs']}, "
-            f"{asm['mean']:.6e}, {asm['min']:.6e}, {asm['max']:.6e}, "
-            f"{sps['mean']:.6e}, {sps['min']:.6e}, {sps['max']:.6e}, {res_sps['median']:.6e}"
-        )
+        row = f"{res['free_dofs']}, {asm['mean']:.6e}, {asm['min']:.6e}, {asm['max']:.6e}"
+        if args.warmup:
+            asm_warm = summarize(res["assembly_warmup_samples"])
+            row += f", {asm_warm['mean']:.6e}, {asm_warm['min']:.6e}, {asm_warm['max']:.6e}"
+        if args.breakdown:
+            kern = summarize(res["kernel_samples"])
+            back = summarize(res["backend_samples"])
+            row += f", {kern['mean']:.6e}, {back['mean']:.6e}"
+        if args.kernel_breakdown:
+            sym = summarize(res["kernel_sym_samples"])
+            bdb = summarize(res["kernel_bdb_samples"])
+            row += f", {sym['mean']:.6e}, {bdb['mean']:.6e}"
+        row += f", {sps['mean']:.6e}, {sps['min']:.6e}, {sps['max']:.6e}, {res_sps['median']:.6e}"
         if not args.no_cg:
             cg = summarize(res["solve_cg_samples"])
             it = summarize(res["cg_iters_samples"])
@@ -833,6 +1068,9 @@ if __name__ == "__main__":
         "nu": args.nu,
         "intorder": args.intorder,
         "repeats": args.repeats,
+        "warmup": args.warmup,
+        "breakdown": args.breakdown,
+        "kernel_breakdown": args.kernel_breakdown,
         "cg_tol": args.cg_tol,
         "cg_maxiter": args.cg_maxiter,
         "cg_impl": args.cg_impl,

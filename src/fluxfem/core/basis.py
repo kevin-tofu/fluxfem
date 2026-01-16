@@ -639,22 +639,30 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
         term = xi * sx + eta * sy + zeta * sz - 2.0  # (n_q,8)
         N_corner = 0.125 * (1 + sx * xi) * (1 + sy * eta) * (1 + sz * zeta) * term  # (n_q,8)
 
-        # edges
-        edges_x = [(-1, -1), (1, -1), (1, 1), (-1, 1)]  # eta, zeta fixed
-        edges_y = [(-1, -1), (1, -1), (1, 1), (-1, 1)]  # xi fixed
-        edges_z = [(-1, -1), (1, -1), (1, 1), (-1, 1)]  # xi, eta fixed
+        # edges: order matches hex20 connectivity (e01, e12, e23, e30, e45, e56, e67, e74, e04, e15, e26, e37)
+        def edge_x(sy, sz):
+            return 0.25 * (1 - xi * xi) * (1 + sy * eta) * (1 + sz * zeta)
 
-        N_edges = []
-        # along xi (1 - xi^2)
-        for sy, sz in edges_x:
-            N_edges.append(0.25 * (1 - xi * xi) * (1 + sy * eta) * (1 + sz * zeta))
-        # along eta
-        for sx, sz in edges_y:
-            N_edges.append(0.25 * (1 - eta * eta) * (1 + sx * xi) * (1 + sz * zeta))
-        # along zeta
-        for sx, sy in edges_z:
-            N_edges.append(0.25 * (1 - zeta * zeta) * (1 + sx * xi) * (1 + sy * eta))
+        def edge_y(sx, sz):
+            return 0.25 * (1 - eta * eta) * (1 + sx * xi) * (1 + sz * zeta)
 
+        def edge_z(sx, sy):
+            return 0.25 * (1 - zeta * zeta) * (1 + sx * xi) * (1 + sy * eta)
+
+        N_edges = [
+            edge_x(-1, -1),
+            edge_y(1, -1),
+            edge_x(1, -1),
+            edge_y(-1, -1),
+            edge_x(-1, 1),
+            edge_y(1, 1),
+            edge_x(1, 1),
+            edge_y(-1, 1),
+            edge_z(-1, -1),
+            edge_z(1, -1),
+            edge_z(1, 1),
+            edge_z(-1, 1),
+        ]
         N_edges = jnp.concatenate(N_edges, axis=1)  # (n_q, 12)
         return jnp.concatenate([N_corner, N_edges], axis=1)  # (n_q,20)
 
@@ -696,34 +704,38 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
         )  # (n_q,8,3)
 
         # edges derivatives
-        d_list = []
-        # along xi
-        edges_x = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
-        for sy_val, sz_val in edges_x:
-            sy_ = sy_val
-            sz_ = sz_val
+        def d_edge_x(sy_, sz_):
             dxi = -0.5 * xi * (1 + sy_ * eta) * (1 + sz_ * zeta)
             deta = 0.25 * (1 - xi * xi) * sy_ * (1 + sz_ * zeta)
             dzeta = 0.25 * (1 - xi * xi) * (1 + sy_ * eta) * sz_
-            d_list.append(jnp.stack([dxi, deta, dzeta], axis=2))
-        # along eta
-        edges_y = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
-        for sx_val, sz_val in edges_y:
-            sx_ = sx_val
-            sz_ = sz_val
+            return jnp.stack([dxi, deta, dzeta], axis=2)
+
+        def d_edge_y(sx_, sz_):
             dxi = 0.25 * (1 - eta * eta) * sx_ * (1 + sz_ * zeta)
             deta = -0.5 * eta * (1 + sx_ * xi) * (1 + sz_ * zeta)
             dzeta = 0.25 * (1 - eta * eta) * (1 + sx_ * xi) * sz_
-            d_list.append(jnp.stack([dxi, deta, dzeta], axis=2))
-        # along zeta
-        edges_z = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
-        for sx_val, sy_val in edges_z:
-            sx_ = sx_val
-            sy_ = sy_val
+            return jnp.stack([dxi, deta, dzeta], axis=2)
+
+        def d_edge_z(sx_, sy_):
             dxi = 0.25 * (1 - zeta * zeta) * sx_ * (1 + sy_ * eta)
             deta = 0.25 * (1 - zeta * zeta) * (1 + sx_ * xi) * sy_
             dzeta = -0.5 * zeta * (1 + sx_ * xi) * (1 + sy_ * eta)
-            d_list.append(jnp.stack([dxi, deta, dzeta], axis=2))
+            return jnp.stack([dxi, deta, dzeta], axis=2)
+
+        d_list = [
+            d_edge_x(-1, -1),
+            d_edge_y(1, -1),
+            d_edge_x(1, -1),
+            d_edge_y(-1, -1),
+            d_edge_x(-1, 1),
+            d_edge_y(1, 1),
+            d_edge_x(1, 1),
+            d_edge_y(-1, 1),
+            d_edge_z(-1, -1),
+            d_edge_z(1, -1),
+            d_edge_z(1, 1),
+            d_edge_z(-1, 1),
+        ]
 
         d_edges = jnp.concatenate(d_list, axis=1)  # (n_q,12,3)
         return jnp.concatenate([d_corner, d_edges], axis=1)  # (n_q,20,3)

@@ -5,7 +5,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from ..core.dtypes import INDEX_DTYPE, NP_INDEX_DTYPE
+from .dtypes import INDEX_DTYPE, NP_INDEX_DTYPE
 
 
 @dataclass
@@ -234,6 +234,309 @@ class BaseMeshClosure:
             return facets_arr
         return facets_arr, jnp.array(tags, dtype=INDEX_DTYPE)
 
+    def boundary_facets_plane(
+        self,
+        axis: int = 2,
+        value: float = 0.0,
+        *,
+        tol: float = 1e-8,
+        tag: int | None = None,
+    ):
+        """
+        Boundary facets on the plane x[axis] == value (within tol).
+        """
+        def pred(face: np.ndarray) -> bool:
+            return bool(np.allclose(face[:, axis], value, atol=tol))
+        return self.boundary_facets_where(pred, tag=tag)
+
+    def facets_on_plane(
+        self,
+        axis: int = 2,
+        value: float = 0.0,
+        *,
+        tol: float = 1e-8,
+        tag: int | None = None,
+    ):
+        """Alias for boundary_facets_plane (skfem-like naming)."""
+        cache = getattr(self, "_boundary_facets_cache", None)
+        key = ("plane", int(axis), float(value), float(tol), int(tag) if tag is not None else None)
+        if cache is not None and key in cache:
+            return cache[key]
+        coords = np.asarray(self.coords)
+        conn = np.asarray(self.conn)
+        patterns = self.face_node_patterns()
+        if patterns:
+            facets_list = []
+            for pattern in patterns:
+                face_nodes = conn[:, pattern]
+                face_coords = coords[face_nodes]
+                mask = np.all(np.isclose(face_coords[..., axis], value, atol=tol), axis=1)
+                if np.any(mask):
+                    facets_list.append(face_nodes[mask])
+            if facets_list:
+                facets = np.concatenate(facets_list, axis=0)
+                keys = np.sort(facets, axis=1)
+                _, idx = np.unique(keys, axis=0, return_index=True)
+                facets = facets[np.sort(idx)]
+            else:
+                facets = np.empty((0, len(patterns[0])), dtype=int)
+            facets = jnp.asarray(facets, dtype=INDEX_DTYPE)
+            if tag is not None:
+                tags = jnp.full((facets.shape[0],), int(tag), dtype=INDEX_DTYPE)
+                facets = (facets, tags)
+        else:
+            facets = self.boundary_facets_plane(axis=axis, value=value, tol=tol, tag=tag)
+        if cache is None:
+            cache = {}
+            setattr(self, "_boundary_facets_cache", cache)
+        cache[key] = facets
+        return facets
+
+    def boundary_facets_plane_box(
+        self,
+        axis: int,
+        value: float,
+        *,
+        ranges: Sequence[tuple[float, float] | None] | None = None,
+        mode: str = "centroid",
+        tol: float = 1e-8,
+        tag: int | None = None,
+    ):
+        """
+        Boundary facets on a plane with additional box constraints.
+
+        ranges: sequence of (min, max) or None per axis. The plane axis can be None.
+        mode: "centroid" checks the face centroid, "all" requires all vertices inside.
+        """
+        dim = int(np.asarray(self.coords).shape[1])
+        if ranges is None:
+            ranges = [None] * dim
+        if len(ranges) != dim:
+            raise ValueError("ranges must have length equal to mesh dimension.")
+        if mode not in ("centroid", "all"):
+            raise ValueError("mode must be 'centroid' or 'all'.")
+
+        def pred(face: np.ndarray) -> bool:
+            if not np.allclose(face[:, axis], value, atol=tol):
+                return False
+            pts = face.mean(axis=0)[None, :] if mode == "centroid" else face
+            for ax, bounds in enumerate(ranges):
+                if bounds is None or ax == axis:
+                    continue
+                lo, hi = bounds
+                if np.any(pts[:, ax] < lo - tol) or np.any(pts[:, ax] > hi + tol):
+                    return False
+            return True
+
+        return self.boundary_facets_where(pred, tag=tag)
+
+    def facets_on_plane_box(
+        self,
+        axis: int,
+        value: float,
+        *,
+        x: tuple[float, float] | None = None,
+        y: tuple[float, float] | None = None,
+        z: tuple[float, float] | None = None,
+        ranges: Sequence[tuple[float, float] | None] | None = None,
+        mode: str = "centroid",
+        tol: float = 1e-8,
+        tag: int | None = None,
+    ):
+        """
+        Alias for boundary_facets_plane_box with axis-aligned range helpers.
+        Provide x/y/z or a full ranges sequence.
+        """
+        dim = int(np.asarray(self.coords).shape[1])
+        if ranges is None:
+            ranges = [None] * dim
+            if dim > 0:
+                ranges[0] = x
+            if dim > 1:
+                ranges[1] = y
+            if dim > 2:
+                ranges[2] = z
+        cache = getattr(self, "_boundary_facets_cache", None)
+        ranges_key = tuple(ranges)
+        key = (
+            "plane_box",
+            int(axis),
+            float(value),
+            ranges_key,
+            str(mode),
+            float(tol),
+            int(tag) if tag is not None else None,
+        )
+        if cache is not None and key in cache:
+            return cache[key]
+        coords = np.asarray(self.coords)
+        conn = np.asarray(self.conn)
+        patterns = self.face_node_patterns()
+        if patterns:
+            facets_list = []
+            for pattern in patterns:
+                face_nodes = conn[:, pattern]
+                face_coords = coords[face_nodes]
+                mask = np.all(np.isclose(face_coords[..., axis], value, atol=tol), axis=1)
+                if np.any(mask):
+                    if mode == "centroid":
+                        pts = face_coords[mask].mean(axis=1)
+                        mask_local = np.ones(pts.shape[0], dtype=bool)
+                        for ax, bounds in enumerate(ranges):
+                            if bounds is None or ax == axis:
+                                continue
+                            lo, hi = bounds
+                            mask_local &= (pts[:, ax] >= lo - tol) & (pts[:, ax] <= hi + tol)
+                        face_nodes = face_nodes[mask][mask_local]
+                    else:
+                        face_coords = face_coords[mask]
+                        mask_local = np.ones(face_coords.shape[0], dtype=bool)
+                        for ax, bounds in enumerate(ranges):
+                            if bounds is None or ax == axis:
+                                continue
+                            lo, hi = bounds
+                            in_range = (face_coords[..., ax] >= lo - tol) & (face_coords[..., ax] <= hi + tol)
+                            mask_local &= np.all(in_range, axis=1)
+                        face_nodes = face_nodes[mask][mask_local]
+                    if face_nodes.size:
+                        facets_list.append(face_nodes)
+            if facets_list:
+                facets = np.concatenate(facets_list, axis=0)
+                keys = np.sort(facets, axis=1)
+                _, idx = np.unique(keys, axis=0, return_index=True)
+                facets = facets[np.sort(idx)]
+            else:
+                facets = np.empty((0, len(patterns[0])), dtype=int)
+            facets = jnp.asarray(facets, dtype=INDEX_DTYPE)
+            if tag is not None:
+                tags = jnp.full((facets.shape[0],), int(tag), dtype=INDEX_DTYPE)
+                facets = (facets, tags)
+        else:
+            facets = self.boundary_facets_plane_box(
+                axis=axis,
+                value=value,
+                ranges=ranges,
+                mode=mode,
+                tol=tol,
+                tag=tag,
+            )
+        if cache is None:
+            cache = {}
+            setattr(self, "_boundary_facets_cache", cache)
+        cache[key] = facets
+        return facets
+
+    def boundary_dofs_plane(
+        self,
+        axis: int = 2,
+        value: float = 0.0,
+        *,
+        components: Sequence[int] | str = "xyz",
+        dof_per_node: Optional[int] = None,
+        tol: float = 1e-8,
+    ) -> np.ndarray:
+        """
+        DOF indices for boundary nodes on the plane x[axis] == value (within tol).
+        """
+        def pred(coords: np.ndarray) -> np.ndarray:
+            return np.isclose(coords[:, axis], value, atol=tol)
+        return self.boundary_dofs_where(pred, components=components, dof_per_node=dof_per_node)
+
+    def elements_touching_nodes(self, nodes: Iterable[int]) -> np.ndarray:
+        """
+        Return element indices that touch any node in the provided set.
+        """
+        nodes_arr = np.asarray(list(nodes), dtype=int)
+        if nodes_arr.size == 0:
+            return np.asarray([], dtype=int)
+        mark = np.zeros(self.n_nodes, dtype=bool)
+        mark[nodes_arr] = True
+        conn = np.asarray(self.conn)
+        return np.nonzero(np.any(mark[conn], axis=1))[0]
+
+    def nodes_from_facets(self, facets: np.ndarray | jnp.ndarray) -> np.ndarray:
+        """
+        Return unique node indices contained in the given facets array.
+        """
+        facets_arr = np.asarray(facets, dtype=int)
+        if facets_arr.size == 0:
+            return np.asarray([], dtype=int)
+        return np.unique(facets_arr.reshape(-1))
+
+    def elements_from_nodes(self, nodes: Iterable[int]) -> np.ndarray:
+        """
+        Alias for elements_touching_nodes (skfem-like naming).
+        """
+        return self.elements_touching_nodes(nodes)
+
+    def elements_from_facets(self, facets: np.ndarray | jnp.ndarray, *, mode: str = "touching") -> np.ndarray:
+        """
+        Return element indices associated with facets.
+
+        mode:
+            - "touching": any element sharing at least one facet node.
+            - "adjacent": elements that own the facet (exact face match).
+        """
+        if mode not in ("touching", "adjacent"):
+            raise ValueError("mode must be 'touching' or 'adjacent'.")
+        facets_arr = np.asarray(facets, dtype=int)
+        if facets_arr.size == 0:
+            return np.asarray([], dtype=int)
+        if mode == "touching":
+            nodes = self.nodes_from_facets(facets_arr)
+            return self.elements_touching_nodes(nodes)
+
+        patterns = self.face_node_patterns()
+        facet_keys = {tuple(sorted(face)) for face in facets_arr}
+        conn = np.asarray(self.conn)
+        elems = []
+        for e_idx, elem_conn in enumerate(conn):
+            for pattern in patterns:
+                face_nodes = tuple(sorted(int(elem_conn[i]) for i in pattern))
+                if face_nodes in facet_keys:
+                    elems.append(e_idx)
+                    break
+        return np.asarray(elems, dtype=int)
+
+    def elements_touching_facets(self, facets: np.ndarray | jnp.ndarray) -> np.ndarray:
+        """
+        Return element indices that touch any node in the provided facets.
+        """
+        facets_arr = np.asarray(facets, dtype=int)
+        if facets_arr.size == 0:
+            return np.asarray([], dtype=int)
+        nodes = np.unique(facets_arr.reshape(-1))
+        return self.elements_touching_nodes(nodes)
+
+    def surface_from_facets(self, facets, *, facet_tags=None):
+        """
+        Build a SurfaceMesh from facet connectivity.
+        """
+        from .surface import SurfaceMesh
+        return SurfaceMesh.from_facets(self.coords, facets, facet_tags=facet_tags, node_tags=self.node_tags)
+
+    def surface_with_elem_conn_from_facets(self, facets, *, mode: str = "touching"):
+        """
+        Build a SurfaceMesh and matching elem_conn for the given facets.
+        """
+        from .surface import surface_with_elem_conn
+        return surface_with_elem_conn(self, facets, mode=mode)
+
+    def surface_with_facet_map_from_facets(self, facets):
+        """
+        Build a SurfaceMesh and facet-to-element map for the given facets.
+        """
+        surface = self.surface_from_facets(facets)
+        conn = np.asarray(self.conn, dtype=int)
+        from .mortar import map_surface_facets_to_tet_elements, map_surface_facets_to_hex_elements
+        if conn.shape[1] in {4, 10}:
+            facet_map = map_surface_facets_to_tet_elements(surface, conn)
+        elif conn.shape[1] in {8, 20, 27}:
+            facet_map = map_surface_facets_to_hex_elements(surface, conn)
+        else:
+            raise NotImplementedError("elem_conn must be tet/hex (4/10/8/20/27)")
+        return SurfaceWithFacetMap(surface=surface, facet_map=facet_map)
+
 
 @jax.tree_util.register_pytree_node_class
 class BaseMeshPytree(BaseMeshClosure):
@@ -249,3 +552,7 @@ class BaseMeshPytree(BaseMeshClosure):
 
 
 BaseMesh = BaseMeshClosure
+@dataclass(frozen=True)
+class SurfaceWithFacetMap:
+    surface: object
+    facet_map: np.ndarray

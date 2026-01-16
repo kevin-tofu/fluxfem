@@ -1,10 +1,29 @@
 from __future__ import annotations
 import operator
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Callable, Protocol, TYPE_CHECKING, TypeVar
 import jax
 import jax.numpy as jnp
 import numpy as np
+
+P = TypeVar("P")
+
+if TYPE_CHECKING:
+    from .assembly import (
+        ElementBilinearKernel,
+        ElementJacobianKernel,
+        ElementLinearKernel,
+        ElementResidualKernel,
+        Kernel,
+        ResidualForm,
+    )
+else:
+    Kernel = Callable[..., Any]
+    ResidualForm = Callable[..., Any]
+    ElementBilinearKernel = Callable[..., Any]
+    ElementLinearKernel = Callable[..., Any]
+    ElementResidualKernel = Callable[..., Any]
+    ElementJacobianKernel = Callable[..., Any]
 
 from .dtypes import INDEX_DTYPE
 from ..mesh import (
@@ -86,6 +105,7 @@ class FESpaceClosure:
     _n_ldofs: int | None = None
     data: SpaceData | None = None
     _pattern_cache: dict[bool, object] = field(default_factory=dict, repr=False)
+    _elem_rows_cache: jnp.ndarray | None = field(default=None, repr=False)
 
     def __post_init__(self):
         # Ensure value_dim is a Python int (avoid tracers).
@@ -116,6 +136,15 @@ class FESpaceClosure:
     def n_ldofs(self) -> int:
         assert self._n_ldofs is not None
         return self._n_ldofs
+
+    def get_elem_rows(self) -> jnp.ndarray:
+        cached = self._elem_rows_cache
+        if cached is not None:
+            return cached
+        rows = self.elem_dofs.reshape(-1)
+        if jax.core.trace_ctx.is_top_level():
+            self._elem_rows_cache = rows
+        return rows
 
     def build_form_contexts(self, dep: jnp.ndarray | None = None) -> FormContext:
         def _tie_in(x, y):
@@ -149,23 +178,54 @@ class FESpaceClosure:
                 )
 
         test = jax.vmap(make_field)(elem_coords)
-        trial = jax.vmap(make_field)(elem_coords)
+        # Test/trial share the same field data for single-space bilinear forms.
+        trial = test
 
         return FormContext(
             test=test, trial=trial, x_q=x_q,
             w=w, elem_id=jnp.arange(elem_coords.shape[0])
         )
 
+    def make_batched_assembler(self, *, dep: jnp.ndarray | None = None, pattern=None):
+        from .assembly import BatchedAssembler
+        if pattern is None:
+            pattern = self.get_sparsity_pattern(with_idx=True)
+        return BatchedAssembler.from_space(self, dep=dep, pattern=pattern)
+
     # --- Thin wrappers over functional assembly APIs (kept functional for JAX friendliness) ---
-    def assemble_bilinear_form(self, form, params, *, n_chunks=None, dep=None, **kwargs):
+    def assemble_bilinear_form(
+        self,
+        form: Kernel[P],
+        params: P,
+        *,
+        n_chunks: int | None = None,
+        dep: jnp.ndarray | None = None,
+        kernel: ElementBilinearKernel | None = None,
+        **kwargs,
+    ):
+        """Assemble bilinear form; kernel(ctx) -> (n_ldofs, n_ldofs) if provided."""
         from .assembly import assemble_bilinear_form
         if "pattern" not in kwargs or kwargs.get("pattern") is None:
             kwargs["pattern"] = self.get_sparsity_pattern(with_idx=True)
-        return assemble_bilinear_form(self, form, params, n_chunks=n_chunks, dep=dep, **kwargs)
+        return assemble_bilinear_form(
+            self, form, params, n_chunks=n_chunks, dep=dep, kernel=kernel, **kwargs
+        )
 
-    def assemble_linear_form(self, form, params, *, n_chunks=None, dep=None, **kwargs):
+    def assemble_linear_form(
+        self,
+        form: Kernel[P],
+        params: P,
+        *,
+        n_chunks: int | None = None,
+        dep: jnp.ndarray | None = None,
+        kernel: ElementLinearKernel | None = None,
+        **kwargs,
+    ):
+        """Assemble linear form; kernel(ctx) -> (n_ldofs,) if provided."""
         from .assembly import assemble_linear_form
-        return assemble_linear_form(self, form, params, n_chunks=n_chunks, dep=dep, **kwargs)
+        return assemble_linear_form(
+            self, form, params, n_chunks=n_chunks, dep=dep, kernel=kernel, **kwargs
+        )
 
     def assemble_functional(self, form, params):
         from .assembly import assemble_functional
@@ -179,13 +239,31 @@ class FESpaceClosure:
         from .assembly import assemble_bilinear_dense
         return assemble_bilinear_dense(self, kernel, params, **kwargs)
 
-    def assemble_residual(self, res_form, u, params, **kwargs):
+    def assemble_residual(
+        self,
+        res_form: ResidualForm[P],
+        u: jnp.ndarray,
+        params: P,
+        *,
+        kernel: ElementResidualKernel | None = None,
+        **kwargs,
+    ):
+        """Assemble residual; kernel(ctx, u_elem) -> (n_ldofs,) if provided."""
         from .assembly import assemble_residual
-        return assemble_residual(self, res_form, u, params, **kwargs)
+        return assemble_residual(self, res_form, u, params, kernel=kernel, **kwargs)
 
-    def assemble_jacobian(self, res_form, u, params, **kwargs):
+    def assemble_jacobian(
+        self,
+        res_form: ResidualForm[P],
+        u: jnp.ndarray,
+        params: P,
+        *,
+        kernel: ElementJacobianKernel | None = None,
+        **kwargs,
+    ):
+        """Assemble Jacobian; kernel(u_elem, ctx) -> (n_ldofs, n_ldofs) if provided."""
         from .assembly import assemble_jacobian
-        return assemble_jacobian(self, res_form, u, params, **kwargs)
+        return assemble_jacobian(self, res_form, u, params, kernel=kernel, **kwargs)
 
     def get_sparsity_pattern(self, *, with_idx: bool = True):
         cached = self._pattern_cache.get(with_idx)
@@ -193,7 +271,8 @@ class FESpaceClosure:
             return cached
         from .assembly import make_sparsity_pattern
         pat = make_sparsity_pattern(self, with_idx=with_idx)
-        self._pattern_cache[with_idx] = pat
+        if jax.core.trace_ctx.is_top_level():
+            self._pattern_cache[with_idx] = pat
         return pat
 
 
