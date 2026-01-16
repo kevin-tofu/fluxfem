@@ -161,3 +161,10 @@ Surface traction
    F_tensor = surface.assemble_linear_form_on_space(
        space, traction_form, params=traction_vec
    )
+
+
+See also
+--------
+
+For explicit JIT boundary control with element kernels, see
+:doc:`tutorial_kernel_assembly`.
