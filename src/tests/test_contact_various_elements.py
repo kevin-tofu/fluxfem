@@ -6,7 +6,7 @@ from fluxfem.core.weakform import (
     compile_mixed_surface_residual_numpy,
     einsum as wf_einsum,
     param_ref,
-    test_ref,
+    test_ref as wf_test_ref,
     unknown_ref,
 )
 
@@ -88,8 +88,8 @@ def _nitsche_bilinear(v1, v2, u1, u2, p):
 
 
 def _nitsche_residuals_numpy():
-    v1 = test_ref("a")
-    v2 = test_ref("b")
+    v1 = wf_test_ref("a")
+    v2 = wf_test_ref("b")
     u1 = unknown_ref("a")
     u2 = unknown_ref("b")
     p = param_ref()
