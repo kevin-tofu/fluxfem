@@ -161,15 +161,22 @@ class FluxSparseMatrix:
             values = jnp.asarray(values)
         else:
             # Legacy signature: FluxSparseMatrix(rows, cols, data, n_dofs)
-            r_np = np.asarray(rows_or_pattern, dtype=np.int32)
-            c_np = np.asarray(cols, dtype=np.int32)
-            diag_idx_np = np.nonzero(r_np == c_np)[0].astype(np.int32)
+            r_j = jnp.asarray(rows_or_pattern, dtype=jnp.int32)
+            c_j = jnp.asarray(cols, dtype=jnp.int32)
+            is_tracer = isinstance(rows_or_pattern, jax.core.Tracer) or isinstance(cols, jax.core.Tracer)
+            diag_idx_j = None
+            if not is_tracer:
+                diag_idx_j = jnp.nonzero(r_j == c_j)[0].astype(jnp.int32)
+            if n_dofs is None:
+                if is_tracer:
+                    raise ValueError("n_dofs must be provided when constructing FluxSparseMatrix under JIT.")
+                n_dofs = int(np.asarray(cols).max()) + 1
             pattern = SparsityPattern(
-                rows=jnp.asarray(r_np),
-                cols=jnp.asarray(c_np),
-                n_dofs=int(n_dofs) if n_dofs is not None else int(c_np.max()) + 1,
+                rows=r_j,
+                cols=c_j,
+                n_dofs=int(n_dofs) if n_dofs is not None else int(np.asarray(cols).max()) + 1,
                 idx=None,
-                diag_idx=jnp.asarray(diag_idx_np),
+                diag_idx=diag_idx_j,
             )
             values = jnp.asarray(data)
 

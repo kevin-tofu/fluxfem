@@ -123,7 +123,8 @@ class FESpaceClosure:
         if cached is not None:
             return cached
         rows = self.elem_dofs.reshape(-1)
-        self._elem_rows_cache = rows
+        if jax.core.trace_ctx.is_top_level():
+            self._elem_rows_cache = rows
         return rows
 
     def build_form_contexts(self, dep: jnp.ndarray | None = None) -> FormContext:
@@ -203,7 +204,8 @@ class FESpaceClosure:
             return cached
         from .assembly import make_sparsity_pattern
         pat = make_sparsity_pattern(self, with_idx=with_idx)
-        self._pattern_cache[with_idx] = pat
+        if jax.core.trace_ctx.is_top_level():
+            self._pattern_cache[with_idx] = pat
         return pat
 
 

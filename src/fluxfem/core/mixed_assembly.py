@@ -44,7 +44,16 @@ def make_element_mixed_jacobian_kernel(res_form, params, field_names, elem_slice
     return jax.jit(jax.jacrev(fe_fun, argnums=0))
 
 
-def assemble_mixed_residual_scatter(space, res_form, u, params, *, sparse: bool = False, kernel=None):
+def assemble_mixed_residual_scatter(
+    space,
+    res_form,
+    u,
+    params,
+    *,
+    sparse: bool = False,
+    kernel=None,
+    n_chunks: int | None = None,
+):
     """Assemble mixed residual using jitted element kernels + scatter_add."""
     u_vec = _coerce_mixed_u(space, u)
     ctxs = space.build_form_contexts()
@@ -53,7 +62,45 @@ def assemble_mixed_residual_scatter(space, res_form, u, params, *, sparse: bool 
     )
 
     u_elems = u_vec[space.elem_dofs]
-    elem_res = jax.vmap(ker)(ctxs, u_elems)
+    if n_chunks is None:
+        elem_res = jax.vmap(ker)(ctxs, u_elems)
+    else:
+        n_elems = int(u_elems.shape[0])
+        if n_chunks <= 0:
+            raise ValueError("n_chunks must be a positive integer.")
+        n_chunks = min(int(n_chunks), int(n_elems))
+        chunk_size = (n_elems + n_chunks - 1) // n_chunks
+        pad = (-n_elems) % chunk_size
+        if pad:
+            ctxs_pad = jax.tree_util.tree_map(
+                lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
+                ctxs,
+            )
+            u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
+        else:
+            ctxs_pad = ctxs
+            u_elems_pad = u_elems
+
+        n_pad = n_elems + pad
+        n_chunks = n_pad // chunk_size
+
+        def _slice_first_dim(x, start, size):
+            start_idx = (start,) + (0,) * (x.ndim - 1)
+            slice_sizes = (size,) + x.shape[1:]
+            return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
+
+        def chunk_fn(i):
+            start = i * chunk_size
+            ctx_chunk = jax.tree_util.tree_map(
+                lambda x: _slice_first_dim(x, start, chunk_size),
+                ctxs_pad,
+            )
+            u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
+            res_chunk = jax.vmap(ker)(ctx_chunk, u_chunk)
+            return res_chunk.reshape(-1)
+
+        data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
+        elem_res = data_chunks.reshape(-1)[: n_elems * int(space.n_ldofs)].reshape(n_elems, -1)
     rows = space.elem_dofs.reshape(-1)
     data = elem_res.reshape(-1)
 
@@ -70,7 +117,7 @@ def assemble_mixed_residual_scatter(space, res_form, u, params, *, sparse: bool 
     return F
 
 
-def assemble_mixed_jacobian_values(space, res_form, u, params, *, kernel=None):
+def assemble_mixed_jacobian_values(space, res_form, u, params, *, kernel=None, n_chunks: int | None = None):
     """Assemble numeric values for mixed Jacobian (pattern-free)."""
     u_vec = _coerce_mixed_u(space, u)
     ctxs = space.build_form_contexts()
@@ -79,8 +126,47 @@ def assemble_mixed_jacobian_values(space, res_form, u, params, *, kernel=None):
     )
 
     u_elems = u_vec[space.elem_dofs]
-    J_e_all = jax.vmap(ker)(u_elems, ctxs)
-    return J_e_all.reshape(-1)
+    if n_chunks is None:
+        J_e_all = jax.vmap(ker)(u_elems, ctxs)
+        return J_e_all.reshape(-1)
+
+    n_elems = int(u_elems.shape[0])
+    if n_chunks <= 0:
+        raise ValueError("n_chunks must be a positive integer.")
+    n_chunks = min(int(n_chunks), int(n_elems))
+    chunk_size = (n_elems + n_chunks - 1) // n_chunks
+    pad = (-n_elems) % chunk_size
+    if pad:
+        ctxs_pad = jax.tree_util.tree_map(
+            lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
+            ctxs,
+        )
+        u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
+    else:
+        ctxs_pad = ctxs
+        u_elems_pad = u_elems
+
+    n_pad = n_elems + pad
+    n_chunks = n_pad // chunk_size
+    m = int(space.n_ldofs)
+
+    def _slice_first_dim(x, start, size):
+        start_idx = (start,) + (0,) * (x.ndim - 1)
+        slice_sizes = (size,) + x.shape[1:]
+        return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
+
+    def chunk_fn(i):
+        start = i * chunk_size
+        ctx_chunk = jax.tree_util.tree_map(
+            lambda x: _slice_first_dim(x, start, chunk_size),
+            ctxs_pad,
+        )
+        u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
+        J_e = jax.vmap(ker)(u_chunk, ctx_chunk)
+        return J_e.reshape(-1)
+
+    data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
+    return data_chunks.reshape(-1)[: n_elems * m * m]
 
 
 def assemble_mixed_jacobian_scatter(
@@ -93,12 +179,13 @@ def assemble_mixed_jacobian_scatter(
     sparse: bool = True,
     return_flux_matrix: bool = False,
     pattern=None,
+    n_chunks: int | None = None,
 ):
     """Assemble mixed Jacobian using jitted element kernels + scatter_add."""
     from ..solver import FluxSparseMatrix  # local import to avoid circular
 
     pat = pattern if pattern is not None else make_sparsity_pattern(space, with_idx=not sparse)
-    data = assemble_mixed_jacobian_values(space, res_form, u, params, kernel=kernel)
+    data = assemble_mixed_jacobian_values(space, res_form, u, params, kernel=kernel, n_chunks=n_chunks)
 
     if sparse:
         if return_flux_matrix:
@@ -120,9 +207,9 @@ def assemble_mixed_jacobian_scatter(
     return K_flat.reshape(pat.n_dofs, pat.n_dofs)
 
 
-def assemble_mixed_residual(space, res_form, u, params, *, sparse: bool = False):
+def assemble_mixed_residual(space, res_form, u, params, *, sparse: bool = False, n_chunks: int | None = None):
     """Assemble the global mixed residual vector."""
-    return assemble_mixed_residual_scatter(space, res_form, u, params, sparse=sparse)
+    return assemble_mixed_residual_scatter(space, res_form, u, params, sparse=sparse, n_chunks=n_chunks)
 
 
 def assemble_mixed_jacobian(
@@ -134,6 +221,7 @@ def assemble_mixed_jacobian(
     sparse: bool = True,
     return_flux_matrix: bool = False,
     pattern=None,
+    n_chunks: int | None = None,
 ):
     """Assemble the global mixed Jacobian."""
     return assemble_mixed_jacobian_scatter(
@@ -144,6 +232,7 @@ def assemble_mixed_jacobian(
         sparse=sparse,
         return_flux_matrix=return_flux_matrix,
         pattern=pattern,
+        n_chunks=n_chunks,
     )
 
 

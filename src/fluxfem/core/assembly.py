@@ -668,6 +668,7 @@ def assemble_jacobian_values(
     params: P,
     *,
     kernel=None,
+    n_chunks: Optional[int] = None,
 ):
     """
     Assemble only the numeric values for the Jacobian (pattern-free).
@@ -676,8 +677,47 @@ def assemble_jacobian_values(
     ker = kernel if kernel is not None else make_element_jacobian_kernel(res_form, params)
 
     u_elems = u[space.elem_dofs]
-    J_e_all = jax.vmap(ker)(u_elems, ctxs)  # (n_elem, m, m)
-    return J_e_all.reshape(-1)
+    if n_chunks is None:
+        J_e_all = jax.vmap(ker)(u_elems, ctxs)  # (n_elem, m, m)
+        return J_e_all.reshape(-1)
+
+    n_elems = int(u_elems.shape[0])
+    if n_chunks <= 0:
+        raise ValueError("n_chunks must be a positive integer.")
+    n_chunks = min(int(n_chunks), int(n_elems))
+    chunk_size = (n_elems + n_chunks - 1) // n_chunks
+    pad = (-n_elems) % chunk_size
+    if pad:
+        ctxs_pad = jax.tree_util.tree_map(
+            lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
+            ctxs,
+        )
+        u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
+    else:
+        ctxs_pad = ctxs
+        u_elems_pad = u_elems
+
+    n_pad = n_elems + pad
+    n_chunks = n_pad // chunk_size
+    m = int(space.n_ldofs)
+
+    def _slice_first_dim(x, start, size):
+        start_idx = (start,) + (0,) * (x.ndim - 1)
+        slice_sizes = (size,) + x.shape[1:]
+        return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
+
+    def chunk_fn(i):
+        start = i * chunk_size
+        ctx_chunk = jax.tree_util.tree_map(
+            lambda x: _slice_first_dim(x, start, chunk_size),
+            ctxs_pad,
+        )
+        u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
+        J_e = jax.vmap(ker)(u_chunk, ctx_chunk)
+        return J_e.reshape(-1)
+
+    data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
+    return data_chunks.reshape(-1)[: n_elems * m * m]
 
 
 def assemble_residual_scatter(
@@ -688,6 +728,7 @@ def assemble_residual_scatter(
     *,
     kernel=None,
     sparse: bool = False,
+    n_chunks: Optional[int] = None,
 ):
     """
     Assemble residual using jitted element kernel + vmap + scatter_add.
@@ -699,18 +740,58 @@ def assemble_residual_scatter(
     """
     elem_dofs = space.elem_dofs
     n_dofs = space.n_dofs
-    if np.max(elem_dofs) >= n_dofs:
-        raise ValueError("elem_dofs contains index outside n_dofs")
-    if np.min(elem_dofs) < 0:
-        raise ValueError("elem_dofs contains negative index")
+    if jax.core.trace_ctx.is_top_level():
+        if np.max(elem_dofs) >= n_dofs:
+            raise ValueError("elem_dofs contains index outside n_dofs")
+        if np.min(elem_dofs) < 0:
+            raise ValueError("elem_dofs contains negative index")
     ctxs = space.build_form_contexts()
     ker = kernel if kernel is not None else make_element_residual_kernel(res_form, params)
 
     u_elems = u[elem_dofs]
-    elem_res = jax.vmap(ker)(ctxs, u_elems)  # (n_elem, n_ldofs)
-    if not bool(jax.block_until_ready(jnp.all(jnp.isfinite(elem_res)))):
-        bad = int(jnp.count_nonzero(~jnp.isfinite(elem_res)))
-        raise RuntimeError(f"[assemble_residual_scatter] elem_res nonfinite: {bad}")
+    if n_chunks is None:
+        elem_res = jax.vmap(ker)(ctxs, u_elems)  # (n_elem, n_ldofs)
+    else:
+        n_elems = int(u_elems.shape[0])
+        if n_chunks <= 0:
+            raise ValueError("n_chunks must be a positive integer.")
+        n_chunks = min(int(n_chunks), int(n_elems))
+        chunk_size = (n_elems + n_chunks - 1) // n_chunks
+        pad = (-n_elems) % chunk_size
+        if pad:
+            ctxs_pad = jax.tree_util.tree_map(
+                lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
+                ctxs,
+            )
+            u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
+        else:
+            ctxs_pad = ctxs
+            u_elems_pad = u_elems
+
+        n_pad = n_elems + pad
+        n_chunks = n_pad // chunk_size
+
+        def _slice_first_dim(x, start, size):
+            start_idx = (start,) + (0,) * (x.ndim - 1)
+            slice_sizes = (size,) + x.shape[1:]
+            return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
+
+        def chunk_fn(i):
+            start = i * chunk_size
+            ctx_chunk = jax.tree_util.tree_map(
+                lambda x: _slice_first_dim(x, start, chunk_size),
+                ctxs_pad,
+            )
+            u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
+            res_chunk = jax.vmap(ker)(ctx_chunk, u_chunk)
+            return res_chunk.reshape(-1)
+
+        data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
+        elem_res = data_chunks.reshape(-1)[: n_elems * int(space.n_ldofs)].reshape(n_elems, -1)
+    if jax.core.trace_ctx.is_top_level():
+        if not bool(jax.block_until_ready(jnp.all(jnp.isfinite(elem_res)))):
+            bad = int(jnp.count_nonzero(~jnp.isfinite(elem_res)))
+            raise RuntimeError(f"[assemble_residual_scatter] elem_res nonfinite: {bad}")
 
     rows = _get_elem_rows(space)
     data = elem_res.reshape(-1)
@@ -738,6 +819,7 @@ def assemble_jacobian_scatter(
     sparse: bool = False,
     return_flux_matrix: bool = False,
     pattern=None,
+    n_chunks: Optional[int] = None,
 ):
     """
     Assemble Jacobian using jitted element kernel + vmap + scatter_add.
@@ -748,7 +830,7 @@ def assemble_jacobian_scatter(
     from ..solver import FluxSparseMatrix  # local import to avoid circular
 
     pat = pattern if pattern is not None else make_sparsity_pattern(space, with_idx=not sparse)
-    data = assemble_jacobian_values(space, res_form, u, params, kernel=kernel)
+    data = assemble_jacobian_values(space, res_form, u, params, kernel=kernel, n_chunks=n_chunks)
 
     if sparse:
         if return_flux_matrix:
@@ -774,12 +856,14 @@ def assemble_jacobian_scatter(
 def assemble_residual(
     space: SpaceLike,
     form: ResidualForm[P],
-    u: jnp.ndarray, params: P,
+    u: jnp.ndarray,
+    params: P,
     *,
-    sparse: bool = False
+    sparse: bool = False,
+    n_chunks: Optional[int] = None,
 ):
     """Assemble the global residual vector (scatter-based)."""
-    return assemble_residual_scatter(space, form, u, params, sparse=sparse)
+    return assemble_residual_scatter(space, form, u, params, sparse=sparse, n_chunks=n_chunks)
 
 
 def assemble_jacobian(
@@ -791,6 +875,7 @@ def assemble_jacobian(
     sparse: bool = True,
     return_flux_matrix: bool = False,
     pattern=None,
+    n_chunks: Optional[int] = None,
 ):
     """Assemble the global Jacobian (scatter-based)."""
     return assemble_jacobian_scatter(
@@ -801,6 +886,7 @@ def assemble_jacobian(
         sparse=sparse,
         return_flux_matrix=return_flux_matrix,
         pattern=pattern,
+        n_chunks=n_chunks,
     )
 
 
