@@ -52,6 +52,7 @@
 <li class="toctree-l2"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Kernel-based Assembly (JIT-Friendly)</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#core-idea">Core idea</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#using-compiled-dsl-forms">Using compiled DSL forms</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#residual-and-jacobian">Residual and Jacobian</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#notes">Notes</a></li>
 </ul>
@@ -120,6 +121,41 @@ You can pass that kernel to <code class="docutils literal notranslate"><span cla
 
 <span class="n">ker_F</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">linear_kernel</span><span class="p">)</span>
 <span class="n">F</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_linear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">scalar_body_force_form</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_F</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>You can also use the unified entry point for all kernel kinds:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># bilinear: kernel(ctx) -&gt; (n_ldofs, n_ldofs)</span>
+<span class="n">ker_K</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_kernel</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_K</span><span class="p">)</span>
+
+<span class="c1"># linear: kernel(ctx) -&gt; (n_ldofs,)</span>
+<span class="n">ker_F</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_kernel</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">scalar_body_force_form</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;linear&quot;</span><span class="p">)</span>
+<span class="n">F</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_linear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">scalar_body_force_form</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_F</span><span class="p">)</span>
+
+<span class="c1"># residual: kernel(ctx, u_elem) -&gt; (n_ldofs,)</span>
+<span class="n">ker_R</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_kernel</span><span class="p">(</span><span class="n">res_form</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;residual&quot;</span><span class="p">)</span>
+<span class="n">R</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">res_form</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_R</span><span class="p">)</span>
+
+<span class="c1"># jacobian: kernel(u_elem, ctx) -&gt; (n_ldofs, n_ldofs)</span>
+<span class="n">ker_J</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_kernel</span><span class="p">(</span><span class="n">res_form</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;jacobian&quot;</span><span class="p">)</span>
+<span class="n">J</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">res_form</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_J</span><span class="p">,</span> <span class="n">sparse</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="using-compiled-dsl-forms">
+<h2>Using compiled DSL forms<a class="headerlink" href="#using-compiled-dsl-forms" title="Link to this heading"></a></h2>
+<p>The kernel helpers also work with weak-form DSL objects as long as you pass
+the compiled form (<code class="docutils literal notranslate"><span class="pre">get_compiled()</span></code>).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_wf</span>
+
+<span class="n">form_wf</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="n">p</span><span class="o">.</span><span class="n">kappa</span> <span class="o">*</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+<span class="p">)</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">()</span>
+
+<span class="n">params</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+<span class="n">ker</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_bilinear_kernel</span><span class="p">(</span><span class="n">form_wf</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">jit</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">form_wf</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
