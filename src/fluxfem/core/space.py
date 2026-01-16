@@ -1,10 +1,29 @@
 from __future__ import annotations
 import operator
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Callable, Protocol, TYPE_CHECKING, TypeVar
 import jax
 import jax.numpy as jnp
 import numpy as np
+
+P = TypeVar("P")
+
+if TYPE_CHECKING:
+    from .assembly import (
+        ElementBilinearKernel,
+        ElementJacobianKernel,
+        ElementLinearKernel,
+        ElementResidualKernel,
+        Kernel,
+        ResidualForm,
+    )
+else:
+    Kernel = Callable[..., Any]
+    ResidualForm = Callable[..., Any]
+    ElementBilinearKernel = Callable[..., Any]
+    ElementLinearKernel = Callable[..., Any]
+    ElementResidualKernel = Callable[..., Any]
+    ElementJacobianKernel = Callable[..., Any]
 
 from .dtypes import INDEX_DTYPE
 from ..mesh import (
@@ -167,16 +186,46 @@ class FESpaceClosure:
             w=w, elem_id=jnp.arange(elem_coords.shape[0])
         )
 
+    def make_batched_assembler(self, *, dep: jnp.ndarray | None = None, pattern=None):
+        from .assembly import BatchedAssembler
+        if pattern is None:
+            pattern = self.get_sparsity_pattern(with_idx=True)
+        return BatchedAssembler.from_space(self, dep=dep, pattern=pattern)
+
     # --- Thin wrappers over functional assembly APIs (kept functional for JAX friendliness) ---
-    def assemble_bilinear_form(self, form, params, *, n_chunks=None, dep=None, **kwargs):
+    def assemble_bilinear_form(
+        self,
+        form: Kernel[P],
+        params: P,
+        *,
+        n_chunks: int | None = None,
+        dep: jnp.ndarray | None = None,
+        kernel: ElementBilinearKernel | None = None,
+        **kwargs,
+    ):
+        """Assemble bilinear form; kernel(ctx) -> (n_ldofs, n_ldofs) if provided."""
         from .assembly import assemble_bilinear_form
         if "pattern" not in kwargs or kwargs.get("pattern") is None:
             kwargs["pattern"] = self.get_sparsity_pattern(with_idx=True)
-        return assemble_bilinear_form(self, form, params, n_chunks=n_chunks, dep=dep, **kwargs)
+        return assemble_bilinear_form(
+            self, form, params, n_chunks=n_chunks, dep=dep, kernel=kernel, **kwargs
+        )
 
-    def assemble_linear_form(self, form, params, *, n_chunks=None, dep=None, **kwargs):
+    def assemble_linear_form(
+        self,
+        form: Kernel[P],
+        params: P,
+        *,
+        n_chunks: int | None = None,
+        dep: jnp.ndarray | None = None,
+        kernel: ElementLinearKernel | None = None,
+        **kwargs,
+    ):
+        """Assemble linear form; kernel(ctx) -> (n_ldofs,) if provided."""
         from .assembly import assemble_linear_form
-        return assemble_linear_form(self, form, params, n_chunks=n_chunks, dep=dep, **kwargs)
+        return assemble_linear_form(
+            self, form, params, n_chunks=n_chunks, dep=dep, kernel=kernel, **kwargs
+        )
 
     def assemble_functional(self, form, params):
         from .assembly import assemble_functional
@@ -190,13 +239,31 @@ class FESpaceClosure:
         from .assembly import assemble_bilinear_dense
         return assemble_bilinear_dense(self, kernel, params, **kwargs)
 
-    def assemble_residual(self, res_form, u, params, **kwargs):
+    def assemble_residual(
+        self,
+        res_form: ResidualForm[P],
+        u: jnp.ndarray,
+        params: P,
+        *,
+        kernel: ElementResidualKernel | None = None,
+        **kwargs,
+    ):
+        """Assemble residual; kernel(ctx, u_elem) -> (n_ldofs,) if provided."""
         from .assembly import assemble_residual
-        return assemble_residual(self, res_form, u, params, **kwargs)
+        return assemble_residual(self, res_form, u, params, kernel=kernel, **kwargs)
 
-    def assemble_jacobian(self, res_form, u, params, **kwargs):
+    def assemble_jacobian(
+        self,
+        res_form: ResidualForm[P],
+        u: jnp.ndarray,
+        params: P,
+        *,
+        kernel: ElementJacobianKernel | None = None,
+        **kwargs,
+    ):
+        """Assemble Jacobian; kernel(u_elem, ctx) -> (n_ldofs, n_ldofs) if provided."""
         from .assembly import assemble_jacobian
-        return assemble_jacobian(self, res_form, u, params, **kwargs)
+        return assemble_jacobian(self, res_form, u, params, kernel=kernel, **kwargs)
 
     def get_sparsity_pattern(self, *, with_idx: bool = True):
         cached = self._pattern_cache.get(with_idx)

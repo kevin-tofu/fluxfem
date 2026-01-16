@@ -55,6 +55,32 @@ As a result, both assembly approaches:
 - perform element-local tensor contractions,
 - and are fully compatible with JAX transformations such as `jit`, `vmap`, and automatic differentiation.
 
+### kernel-based assembly (explicit JIT units)
+If you want to control JIT boundaries explicitly, build a JIT-compiled element kernel
+and pass it to `space.assemble_*`. The kernel must return the integrated element
+contribution (not the quadrature integrand).
+
+```Python
+import fluxfem as ff
+import jax
+import jax.numpy as jnp
+
+space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+# bilinear: kernel(ctx) -> (n_ldofs, n_ldofs)
+ker_K = ff.make_element_bilinear_kernel(ff.diffusion_form, 1.0, jit=True)
+K = space.assemble_bilinear_form(ff.diffusion_form, 1.0, kernel=ker_K)
+
+# linear: kernel(ctx) -> (n_ldofs,)
+def linear_kernel(ctx):
+    integrand = ff.scalar_body_force_form(ctx, 2.0)
+    wJ = ctx.w * ctx.test.detJ
+    return (integrand * wJ[:, None]).sum(axis=0)
+
+ker_F = jax.jit(linear_kernel)
+F = space.assemble_linear_form(ff.scalar_body_force_form, 2.0, kernel=ker_F)
+```
+
 ### tensor-based vs weak-form-based (diffusion example)
 
 #### tensor-based assembly

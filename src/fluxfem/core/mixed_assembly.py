@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 
 from .dtypes import INDEX_DTYPE
-from .assembly import element_residual, make_sparsity_pattern
+from .assembly import element_residual, make_sparsity_pattern, chunk_pad_stats, _maybe_trace_pad
 
 
 def _coerce_mixed_u(space, u):
@@ -53,6 +53,7 @@ def assemble_mixed_residual_scatter(
     sparse: bool = False,
     kernel=None,
     n_chunks: int | None = None,
+    pad_trace: bool = False,
 ):
     """Assemble mixed residual using jitted element kernels + scatter_add."""
     u_vec = _coerce_mixed_u(space, u)
@@ -70,6 +71,8 @@ def assemble_mixed_residual_scatter(
             raise ValueError("n_chunks must be a positive integer.")
         n_chunks = min(int(n_chunks), int(n_elems))
         chunk_size = (n_elems + n_chunks - 1) // n_chunks
+        stats = chunk_pad_stats(n_elems, n_chunks)
+        _maybe_trace_pad(stats, n_chunks=n_chunks, pad_trace=pad_trace)
         pad = (-n_elems) % chunk_size
         if pad:
             ctxs_pad = jax.tree_util.tree_map(
@@ -117,7 +120,9 @@ def assemble_mixed_residual_scatter(
     return F
 
 
-def assemble_mixed_jacobian_values(space, res_form, u, params, *, kernel=None, n_chunks: int | None = None):
+def assemble_mixed_jacobian_values(
+    space, res_form, u, params, *, kernel=None, n_chunks: int | None = None, pad_trace: bool = False
+):
     """Assemble numeric values for mixed Jacobian (pattern-free)."""
     u_vec = _coerce_mixed_u(space, u)
     ctxs = space.build_form_contexts()
@@ -135,6 +140,8 @@ def assemble_mixed_jacobian_values(space, res_form, u, params, *, kernel=None, n
         raise ValueError("n_chunks must be a positive integer.")
     n_chunks = min(int(n_chunks), int(n_elems))
     chunk_size = (n_elems + n_chunks - 1) // n_chunks
+    stats = chunk_pad_stats(n_elems, n_chunks)
+    _maybe_trace_pad(stats, n_chunks=n_chunks, pad_trace=pad_trace)
     pad = (-n_elems) % chunk_size
     if pad:
         ctxs_pad = jax.tree_util.tree_map(
@@ -180,12 +187,15 @@ def assemble_mixed_jacobian_scatter(
     return_flux_matrix: bool = False,
     pattern=None,
     n_chunks: int | None = None,
+    pad_trace: bool = False,
 ):
     """Assemble mixed Jacobian using jitted element kernels + scatter_add."""
     from ..solver import FluxSparseMatrix  # local import to avoid circular
 
     pat = pattern if pattern is not None else make_sparsity_pattern(space, with_idx=not sparse)
-    data = assemble_mixed_jacobian_values(space, res_form, u, params, kernel=kernel, n_chunks=n_chunks)
+    data = assemble_mixed_jacobian_values(
+        space, res_form, u, params, kernel=kernel, n_chunks=n_chunks, pad_trace=pad_trace
+    )
 
     if sparse:
         if return_flux_matrix:
@@ -207,9 +217,13 @@ def assemble_mixed_jacobian_scatter(
     return K_flat.reshape(pat.n_dofs, pat.n_dofs)
 
 
-def assemble_mixed_residual(space, res_form, u, params, *, sparse: bool = False, n_chunks: int | None = None):
+def assemble_mixed_residual(
+    space, res_form, u, params, *, sparse: bool = False, n_chunks: int | None = None, pad_trace: bool = False
+):
     """Assemble the global mixed residual vector."""
-    return assemble_mixed_residual_scatter(space, res_form, u, params, sparse=sparse, n_chunks=n_chunks)
+    return assemble_mixed_residual_scatter(
+        space, res_form, u, params, sparse=sparse, n_chunks=n_chunks, pad_trace=pad_trace
+    )
 
 
 def assemble_mixed_jacobian(
@@ -222,6 +236,7 @@ def assemble_mixed_jacobian(
     return_flux_matrix: bool = False,
     pattern=None,
     n_chunks: int | None = None,
+    pad_trace: bool = False,
 ):
     """Assemble the global mixed Jacobian."""
     return assemble_mixed_jacobian_scatter(
@@ -233,6 +248,7 @@ def assemble_mixed_jacobian(
         return_flux_matrix=return_flux_matrix,
         pattern=pattern,
         n_chunks=n_chunks,
+        pad_trace=pad_trace,
     )
 
 

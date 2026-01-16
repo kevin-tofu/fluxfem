@@ -60,7 +60,7 @@ def parse_args():
     p.add_argument(
         "--n-chunks",
         type=int,
-        default=None,
+        default=8,
         help="Number of chunks for FluxFEM assembly (reduces JIT compile pressure).",
     )
     p.add_argument(
