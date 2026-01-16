@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Top-level API &mdash; FluxFEM 0.1.1b documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
 
   
     <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/api/top.html" />
@@ -179,14 +179,14 @@ symmetric-gradient operator for the test/trial fields.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.diffusion_form">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">diffusion_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kappa</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.diffusion_form" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">diffusion_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kappa</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.diffusion_form" title="Link to this definition"></a></dt>
 <dd><p>Scalar diffusion bilinear form: kappa * grad_v · grad_u.</p>
 <p>Returns the per-quadrature integrand for a standard Laplacian term.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.neo_hookean_residual_form">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">neo_hookean_residual_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.neo_hookean_residual_form" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">neo_hookean_residual_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.neo_hookean_residual_form" title="Link to this definition"></a></dt>
 <dd><p>Compressible Neo-Hookean residual (Total Lagrangian, PK2).
 params: dict-like with keys “mu”, “lam” or tuple (mu, lam)
 returns: (n_q, n_ldofs)</p>
