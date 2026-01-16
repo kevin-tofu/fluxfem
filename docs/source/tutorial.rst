@@ -9,3 +9,4 @@ This section contains tutorials for FluxFEM.
    tutorial_linear_elasticity
    tutorial_neo_hookean
    tutorial_autodiff
+   tutorial_kernel_assembly
