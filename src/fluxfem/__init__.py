@@ -170,6 +170,8 @@ __all__ = [
     "block_diag_flux",
     "LinearSolver",
     "NonlinearSolver",
+    "petsc_solve",
+    "petsc_is_available",
     "enforce_dirichlet_dense",
     "enforce_dirichlet_sparse",
     "free_dofs",

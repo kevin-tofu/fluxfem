@@ -29,6 +29,7 @@ from .solve_runner import (
     LinearSolveRunner,
 )
 from .solver import LinearSolver, NonlinearSolver
+from .petsc import petsc_solve, petsc_is_available
 
 __all__ = [
     "SparsityPattern",
@@ -57,4 +58,6 @@ __all__ = [
     "solve_nonlinear",
     "LinearSolver",
     "NonlinearSolver",
+    "petsc_solve",
+    "petsc_is_available",
 ]

@@ -171,6 +171,8 @@ _SOLVER_EXPORTS = {
     "block_diag_flux",
     "LinearSolver",
     "NonlinearSolver",
+    "petsc_solve",
+    "petsc_is_available",
     "enforce_dirichlet_dense",
     "enforce_dirichlet_sparse",
     "free_dofs",
@@ -191,6 +193,8 @@ _SOLVER_EXPORTS = {
     "LinearStepResult",
     "LinearSolveRunner",
     "newton_solve",
+    "petsc_solve",
+    "petsc_is_available",
 }
 
 _SOLVER_BC_EXPORTS = {
