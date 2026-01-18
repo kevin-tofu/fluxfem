@@ -5,6 +5,7 @@ Benchmark linear-elastic assembly/solve time vs DOF.
 Compares:
 - fluxfem assembly time (includes first-call JIT compile in the samples)
 - fluxfem solve time with SciPy `spsolve`
+- fluxfem solve time with PETSc (if petsc4py available)
 - (optional) fluxfem solve time with in-house `cg_solve`
 - scikit-fem assembly + `solve` (if installed)
 
@@ -51,26 +52,33 @@ import jax.numpy as jnp  # noqa: E402
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from fluxfem.tools.timer import SectionTimer
 from fluxfem import (
     FluxSparseMatrix,
-    StructuredHexBox,
     SurfaceMesh,
-    cg_solve,
     constant_body_force_vector_form,
     lame_parameters,
     isotropic_3d_D,
     linear_elasticity_form,
     make_hex_space,
     make_sparsity_pattern,
-    LinearSolver,
+    petsc_is_available,
     tag_axis_minmax_facets,
 )
 
-try:
-    from fluxfem import cg_solve_jax
-except ImportError:
-    cg_solve_jax = None
+from fluxfem.tools.timer import SectionTimer
+
+from linearelastic_dof_sweep_common import (
+    make_structured_mesh,
+    compute_dirichlet_dofs,
+    condense_flux_dirichlet,
+    make_block_jacobi_preconditioner,
+    _residual_error,
+    time_flux_cg_samples,
+    time_spsolve_samples,
+    time_petsc_samples,
+    summarize,
+    prepare_kernel_breakdown,
+)
 
 
 def env_default(name: str, default, cast):
@@ -165,6 +173,24 @@ def parse_args():
         help="Preconditioner for CG.",
     )
     p.add_argument(
+        "--petsc",
+        action=argparse.BooleanOptionalAction,
+        default=env_default("PETSCSOLVE", True, lambda v: str(v).lower() not in {"0", "false", "no"}),
+        help="Enable PETSc solve benchmark when petsc4py is available.",
+    )
+    p.add_argument(
+        "--petsc-ksp",
+        type=str,
+        default=os.environ.get("PETSCSOLVE_KSP", "preonly"),
+        help="PETSc KSP type (default: preonly).",
+    )
+    p.add_argument(
+        "--petsc-pc",
+        type=str,
+        default=os.environ.get("PETSCSOLVE_PC", "lu"),
+        help="PETSc PC type (default: lu).",
+    )
+    p.add_argument(
         "--cg-matvec",
         choices=["flux", "bcoo"],
         default=os.environ.get("CG_MATVEC", "flux"),
@@ -199,202 +225,6 @@ def parse_args():
     return p.parse_args()
 
 
-def make_structured_mesh(n: int, ny_mult: float, nz_mult: float, lx: float, ly: float, lz: float):
-    ny = max(1, int(round(n * ny_mult)))
-    nz = max(1, int(round(n * nz_mult)))
-    mesh = StructuredHexBox(nx=n, ny=ny, nz=nz, lx=lx, ly=ly, lz=lz).build()
-    return mesh, ny, nz
-
-
-def compute_dirichlet_dofs(mesh) -> tuple[np.ndarray, np.ndarray]:
-    coords = np.asarray(mesh.coords)
-    xmin = float(coords[:, 0].min())
-    dir_dofs = mesh.boundary_dofs_where(
-        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
-        components="xyz",
-        dof_per_node=3,
-    )
-    dir_vals = np.zeros(len(dir_dofs), dtype=float)
-    return dir_dofs, dir_vals
-
-
-def condense_flux_dirichlet(K, F, dir_dofs, dir_vals):
-    K_csr = K.to_csr()
-    dir_arr = np.asarray(dir_dofs, dtype=int)
-    dir_vals_arr = np.asarray(dir_vals, dtype=float)
-    mask = np.ones(K_csr.shape[0], dtype=bool)
-    mask[dir_arr] = False
-    free = np.nonzero(mask)[0]
-    if dir_arr.size > 0 and np.any(dir_vals_arr):
-        F_free = np.asarray(F, dtype=float)[free] - K_csr[free][:, dir_arr] @ dir_vals_arr
-    else:
-        F_free = np.asarray(F, dtype=float)[free]
-    K_ff = K_csr[free][:, free]
-    return K_ff, F_free, free
-
-
-def make_block_jacobi_preconditioner(K_cg):
-    """Build 3x3 block Jacobi preconditioner callable for FluxSparseMatrix or BCOO."""
-    n = K_cg.n_dofs if hasattr(K_cg, "n_dofs") else int(K_cg.shape[0])
-    if n % 3 != 0:
-        raise ValueError("block_jacobi assumes 3 DOFs per node.")
-    try:
-        rows = np.asarray(K_cg.pattern.rows) if hasattr(K_cg, "pattern") else np.asarray(K_cg.indices[:, 0])
-        cols = np.asarray(K_cg.pattern.cols) if hasattr(K_cg, "pattern") else np.asarray(K_cg.indices[:, 1])
-        data = np.asarray(K_cg.data)
-    except Exception as exc:
-        raise ValueError("Unsupported matrix type for block_jacobi preconditioner") from exc
-
-    block_rows = rows // 3
-    block_cols = cols // 3
-    lr = rows % 3
-    lc = cols % 3
-    mask = block_rows == block_cols
-    block_rows = block_rows[mask]
-    lr = lr[mask]
-    lc = lc[mask]
-    data = data[mask]
-    n_block = n // 3
-    blocks = np.zeros((n_block, 3, 3), dtype=data.dtype)
-    np.add.at(blocks, (block_rows, lr, lc), data)
-    blocks = blocks + 1e-12 * np.eye(3)[None, :, :]
-    inv_blocks = jnp.asarray(np.linalg.inv(blocks))
-
-    def precon(r):
-        rb = r.reshape((n_block, 3))
-        zb = jnp.einsum("bij,bj->bi", inv_blocks, rb)
-        return zb.reshape((-1,))
-
-    return precon
-
-
-def _residual_error(K_ff, F_free, u) -> float:
-    rhs = np.asarray(F_free, dtype=float)
-    res = K_ff @ np.asarray(u, dtype=float) - rhs
-    denom = np.linalg.norm(rhs)
-    return float(np.linalg.norm(res) / (denom if denom > 0 else 1.0))
-
-
-def time_flux_cg_samples(
-    K_ff,
-    F_free,
-    repeats: int,
-    tol: float,
-    maxiter: int,
-    cg_impl: str,
-    cg_matvec: str,
-    cg_precon: str,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Returns:
-      times: (repeats,) seconds
-      iters: (repeats,) iteration counts (ints as float array)
-    Note:
-      First call includes any JAX first-call overhead (compile) for cg_solve path.
-    """
-    if repeats < 1:
-        raise ValueError("--repeats must be >= 1")
-
-    coo = K_ff.tocoo()
-    if cg_matvec == "flux":
-        K_cg = FluxSparseMatrix.from_bilinear(
-            (
-                jnp.asarray(coo.row, dtype=jnp.int32),
-                jnp.asarray(coo.col, dtype=jnp.int32),
-                jnp.asarray(coo.data),
-                K_ff.shape[0],
-            )
-        )
-    else:
-        try:
-            from jax.experimental import sparse as jsparse  # type: ignore
-        except Exception as exc:  # pragma: no cover
-            raise ImportError("jax.experimental.sparse is required for --cg-matvec bcoo") from exc
-        idx = jnp.stack(
-            [
-                jnp.asarray(coo.row, dtype=jnp.int32),
-                jnp.asarray(coo.col, dtype=jnp.int32),
-            ],
-            axis=1,
-        )
-        K_cg = jsparse.BCOO((jnp.asarray(coo.data), idx), shape=(K_ff.shape[0], K_ff.shape[0]))
-    b = jnp.asarray(F_free)
-
-    times = []
-    iters = []
-    residual_errors = []
-
-    cg_fn = cg_solve if cg_impl == "custom" else cg_solve_jax
-    timer = SectionTimer()
-
-    if cg_precon == "block_jacobi":
-        precon = make_block_jacobi_preconditioner(K_cg)
-    else:
-        precon = "jacobi"
-
-    for _ in range(repeats):
-        with timer.section("solve_cg"):
-            # Use Jacobi preconditioning to reduce iterations (especially on CPU).
-            u, info = cg_fn(K_cg, b, tol=tol, maxiter=maxiter, preconditioner=precon)
-            jax.block_until_ready(u)
-        times.append(timer.last("solve_cg"))
-        iters.append(int(info.get("iters", 0)))
-        residual_errors.append(_residual_error(K_ff, F_free, u))
-
-    return (
-        np.asarray(times, dtype=float),
-        np.asarray(iters, dtype=float),
-        np.asarray(residual_errors, dtype=float),
-    )
-
-
-def time_spsolve_samples(
-    K_full,
-    F_full,
-    dirichlet,
-    K_ff,
-    F_free,
-    free,
-    repeats: int,
-    backend: str,
-    spsolve_impl: str,
-) -> tuple[np.ndarray, np.ndarray]:
-    if repeats < 1:
-        raise ValueError("--repeats must be >= 1")
-    times = []
-    residual_errors = []
-    if backend == "gpu":
-        solver = LinearSolver(method="spdirect_solve_gpu")
-    elif spsolve_impl == "jax":
-        solver = LinearSolver(method="spsolve_jax")
-    else:
-        solver = LinearSolver(method="spsolve")
-    timer = SectionTimer()
-    for _ in range(repeats):
-        try:
-            with timer.section("solve_spsolve"):
-                u = solver.solve(K_full, F_full, dirichlet=dirichlet, n_total=K_full.n_dofs)[0]
-        except Exception as exc:
-            if backend == "gpu":
-                print(f"[bench] GPU spsolve failed ({exc}); recording NaN and skipping remaining repeats.")
-                times.extend([float("nan")] * (repeats - len(times)))
-                residual_errors.extend([float("nan")] * (repeats - len(residual_errors)))
-                break
-            raise
-        times.append(timer.last("solve_spsolve"))
-        residual_errors.append(_residual_error(K_ff, F_free, u[free]))
-    return np.asarray(times, dtype=float), np.asarray(residual_errors, dtype=float)
-
-
-def summarize(samples: np.ndarray) -> dict[str, float]:
-    return {
-        "min": float(np.min(samples)),
-        "mean": float(np.mean(samples)),
-        "max": float(np.max(samples)),
-        "median": float(np.median(samples)),
-    }
-
-
 def assemble_fluxfem_case(n: int, args, dtype):
     if args.repeats < 1:
         raise ValueError("--repeats must be >= 1")
@@ -425,7 +255,6 @@ def assemble_fluxfem_case(n: int, args, dtype):
     f_body = jnp.array([args.fx, args.fy, args.fz], dtype=dtype)
 
     from fluxfem.core.assembly import make_element_bilinear_kernel
-    from fluxfem.physics.operators import sym_grad
 
     form_const = lambda ctx, _p: linear_elasticity_form(ctx, D)
     kernel = make_element_bilinear_kernel(form_const, None, jit=args.kernel_jit)
@@ -446,21 +275,12 @@ def assemble_fluxfem_case(n: int, args, dtype):
         )
     )
 
-    if args.breakdown:
-        kernel_stage = jax.jit(lambda: jax.vmap(kernel)(elem_data))
-        backend_stage = jax.jit(lambda Ke: FluxSparseMatrix(pattern, Ke.reshape(-1)))
-    if args.kernel_breakdown:
-        def _sym(ctx):
-            Bu = sym_grad(ctx.trial)
-            Bv = Bu if ctx.test is ctx.trial else sym_grad(ctx.test)
-            return Bu, Bv
+    kernel_stage, backend_stage, sym_stage, bdb_stage = prepare_kernel_breakdown(
+        elem_data, kernel, D, pattern,
+        breakdown=args.breakdown,
+        kernel_breakdown=args.kernel_breakdown,
+    )
 
-        sym_stage = jax.jit(lambda: jax.vmap(_sym)(elem_data))
-        bdb_stage = jax.jit(
-            lambda Bu, Bv: jnp.einsum(
-                "eqik,kl,eqlm->eqim", jnp.swapaxes(Bv, 2, 3), D, Bu
-            )
-        )
 
     # Warmup: exclude compile/first-call overhead from timing stats.
     warmup_times = []
@@ -626,6 +446,33 @@ def assemble_fluxfem_case(n: int, args, dtype):
     if args.no_cg:
         residual_cg = np.full((args.repeats,), np.nan, dtype=float)
 
+    petsc_avail = petsc_is_available()
+    use_petsc = args.petsc and petsc_avail and backend != "gpu"
+    if args.petsc and not petsc_avail:
+        print("[bench] petsc4py not available; skipping PETSc solve benchmark.")
+    if args.petsc and backend == "gpu":
+        print("[bench] PETSc solve benchmark skipped on GPU backend.")
+    solve_petsc_warm = np.full((args.warmup,), np.nan, dtype=float)
+    residual_petsc_warm = np.full((args.warmup,), np.nan, dtype=float)
+    solve_petsc_times = np.full((args.repeats,), np.nan, dtype=float)
+    residual_petsc = np.full((args.repeats,), np.nan, dtype=float)
+    if use_petsc:
+        if args.warmup:
+            solve_petsc_warm, residual_petsc_warm = time_petsc_samples(
+                K_ff,
+                F_free,
+                args.warmup,
+                args.petsc_ksp,
+                args.petsc_pc,
+            )
+        solve_petsc_times, residual_petsc = time_petsc_samples(
+            K_ff,
+            F_free,
+            args.repeats,
+            args.petsc_ksp,
+            args.petsc_pc,
+        )
+
     return {
         "n": n,
         "ny": ny,
@@ -652,6 +499,10 @@ def assemble_fluxfem_case(n: int, args, dtype):
         "residual_cg_samples": residual_cg,
         "cg_iters_warmup_samples": cg_iters_warm,
         "cg_iters_samples": cg_iters,
+        "solve_petsc_warmup_samples": solve_petsc_warm,
+        "solve_petsc_samples": solve_petsc_times,
+        "residual_petsc_warmup_samples": residual_petsc_warm,
+        "residual_petsc_samples": residual_petsc,
     }
 
 
@@ -817,6 +668,10 @@ if __name__ == "__main__":
                 str(args.cg_matvec),
                 "--spsolve-impl",
                 str(args.spsolve_impl),
+                "--petsc-ksp",
+                str(args.petsc_ksp),
+                "--petsc-pc",
+                str(args.petsc_pc),
                 "--plot",
                 _make_backend_path(args.plot, backend),
                 "--json",
@@ -826,6 +681,10 @@ if __name__ == "__main__":
                 cmd.append("--gpu-spsolve")
             if args.no_cg:
                 cmd.append("--no-cg")
+            if args.petsc:
+                cmd.append("--petsc")
+            else:
+                cmd.append("--no-petsc")
             proc = subprocess.run(cmd, env=env, check=False)
             if proc.returncode != 0:
                 if backend == "gpu":
@@ -897,6 +756,13 @@ if __name__ == "__main__":
                 f", cg mean={cg_stats['mean']:.3e}s [min={cg_stats['min']:.3e}, max={cg_stats['max']:.3e}]"
                 f" (iters median~{it_stats['median']:.1f}, residual_cg med={residual_cg_stats['median']:.3e})"
             )
+        if args.petsc and np.any(np.isfinite(flux_res["solve_petsc_samples"])):
+            petsc_stats = summarize(flux_res["solve_petsc_samples"])
+            residual_petsc_stats = summarize(flux_res["residual_petsc_samples"])
+            msg += (
+                f", petsc mean={petsc_stats['mean']:.3e}s [min={petsc_stats['min']:.3e}, max={petsc_stats['max']:.3e}]"
+                f", residual_petsc med={residual_petsc_stats['median']:.3e}"
+            )
         print(msg)
 
         if backend == "gpu" and not args.skfem_on_gpu:
@@ -932,6 +798,8 @@ if __name__ == "__main__":
     header += ", flux_sps_mean[s], flux_sps_min[s], flux_sps_max[s], flux_res_sps_median"
     if not args.no_cg:
         header += ", flux_cg_mean[s], flux_cg_min[s], flux_cg_max[s], flux_cg_iters_median, flux_res_cg_median"
+    if args.petsc:
+        header += ", flux_petsc_mean[s], flux_petsc_min[s], flux_petsc_max[s], flux_res_petsc_median"
     if skfem_results:
         header += ", sk_asm_mean[s], sk_asm_min[s], sk_asm_max[s], sk_solve_mean[s], sk_solve_min[s], sk_solve_max[s], sk_res_sps_median"
     print(header)
@@ -960,6 +828,10 @@ if __name__ == "__main__":
             it = summarize(res["cg_iters_samples"])
             res_cg = summarize(res["residual_cg_samples"])
             row += f", {cg['mean']:.6e}, {cg['min']:.6e}, {cg['max']:.6e}, {it['median']:.1f}, {res_cg['median']:.6e}"
+        if args.petsc:
+            petsc = summarize(res["solve_petsc_samples"])
+            res_petsc = summarize(res["residual_petsc_samples"])
+            row += f", {petsc['mean']:.6e}, {petsc['min']:.6e}, {petsc['max']:.6e}, {res_petsc['median']:.6e}"
 
         sk = sk_map.get(res["free_dofs"])
         if sk is not None:
@@ -1020,6 +892,13 @@ if __name__ == "__main__":
         ax1.plot(x_flux, cg_median, "s--", label="fluxfem cg (median)")
         ax1.fill_between(x_flux, cg_mins, cg_maxs, alpha=0.2)
 
+    if args.petsc and any(np.any(np.isfinite(r["solve_petsc_samples"])) for r in flux_sorted):
+        petsc_median = np.array([np.nanmedian(r["solve_petsc_samples"]) for r in flux_sorted])
+        petsc_mins = np.array([np.nanmin(r["solve_petsc_samples"]) for r in flux_sorted])
+        petsc_maxs = np.array([np.nanmax(r["solve_petsc_samples"]) for r in flux_sorted])
+        ax1.plot(x_flux, petsc_median, "^-.", label="fluxfem petsc (median)")
+        ax1.fill_between(x_flux, petsc_mins, petsc_maxs, alpha=0.2)
+
     if skfem_results:
         sk_sorted = sorted(skfem_results, key=lambda r: r["free_dofs"])
         x_sk = np.array([r["free_dofs"] for r in sk_sorted], dtype=float)
@@ -1078,6 +957,9 @@ if __name__ == "__main__":
         "cg_matvec": args.cg_matvec,
         "no_cg": args.no_cg,
         "spsolve_impl": args.spsolve_impl,
+        "petsc": args.petsc,
+        "petsc_ksp": args.petsc_ksp,
+        "petsc_pc": args.petsc_pc,
         "flux": _to_jsonable(flux_results),
         "skfem": _to_jsonable(skfem_results),
     }

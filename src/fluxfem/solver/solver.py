@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 from .cg import cg_solve, cg_solve_jax
 from .newton import newton_solve
-from .petsc import petsc_solve
+from .petsc import petsc_solve, petsc_shell_solve
 from ..core.solver import spdirect_solve_cpu, spdirect_solve_gpu
 from .dirichlet import (
     condense_dirichlet_dense,
@@ -49,6 +49,9 @@ class LinearSolver:
             return np.asarray(x), {"iters": 1, "converged": True}
         elif self.method == "petsc":
             x = petsc_solve(A, b)
+            return np.asarray(x), {"iters": None, "converged": True}
+        elif self.method == "petsc_shell":
+            x = petsc_shell_solve(A, b)
             return np.asarray(x), {"iters": None, "converged": True}
         else:
             raise ValueError(f"Unknown linear method: {self.method}")

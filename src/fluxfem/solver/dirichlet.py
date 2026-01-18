@@ -1,7 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 import jax.numpy as jnp
+
+try:
+    import scipy.sparse as sp
+except Exception:  # pragma: no cover
+    sp = None
 
 from .sparse import FluxSparseMatrix, coalesce_coo
 
@@ -10,7 +18,24 @@ def _normalize_dirichlet(dofs, vals):
     dir_arr = np.asarray(dofs, dtype=int)
     if vals is None:
         return dir_arr, np.zeros(dir_arr.shape[0], dtype=float)
-    return dir_arr, np.asarray(vals, dtype=float)
+    return dir_arr, np.asarray(vals)
+
+
+@dataclass(frozen=True)
+class CondensedSystem:
+    K: Any
+    F: Any
+    free_dofs: np.ndarray
+    dir_dofs: np.ndarray
+    dir_vals: np.ndarray
+    n_dofs: int
+
+    def expand(self, u_free, *, fill_dirichlet: bool = True):
+        u_full = np.zeros(self.n_dofs, dtype=np.asarray(u_free).dtype)
+        u_full[self.free_dofs] = np.asarray(u_free)
+        if fill_dirichlet and self.dir_dofs.size:
+            u_full[self.dir_dofs] = np.asarray(self.dir_vals, dtype=u_full.dtype)
+        return u_full
 
 
 def enforce_dirichlet_dense(K, F, dofs, vals):
@@ -31,6 +56,61 @@ def enforce_dirichlet_dense(K, F, dofs, vals):
         else:
             Fc[d] = v
     return Kc, Fc
+
+
+def condense_dirichlet_system(A, F, dofs, vals, *, check: bool = True) -> CondensedSystem:
+    """
+    Condense Dirichlet DOFs and return a structured system.
+    """
+    dir_arr, dir_vals_arr = _normalize_dirichlet(dofs, vals)
+    F_arr = np.asarray(F)
+    if hasattr(A, "n_dofs"):
+        n_total = int(A.n_dofs)
+    else:
+        A_np = np.asarray(A)
+        if A_np.ndim != 2 or A_np.shape[0] != A_np.shape[1]:
+            raise ValueError("A must be square for Dirichlet condensation.")
+        n_total = int(A_np.shape[0])
+
+    if check:
+        if dir_arr.size != dir_vals_arr.size:
+            raise ValueError("dir_dofs and dir_vals must have the same length")
+        if dir_arr.size:
+            if np.min(dir_arr) < 0 or np.max(dir_arr) >= n_total:
+                raise ValueError("dir_dofs out of bounds")
+            if np.unique(dir_arr).size != dir_arr.size:
+                raise ValueError("dir_dofs contains duplicates")
+
+    mask = np.ones(n_total, dtype=bool)
+    mask[dir_arr] = False
+    free = np.nonzero(mask)[0]
+
+    if isinstance(A, FluxSparseMatrix):
+        K_csr = A.to_csr()
+    elif sp is not None and sp.issparse(A):
+        K_csr = A.tocsr()
+    elif hasattr(A, "to_csr"):
+        K_csr = A.to_csr()
+    else:
+        K_csr = np.asarray(A)
+
+    K_ff = K_csr[free][:, free]
+    F_free = F_arr[free]
+    if dir_arr.size:
+        K_fd = K_csr[free][:, dir_arr]
+        if F_free.ndim == 2:
+            F_free = F_free - (K_fd @ dir_vals_arr)[:, None]
+        else:
+            F_free = F_free - K_fd @ dir_vals_arr
+
+    return CondensedSystem(
+        K=K_ff,
+        F=F_free,
+        free_dofs=free,
+        dir_dofs=dir_arr,
+        dir_vals=dir_vals_arr,
+        n_dofs=n_total,
+    )
 
 
 def enforce_dirichlet_sparse(A: FluxSparseMatrix, F, dofs, vals):

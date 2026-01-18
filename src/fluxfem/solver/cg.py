@@ -10,6 +10,7 @@ except Exception:  # pragma: no cover
     jsparse = None
 
 from .sparse import FluxSparseMatrix
+from .preconditioner import make_block_jacobi_preconditioner
 
 
 def _matvec_builder(A):
@@ -92,39 +93,7 @@ def _cg_solve_single(
             return inv_diag * r
 
     elif preconditioner == "block_jacobi":
-        # Expect 3 DOFs per node
-        if n % 3 != 0:
-            raise ValueError("block_jacobi requires n_dofs % 3 == 0")
-        if jsparse is not None and isinstance(A, jsparse.BCOO):
-            rows = A.indices[:, 0]
-            cols = A.indices[:, 1]
-            data = A.data
-        elif isinstance(A, FluxSparseMatrix):
-            rows = jnp.asarray(A.pattern.rows)
-            cols = jnp.asarray(A.pattern.cols)
-            data = jnp.asarray(A.data)
-        else:
-            raise ValueError("block_jacobi requires FluxSparseMatrix or BCOO")
-
-        block_rows = rows // 3
-        block_cols = cols // 3
-        lr = rows % 3
-        lc = cols % 3
-        mask = block_rows == block_cols
-        block_rows = block_rows[mask]
-        lr = lr[mask]
-        lc = lc[mask]
-        data = data[mask]
-        n_block = n // 3
-        blocks = jnp.zeros((n_block, 3, 3), dtype=data.dtype)
-        blocks = blocks.at[block_rows, lr, lc].add(data)
-        blocks = blocks + 1e-12 * jnp.eye(3)[None, :, :]
-        inv_blocks = jnp.linalg.inv(blocks)
-
-        def precon(r):
-            rb = r.reshape((n_block, 3))
-            zb = jnp.einsum("bij,bj->bi", inv_blocks, rb)
-            return zb.reshape((-1,))
+        precon = make_block_jacobi_preconditioner(A)
 
     elif callable(preconditioner):
         precon = preconditioner

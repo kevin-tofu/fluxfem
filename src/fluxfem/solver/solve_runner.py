@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+import warnings
 from typing import Any, Callable, Iterable, List, Sequence
 
 import numpy as np
@@ -10,6 +11,7 @@ import jax.numpy as jnp
 from ..core.assembly import assemble_bilinear_form
 from ..core.solver import spdirect_solve_cpu, spdirect_solve_gpu
 from .cg import cg_solve, cg_solve_jax
+from .petsc import petsc_shell_solve
 from .sparse import FluxSparseMatrix
 from .dirichlet import expand_dirichlet_solution
 from .newton import newton_solve
@@ -381,10 +383,42 @@ class LinearSolveConfig:
     Control parameters for the linear solve with optional load scaling.
     """
 
-    method: str = "spsolve"  # "spsolve" | "spdirect_solve_gpu" | "cg" | "cg_custom"
+    method: str = "spsolve"  # "spsolve" | "spdirect_solve_gpu" | "cg" | "cg_custom" | "petsc_shell"
     tol: float = 1e-8
     maxiter: int | None = None
     preconditioner: Any | None = None
+    ksp_type: str | None = None
+    pc_type: str | None = None
+    ksp_rtol: float | None = None
+    ksp_atol: float | None = None
+    ksp_max_it: int | None = None
+    petsc_ksp_norm_type: str | None = None
+    petsc_ksp_monitor_true_residual: bool = False
+    petsc_ksp_converged_reason: bool = False
+    petsc_ksp_monitor_short: bool = False
+    petsc_shell_pmat: bool = False
+    petsc_shell_pmat_mode: str = "full"
+    petsc_shell_pmat_rebuild_iters: int | None = None
+    petsc_shell_fallback: bool = False
+    petsc_shell_fallback_ksp_types: tuple[str, ...] = ("bcgs", "gmres")
+    petsc_shell_fallback_rebuild_pmat: bool = True
+
+    @classmethod
+    def from_preset(cls, name: str) -> "LinearSolveConfig":
+        preset = name.lower()
+        if preset == "contact":
+            return cls(
+                method="petsc_shell",
+                ksp_type="bcgs",
+                pc_type="ilu",
+                petsc_shell_pmat=True,
+                petsc_shell_pmat_mode="full",
+                petsc_ksp_norm_type="unpreconditioned",
+                petsc_ksp_monitor_true_residual=True,
+                petsc_ksp_converged_reason=True,
+                petsc_shell_fallback=True,
+            )
+        raise ValueError(f"Unknown LinearSolveConfig preset: {name}")
 
 
 @dataclass
@@ -414,6 +448,9 @@ class LinearSolveRunner:
     def __init__(self, analysis: LinearAnalysis, config: LinearSolveConfig):
         self.analysis = analysis
         self.config = config
+        self._petsc_shell_pmat = None
+        self._petsc_shell_last_iters = None
+        self._petsc_shell_pmat_rebuilds = 0
 
     def run(
         self,
@@ -510,6 +547,114 @@ class LinearSolveRunner:
                             stop_reason=("converged" if lin_conv else "linfail"),
                             nan_detected=bool(np.isnan(lin_res)) if lin_res is not None else False,
                         )
+                    elif self.config.method == "petsc_shell":
+                        base_ksp_type = self.config.ksp_type or "gmres"
+                        pc_type = self.config.pc_type if self.config.pc_type is not None else "none"
+                        ksp_rtol = self.config.ksp_rtol if self.config.ksp_rtol is not None else self.config.tol
+                        ksp_atol = self.config.ksp_atol
+                        ksp_max_it = self.config.ksp_max_it if self.config.ksp_max_it is not None else self.config.maxiter
+                        petsc_options = {}
+                        if self.config.petsc_ksp_norm_type:
+                            petsc_options["fluxfem_ksp_norm_type"] = self.config.petsc_ksp_norm_type
+                        if self.config.petsc_ksp_monitor_true_residual:
+                            petsc_options["fluxfem_ksp_monitor_true_residual"] = ""
+                        if self.config.petsc_ksp_converged_reason:
+                            petsc_options["fluxfem_ksp_converged_reason"] = ""
+                        if self.config.petsc_ksp_monitor_short:
+                            petsc_options["fluxfem_ksp_monitor_short"] = ""
+                        if not petsc_options:
+                            petsc_options = None
+                        use_pmat = bool(self.config.petsc_shell_pmat)
+                        rebuild_thresh = self.config.petsc_shell_pmat_rebuild_iters
+                        if use_pmat:
+                            pmat_mode = (self.config.petsc_shell_pmat_mode or "full").lower()
+                            if pmat_mode == "none":
+                                use_pmat = False
+                                pmat = None
+                            elif pmat_mode == "full":
+                                pmat = K_ff
+                            else:
+                                warnings.warn(
+                                    f"petsc_shell_pmat_mode='{pmat_mode}' is not supported in runner; "
+                                    "falling back to 'full'.",
+                                    RuntimeWarning,
+                                )
+                                pmat = K_ff
+                            if use_pmat:
+                                if self._petsc_shell_pmat is None:
+                                    self._petsc_shell_pmat = pmat
+                                    self._petsc_shell_pmat_rebuilds += 1
+                                elif rebuild_thresh is not None and self._petsc_shell_last_iters is not None:
+                                    if self._petsc_shell_last_iters > rebuild_thresh:
+                                        self._petsc_shell_pmat = pmat
+                                        self._petsc_shell_pmat_rebuilds += 1
+                                pmat = self._petsc_shell_pmat
+                        if not use_pmat:
+                            pmat = None
+
+                        def _attempt_solve(ksp_type: str):
+                            return petsc_shell_solve(
+                                K_ff,
+                                F_free,
+                                preconditioner=self.config.preconditioner,
+                                ksp_type=ksp_type,
+                                pc_type=pc_type,
+                                rtol=ksp_rtol,
+                                atol=ksp_atol,
+                                max_it=ksp_max_it,
+                                pmat=pmat,
+                                options=petsc_options,
+                                return_info=True,
+                            )
+
+                        fallback_ksp = [base_ksp_type]
+                        if self.config.petsc_shell_fallback:
+                            for ksp in self.config.petsc_shell_fallback_ksp_types:
+                                if ksp not in fallback_ksp:
+                                    fallback_ksp.append(ksp)
+                        fallback_attempts = []
+                        petsc_info = None
+                        u_free = None
+                        for ksp in fallback_ksp:
+                            fallback_attempts.append(ksp)
+                            u_free, petsc_info = _attempt_solve(ksp)
+                            lin_conv = petsc_info.get("converged")
+                            reason = petsc_info.get("reason")
+                            if lin_conv is None and reason is not None:
+                                lin_conv = reason > 0
+                            if lin_conv:
+                                break
+                            if self.config.petsc_shell_fallback and use_pmat and self.config.petsc_shell_fallback_rebuild_pmat:
+                                self._petsc_shell_pmat = pmat
+                                self._petsc_shell_pmat_rebuilds += 1
+                        lin_iters = petsc_info.get("iters")
+                        lin_res = petsc_info.get("residual_norm")
+                        lin_solve_dt = petsc_info.get("solve_time")
+                        pc_setup_dt = petsc_info.get("pc_setup_time")
+                        pmat_dt = petsc_info.get("pmat_build_time")
+                        lin_conv = petsc_info.get("converged")
+                        if lin_conv is None and petsc_info.get("reason") is not None:
+                            lin_conv = petsc_info.get("reason") > 0
+                        if lin_conv is None:
+                            lin_conv = True
+                        self._petsc_shell_last_iters = lin_iters
+                        info = SolverResult(
+                            converged=bool(lin_conv),
+                            iters=int(lin_iters) if lin_iters is not None else 0,
+                            linear_iters=int(lin_iters) if lin_iters is not None else None,
+                            linear_converged=bool(lin_conv),
+                            linear_residual=float(lin_res) if lin_res is not None else None,
+                            linear_solve_time=float(lin_solve_dt) if lin_solve_dt is not None else None,
+                            pc_setup_time=float(pc_setup_dt) if pc_setup_dt is not None else None,
+                            pmat_build_time=float(pmat_dt) if pmat_dt is not None else None,
+                            pmat_rebuilds=self._petsc_shell_pmat_rebuilds if use_pmat else None,
+                            pmat_mode=self.config.petsc_shell_pmat_mode if use_pmat else None,
+                            tol=self.config.tol,
+                            stop_reason=("converged" if lin_conv else "linfail"),
+                            nan_detected=bool(np.isnan(lin_res)) if lin_res is not None else False,
+                        )
+                        if len(fallback_attempts) > 1:
+                            info.linear_fallbacks = fallback_attempts
                     else:
                         raise ValueError(f"Unknown linear solve method: {self.config.method}")
 

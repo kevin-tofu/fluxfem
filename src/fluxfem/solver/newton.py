@@ -14,6 +14,7 @@ from ..core.assembly import (
 )
 from ..core.solver import spdirect_solve_cpu, spdirect_solve_gpu
 from .cg import cg_solve, cg_solve_jax
+from .preconditioner import make_block_jacobi_preconditioner
 from .result import SolverResult
 from .sparse import SparsityPattern, FluxSparseMatrix
 from .dirichlet import _normalize_dirichlet
@@ -122,33 +123,7 @@ def newton_solve(
         Build 3x3 block-Jacobi inverse per free node.
         Assumes DOF ordering per node is [ux, uy, uz].
         """
-        if len(free_dofs) % 3 != 0:
-            raise ValueError("block_jacobi assumes 3 DOFs per node.")
-        rows = np.asarray(J_free.rows)
-        cols = np.asarray(J_free.cols)
-        data = np.asarray(J_free.data)
-        block_rows = node_ids_inv[rows]
-        block_cols = node_ids_inv[cols]
-        local_r = rows % 3
-        local_c = cols % 3
-        mask_blk = block_rows == block_cols
-        blk_rows = block_rows[mask_blk]
-        blk_lr = local_r[mask_blk]
-        blk_lc = local_c[mask_blk]
-        blk_data = data[mask_blk]
-        inv_blocks = np.zeros((n_block, 3, 3), dtype=blk_data.dtype)
-        inv_blocks[blk_rows, blk_lr, blk_lc] += blk_data
-        inv_blocks = jnp.asarray(inv_blocks)
-        # Add tiny damping to avoid singular blocks
-        inv_blocks = inv_blocks + 1e-12 * jnp.eye(3)[None, :, :]
-        inv_blocks = jnp.linalg.inv(inv_blocks)
-
-        def precon(r):
-            r_blocks = r.reshape((n_block, 3))
-            z_blocks = jnp.einsum("bij,bj->bi", inv_blocks, r_blocks)
-            return z_blocks.reshape((-1,))
-
-        return precon
+        return make_block_jacobi_preconditioner(J_free, dof_per_node=3)
 
     def expand_full(u_free: jnp.ndarray) -> jnp.ndarray:
         if dir_dofs is None:

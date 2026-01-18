@@ -1,5 +1,6 @@
 """Solver runner integration checks (linear/nonlinear)."""
 import numpy as np
+import pytest
 import jax.numpy as jnp
 import jax
 jax.config.update("jax_enable_x64", True)
@@ -37,6 +38,128 @@ def test_linear_solve_runner_matches_direct():
     # simple consistency: clamp dofs remain zero
     u_np = np.asarray(u)
     np.testing.assert_allclose(u_np[dir_dofs], 0.0, atol=1e-10)
+
+
+@pytest.mark.skipif(not ff.petsc_is_available(), reason="petsc4py is required for PETSc shell tests")
+def test_linear_solve_runner_petsc_shell():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=3, intorder=2)
+    D = ff.isotropic_3d_D(100.0, 0.3)
+    f_vec = jnp.array([0.0, 0.0, -1.0])
+    F_ext = np.asarray(jnp.tile(f_vec, space.n_dofs // 3 + 1)[: space.n_dofs])
+
+    xmin = float(np.asarray(mesh.coords)[:, 0].min())
+    dir_dofs = mesh.boundary_dofs_where(
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
+        components="xyz",
+    )
+    dir_vals = np.zeros(len(dir_dofs))
+
+    analysis = ff.LinearAnalysis(
+        space=space,
+        bilinear_form=ff.linear_elasticity_form,
+        params=D,
+        base_rhs_vector=F_ext,
+        dirichlet=(dir_dofs, dir_vals),
+    )
+    cfg = ff.LinearSolveConfig(
+        method="petsc_shell",
+        tol=1e-8,
+        maxiter=200,
+        preconditioner="diag0",
+        ksp_type="cg",
+    )
+    runner = ff.LinearSolveRunner(analysis, cfg)
+    u, history = runner.run()
+    assert history[-1].info.converged
+    u_np = np.asarray(u)
+    np.testing.assert_allclose(u_np[dir_dofs], 0.0, atol=1e-10)
+
+
+@pytest.mark.skipif(not ff.petsc_is_available(), reason="petsc4py is required for PETSc shell tests")
+def test_linear_solve_runner_petsc_shell_config_overrides_options():
+    import petsc4py
+    petsc4py.init([])
+    from petsc4py import PETSc
+
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=3, intorder=2)
+    D = ff.isotropic_3d_D(100.0, 0.3)
+    f_vec = jnp.array([0.0, 0.0, -1.0])
+    F_ext = np.asarray(jnp.tile(f_vec, space.n_dofs // 3 + 1)[: space.n_dofs])
+
+    xmin = float(np.asarray(mesh.coords)[:, 0].min())
+    dir_dofs = mesh.boundary_dofs_where(
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
+        components="xyz",
+    )
+    dir_vals = np.zeros(len(dir_dofs))
+
+    analysis = ff.LinearAnalysis(
+        space=space,
+        bilinear_form=ff.linear_elasticity_form,
+        params=D,
+        base_rhs_vector=F_ext,
+        dirichlet=(dir_dofs, dir_vals),
+    )
+
+    opts = PETSc.Options()
+    opts["fluxfem_ksp_max_it"] = "1"
+    try:
+        cfg = ff.LinearSolveConfig(
+            method="petsc_shell",
+            tol=1e-8,
+            maxiter=200,
+            preconditioner="diag0",
+            ksp_type="cg",
+            ksp_max_it=200,
+        )
+        runner = ff.LinearSolveRunner(analysis, cfg)
+        u, history = runner.run()
+        assert history[-1].info.converged
+        assert history[-1].info.linear_iters is None or history[-1].info.linear_iters > 1
+        u_np = np.asarray(u)
+        np.testing.assert_allclose(u_np[dir_dofs], 0.0, atol=1e-10)
+    finally:
+        try:
+            del opts["fluxfem_ksp_max_it"]
+        except Exception:
+            pass
+
+
+@pytest.mark.skipif(not ff.petsc_is_available(), reason="petsc4py is required for PETSc shell tests")
+def test_linear_solve_runner_petsc_shell_max_it_limit():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=3, intorder=2)
+    D = ff.isotropic_3d_D(100.0, 0.3)
+    f_vec = jnp.array([0.0, 0.0, -1.0])
+    F_ext = np.asarray(jnp.tile(f_vec, space.n_dofs // 3 + 1)[: space.n_dofs])
+
+    xmin = float(np.asarray(mesh.coords)[:, 0].min())
+    dir_dofs = mesh.boundary_dofs_where(
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
+        components="xyz",
+    )
+    dir_vals = np.zeros(len(dir_dofs))
+
+    analysis = ff.LinearAnalysis(
+        space=space,
+        bilinear_form=ff.linear_elasticity_form,
+        params=D,
+        base_rhs_vector=F_ext,
+        dirichlet=(dir_dofs, dir_vals),
+    )
+    cfg = ff.LinearSolveConfig(
+        method="petsc_shell",
+        tol=1e-12,
+        maxiter=1,
+        preconditioner="diag0",
+        ksp_type="cg",
+        ksp_max_it=1,
+    )
+    runner = ff.LinearSolveRunner(analysis, cfg)
+    _u, history = runner.run()
+    assert history[-1].info.converged is False
 
 
 def test_newton_solve_runner_trivial_zero_load():

@@ -38,6 +38,7 @@ from fluxfem import (  # noqa: E402
     StructuredHexBox,
     cg_solve,
     cg_solve_jax,
+    make_block_jacobi_preconditioner,
     isotropic_3d_D,
     linear_elasticity_form,
     make_sparsity_pattern,
@@ -240,33 +241,7 @@ def residual_norm_jax(A, x, b):
 
 
 def make_block_jacobi_precon(K_flux: FluxSparseMatrix):
-    n = K_flux.n_dofs
-    if n % 3 != 0:
-        raise ValueError("block_jacobi assumes 3 DOFs per node.")
-    rows = np.asarray(K_flux.pattern.rows)
-    cols = np.asarray(K_flux.pattern.cols)
-    data = np.asarray(K_flux.data)
-    block_rows = rows // 3
-    block_cols = cols // 3
-    lr = rows % 3
-    lc = cols % 3
-    mask = block_rows == block_cols
-    block_rows = block_rows[mask]
-    lr = lr[mask]
-    lc = lc[mask]
-    data = data[mask]
-    n_block = n // 3
-    blocks = np.zeros((n_block, 3, 3), dtype=data.dtype)
-    np.add.at(blocks, (block_rows, lr, lc), data)
-    blocks = blocks + 1e-12 * np.eye(3)[None, :, :]
-    inv_blocks = jnp.asarray(np.linalg.inv(blocks))
-
-    def precon(r):
-        rb = r.reshape((n_block, 3))
-        zb = jnp.einsum("bij,bj->bi", inv_blocks, rb)
-        return zb.reshape((-1,))
-
-    return precon
+    return make_block_jacobi_preconditioner(K_flux, dof_per_node=3)
 
 
 def main():

@@ -21,6 +21,12 @@ class SolverResult:
     linear_iters: Optional[int] = None
     linear_converged: Optional[bool] = None
     linear_residual: Optional[float] = None
+    linear_solve_time: Optional[float] = None
+    pc_setup_time: Optional[float] = None
+    pmat_build_time: Optional[float] = None
+    pmat_rebuilds: Optional[int] = None
+    pmat_mode: Optional[str] = None
+    linear_fallbacks: Optional[List[str]] = None
 
     tol: Optional[float] = None
     atol: Optional[float] = None
@@ -55,6 +61,18 @@ class SolverResult:
             parts.append(f"lin_conv={self.linear_converged}")
         if self.linear_residual is not None:
             parts.append(f"lin_res={self.linear_residual:.3e}")
+        if self.linear_solve_time is not None:
+            parts.append(f"lin_solve_dt={self.linear_solve_time:.3e}s")
+        if self.pc_setup_time is not None:
+            parts.append(f"pc_setup_dt={self.pc_setup_time:.3e}s")
+        if self.pmat_build_time is not None:
+            parts.append(f"pmat_dt={self.pmat_build_time:.3e}s")
+        if self.pmat_rebuilds is not None:
+            parts.append(f"pmat_rebuilds={self.pmat_rebuilds}")
+        if self.pmat_mode is not None:
+            parts.append(f"pmat_mode={self.pmat_mode}")
+        if self.linear_fallbacks:
+            parts.append(f"lin_fallbacks={self.linear_fallbacks}")
         if self.stop_reason:
             parts.append(f"reason={self.stop_reason}")
         if self.nan_detected:

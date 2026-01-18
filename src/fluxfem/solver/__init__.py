@@ -10,12 +10,14 @@ from .dirichlet import (
     enforce_dirichlet_sparse,
     free_dofs,
     restrict_flux_to_free,
+    condense_dirichlet_system,
     condense_dirichlet_fluxsparse,
     condense_dirichlet_fluxsparse_coo,
     condense_dirichlet_dense,
     expand_dirichlet_solution,
 )
 from .cg import cg_solve, cg_solve_jax
+from .preconditioner import make_block_jacobi_preconditioner
 from .newton import newton_solve
 from .solve_runner import (
     NonlinearAnalysis,
@@ -29,7 +31,7 @@ from .solve_runner import (
     LinearSolveRunner,
 )
 from .solver import LinearSolver, NonlinearSolver
-from .petsc import petsc_solve, petsc_is_available
+from .petsc import petsc_solve, petsc_shell_solve, petsc_is_available
 
 __all__ = [
     "SparsityPattern",
@@ -41,12 +43,14 @@ __all__ = [
     "enforce_dirichlet_sparse",
     "free_dofs",
     "restrict_flux_to_free",
+    "condense_dirichlet_system",
     "condense_dirichlet_fluxsparse",
     "condense_dirichlet_fluxsparse_coo",
     "condense_dirichlet_dense",
     "expand_dirichlet_solution",
     "cg_solve",
     "cg_solve_jax",
+    "make_block_jacobi_preconditioner",
     "newton_solve",
     "LinearAnalysis",
     "LinearSolveConfig",
@@ -59,5 +63,6 @@ __all__ = [
     "LinearSolver",
     "NonlinearSolver",
     "petsc_solve",
+    "petsc_shell_solve",
     "petsc_is_available",
 ]

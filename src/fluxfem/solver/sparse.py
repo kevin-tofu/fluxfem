@@ -153,7 +153,7 @@ class FluxSparseMatrix:
     - data stores the numeric values for the current nonlinear iterate
     """
 
-    def __init__(self, rows_or_pattern, cols=None, data=None, n_dofs: int | None = None):
+    def __init__(self, rows_or_pattern, cols=None, data=None, n_dofs: int | None = None, meta: dict | None = None):
         # New signature: FluxSparseMatrix(pattern, data)
         if isinstance(rows_or_pattern, SparsityPattern):
             pattern = rows_or_pattern
@@ -185,6 +185,7 @@ class FluxSparseMatrix:
         self.cols = pattern.cols
         self.n_dofs = int(pattern.n_dofs)
         self.data = values
+        self.meta = dict(meta) if meta is not None else None
 
     @classmethod
     def from_bilinear(cls, coo_tuple):
@@ -201,7 +202,7 @@ class FluxSparseMatrix:
 
     def with_data(self, data):
         """Return a new FluxSparseMatrix sharing the same pattern with updated data."""
-        return FluxSparseMatrix(self.pattern, data)
+        return FluxSparseMatrix(self.pattern, data, meta=self.meta)
 
     def add_dense(self, dense):
         """Return a new FluxSparseMatrix with dense entries added on the pattern."""

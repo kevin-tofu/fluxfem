@@ -372,6 +372,19 @@ def run_fluxfem_demo(
     cg_tol: float = 1e-8,
     cg_maxiter: int | None = None,
     cg_precond: str = "none",
+    linear_solver: str = "cg",
+    petsc_shell_ksp: str = "gmres",
+    petsc_shell_pc: str = "none",
+    petsc_shell_precon: str = "none",
+    petsc_shell_pmat: bool = False,
+    petsc_shell_pmat_mode: str = "full",
+    petsc_shell_rtol: float = 1e-8,
+    petsc_shell_atol: float = 0.0,
+    petsc_shell_maxiter: int | None = None,
+    petsc_shell_norm_type: str = "",
+    petsc_shell_monitor_true_residual: bool = False,
+    petsc_shell_converged_reason: bool = False,
+    petsc_shell_monitor_short: bool = False,
     symmetry_check: bool = False,
     bench_contact: bool = False,
     debug_contact: bool = False,
@@ -410,6 +423,66 @@ def run_fluxfem_demo(
         x64 = False
         if omp_threads is None:
             omp_threads = 1
+
+    def _solve_linear_system(K_free, F_free, *, pmat_free=None):
+        if linear_solver == "cg":
+            u_free, info = ff.cg_solve(
+                K_free,
+                F_free,
+                tol=cg_tol,
+                maxiter=cg_maxiter,
+                preconditioner=None if cg_precond == "none" else cg_precond,
+            )
+            return u_free, info
+        if linear_solver == "petsc_shell":
+            from fluxfem.solver.petsc import petsc_is_available, petsc_shell_solve
+
+            if not petsc_is_available():
+                raise RuntimeError("petsc4py is required for petsc_shell solver.")
+            precon = None if petsc_shell_precon == "none" else petsc_shell_precon
+            options = None
+            if (
+                petsc_shell_norm_type
+                or petsc_shell_monitor_true_residual
+                or petsc_shell_converged_reason
+                or petsc_shell_monitor_short
+            ):
+                options = {}
+                if petsc_shell_norm_type:
+                    options["fluxfem_ksp_norm_type"] = petsc_shell_norm_type
+                if petsc_shell_monitor_true_residual:
+                    options["fluxfem_ksp_monitor_true_residual"] = ""
+                if petsc_shell_converged_reason:
+                    options["fluxfem_ksp_converged_reason"] = ""
+                if petsc_shell_monitor_short:
+                    options["fluxfem_ksp_monitor_short"] = ""
+            u_free, info = petsc_shell_solve(
+                K_free,
+                F_free,
+                ksp_type=petsc_shell_ksp,
+                pc_type=petsc_shell_pc,
+                preconditioner=precon,
+                rtol=petsc_shell_rtol,
+                atol=petsc_shell_atol,
+                max_it=petsc_shell_maxiter,
+                pmat=pmat_free if petsc_shell_pmat else None,
+                options=options,
+                return_info=True,
+            )
+            return u_free, info
+        raise ValueError(f"Unknown linear_solver: {linear_solver}")
+
+    def _scale_rows_to_match_diag(mat, target_diag):
+        diag = np.asarray(mat.diag())
+        target = np.asarray(target_diag)
+        if diag.shape != target.shape:
+            raise ValueError("pmat scaling requires matching diagonal sizes.")
+        scale = np.ones_like(target, dtype=float)
+        mask = diag != 0.0
+        scale[mask] = target[mask] / diag[mask]
+        rows = np.asarray(mat.pattern.rows, dtype=np.int64)
+        data = np.asarray(mat.data)
+        return mat.with_data(jnp.asarray(data * scale[rows]))
 
     if platform != "auto":
         os.environ.setdefault("JAX_PLATFORMS", platform)
@@ -675,6 +748,18 @@ def run_fluxfem_demo(
     _mark("apply dirichlet")
 
     K_free = ff.restrict_flux_to_free(K, free)
+    pmat_free = None
+    if linear_solver == "petsc_shell" and petsc_shell_pmat:
+        if petsc_shell_pmat_mode not in ("full", "block", "block_diag_match"):
+            raise ValueError("petsc_shell_pmat_mode must be 'full', 'block', or 'block_diag_match'.")
+        if petsc_shell_pmat_mode == "full":
+            pmat_free = K_free
+        elif petsc_shell_pmat_mode == "block":
+            K_block_free = ff.restrict_flux_to_free(K_block, free)
+            pmat_free = K_block_free
+        else:
+            K_block_free = ff.restrict_flux_to_free(K_block, free)
+            pmat_free = _scale_rows_to_match_diag(K_block_free, K_free.diag())
     _mark("build K_free")
 
     mv_free = jax.jit(K_free.matvec)
@@ -690,13 +775,7 @@ def run_fluxfem_demo(
         b = jnp.vdot(y, mv_free(x))
         denom = jnp.abs(a) + 1e-30
         print("symmetry ratio =", float(jnp.abs(a - b) / denom))
-    u_free, info = ff.cg_solve(
-        K_free,
-        F_free,
-        tol=cg_tol,
-        maxiter=cg_maxiter,
-        preconditioner=None if cg_precond == "none" else cg_precond,
-    )
+    u_free, info = _solve_linear_system(K_free, F_free, pmat_free=pmat_free)
     _mark("cg solve")
 
     u = jnp.zeros(n_total, dtype=u_free.dtype).at[free_j].set(u_free)
@@ -716,8 +795,13 @@ def run_fluxfem_demo(
         print("B1:", (int(K_contact.n_dofs), int(K_contact.n_dofs)))
         print("len(t1):", int(contact_facets_top.shape[0]), "len(t2):", int(contact_facets_bot.shape[0]))
         print("sum|F_from_U - F_free|:", float(np.sum(np.abs(np.asarray(F_from_U) - np.asarray(F_free)))))
-        print("cg iters:", int(info.get("iters", -1)))
-        print("cg residual_norm:", float(info.get("residual_norm", float("nan"))))
+        print("linear solver:", linear_solver)
+        print("linear iters:", int(info.get("iters", -1)))
+        print("linear residual_norm:", float(info.get("residual_norm", float("nan"))))
+        if linear_solver == "petsc_shell":
+            print("linear solve_dt:", float(info.get("solve_time", float("nan"))))
+            print("pc setup_dt:", float(info.get("pc_setup_time", float("nan"))))
+            print("pmat build_dt:", float(info.get("pmat_build_time", float("nan"))))
         print("K.shape, u.shape, F_pred_full.shape", (n_total, n_total), u.shape, F_pred_full.shape)
         print("F_pred_full.shape, F.shape", F_pred_full.shape, F_j.shape)
         print("len(F_pred_full) =", int(F_pred_full.shape[0]))
@@ -734,6 +818,12 @@ def run_fluxfem_demo(
         "sum_abs_Fdiff": float(np.sum(np.abs(np.asarray(F_from_U) - np.asarray(F_free)))),
         "residual_norm_2": float(np.linalg.norm(np.asarray(residual_full))),
         "relative_residual": float(rel_res),
+        "linear_solver": linear_solver,
+        "linear_iters": int(info.get("iters", -1)),
+        "linear_residual_norm": float(info.get("residual_norm", float("nan"))),
+        "linear_solve_time": float(info.get("solve_time", float("nan"))),
+        "pc_setup_time": float(info.get("pc_setup_time", float("nan"))),
+        "pmat_build_time": float(info.get("pmat_build_time", float("nan"))),
     }
 
     if log_path:
@@ -974,6 +1064,12 @@ def run_fluxfem_oneside_demo(
     _mark("apply dirichlet")
 
     K_free = ff.restrict_flux_to_free(K, free)
+    pmat_free = None
+    if linear_solver == "petsc_shell" and petsc_shell_pmat:
+        if petsc_shell_pmat_mode not in ("full", "block", "block_diag_match"):
+            raise ValueError("petsc_shell_pmat_mode must be 'full', 'block', or 'block_diag_match'.")
+        # One-sided contact folds the contact term into K1; fall back to full pmat.
+        pmat_free = K_free
     _mark("build K_free")
 
     mv_free = jax.jit(K_free.matvec)
@@ -989,13 +1085,7 @@ def run_fluxfem_oneside_demo(
         b = jnp.vdot(y, mv_free(x))
         denom = jnp.abs(a) + 1e-30
         print("symmetry ratio =", float(jnp.abs(a - b) / denom))
-    u_free, info = ff.cg_solve(
-        K_free,
-        F_free,
-        tol=cg_tol,
-        maxiter=cg_maxiter,
-        preconditioner=None if cg_precond == "none" else cg_precond,
-    )
+    u_free, info = _solve_linear_system(K_free, F_free, pmat_free=pmat_free)
     _mark("cg solve")
 
     u = jnp.zeros(n_total, dtype=u_free.dtype).at[free_j].set(u_free)
@@ -1015,8 +1105,13 @@ def run_fluxfem_oneside_demo(
         print("B1:", (n_contact_dofs, n_contact_dofs))
         print("len(t1):", int(contact_facets_top.shape[0]), "len(t2):", int(contact_facets_bot.shape[0]))
         print("sum|F_from_U - F_free|:", float(np.sum(np.abs(np.asarray(F_from_U) - np.asarray(F_free)))))
-        print("cg iters:", int(info.get("iters", -1)))
-        print("cg residual_norm:", float(info.get("residual_norm", float("nan"))))
+        print("linear solver:", linear_solver)
+        print("linear iters:", int(info.get("iters", -1)))
+        print("linear residual_norm:", float(info.get("residual_norm", float("nan"))))
+        if linear_solver == "petsc_shell":
+            print("linear solve_dt:", float(info.get("solve_time", float("nan"))))
+            print("pc setup_dt:", float(info.get("pc_setup_time", float("nan"))))
+            print("pmat build_dt:", float(info.get("pmat_build_time", float("nan"))))
         print("K.shape, u.shape, F_pred_full.shape", (n_total, n_total), u.shape, F_pred_full.shape)
         print("F_pred_full.shape, F.shape", F_pred_full.shape, F_j.shape)
         print("len(F_pred_full) =", int(F_pred_full.shape[0]))
@@ -1033,6 +1128,12 @@ def run_fluxfem_oneside_demo(
         "sum_abs_Fdiff": float(np.sum(np.abs(np.asarray(F_from_U) - np.asarray(F_free)))),
         "residual_norm_2": float(np.linalg.norm(np.asarray(residual_full))),
         "relative_residual": float(rel_res),
+        "linear_solver": linear_solver,
+        "linear_iters": int(info.get("iters", -1)),
+        "linear_residual_norm": float(info.get("residual_norm", float("nan"))),
+        "linear_solve_time": float(info.get("solve_time", float("nan"))),
+        "pc_setup_time": float(info.get("pc_setup_time", float("nan"))),
+        "pmat_build_time": float(info.get("pmat_build_time", float("nan"))),
     }
 
     if log_path:

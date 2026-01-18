@@ -320,25 +320,25 @@ def solve_heat_compare(
     solve_flux = []
     solve_sk = []
 
-    assemble_k_flux = jax.jit(
-        lambda k: assemble_fluxfem_stiffness(space, k)
-    )
+    K_flux_base = assemble_fluxfem_stiffness(space, 1.0)
+    jax.block_until_ready(K_flux_base.data)
+    K_flux_base_csr = K_flux_base.to_csr()
+    if include_skfem:
+        K_sf_base = asm(laplace, basis_sf).tocsr()
+        K_sf_base = K_sf_base[perm_nodes][:, perm_nodes]
     for step in range(nsteps):
         t_n = t0 + step * dt
         t_np1 = t_n + dt
         k_t = kappa_t(t_np1, kappa0, alpha)
 
         with timer.section("assemble_flux"):
-            K_flux = assemble_k_flux(k_t)
-            jax.block_until_ready(K_flux.data)
-            K_flux = K_flux.to_csr()
+            K_flux = K_flux_base_csr * k_t
         asm_flux_dt = timer.last("assemble_flux")
         assemble_k_flux_times.append(asm_flux_dt)
 
         if include_skfem:
             with timer.section("assemble_skfem"):
-                K_sf = (asm(laplace, basis_sf) * k_t).tocsr()
-                K_sf = K_sf[perm_nodes][:, perm_nodes]
+                K_sf = K_sf_base * k_t
             asm_sk_dt = timer.last("assemble_skfem")
             assemble_k_sk.append(asm_sk_dt)
 
@@ -366,10 +366,10 @@ def solve_heat_compare(
 
         if include_skfem:
             with timer.section("solve_skfem"):
-            u_free = np.asarray(sla.spsolve(A_sf_bc, rhs_sf_bc))
-            u_sk = u_sk.copy()
-            u_sk[free] = u_free
-            u_sk[bc_dofs] = bc_vals
+                u_free = np.asarray(sla.spsolve(A_sf_bc, rhs_sf_bc))
+                u_sk = u_sk.copy()
+                u_sk[free] = u_free
+                u_sk[bc_dofs] = bc_vals
             sol_sk_dt = timer.last("solve_skfem")
             solve_sk.append(sol_sk_dt)
 
@@ -467,13 +467,13 @@ def main():
     p.add_argument(
         "--plot",
         type=str,
-        default="result/bench/fluxfem_vs_skfem_timevarying/compare_steps",
+        default="result/bench/heat_timevarying_fluxfem_vs_skfem/compare_steps",
         help="save comparison plots (dir or file); default saves all steps to a subfolder",
     )
     p.add_argument(
         "--out-dir",
         type=str,
-        default="result/bench/fluxfem_vs_skfem_timevarying",
+        default="result/bench/heat_timevarying_fluxfem_vs_skfem",
         help="directory to save npz results",
     )
     p.add_argument("--backends", type=str, default="cpu", help="comma-separated backends to run (cpu,gpu)")
@@ -482,7 +482,7 @@ def main():
     p.add_argument(
         "--compare-out",
         type=str,
-        default="result/bench/fluxfem_vs_skfem_timevarying/compare_cpu_gpu.png",
+        default="result/bench/heat_timevarying_fluxfem_vs_skfem/compare_cpu_gpu.png",
         help="output PNG path for CPU/GPU comparison plot",
     )
     p.add_argument("--no-skfem", action="store_true", help="Skip scikit-fem comparisons.")

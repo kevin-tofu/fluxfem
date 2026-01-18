@@ -10,6 +10,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
+        lib = pkgs.lib;
         petsc = pkgs.petsc.overrideAttrs (old: {
           version = "3.23.6";
           src = pkgs.fetchurl {
@@ -17,6 +18,12 @@
             sha256 = "sha256-B+BJLFw40vxapt2YHEUAhvO4j4g03xEkeofUvs+4XHI=";
           };
         });
+        fluxfemLdLibraryPath = lib.makeLibraryPath [
+          pkgs.stdenv.cc.cc.lib
+          pkgs.zlib
+          pkgs.xorg.libX11
+          pkgs.gfortran.cc.lib
+        ];
       in
       {
         devShells.default = pkgs.mkShell {
@@ -40,15 +47,16 @@
             export POETRY_VIRTUALENVS_CREATE=true
             export POETRY_VIRTUALENVS_IN_PROJECT=true
             export POETRY_VIRTUALENVS_PREFER_ACTIVE_PYTHON=true
-            export FLUXFEM_LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:${pkgs.zlib}/lib:${pkgs.xorg.libX11}/lib:${pkgs.gfortran.cc.lib}/lib"
+            export FLUXFEM_LD_LIBRARY_PATH="${fluxfemLdLibraryPath}"
+            export LD_LIBRARY_PATH="''${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$FLUXFEM_LD_LIBRARY_PATH"
             export JAX_ENABLE_X64=1
 
             poetry() {
-              LD_LIBRARY_PATH="$FLUXFEM_LD_LIBRARY_PATH''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" command poetry "$@"
+              LD_LIBRARY_PATH="''${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$FLUXFEM_LD_LIBRARY_PATH" command poetry "$@"
             }
 
             python() {
-              LD_LIBRARY_PATH="$FLUXFEM_LD_LIBRARY_PATH''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" command python "$@"
+              LD_LIBRARY_PATH="''${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$FLUXFEM_LD_LIBRARY_PATH" command python "$@"
             }
             echo "PETSc: ${petsc.version}"
             echo "Python: using Nix python at $(which python)"
