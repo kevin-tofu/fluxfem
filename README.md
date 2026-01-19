@@ -177,7 +177,15 @@ grad_fn = jax.jit(jax.grad(loss_theta))
 
 Full documentation, tutorials, and API reference are hosted at [this site](https://fluxfem.readthedocs.io/en/latest/).
 
-## SetUp
+## Tutorials
+
+- `tutorials/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
+- `tutorials/neo_hookean_cantilever.py` (nonlinear hyperelasticity)
+- `tutorials/thermoelastic_bar_1d.py` / `tutorials/thermoelastic_bar_1d_mixed.py` (thermoelastic coupling)
+- `tutorials/diffusion_3d_mesh_proxy.py` (mesh-move proxy vs true gradient)
+- `tutorials/petsc_shell_poisson_demo.py` (PETSc shell solver integration; see also `tutorials/petsc_shell_poisson_pmat_demo.py`)
+
+## Setup
 
 You can install **FluxFEM** either via **pip** or **Poetry**.
 
@@ -196,6 +204,14 @@ pip install fluxfem
 ### Using poetry
 ```bash
 poetry add fluxfem
+```
+
+## PETSc Integration
+
+Optional PETSc-based solvers are available via `petsc4py`. Enable with the extra:
+
+```bash
+poetry add fluxfem --extras "petsc"
 ```
 
 ## Acknowledgements
