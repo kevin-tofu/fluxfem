@@ -12,3 +12,4 @@ This section contains tutorials for FluxFEM.
    tutorial_gmsh_msh
    tutorial_kernel_assembly
    tutorial_petsc_shell
+   tutorial_mixed_block
