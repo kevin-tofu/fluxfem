@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>FluxFEM Documentation &#8212; FluxFEM 0.1.8 documentation</title>
+    <title>PETSc Shell Solvers &#8212; FluxFEM 0.1.8 documentation</title>
   
   
   
@@ -41,11 +41,12 @@
     <script src="_static/documentation_options.js?v=72e2dd8f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'index';</script>
-    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/index.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial_petsc_shell';</script>
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial_petsc_shell.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Project" href="project.html" />
+    <link rel="next" title="Usage" href="usage.html" />
+    <link rel="prev" title="Kernel-based Assembly (JIT-Friendly)" href="tutorial_kernel_assembly.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -103,7 +104,7 @@
     
   
 
-<a class="navbar-brand logo" href="#">
+<a class="navbar-brand logo" href="index.html">
   
   
   
@@ -131,7 +132,7 @@
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="tutorial.html">
     Tutorial Page
   </a>
@@ -224,10 +225,8 @@
       
       
       
-        
-      
       <dialog id="pst-primary-sidebar-modal"></dialog>
-      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
         
 
   
@@ -249,7 +248,7 @@
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="tutorial.html">
     Tutorial Page
   </a>
@@ -307,6 +306,23 @@
     
   </div>
   
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_gmsh_msh.html">Load a Gmsh .msh and use it in analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_kernel_assembly.html">Kernel-based Assembly (JIT-Friendly)</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">PETSc Shell Solvers</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
       <div class="sidebar-primary-item">
@@ -327,7 +343,34 @@
           <div class="bd-content">
             <div class="bd-article-container">
               
-              <div class="bd-header-article d-print-none"></div>
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="tutorial.html" class="nav-link">Tutorial Page</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">PETSc Shell Solvers</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
               
               
               
@@ -335,42 +378,44 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="fluxfem-documentation">
-<h1>FluxFEM Documentation<a class="headerlink" href="#fluxfem-documentation" title="Link to this heading">#</a></h1>
-<div class="toctree-wrapper compound">
-<p aria-level="2" class="caption" role="heading"><span class="caption-text">Contents</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="project.html">Project</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="concept.html">Concept</a></li>
-<li class="toctree-l2"><a class="reference internal" href="installation.html">Installation</a></li>
+  <section id="petsc-shell-solvers">
+<h1>PETSc Shell Solvers<a class="headerlink" href="#petsc-shell-solvers" title="Link to this heading">#</a></h1>
+<p>This tutorial summarizes the PETSc shell-matrix demos:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_demo.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_pmat_demo.py</span></code></p></li>
 </ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial.html">Tutorial Page</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar</a></li>
-<li class="toctree-l2"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
-<li class="toctree-l2"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
-<li class="toctree-l2"><a class="reference internal" href="tutorial_gmsh_msh.html">Load a Gmsh .msh and use it in analysis</a></li>
-<li class="toctree-l2"><a class="reference internal" href="tutorial_kernel_assembly.html">Kernel-based Assembly (JIT-Friendly)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="assembly.html">Assembly</a></li>
-<li class="toctree-l2"><a class="reference internal" href="solver.html">Solvers</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="api/top.html">Top-level API</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/core.html">Core</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/mesh.html">Mesh</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/solver.html">Solver</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/physics.html">Physics</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/tools.html">Tools</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/helpers.html">Helpers</a></li>
-</ul>
-</li>
-</ul>
+<p>They show how to wrap FluxFEM operators in PETSc shells for flexible
+preconditioning and matrix-free solves.</p>
+<section id="run-the-examples">
+<h2>Run the examples<a class="headerlink" href="#run-the-examples" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/petsc_shell_poisson_demo.py
+python<span class="w"> </span>tutorials/petsc_shell_poisson_pmat_demo.py
+</pre></div>
 </div>
+</section>
+<section id="prerequisites">
+<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">#</a></h2>
+<p>You need PETSc + petsc4py:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="w"> </span>--extras<span class="w"> </span><span class="s2">&quot;petsc&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="what-the-demos-do">
+<h2>What the demos do<a class="headerlink" href="#what-the-demos-do" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Build a Poisson problem on a structured mesh.</p></li>
+<li><p>Assemble the residual and wrap it in a PETSc shell matrix.</p></li>
+<li><p>Solve with PETSc, optionally providing a matrix for preconditioning.</p></li>
+</ul>
+</section>
+<section id="notes">
+<h2>Notes<a class="headerlink" href="#notes" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>If PETSc is not installed, the scripts will error at import time.</p></li>
+<li><p>These demos are a good starting point for matrix-free workflows.</p></li>
+</ul>
+</section>
 </section>
 
 
@@ -383,12 +428,21 @@
                 <footer class="prev-next-footer d-print-none">
                   
 <div class="prev-next-area">
+    <a class="left-prev"
+       href="tutorial_kernel_assembly.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Kernel-based Assembly (JIT-Friendly)</p>
+      </div>
+    </a>
     <a class="right-next"
-       href="project.html"
+       href="usage.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Project</p>
+        <p class="prev-next-title">Usage</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -404,10 +458,25 @@
 
 
   <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-examples">Run the examples</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-demos-do">What the demos do</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notes">Notes</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="_sources/index.rst.txt"
+      <li><a href="_sources/tutorial_petsc_shell.rst.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>
