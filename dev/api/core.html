@@ -53,6 +53,8 @@
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Core</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#spaces">Spaces</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#forms">Forms</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#example-mixedproblem">Example (MixedProblem)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#example-mixedblocksystem">Example (MixedBlockSystem)</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#assembly">Assembly</a></li>
 </ul>
 </li>
@@ -97,6 +99,36 @@
 </section>
 <section id="forms">
 <h2>Forms<a class="headerlink" href="#forms" title="Link to this heading"></a></h2>
+</section>
+<section id="example-mixedproblem">
+<h2>Example (MixedProblem)<a class="headerlink" href="#example-mixedproblem" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">mixed</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MixedFESpace</span><span class="p">({</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">space</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="n">space</span><span class="p">})</span>
+<span class="n">residuals</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_mixed_residuals</span><span class="p">(</span><span class="n">u</span><span class="o">=</span><span class="n">res_u</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="n">res_p</span><span class="p">)</span>
+<span class="n">params</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">alpha</span><span class="o">=</span><span class="mf">1.2</span><span class="p">,</span> <span class="n">beta</span><span class="o">=-</span><span class="mf">0.4</span><span class="p">)</span>
+<span class="n">pattern</span> <span class="o">=</span> <span class="n">mixed</span><span class="o">.</span><span class="n">get_sparsity_pattern</span><span class="p">(</span><span class="n">with_idx</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">problem</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MixedProblem</span><span class="p">(</span><span class="n">mixed</span><span class="p">,</span> <span class="n">residuals</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">pattern</span><span class="o">=</span><span class="n">pattern</span><span class="p">)</span>
+
+<span class="n">u0</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">mixed</span><span class="o">.</span><span class="n">n_dofs</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">problem</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">u0</span><span class="p">,</span> <span class="n">return_flux_matrix</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">R</span> <span class="o">=</span> <span class="n">problem</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">u0</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="example-mixedblocksystem">
+<h2>Example (MixedBlockSystem)<a class="headerlink" href="#example-mixedblocksystem" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">blocks</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">Kuu</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="n">Kup</span><span class="p">},</span>
+    <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">Kpu</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="n">Kpp</span><span class="p">},</span>
+<span class="p">}</span>
+<span class="n">rhs</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">Fu</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="n">Fp</span><span class="p">}</span>
+<span class="n">constraints</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">u_dofs</span><span class="p">,</span> <span class="n">u_vals</span><span class="p">)}</span>
+<span class="n">system</span> <span class="o">=</span> <span class="n">mixed</span><span class="o">.</span><span class="n">build_block_system</span><span class="p">(</span><span class="n">blocks</span><span class="o">=</span><span class="n">blocks</span><span class="p">,</span> <span class="n">rhs</span><span class="o">=</span><span class="n">rhs</span><span class="p">,</span> <span class="n">constraints</span><span class="o">=</span><span class="n">constraints</span><span class="p">)</span>
+
+<span class="n">u_free</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">system</span><span class="o">.</span><span class="n">K</span><span class="p">,</span> <span class="n">system</span><span class="o">.</span><span class="n">F</span><span class="p">)</span>
+<span class="n">u_full</span> <span class="o">=</span> <span class="n">system</span><span class="o">.</span><span class="n">expand</span><span class="p">(</span><span class="n">u_free</span><span class="p">)</span>
+<span class="n">fields</span> <span class="o">=</span> <span class="n">system</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">u_full</span><span class="p">)</span>
+</pre></div>
+</div>
 </section>
 <section id="assembly">
 <h2>Assembly<a class="headerlink" href="#assembly" title="Link to this heading"></a></h2>
