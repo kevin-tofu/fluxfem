@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Tutorial Page &#8212; FluxFEM 0.1.8 documentation</title>
+    <title>MixedForm and Block Utilities &#8212; FluxFEM 0.1.8 documentation</title>
   
   
   
@@ -41,12 +41,12 @@
     <script src="_static/documentation_options.js?v=72e2dd8f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial';</script>
-    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial_mixed_block';</script>
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial_mixed_block.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Linear Elasticity: Tensile Bar" href="tutorial_linear_elasticity.html" />
-    <link rel="prev" title="Installation" href="installation.html" />
+    <link rel="next" title="Usage" href="usage.html" />
+    <link rel="prev" title="PETSc Shell Solvers" href="tutorial_petsc_shell.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -133,7 +133,7 @@
 
 
 <li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+  <a class="nav-link nav-internal" href="tutorial.html">
     Tutorial Page
   </a>
 </li>
@@ -249,7 +249,7 @@
 
 
 <li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+  <a class="nav-link nav-internal" href="tutorial.html">
     Tutorial Page
   </a>
 </li>
@@ -311,14 +311,14 @@
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_gmsh_msh.html">Load a Gmsh .msh and use it in analysis</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_kernel_assembly.html">Kernel-based Assembly (JIT-Friendly)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">MixedForm and Block Utilities</a></li>
 </ul>
 </div>
 </nav></div>
@@ -359,7 +359,10 @@
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Tutorial Page</span></li>
+    
+    <li class="breadcrumb-item"><a href="tutorial.html" class="nav-link">Tutorial Page</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">MixedForm and Block Utilities</span></li>
   </ul>
 </nav>
 </div>
@@ -376,20 +379,63 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="tutorial-page">
-<h1>Tutorial Page<a class="headerlink" href="#tutorial-page" title="Link to this heading">#</a></h1>
-<p>This section contains tutorials for FluxFEM.</p>
-<div class="toctree-wrapper compound">
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_gmsh_msh.html">Load a Gmsh .msh and use it in analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_kernel_assembly.html">Kernel-based Assembly (JIT-Friendly)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
-</ul>
+  <section id="mixedform-and-block-utilities">
+<h1>MixedForm and Block Utilities<a class="headerlink" href="#mixedform-and-block-utilities" title="Link to this heading">#</a></h1>
+<p>This page shows the minimal usage of mixed formulations and block utilities in FluxFEM.</p>
+<section id="mixed-form-minimal">
+<h2>Mixed form (minimal)<a class="headerlink" href="#mixed-form-minimal" title="Link to this heading">#</a></h2>
+<p>Define a mixed space, write per-field residuals, and solve in a single system:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">h_wf</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">StructuredHexBox</span><span class="p">(</span><span class="n">nx</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">ny</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">nz</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">lx</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">ly</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">lz</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
+<span class="n">space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_hex_space</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">intorder</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">mixed</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MixedFESpace</span><span class="p">({</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">space</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">:</span> <span class="n">space</span><span class="p">})</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">res_T</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">p</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">kappa</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">gaction</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">T</span><span class="p">))</span> <span class="o">-</span> <span class="n">v</span> <span class="o">*</span> <span class="n">p</span><span class="o">.</span><span class="n">q</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">res_u</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">p</span><span class="p">):</span>
+    <span class="n">T_ref</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">unknown_ref</span><span class="p">(</span><span class="s2">&quot;T&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">p</span><span class="o">.</span><span class="n">E</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">gaction</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">u</span><span class="p">))</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">gaction</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">T_ref</span><span class="o">.</span><span class="n">val</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+
+<span class="n">residuals</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_mixed_residuals</span><span class="p">(</span><span class="n">u</span><span class="o">=</span><span class="n">res_u</span><span class="p">,</span> <span class="n">T</span><span class="o">=</span><span class="n">res_T</span><span class="p">)</span>
+<span class="n">params</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">q</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">E</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">1.0e-3</span><span class="p">)</span>
+
+<span class="n">bc</span> <span class="o">=</span> <span class="n">mixed</span><span class="o">.</span><span class="n">make_dirichlet</span><span class="p">(</span>
+    <span class="n">u</span><span class="o">=</span><span class="p">([</span><span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">]),</span>
+    <span class="n">T</span><span class="o">=</span><span class="p">([</span><span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">]),</span>
+<span class="p">)</span>
+
+<span class="n">u0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">mixed</span><span class="o">.</span><span class="n">n_dofs</span><span class="p">)</span>
+<span class="n">problem</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MixedProblem</span><span class="p">(</span><span class="n">mixed</span><span class="p">,</span> <span class="n">residuals</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">problem</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">u0</span><span class="p">,</span> <span class="n">return_flux_matrix</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">R0</span> <span class="o">=</span> <span class="n">problem</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">u0</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="o">-</span><span class="n">R0</span>
+<span class="n">sol</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearSolver</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="s2">&quot;spsolve&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
+    <span class="n">K</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">dirichlet</span><span class="o">=</span><span class="n">bc</span><span class="o">.</span><span class="n">as_dirichlet_bc</span><span class="p">(),</span> <span class="n">dirichlet_mode</span><span class="o">=</span><span class="s2">&quot;condense&quot;</span>
+<span class="p">)</span>
+<span class="n">fields</span> <span class="o">=</span> <span class="n">mixed</span><span class="o">.</span><span class="n">unpack_fields</span><span class="p">(</span><span class="n">sol</span><span class="p">)</span>
+</pre></div>
 </div>
+</section>
+<section id="block-utilities-minimal">
+<h2>Block utilities (minimal)<a class="headerlink" href="#block-utilities-minimal" title="Link to this heading">#</a></h2>
+<p>Build a named block dictionary (for use with <cite>MixedFESpace.build_block_system</cite>):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="kn">import</span> <span class="n">solver</span> <span class="k">as</span> <span class="n">ff_solver</span>
+
+<span class="n">diag</span> <span class="o">=</span> <span class="n">ff_solver</span><span class="o">.</span><span class="n">block_diag</span><span class="p">(</span><span class="n">a</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">b</span><span class="o">=</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+<span class="n">blocks</span> <span class="o">=</span> <span class="n">ff_solver</span><span class="o">.</span><span class="n">make_block_matrix</span><span class="p">(</span>
+    <span class="n">diag</span><span class="o">=</span><span class="n">diag</span><span class="p">,</span>
+    <span class="n">sizes</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;a&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">},</span>
+<span class="p">)</span>
+
+<span class="c1"># blocks[&quot;a&quot;][&quot;a&quot;], blocks[&quot;a&quot;][&quot;b&quot;], blocks[&quot;b&quot;][&quot;a&quot;], blocks[&quot;b&quot;][&quot;b&quot;]</span>
+</pre></div>
+</div>
+</section>
 </section>
 
 
@@ -403,20 +449,20 @@
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="installation.html"
+       href="tutorial_petsc_shell.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Installation</p>
+        <p class="prev-next-title">PETSc Shell Solvers</p>
       </div>
     </a>
     <a class="right-next"
-       href="tutorial_linear_elasticity.html"
+       href="usage.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Linear Elasticity: Tensile Bar</p>
+        <p class="prev-next-title">Usage</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -432,10 +478,23 @@
 
 
   <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mixed-form-minimal">Mixed form (minimal)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#block-utilities-minimal">Block utilities (minimal)</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="_sources/tutorial.rst.txt"
+      <li><a href="_sources/tutorial_mixed_block.rst.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>
