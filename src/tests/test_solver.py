@@ -35,6 +35,67 @@ def test_condense_and_expand_dirichlet():
     np.testing.assert_allclose(u_full, [1.0, 0.5])
 
 
+def test_dirichlet_bc_scalar_values_and_free_dofs():
+    bc = ff.DirichletBC([0, 2], 1.5)
+    np.testing.assert_allclose(bc.vals, [1.5, 1.5])
+    np.testing.assert_array_equal(bc.free_dofs(3), [1])
+
+
+def test_dirichlet_bc_from_boundary_dofs():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=1)
+    bc = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], 0.0, atol=1e-8),
+        components=[0],
+        dof_per_node=1,
+    )
+    assert bc.dofs.size > 0
+    free = bc.free_dofs(space.n_dofs)
+    assert free.size == space.n_dofs - bc.dofs.size
+
+
+def test_dirichlet_bc_from_bbox():
+    mesh = ff.StructuredHexBox(nx=2, ny=2, nz=2, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=1)
+    bc = ff.DirichletBC.from_bbox(mesh, components=[0], dof_per_node=1, values=0.0)
+    assert bc.dofs.size > 0
+    assert bc.dofs.size < space.n_dofs
+    np.testing.assert_allclose(bc.vals, 0.0)
+
+
+def test_mixed_dirichlet_check_equal():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=1)
+    mixed = ff.MixedFESpace({"u": space, "v": space})
+
+    bc_u = ff.DirichletBC([0], [1.0])
+    bc_v = ff.DirichletBC([0], [1.0])
+    mixed_bc = mixed.make_dirichlet(u=bc_u, v=bc_v, merge="check_equal")
+    assert mixed_bc.dir_dofs.size == 2
+
+    bc_u_bad = ff.DirichletBC([0, 0], [1.0, 2.0])
+    with pytest.raises(ValueError):
+        mixed.make_dirichlet(u=bc_u_bad, merge="check_equal")
+
+
+def test_mixed_problem_solve_condense():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=1)
+    mixed = ff.MixedFESpace({"u": space, "v": space})
+    K = np.eye(mixed.n_dofs, dtype=float)
+    b = np.arange(mixed.n_dofs, dtype=float)
+    bc = mixed.make_dirichlet(u=([0], [0.0]))
+
+    residuals = ff.make_mixed_residuals(
+        u=lambda v, u, p: v * ff.dOmega(),
+        v=lambda v, u, p: v * ff.dOmega(),
+    )
+    prob = ff.MixedProblem(mixed, residuals)
+    u, _info = prob.solve(K, b, dirichlet=bc, dirichlet_mode="condense", n_total=mixed.n_dofs)
+    assert u.shape[0] == mixed.n_dofs
+
+
 def test_enforce_dirichlet_sparse():
     # same system but via FluxSparseMatrix
     rows = np.array([0, 0, 1, 1])

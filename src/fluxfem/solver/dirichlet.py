@@ -14,11 +14,18 @@ except Exception:  # pragma: no cover
 from .sparse import FluxSparseMatrix, coalesce_coo
 
 
+def _normalize_dirichlet_values(dofs, vals):
+    if vals is None:
+        return np.zeros(np.asarray(dofs).shape[0], dtype=float)
+    arr = np.asarray(vals)
+    if arr.ndim == 0:
+        return np.full(np.asarray(dofs).shape[0], float(arr), dtype=float)
+    return arr
+
+
 def _normalize_dirichlet(dofs, vals):
     dir_arr = np.asarray(dofs, dtype=int)
-    if vals is None:
-        return dir_arr, np.zeros(dir_arr.shape[0], dtype=float)
-    return dir_arr, np.asarray(vals)
+    return dir_arr, _normalize_dirichlet_values(dir_arr, vals)
 
 
 @dataclass(frozen=True)
@@ -36,6 +43,71 @@ class CondensedSystem:
         if fill_dirichlet and self.dir_dofs.size:
             u_full[self.dir_dofs] = np.asarray(self.dir_vals, dtype=u_full.dtype)
         return u_full
+
+
+@dataclass(frozen=True)
+class DirichletBC:
+    """
+    Dirichlet boundary condition container with helper methods.
+    """
+    dofs: np.ndarray
+    vals: np.ndarray
+
+    def __post_init__(self):
+        dofs, vals = _normalize_dirichlet(self.dofs, self.vals)
+        object.__setattr__(self, "dofs", dofs)
+        object.__setattr__(self, "vals", vals)
+
+    @classmethod
+    def from_boundary_dofs(cls, mesh, predicate, *, values=None, **kwargs):
+        """
+        Build from mesh.boundary_dofs_where predicate.
+
+        kwargs are forwarded to mesh.boundary_dofs_where (e.g. components=..., dof_per_node=...).
+        """
+        dofs = mesh.boundary_dofs_where(predicate, **kwargs)
+        vals = _normalize_dirichlet_values(dofs, values)
+        return cls(dofs, vals)
+
+    @classmethod
+    def from_bbox(cls, mesh, *, mins=None, maxs=None, tol: float = 1e-8, values=None, **kwargs):
+        """
+        Build from the mesh axis-aligned bounding box.
+
+        mins/maxs default to mesh coordinate extrema. kwargs are forwarded to
+        mesh.boundary_dofs_where (e.g. components=..., dof_per_node=...).
+        """
+        from ..mesh.predicate import bbox_predicate
+
+        coords = np.asarray(mesh.coords)
+        if mins is None:
+            mins = coords.min(axis=0)
+        if maxs is None:
+            maxs = coords.max(axis=0)
+        pred = bbox_predicate(mins, maxs, tol=tol)
+        dofs = mesh.boundary_dofs_where(pred, **kwargs)
+        vals = _normalize_dirichlet_values(dofs, values)
+        return cls(dofs, vals)
+
+    def as_tuple(self) -> tuple[np.ndarray, np.ndarray]:
+        return self.dofs, self.vals
+
+    def condense_system(self, A, F, *, check: bool = True) -> CondensedSystem:
+        return condense_dirichlet_system(A, F, self.dofs, self.vals, check=check)
+
+    def free_dofs(self, n_dofs: int) -> np.ndarray:
+        return free_dofs(n_dofs, self.dofs)
+
+    def expand_solution(self, u_free, *, free=None, n_total: int | None = None):
+        if free is None:
+            if n_total is None:
+                raise ValueError("n_total is required when free is not provided.")
+            free = free_dofs(n_total, self.dofs)
+        if n_total is None:
+            max_free = int(np.max(free)) if len(free) else -1
+            max_dir = int(np.max(self.dofs)) if len(self.dofs) else -1
+            n_total = max(max_free, max_dir) + 1
+        return expand_dirichlet_solution(u_free, free, self.dofs, self.vals, n_total=n_total)
 
 
 def enforce_dirichlet_dense(K, F, dofs, vals):

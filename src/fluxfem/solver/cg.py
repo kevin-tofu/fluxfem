@@ -10,6 +10,8 @@ except Exception:  # pragma: no cover
     jsparse = None
 
 from .sparse import FluxSparseMatrix
+from dataclasses import dataclass
+
 from .preconditioner import make_block_jacobi_preconditioner
 
 
@@ -29,6 +31,117 @@ def _matvec_builder(A):
         return jnp.asarray(A) @ x
 
     return mv
+
+
+def _coo_tuple_from_any(A):
+    if isinstance(A, FluxSparseMatrix):
+        return A.to_coo()
+    if isinstance(A, tuple) and len(A) == 4:
+        return A
+    try:
+        import scipy.sparse as sp  # type: ignore
+    except Exception:  # pragma: no cover
+        sp = None
+    if sp is not None and sp.issparse(A):
+        coo = A.tocoo()
+        return (
+            jnp.asarray(coo.row, dtype=jnp.int32),
+            jnp.asarray(coo.col, dtype=jnp.int32),
+            jnp.asarray(coo.data),
+            int(A.shape[0]),
+        )
+    return None
+
+
+def _to_flux_matrix(A):
+    if isinstance(A, FluxSparseMatrix):
+        return A
+    coo = _coo_tuple_from_any(A)
+    if coo is None:
+        raise ValueError("Unable to build FluxSparseMatrix from A")
+    return FluxSparseMatrix.from_bilinear(coo)
+
+
+def _to_bcoo_matrix(A):
+    if jsparse is None:
+        raise ImportError("jax.experimental.sparse is required for BCOO matvec")
+    if jsparse is not None and isinstance(A, jsparse.BCOO):
+        return A
+    coo = _coo_tuple_from_any(A)
+    if coo is None:
+        raise ValueError("Unable to build BCOO from A")
+    rows, cols, data, n = coo
+    idx = jnp.stack([rows, cols], axis=-1)
+    return jsparse.BCOO((data, idx), shape=(n, n))
+
+
+def _normalize_matvec_matrix(A, matvec: str):
+    if matvec == "flux":
+        return _to_flux_matrix(A)
+    if matvec == "bcoo":
+        return _to_bcoo_matrix(A)
+    if matvec == "dense":
+        return jnp.asarray(A)
+    if matvec == "auto":
+        if jsparse is not None:
+            try:
+                return _to_bcoo_matrix(A)
+            except Exception:
+                return _to_flux_matrix(A)
+        return _to_flux_matrix(A)
+    raise ValueError(f"Unknown matvec backend: {matvec}")
+
+
+@dataclass(frozen=True)
+class CGOperator:
+    """
+    Lightweight CG operator wrapper with a consistent solve() entry point.
+    """
+    A: object
+    preconditioner: object | None = None
+    solver: str = "cg"
+
+    def solve(self, b, *, x0=None, tol: float = 1e-8, maxiter: int | None = None):
+        if self.solver == "cg":
+            return cg_solve(
+                self.A,
+                b,
+                x0=x0,
+                tol=tol,
+                maxiter=maxiter,
+                preconditioner=self.preconditioner,
+            )
+        if self.solver == "cg_jax":
+            return cg_solve_jax(
+                self.A,
+                b,
+                x0=x0,
+                tol=tol,
+                maxiter=maxiter,
+                preconditioner=self.preconditioner,
+            )
+        raise ValueError(f"Unknown CG solver: {self.solver}")
+
+
+def build_cg_operator(
+    A,
+    *,
+    matvec: str = "flux",
+    preconditioner=None,
+    solver: str = "cg",
+    dof_per_node: int | None = None,
+    block_sizes=None,
+) -> CGOperator:
+    """
+    Normalize CG inputs into a single operator interface.
+    """
+    A_mat = _normalize_matvec_matrix(A, matvec)
+    precon = preconditioner
+    if preconditioner == "block_jacobi":
+        precon = make_block_jacobi_preconditioner(
+            A_mat, dof_per_node=dof_per_node, block_sizes=block_sizes
+        )
+    return CGOperator(A=A_mat, preconditioner=precon, solver=solver)
 
 
 def _diag_builder(A, n: int):

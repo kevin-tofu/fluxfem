@@ -39,16 +39,13 @@ def exact_u(coords: np.ndarray, t: float, kappa0: float, alpha: float) -> np.nda
     return phi * decay
 
 
-def _condense_dirichlet(A_csr, b, bc_dofs, bc_vals, free_dofs):
+def _condense_dirichlet(A_csr, b, bc_dofs, bc_vals):
     """
-    Condense Dirichlet DOFs without LIL conversion.
-    Returns (A_free, b_free).
+    Condense Dirichlet DOFs using fluxfem helper.
+    Returns (A_free, b_free, free_dofs).
     """
-    b = b.copy()
-    A_free = A_csr[free_dofs][:, free_dofs]
-    A_fd = A_csr[free_dofs][:, bc_dofs]
-    b_free = b[free_dofs] - A_fd @ bc_vals
-    return A_free, b_free
+    system = ff.DirichletBC(bc_dofs, bc_vals).condense_system(A_csr, b)
+    return system.K, system.F, system.free_dofs
 
 
 def _grid_from_slice(xy: np.ndarray, values: np.ndarray):
@@ -213,10 +210,8 @@ def _build_fluxfem_system(size: int):
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
     M = space.assemble_mass_matrix().to_csr()
     coords = np.asarray(mesh.coords)
-    mins = coords.min(axis=0)
-    maxs = coords.max(axis=0)
-    bbox_pred = ff.bbox_predicate(mins, maxs, tol=1e-8)
-    bc_dofs = mesh.boundary_dofs_where(bbox_pred, components=[0], dof_per_node=1)
+    bc = ff.DirichletBC.from_bbox(mesh, components=[0], dof_per_node=1, tol=1e-8)
+    bc_dofs = bc.dofs
     return space, M, coords, bc_dofs
 
 
@@ -349,9 +344,9 @@ def solve_heat_compare(
             rhs_sf = (M_sf @ u_sk) / dt
 
         bc_vals = exact_u(coords[bc_dofs], t_np1, kappa0, alpha)
-        A_flux_bc, rhs_flux_bc = _condense_dirichlet(A_flux, rhs_flux, bc_dofs, bc_vals, free)
+        A_flux_bc, rhs_flux_bc, free = _condense_dirichlet(A_flux, rhs_flux, bc_dofs, bc_vals)
         if include_skfem:
-            A_sf_bc, rhs_sf_bc = _condense_dirichlet(A_sf, rhs_sf, bc_dofs, bc_vals, free)
+            A_sf_bc, rhs_sf_bc, _ = _condense_dirichlet(A_sf, rhs_sf, bc_dofs, bc_vals)
 
         with timer.section("solve_flux"):
             if flux_solver == "jax":

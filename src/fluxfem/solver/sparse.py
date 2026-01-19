@@ -262,6 +262,26 @@ class FluxSparseMatrix:
         out = jnp.zeros(self.pattern.n_dofs, dtype=contrib.dtype)
         return out.at[self.pattern.rows].add(contrib)
 
+    def as_cg_operator(
+        self,
+        *,
+        matvec: str = "flux",
+        preconditioner=None,
+        solver: str = "cg",
+        dof_per_node: int | None = None,
+        block_sizes=None,
+    ):
+        from .cg import build_cg_operator
+
+        return build_cg_operator(
+            self,
+            matvec=matvec,
+            preconditioner=preconditioner,
+            solver=solver,
+            dof_per_node=dof_per_node,
+            block_sizes=block_sizes,
+        )
+
     def diag(self):
         """Diagonal entries aggregated for Jacobi preconditioning."""
         if self.pattern.diag_idx is not None:

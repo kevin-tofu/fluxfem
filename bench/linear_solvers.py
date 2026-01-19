@@ -18,7 +18,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from dataclasses import dataclass
 from typing import Callable
 
 import jax
@@ -36,15 +35,13 @@ from fluxfem.tools.timer import SectionTimer
 from fluxfem import (  # noqa: E402
     FluxSparseMatrix,
     StructuredHexBox,
-    cg_solve,
-    cg_solve_jax,
-    make_block_jacobi_preconditioner,
     isotropic_3d_D,
     linear_elasticity_form,
-    make_sparsity_pattern,
     make_hex_space,
     spdirect_solve_cpu,
     spdirect_solve_jax,
+    condense_dirichlet_fluxsparse_coo,
+    build_cg_operator,
 )
 
 
@@ -104,15 +101,12 @@ def compute_dirichlet_dofs(mesh):
 
 
 def condense_dirichlet(K: FluxSparseMatrix, dir_dofs, dir_vals):
-    K_csr = K.to_csr()
-    dir_arr = np.asarray(dir_dofs, dtype=int)
-    dir_vals_arr = np.asarray(dir_vals, dtype=float)
-    mask = np.ones(K_csr.shape[0], dtype=bool)
-    mask[dir_arr] = False
-    free = np.nonzero(mask)[0]
-    if dir_arr.size > 0 and np.any(dir_vals_arr):
+    if np.asarray(dir_vals).size and np.any(dir_vals):
         raise NotImplementedError("Nonzero Dirichlet values not supported in this micro benchmark.")
-    K_ff = K_csr[free][:, free]
+    F0 = np.zeros(K.n_dofs, dtype=float)
+    K_ff, _F_free, free, _dir, _vals = condense_dirichlet_fluxsparse_coo(
+        K, F0, dir_dofs, dir_vals, coalesce=True
+    )
     return K_ff, free
 
 
@@ -127,29 +121,19 @@ def build_flux_matrix(n: int, args) -> tuple[FluxSparseMatrix, np.ndarray]:
     )
     space = make_hex_space(mesh, dim=3, intorder=args.intorder)
     dir_dofs, dir_vals = compute_dirichlet_dofs(mesh)
-    pattern = make_sparsity_pattern(space, with_idx=False)
     D = isotropic_3d_D(args.E, args.nu)
 
     assemble_K = jax.jit(
-        lambda: space.assemble_bilinear_form(
+        lambda: space.assemble(
             linear_elasticity_form,
-            params=D,
-            pattern=pattern,
+            D,
+            kind="bilinear",
         )
     )
     K_full = assemble_K()
     jax.block_until_ready(K_full.data)
     K_ff, free = condense_dirichlet(K_full, dir_dofs, dir_vals)
-    coo = K_ff.tocoo()
-    K_flux = FluxSparseMatrix.from_bilinear(
-        (
-            jnp.asarray(coo.row, dtype=jnp.int32),
-            jnp.asarray(coo.col, dtype=jnp.int32),
-            jnp.asarray(coo.data),
-            coo.shape[0],
-        )
-    )
-    return K_flux, free
+    return K_ff, free
 
 
 def make_rhs(n_free: int):
@@ -157,33 +141,15 @@ def make_rhs(n_free: int):
     return jnp.asarray(rng.standard_normal(n_free))
 
 
-def make_bcoo(K_flux: FluxSparseMatrix):
-    try:
-        from jax.experimental import sparse as jsparse  # type: ignore
-    except Exception as exc:  # pragma: no cover
-        raise ImportError("jax.experimental.sparse is required for BCOO matvec") from exc
-    idx = jnp.stack([K_flux.pattern.rows, K_flux.pattern.cols], axis=-1)
-    return jsparse.BCOO((K_flux.data, idx), shape=(K_flux.n_dofs, K_flux.n_dofs))
-
-
-@dataclass
-class SolverSpec:
-    name: str
-    solver: Callable
-    preconditioner: str | Callable | None
-    maxiter: int | None
-    tol: float
-
-
-def time_solver(spec: SolverSpec, A, b, repeats: int) -> tuple[np.ndarray, np.ndarray, object]:
+def time_solver(name: str, cg_op, b, repeats: int, *, tol: float, maxiter: int | None) -> tuple[np.ndarray, np.ndarray, object]:
     timer = SectionTimer()
     times = []
     iters = []
     last_x = None
     for _ in range(repeats):
-        section_name = f"solve_{spec.name}"
+        section_name = f"solve_{name}"
         with timer.section(section_name):
-            x, info = spec.solver(A, b, tol=spec.tol, maxiter=spec.maxiter, preconditioner=spec.preconditioner)
+            x, info = cg_op.solve(b, tol=tol, maxiter=maxiter)
             if hasattr(x, "block_until_ready"):
                 x.block_until_ready()
             else:
@@ -238,10 +204,6 @@ def residual_norm_jax(A, x, b):
     num = np.linalg.norm(r_np)
     den = np.linalg.norm(b_np)
     return float(num / den if den != 0 else num)
-
-
-def make_block_jacobi_precon(K_flux: FluxSparseMatrix):
-    return make_block_jacobi_preconditioner(K_flux, dof_per_node=3)
 
 
 def main():
@@ -364,28 +326,28 @@ def main():
         )
 
     # CG variants
-    jacobi_precon = "jacobi"
-    block_precon = make_block_jacobi_precon(K_flux)
+    cg_specs = []
+    def _add_cg(name: str, *, matvec: str, precon, solver: str):
+        try:
+            cg_op = build_cg_operator(
+                K_flux,
+                matvec=matvec,
+                preconditioner=precon,
+                solver=solver,
+                dof_per_node=3,
+            )
+        except Exception:
+            return
+        cg_specs.append((name, cg_op))
 
-    specs_cg = [
-        SolverSpec("cg_custom_flux_jacobi", cg_solve, jacobi_precon, args.cg_maxiter, args.cg_tol),
-        SolverSpec("cg_custom_flux_block", cg_solve, block_precon, args.cg_maxiter, args.cg_tol),
-        SolverSpec("cg_jax_flux_jacobi", cg_solve_jax, jacobi_precon, args.cg_maxiter, args.cg_tol),
-        SolverSpec("cg_jax_flux_block", cg_solve_jax, block_precon, args.cg_maxiter, args.cg_tol),
-    ]
-
-    try:
-        K_bcoo = make_bcoo(K_flux)
-        specs_cg.extend(
-            [
-                SolverSpec("cg_custom_bcoo_jacobi", cg_solve, jacobi_precon, args.cg_maxiter, args.cg_tol),
-                SolverSpec("cg_custom_bcoo_block", cg_solve, block_precon, args.cg_maxiter, args.cg_tol),
-                SolverSpec("cg_jax_bcoo_jacobi", cg_solve_jax, jacobi_precon, args.cg_maxiter, args.cg_tol),
-                SolverSpec("cg_jax_bcoo_block", cg_solve_jax, block_precon, args.cg_maxiter, args.cg_tol),
-            ]
-        )
-    except Exception:
-        K_bcoo = None
+    _add_cg("cg_custom_flux_jacobi", matvec="flux", precon="jacobi", solver="cg")
+    _add_cg("cg_custom_flux_block", matvec="flux", precon="block_jacobi", solver="cg")
+    _add_cg("cg_jax_flux_jacobi", matvec="flux", precon="jacobi", solver="cg_jax")
+    _add_cg("cg_jax_flux_block", matvec="flux", precon="block_jacobi", solver="cg_jax")
+    _add_cg("cg_custom_bcoo_jacobi", matvec="bcoo", precon="jacobi", solver="cg")
+    _add_cg("cg_custom_bcoo_block", matvec="bcoo", precon="block_jacobi", solver="cg")
+    _add_cg("cg_jax_bcoo_jacobi", matvec="bcoo", precon="jacobi", solver="cg_jax")
+    _add_cg("cg_jax_bcoo_block", matvec="bcoo", precon="block_jacobi", solver="cg_jax")
 
     print(f"Problem: n={args.n}, free DOFs={K_flux.n_dofs}, repeats={args.repeats}, dtype={'float64' if jax.config.read('jax_enable_x64') else 'float32'}")
 
@@ -395,16 +357,18 @@ def main():
         print(f"spsolve_jax: mean={sps_jax_mean:.3e}s [min={sps_jax_min:.3e}, max={sps_jax_max:.3e}]")
 
     # CG timings
-    for spec in specs_cg:
-        A = K_bcoo if ("bcoo" in spec.name and K_bcoo is not None) else K_flux
-        times, iters, last_x = time_solver(spec, A, b, args.repeats)
+    for name, cg_op in cg_specs:
+        A = cg_op.A
+        times, iters, last_x = time_solver(
+            name, cg_op, b, args.repeats, tol=args.cg_tol, maxiter=args.cg_maxiter
+        )
         tmin, tmean, tmax = summarize(times)
         it_med = float(np.median(iters))
         res_val = residual_norm_jax(A, last_x, b)
-        print(f"{spec.name}: mean={tmean:.3e}s [min={tmin:.3e}, max={tmax:.3e}], iters~{it_med:.1f}")
+        print(f"{name}: mean={tmean:.3e}s [min={tmin:.3e}, max={tmax:.3e}], iters~{it_med:.1f}")
         results.append(
             {
-                "name": spec.name,
+                "name": name,
                 "tmin": tmin,
                 "tmean": tmean,
                 "tmax": tmax,

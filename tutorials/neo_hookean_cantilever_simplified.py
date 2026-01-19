@@ -116,7 +116,11 @@ def main():
     # Dirichlet DOFs (clamp x = xmin)
     # --------------------
     xmin = float(coords_np[:, 0].min())
-    dir_dofs = mesh.boundary_dofs_where(lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8), components="xyz")
+    dir_dofs = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
+        components="xyz",
+    ).dofs
 
     # --------------------
     # Nonlinear analysis (Neo-Hookean)
@@ -128,7 +132,7 @@ def main():
         residual_form=ff.neo_hookean_residual_form,
         params=params,
         base_external_vector=F_ext,
-        dirichlet=(dir_dofs, None),
+        dirichlet=ff.DirichletBC(dir_dofs, None),
         jacobian_pattern=J_pattern,
         dtype=dtype,
     )

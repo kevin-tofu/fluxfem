@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, Callable
 
+import numpy as np
 import jax.numpy as jnp
 
 from .dtypes import INDEX_DTYPE
 from .forms import MixedFormContext, FieldPair
+from .weakform import MixedWeakForm, compile_mixed_residual, make_mixed_residuals
+from ..solver.dirichlet import DirichletBC, free_dofs
 from .space import FESpaceClosure
 
 
@@ -137,5 +140,152 @@ class MixedFESpace:
         from .mixed_assembly import assemble_mixed_jacobian
         return assemble_mixed_jacobian(self, res_form, u, params, **kwargs)
 
+    def make_dirichlet(self, *, merge: str = "check_equal", **fields):
+        """
+        Build mixed Dirichlet BCs from per-field constraints.
 
-__all__ = ["MixedFESpace"]
+        Usage:
+          bc = mixed.make_dirichlet(u=DirichletBC(...), T=(dofs, vals))
+        """
+        if merge not in {"check_equal", "error", "first", "last"}:
+            raise ValueError("merge must be one of: check_equal, error, first, last")
+
+        dof_map: dict[int, float] = {}
+        for name, spec in fields.items():
+            if name not in self.field_offsets:
+                raise KeyError(f"Unknown mixed field: {name}")
+            offset = int(self.field_offsets[name])
+            if isinstance(spec, DirichletBC):
+                dofs = spec.dofs
+                vals = spec.vals
+            elif isinstance(spec, tuple) and len(spec) == 2:
+                dofs, vals = spec
+            else:
+                dofs, vals = spec, None
+            bc = DirichletBC(dofs, vals)
+            g_dofs = np.asarray(bc.dofs, dtype=int) + offset
+            g_vals = np.asarray(bc.vals, dtype=float)
+            for d, v in zip(g_dofs, g_vals):
+                if d in dof_map:
+                    if merge == "error":
+                        raise ValueError(f"Duplicate Dirichlet DOF {d} in mixed BCs")
+                    if merge == "check_equal":
+                        if not np.isclose(dof_map[d], v):
+                            raise ValueError(f"Conflicting Dirichlet value for DOF {d}")
+                    if merge == "first":
+                        continue
+                dof_map[d] = float(v)
+
+        if not dof_map:
+            return MixedDirichletBC(np.array([], dtype=int), np.array([], dtype=float))
+        dofs_sorted = np.array(sorted(dof_map.keys()), dtype=int)
+        vals_sorted = np.array([dof_map[d] for d in dofs_sorted], dtype=float)
+        return MixedDirichletBC(dofs_sorted, vals_sorted)
+
+
+@dataclass(eq=False)
+class MixedProblem:
+    """
+    Lightweight wrapper for mixed residual assembly with cached compilation.
+    """
+    space: MixedFESpace
+    residuals: dict[str, Callable] | MixedWeakForm
+    params: object | None = None
+    pattern: object | None = None
+    n_chunks: int | None = None
+    pad_trace: bool = False
+    _compiled: object = field(init=False, repr=False)
+
+    def __post_init__(self):
+        if isinstance(self.residuals, MixedWeakForm):
+            self._compiled = self.residuals.get_compiled()
+        else:
+            res = make_mixed_residuals(self.residuals)
+            self._compiled = compile_mixed_residual(res)
+
+    def _merge_kwargs(self, kwargs):
+        merged = dict(kwargs)
+        if self.pattern is not None and "pattern" not in merged:
+            merged["pattern"] = self.pattern
+        if self.n_chunks is not None and "n_chunks" not in merged:
+            merged["n_chunks"] = self.n_chunks
+        if self.pad_trace and "pad_trace" not in merged:
+            merged["pad_trace"] = True
+        return merged
+
+    def _wrap_params(self, params):
+        if callable(params):
+            def _wrapped(ctx, u_elem, _params):
+                return self._compiled(ctx, u_elem, params(ctx))
+
+            _wrapped._includes_measure = getattr(self._compiled, "_includes_measure", False)
+            return _wrapped, None
+        return self._compiled, params
+
+    def assemble_residual(self, u, *, params=None, **kwargs):
+        use_params = self.params if params is None else params
+        res_form, use_params = self._wrap_params(use_params)
+        return self.space.assemble_residual(
+            res_form, u, use_params, **self._merge_kwargs(kwargs)
+        )
+
+    def assemble_jacobian(self, u, *, params=None, **kwargs):
+        use_params = self.params if params is None else params
+        res_form, use_params = self._wrap_params(use_params)
+        return self.space.assemble_jacobian(
+            res_form, u, use_params, **self._merge_kwargs(kwargs)
+        )
+
+    def with_params(self, params):
+        return MixedProblem(
+            self.space,
+            self.residuals,
+            params=params,
+            pattern=self.pattern,
+            n_chunks=self.n_chunks,
+            pad_trace=self.pad_trace,
+        )
+
+    def solve(
+        self,
+        K,
+        F,
+        *,
+        dirichlet=None,
+        dirichlet_mode: str = "condense",
+        solver=None,
+        n_total: int | None = None,
+    ):
+        """
+        Solve a mixed linear system with optional Dirichlet conditions.
+        """
+        from ..solver import LinearSolver
+
+        if solver is None:
+            solver = LinearSolver()
+        if isinstance(dirichlet, MixedDirichletBC):
+            dirichlet = dirichlet.as_dirichlet_bc()
+        return solver.solve(K, F, dirichlet=dirichlet, dirichlet_mode=dirichlet_mode, n_total=n_total)
+
+@dataclass(frozen=True)
+class MixedDirichletBC:
+    """
+    Mixed-system Dirichlet BCs in global mixed DOF numbering.
+    """
+    dir_dofs: np.ndarray
+    dir_vals: np.ndarray
+
+    def as_dirichlet_bc(self) -> DirichletBC:
+        return DirichletBC(self.dir_dofs, self.dir_vals)
+
+    def condense_system(self, A, F, *, check: bool = True):
+        return self.as_dirichlet_bc().condense_system(A, F, check=check)
+
+    def free_dofs(self, n_dofs: int) -> np.ndarray:
+        return free_dofs(n_dofs, self.dir_dofs)
+
+    def expand_solution(self, u_free, *, free=None, n_total: int | None = None):
+        return self.as_dirichlet_bc().expand_solution(u_free, free=free, n_total=n_total)
+
+
+__all__ = ["MixedFESpace", "MixedProblem", "MixedDirichletBC"]

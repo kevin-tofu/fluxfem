@@ -168,8 +168,6 @@ def main() -> int:
         kappa = 1.0
         batch = space.make_batched_assembler()
 
-        bilin_ker = ff.make_element_bilinear_kernel(ff.diffusion_form, kappa, jit=args.jit)
-        linear_ker = jax.jit(linear_kernel) if args.jit else linear_kernel
         res_ker = ff.make_element_residual_kernel(linear_residual, kappa)
         jac_ker = ff.make_element_jacobian_kernel(linear_residual, kappa)
 
@@ -260,12 +258,10 @@ def main() -> int:
         if args.skip_mixed:
             mixed = None
             mixed_u = None
-            mixed_form = None
             mixed_params = None
         else:
             mixed = MixedFESpace({"u": space, "p": space})
             mixed_u = jnp.zeros(mixed.n_dofs, dtype=jnp.float64)
-            mixed_form = ff.MixedWeakForm(residuals=mixed_residuals()).get_compiled()
             mixed_params = ff.Params(alpha=1.2, beta=-0.4)
 
         n_elems = int(space.elem_dofs.shape[0])
@@ -288,19 +284,19 @@ def main() -> int:
                 )
 
             bilinear_fn = _jit(
-                lambda: space.assemble_bilinear_form(
+                lambda: space.assemble(
                     ff.diffusion_form,
-                    params=kappa,
-                    kernel=bilin_ker,
+                    kappa,
+                    kind="bilinear",
                     n_chunks=n_chunks,
                     pad_trace=args.pad_trace,
                 )
             )
             linear_fn = _jit(
-                lambda: space.assemble_linear_form(
+                lambda: space.assemble(
                     ff.scalar_body_force_form,
-                    params=1.0,
-                    kernel=linear_ker,
+                    1.0,
+                    kind="linear",
                     n_chunks=n_chunks,
                     pad_trace=args.pad_trace,
                 )
@@ -335,16 +331,15 @@ def main() -> int:
             _bench_case("jacobian", jac_fn, warmup=args.warmup, repeat=args.repeat)
 
             if mixed is not None:
-                mixed_res_fn = _jit(
-                    lambda u=mixed_u: mixed.assemble_residual(
-                        mixed_form, u, mixed_params, n_chunks=n_chunks, pad_trace=args.pad_trace
-                    )
+                mixed_problem = ff.MixedProblem(
+                    mixed,
+                    ff.make_mixed_residuals(mixed_residuals()),
+                    params=mixed_params,
+                    n_chunks=n_chunks,
+                    pad_trace=args.pad_trace,
                 )
-                mixed_jac_fn = _jit(
-                    lambda u=mixed_u: mixed.assemble_jacobian(
-                        mixed_form, u, mixed_params, n_chunks=n_chunks, sparse=False, pad_trace=args.pad_trace
-                    )
-                )
+                mixed_res_fn = _jit(lambda u=mixed_u: mixed_problem.assemble_residual(u))
+                mixed_jac_fn = _jit(lambda u=mixed_u: mixed_problem.assemble_jacobian(u, sparse=False))
                 _bench_case("mixed_residual", mixed_res_fn, warmup=args.warmup, repeat=args.repeat)
                 _bench_case("mixed_jacobian", mixed_jac_fn, warmup=args.warmup, repeat=args.repeat)
 

@@ -133,16 +133,17 @@ def main():
     F = F_wf
 
     # --- Dirichlet BC (clamp x=0) ---
-    dir_dofs = mesh.boundary_dofs_where(
+    dir_dofs = ff.DirichletBC.from_boundary_dofs(
+        mesh,
         lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
         components="xyz",
-    )
+    ).dofs
     solver = ff.LinearSolver(method="spsolve")
     t0 = time.perf_counter()
     u, _ = solver.solve(
         K,
         F,
-        dirichlet=(dir_dofs, None),
+        dirichlet=ff.DirichletBC(dir_dofs, None),
         dirichlet_mode="condense",
     )
     print(f"[timing] solve: {time.perf_counter() - t0:.3f}s")

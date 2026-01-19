@@ -27,13 +27,13 @@ def main():
     xmax = float(coords[:, 0].max())
 
     # Dirichlet dofs at x=xmin
-    dir_dofs = mesh.boundary_dofs_where(
+    bc = ff.DirichletBC.from_boundary_dofs(
+        mesh,
         lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
         components=[0],
         dof_per_node=1,
     )
-    all_dofs = np.arange(space.n_dofs, dtype=int)
-    free_dofs = np.setdiff1d(all_dofs, dir_dofs)
+    free_dofs = bc.free_dofs(space.n_dofs)
 
     # Surface for Neumann traction on x=xmax
     facets = np.asarray(

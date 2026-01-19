@@ -105,6 +105,7 @@ class FESpaceClosure:
     _n_ldofs: int | None = None
     data: SpaceData | None = None
     _pattern_cache: dict[bool, object] = field(default_factory=dict, repr=False)
+    _kernel_cache: dict[tuple, object] = field(default_factory=dict, repr=False)
     _elem_rows_cache: jnp.ndarray | None = field(default=None, repr=False)
 
     def __post_init__(self):
@@ -191,6 +192,124 @@ class FESpaceClosure:
         if pattern is None:
             pattern = self.get_sparsity_pattern(with_idx=True)
         return BatchedAssembler.from_space(self, dep=dep, pattern=pattern)
+
+    def build_cg_operator(
+        self,
+        A,
+        *,
+        matvec: str = "flux",
+        preconditioner=None,
+        solver: str = "cg",
+        dof_per_node: int | None = None,
+        block_sizes=None,
+    ):
+        from ..solver.cg import build_cg_operator
+
+        if dof_per_node is None:
+            dof_per_node = int(self.value_dim)
+        return build_cg_operator(
+            A,
+            matvec=matvec,
+            preconditioner=preconditioner,
+            solver=solver,
+            dof_per_node=dof_per_node,
+            block_sizes=block_sizes,
+        )
+
+    def _kernel_cache_key(self, kind: str, form, params, *, jit: bool):
+        if not jit:
+            return None
+        try:
+            params_key = hash(params)
+        except Exception:
+            return None
+        return (kind, id(form), params_key, True)
+
+    def _get_cached_kernel(self, kind: str, form, params, *, jit: bool, maker):
+        key = self._kernel_cache_key(kind, form, params, jit=jit)
+        if key is None:
+            return maker(form, params, jit=jit)
+        cached = self._kernel_cache.get(key)
+        if cached is not None:
+            return cached
+        kernel = maker(form, params, jit=jit)
+        if jax.core.trace_ctx.is_top_level():
+            self._kernel_cache[key] = kernel
+        return kernel
+
+    def assemble(
+        self,
+        form,
+        params=None,
+        *,
+        kind: str | None = None,
+        n_chunks: int | None = None,
+        dep: jnp.ndarray | None = None,
+        jit: bool = True,
+        pattern: str | object | None = "auto",
+        kernel=None,
+        **kwargs,
+    ):
+        """
+        High-level assembly entry point with optional kernel caching.
+
+        kind: "bilinear" or "linear". If None, inferred from LinearForm/BilinearForm.
+        pattern: "auto" to reuse cached sparsity pattern for bilinear assembly.
+        """
+        from .weakform import BilinearForm, LinearForm
+        from .assembly import make_element_bilinear_kernel, make_element_linear_kernel
+
+        if kind is None:
+            if isinstance(form, BilinearForm):
+                kind = "bilinear"
+                form = form.get_compiled()
+            elif isinstance(form, LinearForm):
+                kind = "linear"
+                form = form.get_compiled()
+            else:
+                raise ValueError("kind is required for raw form callables.")
+
+        if kind == "bilinear":
+            if kernel is None:
+                kernel = self._get_cached_kernel(
+                    "bilinear",
+                    form,
+                    params,
+                    jit=jit,
+                    maker=make_element_bilinear_kernel,
+                )
+            pattern_use = None
+            if pattern == "auto":
+                pattern_use = self.get_sparsity_pattern(with_idx=True)
+            else:
+                pattern_use = pattern
+            return self.assemble_bilinear_form(
+                form,
+                params,
+                n_chunks=n_chunks,
+                dep=dep,
+                kernel=kernel,
+                pattern=pattern_use,
+                **kwargs,
+            )
+        if kind == "linear":
+            if kernel is None:
+                kernel = self._get_cached_kernel(
+                    "linear",
+                    form,
+                    params,
+                    jit=jit,
+                    maker=make_element_linear_kernel,
+                )
+            return self.assemble_linear_form(
+                form,
+                params,
+                n_chunks=n_chunks,
+                dep=dep,
+                kernel=kernel,
+                **kwargs,
+            )
+        raise ValueError(f"Unsupported assemble kind: {kind}")
 
     # --- Thin wrappers over functional assembly APIs (kept functional for JAX friendliness) ---
     def assemble_bilinear_form(

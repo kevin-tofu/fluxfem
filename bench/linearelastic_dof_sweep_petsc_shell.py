@@ -61,7 +61,7 @@ from fluxfem import (
     isotropic_3d_D,
     linear_elasticity_form,
     make_hex_space,
-    make_sparsity_pattern,
+    make_element_bilinear_kernel,
     petsc_is_available,
     tag_axis_minmax_facets,
 )
@@ -285,7 +285,7 @@ def assemble_fluxfem_case(n: int, args, dtype):
     )
     space = make_hex_space(mesh, dim=3, intorder=args.intorder)
     dir_dofs, dir_vals = compute_dirichlet_dofs(mesh)
-    pattern = make_sparsity_pattern(space, with_idx=False)
+    pattern = None
 
     facets, tags = tag_axis_minmax_facets(mesh, axis=0, dirichlet_tag=1, neumann_tag=2)
     neumann_facets = facets[np.asarray(tags) == 2]
@@ -299,19 +299,17 @@ def assemble_fluxfem_case(n: int, args, dtype):
     D = jnp.asarray(D)
     f_body = jnp.array([args.fx, args.fy, args.fz], dtype=dtype)
 
-    from fluxfem.core.assembly import make_element_bilinear_kernel
-
     form_const = lambda ctx, _p: linear_elasticity_form(ctx, D)
     kernel = make_element_bilinear_kernel(form_const, None, jit=args.kernel_jit)
     elem_data = space.build_form_contexts()
 
     assemble_K = jax.jit(
-        lambda: space.assemble_bilinear_form(
+        lambda: space.assemble(
             form_const,
-            params=None,
-            pattern=pattern,
+            None,
+            kind="bilinear",
             kernel=kernel,
-            jit=False,
+            pattern=pattern,
         )
     )
     assemble_F = jax.jit(

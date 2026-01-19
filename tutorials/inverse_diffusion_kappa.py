@@ -30,13 +30,14 @@ def main():
     xmax = float(coords[:, 0].max())
 
     # Dirichlet dofs at x=xmin
-    dir_dofs = mesh.boundary_dofs_where(
+    bc = ff.DirichletBC.from_boundary_dofs(
+        mesh,
         lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
         components=[0],
         dof_per_node=1,
     )
-    all_dofs = np.arange(space.n_dofs, dtype=int)
-    free_dofs = np.setdiff1d(all_dofs, dir_dofs)
+    dir_dofs = bc.dofs
+    free_dofs = bc.free_dofs(space.n_dofs)
     free_dofs_j = jnp.asarray(free_dofs)
 
     # Surface for Neumann traction on x=xmax
@@ -79,11 +80,12 @@ def main():
     )
 
     # Randomize the number of observed samples on the boundary (x=xmax).
-    boundary_dofs = mesh.boundary_dofs_where(
+    boundary_dofs = ff.DirichletBC.from_boundary_dofs(
+        mesh,
         lambda pts: np.isclose(pts[:, 0], xmax, atol=1e-8),
         components=[0],
         dof_per_node=1,
-    )
+    ).dofs
     boundary_free_dofs = np.setdiff1d(boundary_dofs, dir_dofs)
     obs_min = max(2, boundary_free_dofs.size // 4)
     obs_max = max(obs_min, boundary_free_dofs.size // 2)

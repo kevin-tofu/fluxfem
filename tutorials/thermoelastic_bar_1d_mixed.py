@@ -32,13 +32,8 @@ import fluxfem as ff  # noqa: E402
 import fluxfem.helpers_wf as h_wf  # noqa: E402
 from fluxfem.core.mixed_space import MixedFESpace  # noqa: E402
 from fluxfem.core.weakform import einsum  # noqa: E402
-from fluxfem.core.mixed_weakform import (  # noqa: E402
-    MixedResidualForm,
-    assemble_mixed_jacobian_wf,
-    assemble_mixed_residual_wf,
-)
 from tutorials._thermoelastic_utils import (  # noqa: E402
-    boundary_dofs_at_x,
+    boundary_bc_at_x,
     build_bar_mesh,
     default_output_path,
     x_bounds,
@@ -82,12 +77,13 @@ def main():
     mixed = MixedFESpace({"u": space, "T": space})
 
     xmin, xmax, coords = x_bounds(mesh)
-    dir_left = boundary_dofs_at_x(mesh, xmin)
-    dir_right = boundary_dofs_at_x(mesh, xmax)
+    dir_left = boundary_bc_at_x(mesh, xmin)
+    dir_right = boundary_bc_at_x(mesh, xmax)
 
-    dir_u = dir_left + mixed.field_offsets["u"]
-    dir_T = np.unique(np.concatenate([dir_left, dir_right])) + mixed.field_offsets["T"]
-    dir_dofs = np.unique(np.concatenate([dir_u, dir_T]))
+    bc = mixed.make_dirichlet(
+        u=(dir_left.dofs, None),
+        T=(np.unique(np.concatenate([dir_left.dofs, dir_right.dofs])), None),
+    )
 
     def res_T(v, T, p):
         return (p.kappa * h_wf.gaction(v, h_wf.grad(T)) - v * p.q) * h_wf.dOmega()
@@ -100,7 +96,7 @@ def main():
             - p.E * p.alpha * h_wf.gaction(v, e_x)
         ) * h_wf.dOmega()
 
-    mixed_form = MixedResidualForm({"u": res_u, "T": res_T})
+    residuals = ff.make_mixed_residuals(u=res_u, T=res_T)
     params = ff.Params(
         kappa=args.kappa,
         q=args.source,
@@ -111,14 +107,18 @@ def main():
 
     pattern = mixed.get_sparsity_pattern(with_idx=True)
     u0 = jnp.zeros(mixed.n_dofs)
-    K = assemble_mixed_jacobian_wf(
-        mixed, mixed_form, u0, params, pattern=pattern, return_flux_matrix=True
-    )
-    R0 = assemble_mixed_residual_wf(mixed, mixed_form, u0, params)
+    problem = ff.MixedProblem(mixed, residuals, params=params, pattern=pattern)
+    K = problem.assemble_jacobian(u0, return_flux_matrix=True)
+    R0 = problem.assemble_residual(u0)
     b = -R0
 
     solver = ff.LinearSolver(method="spsolve")
-    sol, _ = solver.solve(K, b, dirichlet=(dir_dofs, None), dirichlet_mode="condense")
+    sol, _ = solver.solve(
+        K,
+        b,
+        dirichlet=bc.as_dirichlet_bc(),
+        dirichlet_mode="condense",
+    )
     fields = mixed.unpack_fields(sol)
     u_nodes = np.asarray(fields["u"])
     T_nodes = np.asarray(fields["T"])

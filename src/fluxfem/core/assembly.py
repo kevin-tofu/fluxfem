@@ -899,6 +899,21 @@ def make_element_bilinear_kernel(
     return jax.jit(per_element) if jit else per_element
 
 
+def make_element_linear_kernel(
+    form: Kernel[P], params: P, *, jit: bool = True
+) -> ElementLinearKernel:
+    """Element kernel: (ctx) -> fe."""
+
+    def per_element(ctx: FormContext):
+        integrand = form(ctx, params)
+        if getattr(form, "_includes_measure", False):
+            return integrand.sum(axis=0)
+        wJ = ctx.w * ctx.test.detJ
+        return (integrand * wJ[:, None]).sum(axis=0)
+
+    return jax.jit(per_element) if jit else per_element
+
+
 def make_element_residual_kernel(
     res_form: ResidualForm[P], params: P
 ) -> ElementResidualKernel:

@@ -8,6 +8,7 @@ from .newton import newton_solve
 from .petsc import petsc_solve, petsc_shell_solve
 from ..core.solver import spdirect_solve_cpu, spdirect_solve_gpu
 from .dirichlet import (
+    DirichletBC,
     condense_dirichlet_dense,
     condense_dirichlet_fluxsparse,
     expand_dirichlet_solution,
@@ -71,7 +72,10 @@ class LinearSolver:
         if dirichlet_mode not in ("condense", "enforce"):
             raise ValueError("dirichlet_mode must be 'condense' or 'enforce'.")
 
-        dir_dofs, dir_vals = dirichlet
+        if isinstance(dirichlet, DirichletBC):
+            dir_dofs, dir_vals = dirichlet.as_tuple()
+        else:
+            dir_dofs, dir_vals = dirichlet
         if dirichlet_mode == "enforce":
             if isinstance(A, FluxSparseMatrix):
                 A_bc, b_bc = enforce_dirichlet_sparse(A, b, dir_dofs, dir_vals)

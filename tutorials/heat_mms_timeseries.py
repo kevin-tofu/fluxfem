@@ -176,12 +176,10 @@ def run_backend(args, backend: str) -> dict:
 
     # FEA core: apply Dirichlet BCs and reduce the system to free DOFs.
     coords = np.asarray(mesh.coords)
-    mins = coords.min(axis=0)
-    maxs = coords.max(axis=0)
-    bbox_pred = ff.bbox_predicate(mins, maxs, tol=1e-8)
-    dir_dofs = mesh.boundary_dofs_where(bbox_pred, components="x")
+    bc_free = ff.DirichletBC.from_bbox(mesh, components="x", tol=1e-8)
     n_dofs = int(space.n_dofs)
-    free = ff.free_dofs(n_dofs, dir_dofs)
+    dir_dofs = bc_free.dofs
+    free = bc_free.free_dofs(n_dofs)
     K_ff = K_csr[free][:, free]
     K_fd = K_csr[free][:, dir_dofs]
     M_ff = M_csr[free][:, free]
@@ -200,7 +198,8 @@ def run_backend(args, backend: str) -> dict:
     rhs0_free = rhs0[free] - M_fd @ u0_nodal[dir_dofs]
     u0_free = ff.spdirect_solve_cpu(M_ff, rhs0_free)
     u_dir0 = u0_nodal[dir_dofs]
-    u = ff.expand_dirichlet_solution(u0_free, free, dir_dofs, u_dir0, n_total=n_dofs)
+    bc0 = ff.DirichletBC(dir_dofs, u_dir0)
+    u = bc0.expand_solution(u0_free, free=free, n_total=n_dofs)
     u_free = u[free]
 
     solve_times = []
@@ -244,7 +243,8 @@ def run_backend(args, backend: str) -> dict:
         solve_dt = timer.last("solve_step")
         solve_times.append(solve_dt)
 
-        u = ff.expand_dirichlet_solution(u_free, free, dir_dofs, u_dir_np1, n_total=n_dofs)
+        bc_np1 = ff.DirichletBC(dir_dofs, u_dir_np1)
+        u = bc_np1.expand_solution(u_free, free=free, n_total=n_dofs)
 
         u_ex = exact_u(coords, t_np1, args.kappa, args.mode, args.phase, phase_shifts, phase_weights)
         e = u - u_ex

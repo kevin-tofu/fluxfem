@@ -32,7 +32,7 @@ import fluxfem as ff  # noqa: E402
 import fluxfem.helpers_wf as h_wf  # noqa: E402
 from fluxfem.core.assembly import assemble_linear_form  # noqa: E402
 from tutorials._thermoelastic_utils import (  # noqa: E402
-    boundary_dofs_at_x,
+    boundary_bc_at_x,
     build_bar_mesh,
     default_output_path,
     x_bounds,
@@ -75,9 +75,9 @@ def main():
     space = ff.make_hex_space(mesh, dim=1, intorder=args.intorder)
 
     xmin, xmax, coords = x_bounds(mesh)
-    dir_left = boundary_dofs_at_x(mesh, xmin)
-    dir_right = boundary_dofs_at_x(mesh, xmax)
-    dir_temp = np.unique(np.concatenate([dir_left, dir_right]))
+    dir_left = boundary_bc_at_x(mesh, xmin)
+    dir_right = boundary_bc_at_x(mesh, xmax)
+    dir_temp = np.unique(np.concatenate([dir_left.dofs, dir_right.dofs]))
 
     # --- Heat solve ---
     bilinear_T = ff.BilinearForm.volume(
@@ -89,7 +89,12 @@ def main():
     F_T = space.assemble_linear_form(linear_T.get_compiled(), params=ff.Params(q=args.source))
 
     solver = ff.LinearSolver(method="spsolve")
-    T_vec, _ = solver.solve(K_T, F_T, dirichlet=(dir_temp, None), dirichlet_mode="condense")
+    T_vec, _ = solver.solve(
+        K_T,
+        F_T,
+        dirichlet=ff.DirichletBC(dir_temp, None),
+        dirichlet_mode="condense",
+    )
     T_nodes = np.asarray(T_vec).reshape(-1)
 
     # --- Thermoelastic solve (scalar axial displacement) ---
@@ -112,7 +117,12 @@ def main():
     }
     F_u = assemble_linear_form(space, thermal_rhs, params_u)
 
-    u_vec, _ = solver.solve(K_u, F_u, dirichlet=(dir_left, None), dirichlet_mode="condense")
+    u_vec, _ = solver.solve(
+        K_u,
+        F_u,
+        dirichlet=dir_left,
+        dirichlet_mode="condense",
+    )
     u_nodes = np.asarray(u_vec).reshape(-1)
 
     # --- Diagnostics ---

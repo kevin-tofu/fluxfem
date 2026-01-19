@@ -14,11 +14,6 @@ import jax.numpy as jnp
 import fluxfem as ff
 from fluxfem.core.mixed_space import MixedFESpace
 import fluxfem.helpers_wf as h_wf
-from fluxfem.core.mixed_weakform import (
-    MixedResidualForm,
-    assemble_mixed_jacobian_wf,
-    assemble_mixed_residual_wf,
-)
 
 
 def write_pvd_collection(path: str, files: List[str], times: List[float]):
@@ -66,7 +61,7 @@ def run_ch_3d():
         c = ff.unknown_ref("c")
         return (q * (u.val - (p.c_old**3 - p.c_old)) - p.kappa * h_wf.gaction(q, h_wf.grad(c))) * h_wf.dOmega()
 
-    mixed_form = MixedResidualForm({"c": res_c, "mu": res_mu})
+    residuals = ff.make_mixed_residuals(c=res_c, mu=res_mu)
 
     solver = ff.LinearSolver(method="spsolve")
     pattern = mixed.get_sparsity_pattern(with_idx=True)
@@ -80,15 +75,9 @@ def run_ch_3d():
             return {"kappa": kappa, "dt": dt, "c_old": c_old_q}
 
         u0 = jnp.zeros(mixed.n_dofs)
-        K = assemble_mixed_jacobian_wf(
-            mixed,
-            mixed_form,
-            u0,
-            params_fn,
-            pattern=pattern,
-            return_flux_matrix=True,
-        )
-        R0 = assemble_mixed_residual_wf(mixed, mixed_form, u0, params_fn)
+        problem = ff.MixedProblem(mixed, residuals, params=params_fn, pattern=pattern)
+        K = problem.assemble_jacobian(u0, return_flux_matrix=True)
+        R0 = problem.assemble_residual(u0)
         b = -R0
 
         u_new, _info = solver.solve(K, b)

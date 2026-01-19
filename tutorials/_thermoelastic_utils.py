@@ -32,5 +32,13 @@ def boundary_dofs_at_x(mesh, x_value: float, *, tol: float = 1e-8):
     )
 
 
+def boundary_bc_at_x(mesh, x_value: float, *, tol: float = 1e-8):
+    return ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], x_value, atol=tol),
+        components="x",
+    )
+
+
 def default_output_path(filename: str) -> str:
     return os.path.join("result", "tutorials", filename)

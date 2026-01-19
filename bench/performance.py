@@ -115,8 +115,7 @@ def fluxfem_cases(args, backend: str):
         make_tet_space,
         diffusion_form,
         scalar_body_force_form,
-        condense_dirichlet_fluxsparse,
-        bbox_predicate,
+        DirichletBC,
     )
 
     results = []
@@ -124,27 +123,22 @@ def fluxfem_cases(args, backend: str):
         timer = SectionTimer()
         mesh = StructuredTetTensorBox(nx=n, ny=n, nz=n, lx=1.0, ly=1.0, lz=1.0).build()
         space = make_tet_space(mesh, dim=1, intorder=args.intorder)
-        pattern = space.get_sparsity_pattern(with_idx=True)
-        coords = np.asarray(mesh.coords)
-        mins = coords.min(axis=0)
-        maxs = coords.max(axis=0)
-        bbox_pred = bbox_predicate(mins, maxs, tol=1e-8)
-        dir_nodes = mesh.node_indices_where(bbox_pred)
-        dir_vals = np.zeros(len(dir_nodes), dtype=float)
+        bc = DirichletBC.from_bbox(mesh, components="x", tol=1e-8)
 
         def assemble_K(dummy):
-            return space.assemble_bilinear_form(
+            return space.assemble(
                 diffusion_form,
-                params=1.0,
+                1.0,
+                kind="bilinear",
                 dep=dummy,
-                pattern=pattern,
                 n_chunks=args.n_chunks,
             )
 
         def assemble_F(dummy):
-            return space.assemble_linear_form(
+            return space.assemble(
                 scalar_body_force_form,
-                params=1.0,
+                1.0,
+                kind="linear",
                 dep=dummy,
                 n_chunks=args.n_chunks,
             )
@@ -172,9 +166,8 @@ def fluxfem_cases(args, backend: str):
         assemble_time = float(np.mean(assemble_times))
         jit_compile_time = max(total_time - assemble_time, 0.0)
 
-        K_ff, F_free, free, dir_dofs, dir_vals = condense_dirichlet_fluxsparse(
-            K0, F0, dir_nodes, dir_vals
-        )
+        system = bc.condense_system(K0, F0)
+        K_ff, F_free, free, dir_vals = system.K, system.F, system.free_dofs, system.dir_vals
 
         if args.no_solve or K_ff.shape[0] > 1e5:
             solve_time = float("nan")

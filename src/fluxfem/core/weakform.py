@@ -1896,6 +1896,20 @@ class MixedWeakForm:
         return compile_mixed_residual(self.residuals)
 
 
+def make_mixed_residuals(residuals: dict[str, Callable] | None = None, **kwargs) -> dict[str, Callable]:
+    """
+    Helper to build mixed residual dictionaries.
+
+    Example:
+      res = make_mixed_residuals(u=res_u, p=res_p)
+    """
+    if residuals is not None and kwargs:
+        raise ValueError("Pass either residuals dict or keyword residuals, not both.")
+    if residuals is None:
+        return dict(kwargs)
+    return dict(residuals)
+
+
 def _eval_expr(
     expr: Expr,
     ctx: VolumeContext | SurfaceContext,
@@ -1917,6 +1931,7 @@ __all__ = [
     "param_ref",
     "Params",
     "MixedWeakForm",
+    "make_mixed_residuals",
     "ResidualForm",
     "compile_bilinear",
     "compile_linear",
