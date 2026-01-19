@@ -68,6 +68,7 @@ sphinx-rtd-theme = { version = "^3.0.2", python = ">=3.11" }
 myst-parser = { version = "^4.0.1", python = ">=3.11" }
 sphinx-autodoc-typehints = { version = "^3.2.0", python = ">=3.11" }
 sphinx-sitemap = { version = "^2.6.0", python = ">=3.11" }
+pydata-sphinx-theme = { version = "^0.16.1", python = ">=3.11" }
 shapely = "^2.1.2"
 
 [tool.poetry.extras]

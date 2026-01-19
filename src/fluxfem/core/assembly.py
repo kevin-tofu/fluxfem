@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Callable, Literal, Optional, Protocol, TYPE_CHECKING, TypeAlias, TypeVar
+from typing import Any, Callable, Literal, Optional, Protocol, TYPE_CHECKING, TypeAlias, TypeVar, Union
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -25,10 +25,10 @@ else:
 
 SparseCOO: TypeAlias = tuple[Array, Array, Array, int]
 LinearCOO: TypeAlias = tuple[Array, Array, int]
-JacobianReturn: TypeAlias = Array | FluxSparseMatrix | SparseCOO
-BilinearReturn: TypeAlias = Array | FluxSparseMatrix | SparseCOO
-LinearReturn: TypeAlias = Array | LinearCOO
-MassReturn: TypeAlias = FluxSparseMatrix | Array
+JacobianReturn: TypeAlias = Union[Array, FluxSparseMatrix, SparseCOO]
+BilinearReturn: TypeAlias = Union[Array, FluxSparseMatrix, SparseCOO]
+LinearReturn: TypeAlias = Union[Array, LinearCOO]
+MassReturn: TypeAlias = Union[FluxSparseMatrix, Array]
 
 
 class ElementBilinearKernel(Protocol):
