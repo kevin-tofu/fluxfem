@@ -419,6 +419,11 @@
 <span class="n">fields</span> <span class="o">=</span> <span class="n">mixed</span><span class="o">.</span><span class="n">unpack_fields</span><span class="p">(</span><span class="n">sol</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>Related mixed tutorials:</p>
+<ul class="simple">
+<li><p><cite>tutorials/thermoelastic_bar_1d_mixed.py</cite></p></li>
+<li><p><cite>tutorials/nitsche_contact_supermesh_api.py</cite></p></li>
+</ul>
 </section>
 <section id="block-utilities-minimal">
 <h2>Block utilities (minimal)<a class="headerlink" href="#block-utilities-minimal" title="Link to this heading">#</a></h2>
@@ -435,6 +440,29 @@
 <span class="c1"># blocks[&quot;a&quot;][&quot;a&quot;], blocks[&quot;a&quot;][&quot;b&quot;], blocks[&quot;b&quot;][&quot;a&quot;], blocks[&quot;b&quot;][&quot;b&quot;]</span>
 </pre></div>
 </div>
+</section>
+<section id="off-diagonal-coupling-k12-k21">
+<h2>Off-diagonal coupling (K12 / K21)<a class="headerlink" href="#off-diagonal-coupling-k12-k21" title="Link to this heading">#</a></h2>
+<p>For coupled/contact problems, you often have off-diagonal blocks. Use <cite>rel</cite> to
+insert <cite>K12</cite> and (optionally) its transpose:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">rel</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="p">(</span><span class="s2">&quot;u&quot;</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">):</span> <span class="n">K_up</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="n">blocks</span> <span class="o">=</span> <span class="n">ff_solver</span><span class="o">.</span><span class="n">make_block_matrix</span><span class="p">(</span>
+    <span class="n">diag</span><span class="o">=</span><span class="n">ff_solver</span><span class="o">.</span><span class="n">block_diag</span><span class="p">(</span><span class="n">u</span><span class="o">=</span><span class="n">K_uu</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="n">K_pp</span><span class="p">),</span>
+    <span class="n">rel</span><span class="o">=</span><span class="n">rel</span><span class="p">,</span>
+    <span class="n">sizes</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">K_uu</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="n">K_pp</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]},</span>
+    <span class="n">symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">transpose_rule</span><span class="o">=</span><span class="s2">&quot;T&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>This is commonly used in contact or mixed formulations. See the following
+tutorial scripts for full examples:</p>
+<ul class="simple">
+<li><p><cite>tutorials/nitsche_contact_supermesh_api.py</cite></p></li>
+<li><p><cite>tutorials/nitsche_contact_supermesh_demo_fluxfem.py</cite></p></li>
+</ul>
 </section>
 </section>
 
@@ -487,6 +515,7 @@
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mixed-form-minimal">Mixed form (minimal)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#block-utilities-minimal">Block utilities (minimal)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#off-diagonal-coupling-k12-k21">Off-diagonal coupling (K12 / K21)</a></li>
 </ul>
   </nav></div>
 
