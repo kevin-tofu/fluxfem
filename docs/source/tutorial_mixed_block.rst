@@ -43,6 +43,11 @@ Define a mixed space, write per-field residuals, and solve in a single system:
    )
    fields = mixed.unpack_fields(sol)
 
+Related mixed tutorials:
+
+- `tutorials/thermoelastic_bar_1d_mixed.py`
+- `tutorials/nitsche_contact_supermesh_api.py`
+
 Block utilities (minimal)
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -60,3 +65,28 @@ Build a named block dictionary (for use with `MixedFESpace.build_block_system`):
    )
 
    # blocks["a"]["a"], blocks["a"]["b"], blocks["b"]["a"], blocks["b"]["b"]
+
+Off-diagonal coupling (K12 / K21)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For coupled/contact problems, you often have off-diagonal blocks. Use `rel` to
+insert `K12` and (optionally) its transpose:
+
+.. code-block:: python
+
+   rel = {
+       ("u", "p"): K_up,
+   }
+   blocks = ff_solver.make_block_matrix(
+       diag=ff_solver.block_diag(u=K_uu, p=K_pp),
+       rel=rel,
+       sizes={"u": K_uu.shape[0], "p": K_pp.shape[0]},
+       symmetric=True,
+       transpose_rule="T",
+   )
+
+This is commonly used in contact or mixed formulations. See the following
+tutorial scripts for full examples:
+
+- `tutorials/nitsche_contact_supermesh_api.py`
+- `tutorials/nitsche_contact_supermesh_demo_fluxfem.py`
