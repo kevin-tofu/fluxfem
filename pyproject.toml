@@ -17,16 +17,16 @@ dependencies = [
     "pyvista (>=0.46.4,<0.47.0)",
     "meshio (>=5.3.5,<6.0.0)",
     "matplotlib (>=3.10.7,<4.0.0)",
-    # Note: jax versioning currently around 0.8.x. Allow up to next minor.
+    # CPU JAX by default; CUDA builds are available via the cuda12 extra.
     "jax (==0.8.2)",
     "jaxlib (==0.8.2)",
-    "jax-cuda12-plugin (==0.8.2)",
-    "jax-cuda12-pjrt (==0.8.2)",
 ]
 
 [project.optional-dependencies]
 # Keep petsc4py aligned with the PETSc build referenced by PETSC_DIR.
-petsc = ["petsc4py"]
+petsc = ["petsc4py (==3.23.6)"]
+cpu = ["jax (==0.8.2)", "jaxlib (==0.8.2)"]
+cuda12 = ["jax (==0.8.2)", "jaxlib (==0.8.2)", "jax-cuda12-plugin (==0.8.2)", "jax-cuda12-pjrt (==0.8.2)"]
 
 [tool.poetry]
 name = "fluxfem"
@@ -47,6 +47,8 @@ meshio = ">=5.3.5,<6.0.0"
 matplotlib = ">=3.10.7,<4.0.0"
 jax = ">=0.8.2,<0.9.0"
 jaxlib = ">=0.8.2,<0.9.0"
+jax-cuda12-plugin = { version = "==0.8.2", optional = true }
+jax-cuda12-pjrt = { version = "==0.8.2", optional = true }
 petsc4py = { version = "==3.23.6", optional = true }
 pyproject-toml = "^0.1.0"
 pyproject = "^1!0.1.2"
@@ -73,6 +75,8 @@ shapely = "^2.1.2"
 
 [tool.poetry.extras]
 petsc = ["petsc4py"]
+cpu = ["jax", "jaxlib"]
+cuda12 = ["jax", "jaxlib", "jax-cuda12-plugin", "jax-cuda12-pjrt"]
 
 [[tool.poetry.source]]
 name = "jax"

@@ -199,11 +199,13 @@ FluxFEM supports **Python 3.11–3.13**:
 ### Using pip
 ```bash
 pip install fluxfem
+pip install "fluxfem[cuda12]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 ### Using poetry
 ```bash
 poetry add fluxfem
+poetry add fluxfem[cuda12]
 ```
 
 ## PETSc Integration
@@ -213,6 +215,14 @@ Optional PETSc-based solvers are available via `petsc4py`. Enable with the extra
 ```bash
 poetry add fluxfem --extras "petsc"
 ```
+
+Note: newer `petsc4py` expects PETSc builds that include the `PetscRegressor`
+API. If your PETSc build does not have it, `petsc4py` will fail to compile. In
+that case, rebuild PETSc with regressor support or pin `petsc4py` to a version
+compatible with your PETSc build.
+
+GPU note: this repo currently tests CUDA via the `cuda12` extra only. Other CUDA
+versions are not covered by CI and may require manual JAX installation.
 
 ## Acknowledgements
 I acknowledge the open-source software, libraries, and communities that made this work possible.
