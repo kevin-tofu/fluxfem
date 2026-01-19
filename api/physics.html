@@ -1,142 +1,391 @@
 
-
 <!DOCTYPE html>
-<html class="writer-html5" lang="en" data-content_root="../">
-<head>
-  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Physics &mdash; FluxFEM 0.1.1b documentation</title>
-      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
 
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Physics &#8212; FluxFEM 0.1.8 documentation</title>
   
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=72e2dd8f"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api/physics';</script>
     <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/api/physics.html" />
-      <script src="../_static/jquery.js?v=5d32c60e"></script>
-      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../_static/documentation_options.js?v=a9b42864"></script>
-      <script src="../_static/doctools.js?v=9bcbadda"></script>
-      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Tools" href="tools.html" />
-    <link rel="prev" title="Solver" href="solver.html" /> 
-</head>
+    <link rel="prev" title="Solver" href="solver.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
 
-<body class="wy-body-for-nav"> 
-  <div class="wy-grid-for-nav">
-    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
-      <div class="wy-side-scroll">
-        <div class="wy-side-nav-search" >
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
 
-          
-          
-          <a href="../index.html" class="icon icon-home">
-            FluxFEM
-          </a>
-<div role="search">
-  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
-    <input type="hidden" name="check_keywords" value="yes" />
-    <input type="hidden" name="area" value="default" />
-  </form>
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs..."
+         aria-label="Search the docs..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
 </div>
-        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="../project.html">Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../tutorial.html">Tutorial Page</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../api.html">API Reference</a><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="top.html">Top-level API</a></li>
-<li class="toctree-l2"><a class="reference internal" href="core.html">Core</a></li>
-<li class="toctree-l2"><a class="reference internal" href="mesh.html">Mesh</a></li>
-<li class="toctree-l2"><a class="reference internal" href="solver.html">Solver</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Physics</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.assemble_constant_body_force"><code class="docutils literal notranslate"><span class="pre">assemble_constant_body_force()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.constant_body_force_vector_form"><code class="docutils literal notranslate"><span class="pre">constant_body_force_vector_form()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.ddot"><code class="docutils literal notranslate"><span class="pre">ddot()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.deformation_gradient"><code class="docutils literal notranslate"><span class="pre">deformation_gradient()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.diffusion_form"><code class="docutils literal notranslate"><span class="pre">diffusion_form()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.dot"><code class="docutils literal notranslate"><span class="pre">dot()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.green_lagrange_strain"><code class="docutils literal notranslate"><span class="pre">green_lagrange_strain()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.interpolate_at_points"><code class="docutils literal notranslate"><span class="pre">interpolate_at_points()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.isotropic_3d_D"><code class="docutils literal notranslate"><span class="pre">isotropic_3d_D()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.lame_parameters"><code class="docutils literal notranslate"><span class="pre">lame_parameters()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.linear_elasticity_form"><code class="docutils literal notranslate"><span class="pre">linear_elasticity_form()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.make_elastic_point_data"><code class="docutils literal notranslate"><span class="pre">make_elastic_point_data()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.make_point_data_displacement"><code class="docutils literal notranslate"><span class="pre">make_point_data_displacement()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.max_shear_stress"><code class="docutils literal notranslate"><span class="pre">max_shear_stress()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.neo_hookean_residual_form"><code class="docutils literal notranslate"><span class="pre">neo_hookean_residual_form()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.pk2_neo_hookean"><code class="docutils literal notranslate"><span class="pre">pk2_neo_hookean()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.principal_stresses"><code class="docutils literal notranslate"><span class="pre">principal_stresses()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.principal_sum"><code class="docutils literal notranslate"><span class="pre">principal_sum()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.right_cauchy_green"><code class="docutils literal notranslate"><span class="pre">right_cauchy_green()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.sym_grad"><code class="docutils literal notranslate"><span class="pre">sym_grad()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.sym_grad_u"><code class="docutils literal notranslate"><span class="pre">sym_grad_u()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.transpose_last2"><code class="docutils literal notranslate"><span class="pre">transpose_last2()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.vector_body_force_form"><code class="docutils literal notranslate"><span class="pre">vector_body_force_form()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.von_mises_stress"><code class="docutils literal notranslate"><span class="pre">von_mises_stress()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.write_elastic_vtu"><code class="docutils literal notranslate"><span class="pre">write_elastic_vtu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fluxfem.physics.write_point_data_vtu"><code class="docutils literal notranslate"><span class="pre">write_point_data_vtu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#module-fluxfem.physics.diffusion">Diffusion</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#fluxfem.physics.diffusion.diffusion_form"><code class="docutils literal notranslate"><span class="pre">diffusion_form()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#module-fluxfem.physics.operators">Operators</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#fluxfem.physics.operators.ddot"><code class="docutils literal notranslate"><span class="pre">ddot()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#fluxfem.physics.operators.dot"><code class="docutils literal notranslate"><span class="pre">dot()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#fluxfem.physics.operators.sym_grad"><code class="docutils literal notranslate"><span class="pre">sym_grad()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#fluxfem.physics.operators.sym_grad_u"><code class="docutils literal notranslate"><span class="pre">sym_grad_u()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#fluxfem.physics.operators.transpose_last2"><code class="docutils literal notranslate"><span class="pre">transpose_last2()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#module-fluxfem.physics.postprocess">Postprocess</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#fluxfem.physics.postprocess.interpolate_at_points"><code class="docutils literal notranslate"><span class="pre">interpolate_at_points()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#fluxfem.physics.postprocess.make_point_data_displacement"><code class="docutils literal notranslate"><span class="pre">make_point_data_displacement()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#fluxfem.physics.postprocess.write_point_data_vtu"><code class="docutils literal notranslate"><span class="pre">write_point_data_vtu()</span></code></a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="tools.html">Tools</a></li>
-<li class="toctree-l2"><a class="reference internal" href="helpers.html">Helpers</a></li>
-</ul>
-</li>
-</ul>
 
-        </div>
-      </div>
-    </nav>
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
 
-    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
-          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="../index.html">FluxFEM</a>
-      </nav>
+  
+    
+  
 
-      <div class="wy-nav-content">
-        <div class="rst-content">
-          <div role="navigation" aria-label="Page navigation">
-  <ul class="wy-breadcrumbs">
-      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
-          <li class="breadcrumb-item"><a href="../api.html">API Reference</a></li>
-      <li class="breadcrumb-item active">Physics</li>
-      <li class="wy-breadcrumbs-aside">
-            <a href="../_sources/api/physics.rst.txt" rel="nofollow"> View page source</a>
-      </li>
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">FluxFEM 0.1.8 documentation</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../project.html">
+    Project
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../tutorial.html">
+    Tutorial Page
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../usage.html">
+    Usage
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../api.html">
+    API Reference
+  </a>
+</li>
+
   </ul>
-  <hr/>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/kevin-tofu/fluxfem" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
 </div>
-          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
-           <div itemprop="articleBody">
-             
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../project.html">
+    Project
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../tutorial.html">
+    Tutorial Page
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../usage.html">
+    Usage
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/kevin-tofu/fluxfem" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">API</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="top.html">Top-level API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="core.html">Core</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mesh.html">Mesh</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solver.html">Solver</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Physics</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="helpers.html">Helpers</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../api.html" class="nav-link">API Reference</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Physics</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
   <section id="module-fluxfem.physics">
-<span id="physics"></span><h1>Physics<a class="headerlink" href="#module-fluxfem.physics" title="Link to this heading"></a></h1>
+<span id="physics"></span><h1>Physics<a class="headerlink" href="#module-fluxfem.physics" title="Link to this heading">#</a></h1>
 <p>Physics-level helpers (constitutive models, material laws, etc.).</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.assemble_constant_body_force">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">assemble_constant_body_force</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gravity_vec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">density</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.assemble_constant_body_force" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">assemble_constant_body_force</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gravity_vec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">density</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.assemble_constant_body_force" title="Link to this definition">#</a></dt>
 <dd><p>Convenience: assemble body force from density * gravity vector.
 gravity_vec: length-3 array-like (direction and magnitude of g)
 density: scalar density (consistent with unit system)</p>
@@ -144,13 +393,13 @@ density: scalar density (consistent with unit system)</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.constant_body_force_vector_form">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">constant_body_force_vector_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_vec</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.constant_body_force_vector_form" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">constant_body_force_vector_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_vec</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.constant_body_force_vector_form" title="Link to this definition">#</a></dt>
 <dd><p>Linear form for 3D vector body force f (constant in space).</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.ddot">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">ddot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">c</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.ddot" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">ddot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">c</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.ddot" title="Link to this definition">#</a></dt>
 <dd><p>Double contraction on the last two axes.</p>
 <ul class="simple">
 <li><p>ddot(a, b): sum_ij a_ij * b_ij</p></li>
@@ -160,7 +409,7 @@ density: scalar density (consistent with unit system)</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.deformation_gradient">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">deformation_gradient</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Array</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.deformation_gradient" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">deformation_gradient</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.deformation_gradient" title="Link to this definition">#</a></dt>
 <dd><p>Compute deformation gradient F = I + grad_u for a 3D vector displacement.</p>
 <p>ctx: FormContext with test/trial grads (reference configuration)
 u_elem: (n_ldofs,) element displacement in dof ordering [u0,v0,w0, u1,v1,w1, …]
@@ -169,14 +418,14 @@ returns: (n_q, 3, 3) F per quadrature point</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.diffusion_form">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">diffusion_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kappa</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.diffusion_form" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">diffusion_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kappa</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.diffusion_form" title="Link to this definition">#</a></dt>
 <dd><p>Scalar diffusion bilinear form: kappa * grad_v · grad_u.</p>
 <p>Returns the per-quadrature integrand for a standard Laplacian term.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.dot">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">dot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.dot" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">dot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.dot" title="Link to this definition">#</a></dt>
 <dd><p>Batched matrix product on the last two axes.</p>
 <p>If the first argument is a FormField, dispatch to vector_load_form to build
 the linear form contribution for a vector load.</p>
@@ -184,13 +433,13 @@ the linear form contribution for a vector load.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.green_lagrange_strain">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">green_lagrange_strain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Array</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.green_lagrange_strain" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">green_lagrange_strain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.green_lagrange_strain" title="Link to this definition">#</a></dt>
 <dd><p>E = 0.5 (C - I).</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.interpolate_at_points">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">interpolate_at_points</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.interpolate_at_points" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">interpolate_at_points</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.interpolate_at_points" title="Link to this definition">#</a></dt>
 <dd><p>Interpolate displacement field at given physical points (Hex8 only, structured search).
 - points: (m,3) array of physical coordinates.
 Returns: (m,3) interpolated displacement.</p>
@@ -198,19 +447,19 @@ Returns: (m,3) interpolated displacement.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.isotropic_3d_D">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">isotropic_3d_D</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">E</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nu</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.isotropic_3d_D" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">isotropic_3d_D</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">E</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nu</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.isotropic_3d_D" title="Link to this definition">#</a></dt>
 <dd><p>Return 3D isotropic linear elasticity constitutive matrix in Voigt form.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.lame_parameters">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">lame_parameters</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">E</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nu</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.physics.lame_parameters" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">lame_parameters</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">E</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nu</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.physics.lame_parameters" title="Link to this definition">#</a></dt>
 <dd><p>Return Lamé parameters (lambda, mu) from Young’s modulus and Poisson ratio.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.linear_elasticity_form">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">linear_elasticity_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">D</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.linear_elasticity_form" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">linear_elasticity_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">D</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.linear_elasticity_form" title="Link to this definition">#</a></dt>
 <dd><p>Linear-elasticity bilinear form in Voigt notation.</p>
 <p>Returns the per-quadrature integrand for Bv^T D Bu, where B is the
 symmetric-gradient operator for the test/trial fields.</p>
@@ -218,13 +467,13 @@ symmetric-gradient operator for the test/trial fields.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.make_elastic_point_data">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">make_elastic_point_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.make_elastic_point_data" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">make_elastic_point_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.make_elastic_point_data" title="Link to this definition">#</a></dt>
 <dd><p>Alias to postprocess.make_point_data_displacement for backward compatibility.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.make_point_data_displacement">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">make_point_data_displacement</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.make_point_data_displacement" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">make_point_data_displacement</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.make_point_data_displacement" title="Link to this definition">#</a></dt>
 <dd><dl class="simple">
 <dt>Common postprocess helper to build point data dictionaries:</dt><dd><ul class="simple">
 <li><p>displacement</p></li>
@@ -238,13 +487,13 @@ symmetric-gradient operator for the test/trial fields.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.max_shear_stress">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">max_shear_stress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">S</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Array</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.max_shear_stress" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">max_shear_stress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">S</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.max_shear_stress" title="Link to this definition">#</a></dt>
 <dd><p>Maximum shear stress = (sigma_max - sigma_min) / 2.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.neo_hookean_residual_form">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">neo_hookean_residual_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.neo_hookean_residual_form" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">neo_hookean_residual_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.neo_hookean_residual_form" title="Link to this definition">#</a></dt>
 <dd><p>Compressible Neo-Hookean residual (Total Lagrangian, PK2).
 params: dict-like with keys “mu”, “lam” or tuple (mu, lam)
 returns: (n_q, n_ldofs)</p>
@@ -252,7 +501,7 @@ returns: (n_q, n_ldofs)</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.pk2_neo_hookean">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">pk2_neo_hookean</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lam</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.pk2_neo_hookean" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">pk2_neo_hookean</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lam</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.pk2_neo_hookean" title="Link to this definition">#</a></dt>
 <dd><dl class="simple">
 <dt>Compressible Neo-Hookean PK2 stress:</dt><dd><p>S = mu * (I - C^{-1}) + lam * ln J * C^{-1}
 C = F^T F, J = sqrt(det C)</p>
@@ -262,26 +511,26 @@ C = F^T F, J = sqrt(det C)</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.principal_stresses">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">principal_stresses</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">S</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Array</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.principal_stresses" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">principal_stresses</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">S</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.principal_stresses" title="Link to this definition">#</a></dt>
 <dd><p>Return principal stresses (eigvals) for symmetric 3x3 stress tensor.
 Supports batching over leading dimensions.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.principal_sum">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">principal_sum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">S</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Array</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.principal_sum" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">principal_sum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">S</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.principal_sum" title="Link to this definition">#</a></dt>
 <dd><p>Sum of principal stresses (trace).</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.right_cauchy_green">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">right_cauchy_green</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Array</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.right_cauchy_green" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">right_cauchy_green</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.right_cauchy_green" title="Link to this definition">#</a></dt>
 <dd><p>C = F^T F (right Cauchy-Green).</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.sym_grad">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">sym_grad</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.sym_grad" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">sym_grad</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.sym_grad" title="Link to this definition">#</a></dt>
 <dd><p>Symmetric gradient operator for vector mechanics (small strain).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -306,7 +555,7 @@ Such that eps_voigt(q,:) = B(q,:,:) &#64; u_elem</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.sym_grad_u">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">sym_grad_u</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.sym_grad_u" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">sym_grad_u</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.sym_grad_u" title="Link to this definition">#</a></dt>
 <dd><p>Apply sym_grad(field) to a local displacement vector.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -326,49 +575,49 @@ Such that eps_voigt(q,:) = B(q,:,:) &#64; u_elem</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.transpose_last2">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">transpose_last2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.transpose_last2" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">transpose_last2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.transpose_last2" title="Link to this definition">#</a></dt>
 <dd><p>Swap the last two axes (batched transpose).</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.vector_body_force_form">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">vector_body_force_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_vec</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.vector_body_force_form" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">vector_body_force_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_vec</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.vector_body_force_form" title="Link to this definition">#</a></dt>
 <dd><p>Linear form for 3D vector body force f (constant in space).</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.von_mises_stress">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">von_mises_stress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">S</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Array</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.von_mises_stress" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">von_mises_stress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">S</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.von_mises_stress" title="Link to this definition">#</a></dt>
 <dd><p>von Mises equivalent stress: sqrt(3/2 * dev(S):dev(S)).</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.write_elastic_vtu">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">write_elastic_vtu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filepath</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.write_elastic_vtu" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">write_elastic_vtu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filepath</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.write_elastic_vtu" title="Link to this definition">#</a></dt>
 <dd><p>Alias to postprocess.write_point_data_vtu for backward compatibility.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.write_point_data_vtu">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">write_point_data_vtu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filepath</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.write_point_data_vtu" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.</span></span><span class="sig-name descname"><span class="pre">write_point_data_vtu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filepath</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.write_point_data_vtu" title="Link to this definition">#</a></dt>
 <dd><p>Write VTU with displacement/deformed_coords and optional J.</p>
 </dd></dl>
 
 <section id="module-fluxfem.physics.diffusion">
-<span id="diffusion"></span><h2>Diffusion<a class="headerlink" href="#module-fluxfem.physics.diffusion" title="Link to this heading"></a></h2>
+<span id="diffusion"></span><h2>Diffusion<a class="headerlink" href="#module-fluxfem.physics.diffusion" title="Link to this heading">#</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.diffusion.diffusion_form">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.diffusion.</span></span><span class="sig-name descname"><span class="pre">diffusion_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kappa</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Array</span></span></span><a class="headerlink" href="#fluxfem.physics.diffusion.diffusion_form" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.diffusion.</span></span><span class="sig-name descname"><span class="pre">diffusion_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kappa</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.diffusion.diffusion_form" title="Link to this definition">#</a></dt>
 <dd><p>Scalar diffusion bilinear form: kappa * grad_v · grad_u.</p>
 <p>Returns the per-quadrature integrand for a standard Laplacian term.</p>
 </dd></dl>
 
 </section>
 <section id="module-fluxfem.physics.operators">
-<span id="operators"></span><h2>Operators<a class="headerlink" href="#module-fluxfem.physics.operators" title="Link to this heading"></a></h2>
+<span id="operators"></span><h2>Operators<a class="headerlink" href="#module-fluxfem.physics.operators" title="Link to this heading">#</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.operators.ddot">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.operators.</span></span><span class="sig-name descname"><span class="pre">ddot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">c</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.operators.ddot" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.operators.</span></span><span class="sig-name descname"><span class="pre">ddot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">c</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.operators.ddot" title="Link to this definition">#</a></dt>
 <dd><p>Double contraction on the last two axes.</p>
 <ul class="simple">
 <li><p>ddot(a, b): sum_ij a_ij * b_ij</p></li>
@@ -378,7 +627,7 @@ Such that eps_voigt(q,:) = B(q,:,:) &#64; u_elem</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.operators.dot">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.operators.</span></span><span class="sig-name descname"><span class="pre">dot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.operators.dot" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.operators.</span></span><span class="sig-name descname"><span class="pre">dot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.operators.dot" title="Link to this definition">#</a></dt>
 <dd><p>Batched matrix product on the last two axes.</p>
 <p>If the first argument is a FormField, dispatch to vector_load_form to build
 the linear form contribution for a vector load.</p>
@@ -386,7 +635,7 @@ the linear form contribution for a vector load.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.operators.sym_grad">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.operators.</span></span><span class="sig-name descname"><span class="pre">sym_grad</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.operators.sym_grad" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.operators.</span></span><span class="sig-name descname"><span class="pre">sym_grad</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.operators.sym_grad" title="Link to this definition">#</a></dt>
 <dd><p>Symmetric gradient operator for vector mechanics (small strain).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -411,7 +660,7 @@ Such that eps_voigt(q,:) = B(q,:,:) &#64; u_elem</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.operators.sym_grad_u">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.operators.</span></span><span class="sig-name descname"><span class="pre">sym_grad_u</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.operators.sym_grad_u" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.operators.</span></span><span class="sig-name descname"><span class="pre">sym_grad_u</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.physics.operators.sym_grad_u" title="Link to this definition">#</a></dt>
 <dd><p>Apply sym_grad(field) to a local displacement vector.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -431,16 +680,16 @@ Such that eps_voigt(q,:) = B(q,:,:) &#64; u_elem</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.operators.transpose_last2">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.operators.</span></span><span class="sig-name descname"><span class="pre">transpose_last2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.operators.transpose_last2" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.operators.</span></span><span class="sig-name descname"><span class="pre">transpose_last2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.operators.transpose_last2" title="Link to this definition">#</a></dt>
 <dd><p>Swap the last two axes (batched transpose).</p>
 </dd></dl>
 
 </section>
 <section id="module-fluxfem.physics.postprocess">
-<span id="postprocess"></span><h2>Postprocess<a class="headerlink" href="#module-fluxfem.physics.postprocess" title="Link to this heading"></a></h2>
+<span id="postprocess"></span><h2>Postprocess<a class="headerlink" href="#module-fluxfem.physics.postprocess" title="Link to this heading">#</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.postprocess.interpolate_at_points">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.postprocess.</span></span><span class="sig-name descname"><span class="pre">interpolate_at_points</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.postprocess.interpolate_at_points" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.postprocess.</span></span><span class="sig-name descname"><span class="pre">interpolate_at_points</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.postprocess.interpolate_at_points" title="Link to this definition">#</a></dt>
 <dd><p>Interpolate displacement field at given physical points (Hex8 only, structured search).
 - points: (m,3) array of physical coordinates.
 Returns: (m,3) interpolated displacement.</p>
@@ -448,7 +697,7 @@ Returns: (m,3) interpolated displacement.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.postprocess.make_point_data_displacement">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.postprocess.</span></span><span class="sig-name descname"><span class="pre">make_point_data_displacement</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.postprocess.make_point_data_displacement" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.postprocess.</span></span><span class="sig-name descname"><span class="pre">make_point_data_displacement</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.postprocess.make_point_data_displacement" title="Link to this definition">#</a></dt>
 <dd><dl class="simple">
 <dt>Common postprocess helper to build point data dictionaries:</dt><dd><ul class="simple">
 <li><p>displacement</p></li>
@@ -462,7 +711,7 @@ Returns: (m,3) interpolated displacement.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.physics.postprocess.write_point_data_vtu">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.postprocess.</span></span><span class="sig-name descname"><span class="pre">write_point_data_vtu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filepath</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.postprocess.write_point_data_vtu" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">fluxfem.physics.postprocess.</span></span><span class="sig-name descname"><span class="pre">write_point_data_vtu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">space</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filepath</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deformed_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.physics.postprocess.write_point_data_vtu" title="Link to this definition">#</a></dt>
 <dd><p>Write VTU with displacement/deformed_coords and optional J.</p>
 </dd></dl>
 
@@ -470,34 +719,163 @@ Returns: (m,3) interpolated displacement.</p>
 </section>
 
 
-           </div>
-          </div>
-          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="solver.html" class="btn btn-neutral float-left" title="Solver" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="tools.html" class="btn btn-neutral float-right" title="Tools" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
-    </div>
-
-  <hr/>
-
-  <div role="contentinfo">
-    <p>&#169; Copyright 2026, Kohei Watanabe.</p>
-  </div>
-
-  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
-    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
-    provided by <a href="https://readthedocs.org">Read the Docs</a>.
-   
-
-</footer>
-        </div>
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="solver.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Solver</p>
       </div>
-    </section>
-  </div>
-  <script>
-      jQuery(function () {
-          SphinxRtdTheme.Navigation.enable(true);
-      });
-  </script> 
+    </a>
+    <a class="right-next"
+       href="tools.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Tools</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
 
-</body>
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.assemble_constant_body_force"><code class="docutils literal notranslate"><span class="pre">assemble_constant_body_force()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.constant_body_force_vector_form"><code class="docutils literal notranslate"><span class="pre">constant_body_force_vector_form()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.ddot"><code class="docutils literal notranslate"><span class="pre">ddot()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.deformation_gradient"><code class="docutils literal notranslate"><span class="pre">deformation_gradient()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.diffusion_form"><code class="docutils literal notranslate"><span class="pre">diffusion_form()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.dot"><code class="docutils literal notranslate"><span class="pre">dot()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.green_lagrange_strain"><code class="docutils literal notranslate"><span class="pre">green_lagrange_strain()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.interpolate_at_points"><code class="docutils literal notranslate"><span class="pre">interpolate_at_points()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.isotropic_3d_D"><code class="docutils literal notranslate"><span class="pre">isotropic_3d_D()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.lame_parameters"><code class="docutils literal notranslate"><span class="pre">lame_parameters()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.linear_elasticity_form"><code class="docutils literal notranslate"><span class="pre">linear_elasticity_form()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.make_elastic_point_data"><code class="docutils literal notranslate"><span class="pre">make_elastic_point_data()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.make_point_data_displacement"><code class="docutils literal notranslate"><span class="pre">make_point_data_displacement()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.max_shear_stress"><code class="docutils literal notranslate"><span class="pre">max_shear_stress()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.neo_hookean_residual_form"><code class="docutils literal notranslate"><span class="pre">neo_hookean_residual_form()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.pk2_neo_hookean"><code class="docutils literal notranslate"><span class="pre">pk2_neo_hookean()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.principal_stresses"><code class="docutils literal notranslate"><span class="pre">principal_stresses()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.principal_sum"><code class="docutils literal notranslate"><span class="pre">principal_sum()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.right_cauchy_green"><code class="docutils literal notranslate"><span class="pre">right_cauchy_green()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.sym_grad"><code class="docutils literal notranslate"><span class="pre">sym_grad()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.sym_grad_u"><code class="docutils literal notranslate"><span class="pre">sym_grad_u()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.transpose_last2"><code class="docutils literal notranslate"><span class="pre">transpose_last2()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.vector_body_force_form"><code class="docutils literal notranslate"><span class="pre">vector_body_force_form()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.von_mises_stress"><code class="docutils literal notranslate"><span class="pre">von_mises_stress()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.write_elastic_vtu"><code class="docutils literal notranslate"><span class="pre">write_elastic_vtu()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.write_point_data_vtu"><code class="docutils literal notranslate"><span class="pre">write_point_data_vtu()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-fluxfem.physics.diffusion">Diffusion</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.diffusion.diffusion_form"><code class="docutils literal notranslate"><span class="pre">diffusion_form()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-fluxfem.physics.operators">Operators</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.operators.ddot"><code class="docutils literal notranslate"><span class="pre">ddot()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.operators.dot"><code class="docutils literal notranslate"><span class="pre">dot()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.operators.sym_grad"><code class="docutils literal notranslate"><span class="pre">sym_grad()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.operators.sym_grad_u"><code class="docutils literal notranslate"><span class="pre">sym_grad_u()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.operators.transpose_last2"><code class="docutils literal notranslate"><span class="pre">transpose_last2()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-fluxfem.physics.postprocess">Postprocess</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.postprocess.interpolate_at_points"><code class="docutils literal notranslate"><span class="pre">interpolate_at_points()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.postprocess.make_point_data_displacement"><code class="docutils literal notranslate"><span class="pre">make_point_data_displacement()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.physics.postprocess.write_point_data_vtu"><code class="docutils literal notranslate"><span class="pre">write_point_data_vtu()</span></code></a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="../_sources/api/physics.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Kohei Watanabe.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 8.2.3.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
 </html>

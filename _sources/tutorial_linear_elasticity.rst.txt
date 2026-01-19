@@ -1,8 +1,8 @@
-Linear Elasticity: Tensile Bar (Simplified)
-===========================================
+Linear Elasticity: Tensile Bar
+==============================
 
 This tutorial walks through the minimal tensile-bar example in
-``tutorials/linearelastic_tensile_bar_simplified.py`` and explains the weak form,
+``tutorials/linearelastic_tensile_bar.py`` and explains the weak form,
 assembly, and boundary conditions with the key equations.
 
 Run the example
@@ -10,7 +10,7 @@ Run the example
 
 .. code-block:: bash
 
-   python tutorials/linearelastic_tensile_bar_simplified.py
+   python tutorials/linearelastic_tensile_bar.py
 
 Problem statement
 ^^^^^^^^^^^^^^^^^
@@ -90,10 +90,11 @@ The clamp fixes all components on the ``x = xmin`` face:
 
 .. code-block:: python
 
-   dir_dofs = mesh.boundary_dofs_where(
+   dir_dofs = ff.DirichletBC.from_boundary_dofs(
+       mesh,
        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
        components="xyz",
-   )
+   ).dofs
 
 5) Solve the linear system
 """"""""""""""""""""""""""
@@ -102,7 +103,7 @@ The clamp fixes all components on the ``x = xmin`` face:
 
    solver = ff.LinearSolver(method="spsolve")
    u, _ = solver.solve(
-       K, F, dirichlet=(dir_dofs, None), dirichlet_mode="condense"
+       K, F, dirichlet=ff.DirichletBC(dir_dofs, None), dirichlet_mode="condense"
    )
 
 The script also prints the maximum axial displacement at ``x = xmax`` and compares

@@ -37,6 +37,12 @@ Iterative
 .. autofunction:: fluxfem.solver.cg_solve
 .. autofunction:: fluxfem.solver.cg_solve_jax
 
+Block matrices
+--------------
+
+.. autofunction:: fluxfem.solver.block_diag
+.. autofunction:: fluxfem.solver.make_block_matrix
+
 Nonlinear
 ---------
 
