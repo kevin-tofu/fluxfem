@@ -1,7 +1,7 @@
 Hyper-Elasticity: Hyperelastic Cantilever
 =========================================
 
-This tutorial summarizes ``tutorials/neo_hookean_cantilever_simplified.py`` and
+This tutorial summarizes ``tutorials/neo_hookean_cantilever.py`` and
 explains the nonlinear formulation, loads, and solver flow used for a 3D
 Neo-Hookean cantilever.
 
@@ -10,7 +10,7 @@ Run the example
 
 .. code-block:: bash
 
-   python tutorials/neo_hookean_cantilever_simplified.py
+   python tutorials/neo_hookean_cantilever.py
 
 Problem statement
 ^^^^^^^^^^^^^^^^^
@@ -88,17 +88,18 @@ Surface traction on ``x = xmax``:
 
 .. code-block:: python
 
-   dir_dofs = mesh.boundary_dofs_where(
+   dir_dofs = ff.DirichletBC.from_boundary_dofs(
+       mesh,
        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
        components="xyz",
-   )
+   ).dofs
 
 4) Nonlinear analysis and Newton solve
 """"""""""""""""""""""""""""""""""""""
 
 FluxFEM provides a nonlinear analysis wrapper and a Newton loop. The residual can be
 expressed as a weak-form function (conceptually), and then assembled per element.
-The simplified script uses the built-in ``ff.neo_hookean_residual_form`` internally,
+The script uses the built-in ``ff.neo_hookean_residual_form`` internally,
 but the weak-form mapping looks like this (PK2 form):
 
 .. code-block:: python

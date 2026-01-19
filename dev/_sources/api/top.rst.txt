@@ -30,6 +30,10 @@ Solvers
 -------
 
 .. autoclass:: fluxfem.LinearSolver
+   :no-index:
 .. autoclass:: fluxfem.NonlinearSolver
+   :no-index:
 .. autoclass:: fluxfem.NonlinearAnalysis
+   :no-index:
 .. autoclass:: fluxfem.NewtonSolveRunner
+   :no-index:
