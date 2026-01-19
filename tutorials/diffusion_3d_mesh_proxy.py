@@ -45,15 +45,6 @@ def exact_grad(x_q: jnp.ndarray) -> jnp.ndarray:
     return jnp.stack([gx, gy, gz], axis=-1)
 
 
-def apply_dirichlet_dense_jax(K, F, dofs, vals):
-    F_mod = F - K[:, dofs] @ vals
-    K_mod = K.at[:, dofs].set(0.0)
-    K_mod = K_mod.at[dofs, :].set(0.0)
-    K_mod = K_mod.at[dofs, dofs].set(1.0)
-    F_mod = F_mod.at[dofs].set(vals)
-    return K_mod, F_mod
-
-
 def element_volumes(space) -> jnp.ndarray:
     ctxs = space.build_form_contexts()
 
@@ -136,7 +127,8 @@ def solve_poisson(
     K = space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense()
     rhs_form = ff.make_scalar_body_force_form(body_force)
     F = space.assemble_linear_form(rhs_form, params=None)
-    K_bc, F_bc = apply_dirichlet_dense_jax(K, F, dir_dofs, dir_vals)
+    bc = ff.DirichletBC(dir_dofs, dir_vals)
+    K_bc, F_bc = bc.enforce_system(K, F)
     u = jnp.linalg.solve(K_bc, F_bc)
     return u, space
 
@@ -185,11 +177,11 @@ def main():
     bmask = np.zeros(base_coords_np.shape[0], dtype=bool)
     bmask[bnodes] = True
     interior_mask = jnp.asarray(~bmask)
+    h = min(1.0 / args.nx, 1.0 / args.ny, 1.0 / args.nz)
 
     coords_np = base_coords_np.copy()
     if args.perturb > 0.0:
         rng = np.random.default_rng(args.seed)
-        h = min(1.0 / args.nx, 1.0 / args.ny, 1.0 / args.nz)
         delta = args.perturb * h
         noise = rng.normal(scale=delta, size=coords_np.shape)
         noise[bmask] = 0.0
@@ -231,6 +223,7 @@ def main():
     norm_true_i = norm_true[interior_mask]
     norm_proxy_i = norm_proxy[interior_mask]
     k = max(1, int(args.topk_frac * int(norm_true_i.shape[0])))
+    k = min(k, int(norm_true_i.shape[0]))
     overlap = topk_overlap(norm_true_i, norm_proxy_i, k)
 
     os.makedirs(args.outdir, exist_ok=True)

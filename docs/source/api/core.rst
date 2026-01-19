@@ -9,6 +9,7 @@ Spaces
 .. autoclass:: fluxfem.core.FESpacePytree
 .. autoclass:: fluxfem.core.MixedFESpace
 .. autoclass:: fluxfem.core.MixedProblem
+.. autoclass:: fluxfem.core.MixedBlockSystem
 
 .. autofunction:: fluxfem.core.make_space
 .. autofunction:: fluxfem.core.make_space_pytree
@@ -45,6 +46,23 @@ Example (MixedProblem)
    u0 = jnp.zeros(mixed.n_dofs)
    K = problem.assemble_jacobian(u0, return_flux_matrix=True)
    R = problem.assemble_residual(u0)
+
+Example (MixedBlockSystem)
+--------------------------
+
+.. code-block:: python
+
+   blocks = {
+       "u": {"u": Kuu, "p": Kup},
+       "p": {"u": Kpu, "p": Kpp},
+   }
+   rhs = {"u": Fu, "p": Fp}
+   constraints = {"u": (u_dofs, u_vals)}
+   system = mixed.build_block_system(blocks=blocks, rhs=rhs, constraints=constraints)
+
+   u_free = solver.solve(system.K, system.F)
+   u_full = system.expand(u_free)
+   fields = system.split(u_full)
 
 Assembly
 --------

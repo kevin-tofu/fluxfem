@@ -55,6 +55,199 @@ def _isotropic_3d_D(lam: float, mu: float, dtype) -> np.ndarray:
     )
 
 
+def _append_xla_flag(flag: str) -> None:
+    import os
+
+    existing = os.environ.get("XLA_FLAGS", "")
+    if flag in existing.split():
+        return
+    if existing:
+        os.environ["XLA_FLAGS"] = f"{existing} {flag}"
+    else:
+        os.environ["XLA_FLAGS"] = flag
+
+
+def _configure_runtime(
+    *,
+    platform: str,
+    x64: bool,
+    xla_cpu_parallelism: int | None,
+    omp_threads: int | None,
+    low_mem: bool,
+) -> tuple[str, bool, int | None]:
+    import os
+    import jax
+
+    if low_mem:
+        if platform == "auto":
+            platform = "cpu"
+        x64 = False
+        if omp_threads is None:
+            omp_threads = 1
+
+    if platform != "auto":
+        os.environ.setdefault("JAX_PLATFORMS", platform)
+        os.environ.setdefault("JAX_PLATFORM_NAME", platform)
+    if xla_cpu_parallelism is not None:
+        _append_xla_flag(f"--xla_cpu_compilation_parallelism={xla_cpu_parallelism}")
+    if omp_threads:
+        os.environ.setdefault("OMP_NUM_THREADS", str(omp_threads))
+        os.environ.setdefault("OPENBLAS_NUM_THREADS", str(omp_threads))
+        os.environ.setdefault("MKL_NUM_THREADS", str(omp_threads))
+
+    jax.config.update("jax_enable_x64", x64)
+    return platform, x64, omp_threads
+
+
+def _make_timer(timing: bool):
+    import time
+
+    timing_state = {"start": time.perf_counter(), "last": time.perf_counter()}
+
+    def _mark(label: str) -> None:
+        if not timing:
+            return
+        now = time.perf_counter()
+        elapsed = now - timing_state["last"]
+        total = now - timing_state["start"]
+        print(f"[timing] {label}: +{elapsed:.3f}s (total {total:.3f}s)", flush=True)
+        timing_state["last"] = now
+
+    return _mark
+
+
+def _solve_linear_system(
+    K_free,
+    F_free,
+    *,
+    linear_solver: str,
+    cg_tol: float,
+    cg_maxiter: int | None,
+    cg_precond: str,
+    petsc_opts: dict[str, object] | None,
+    petsc_shell_pmat: bool,
+    pmat_free=None,
+):
+    import fluxfem as ff
+
+    if linear_solver == "cg":
+        u_free, info = ff.cg_solve(
+            K_free,
+            F_free,
+            tol=cg_tol,
+            maxiter=cg_maxiter,
+            preconditioner=None if cg_precond == "none" else cg_precond,
+        )
+        return u_free, info
+    if linear_solver == "petsc_shell":
+        from fluxfem.solver.petsc import petsc_is_available, petsc_shell_solve
+
+        if not petsc_is_available():
+            raise RuntimeError("petsc4py is required for petsc_shell solver.")
+        opts = petsc_opts or {}
+        options = None
+        if (
+            opts.get("norm_type")
+            or opts.get("monitor_true_residual")
+            or opts.get("converged_reason")
+            or opts.get("monitor_short")
+        ):
+            options = {}
+            if opts.get("norm_type"):
+                options["fluxfem_ksp_norm_type"] = opts["norm_type"]
+            if opts.get("monitor_true_residual"):
+                options["fluxfem_ksp_monitor_true_residual"] = ""
+            if opts.get("converged_reason"):
+                options["fluxfem_ksp_converged_reason"] = ""
+            if opts.get("monitor_short"):
+                options["fluxfem_ksp_monitor_short"] = ""
+        u_free, info = petsc_shell_solve(
+            K_free,
+            F_free,
+            ksp_type=str(opts.get("ksp", "gmres")),
+            pc_type=str(opts.get("pc", "none")),
+            preconditioner=opts.get("precon"),
+            rtol=float(opts.get("rtol", 1e-8)),
+            atol=float(opts.get("atol", 0.0)),
+            max_it=opts.get("maxiter"),
+            pmat=pmat_free if petsc_shell_pmat else None,
+            options=options,
+            return_info=True,
+        )
+        return u_free, info
+    raise ValueError(f"Unknown linear_solver: {linear_solver}")
+
+
+def _pmat_for_shell(
+    K_free,
+    free,
+    *,
+    linear_solver: str,
+    petsc_shell_pmat: bool,
+    petsc_shell_pmat_mode: str,
+    K_block=None,
+):
+    import fluxfem as ff
+
+    if linear_solver != "petsc_shell" or not petsc_shell_pmat:
+        return None
+    if petsc_shell_pmat_mode not in ("full", "block"):
+        raise ValueError("petsc_shell_pmat_mode must be 'full' or 'block'.")
+    if petsc_shell_pmat_mode == "full":
+        return K_free
+    if K_block is None:
+        raise ValueError("K_block is required for petsc_shell_pmat_mode='block'.")
+    return ff.restrict_flux_to_free(K_block, free)
+
+
+def _solve_with_dirichlet(
+    K,
+    F,
+    bc,
+    *,
+    linear_solver: str,
+    cg_tol: float,
+    cg_maxiter: int | None,
+    cg_precond: str,
+    petsc_shell_pmat: bool,
+    petsc_shell_pmat_mode: str,
+    petsc_opts: dict[str, object] | None,
+    K_block=None,
+):
+    import jax.numpy as jnp
+    import fluxfem as ff
+
+    condensed = bc.condense_system(K, F)
+    K_free, F_free, free = bc.condense_flux(K, F)
+    F_free = jnp.asarray(F_free)
+    pmat_free = _pmat_for_shell(
+        K_free,
+        free,
+        linear_solver=linear_solver,
+        petsc_shell_pmat=petsc_shell_pmat,
+        petsc_shell_pmat_mode=petsc_shell_pmat_mode,
+        K_block=K_block,
+    )
+    if linear_solver in ("cg", "petsc_shell"):
+        u_free, info = _solve_linear_system(
+            K_free,
+            F_free,
+            linear_solver=linear_solver,
+            cg_tol=cg_tol,
+            cg_maxiter=cg_maxiter,
+            cg_precond=cg_precond,
+            petsc_opts=petsc_opts,
+            petsc_shell_pmat=petsc_shell_pmat,
+            pmat_free=pmat_free,
+        )
+        u = jnp.asarray(condensed.expand(u_free))
+    else:
+        solver = ff.LinearSolver(method=linear_solver)
+        u, info = solver.solve(K, F, dirichlet=bc, dirichlet_mode="condense")
+        u_free = jnp.asarray(u)[free]
+    return u, u_free, info, condensed, F_free, K_free
+
+
 def _export_skfem_combined_vtu(mesh_top, mesh_bot, u: np.ndarray, file_path: str) -> None:
     import meshio
     import skfem
@@ -400,111 +593,22 @@ def run_fluxfem_demo(
     return_nodes: bool = False,
     reuse_setup: bool = False,
 ) -> NitscheContactResult:
-    import os
-    import time
     import jax
     import jax.numpy as jnp
+    import os
+    import time
     import fluxfem as ff
     import fluxfem.helpers_wf as h_wf
     from fluxfem.core.weakform import einsum as wf_einsum
 
-    def _append_xla_flag(flag: str) -> None:
-        existing = os.environ.get("XLA_FLAGS", "")
-        if flag in existing.split():
-            return
-        if existing:
-            os.environ["XLA_FLAGS"] = f"{existing} {flag}"
-        else:
-            os.environ["XLA_FLAGS"] = flag
-
-    if low_mem:
-        if platform == "auto":
-            platform = "cpu"
-        x64 = False
-        if omp_threads is None:
-            omp_threads = 1
-
-    def _solve_linear_system(K_free, F_free, *, pmat_free=None):
-        if linear_solver == "cg":
-            u_free, info = ff.cg_solve(
-                K_free,
-                F_free,
-                tol=cg_tol,
-                maxiter=cg_maxiter,
-                preconditioner=None if cg_precond == "none" else cg_precond,
-            )
-            return u_free, info
-        if linear_solver == "petsc_shell":
-            from fluxfem.solver.petsc import petsc_is_available, petsc_shell_solve
-
-            if not petsc_is_available():
-                raise RuntimeError("petsc4py is required for petsc_shell solver.")
-            precon = None if petsc_shell_precon == "none" else petsc_shell_precon
-            options = None
-            if (
-                petsc_shell_norm_type
-                or petsc_shell_monitor_true_residual
-                or petsc_shell_converged_reason
-                or petsc_shell_monitor_short
-            ):
-                options = {}
-                if petsc_shell_norm_type:
-                    options["fluxfem_ksp_norm_type"] = petsc_shell_norm_type
-                if petsc_shell_monitor_true_residual:
-                    options["fluxfem_ksp_monitor_true_residual"] = ""
-                if petsc_shell_converged_reason:
-                    options["fluxfem_ksp_converged_reason"] = ""
-                if petsc_shell_monitor_short:
-                    options["fluxfem_ksp_monitor_short"] = ""
-            u_free, info = petsc_shell_solve(
-                K_free,
-                F_free,
-                ksp_type=petsc_shell_ksp,
-                pc_type=petsc_shell_pc,
-                preconditioner=precon,
-                rtol=petsc_shell_rtol,
-                atol=petsc_shell_atol,
-                max_it=petsc_shell_maxiter,
-                pmat=pmat_free if petsc_shell_pmat else None,
-                options=options,
-                return_info=True,
-            )
-            return u_free, info
-        raise ValueError(f"Unknown linear_solver: {linear_solver}")
-
-    def _scale_rows_to_match_diag(mat, target_diag):
-        diag = np.asarray(mat.diag())
-        target = np.asarray(target_diag)
-        if diag.shape != target.shape:
-            raise ValueError("pmat scaling requires matching diagonal sizes.")
-        scale = np.ones_like(target, dtype=float)
-        mask = diag != 0.0
-        scale[mask] = target[mask] / diag[mask]
-        rows = np.asarray(mat.pattern.rows, dtype=np.int64)
-        data = np.asarray(mat.data)
-        return mat.with_data(jnp.asarray(data * scale[rows]))
-
-    if platform != "auto":
-        os.environ.setdefault("JAX_PLATFORMS", platform)
-        os.environ.setdefault("JAX_PLATFORM_NAME", platform)
-    if xla_cpu_parallelism is not None:
-        _append_xla_flag(f"--xla_cpu_compilation_parallelism={xla_cpu_parallelism}")
-    if omp_threads:
-        os.environ.setdefault("OMP_NUM_THREADS", str(omp_threads))
-        os.environ.setdefault("OPENBLAS_NUM_THREADS", str(omp_threads))
-        os.environ.setdefault("MKL_NUM_THREADS", str(omp_threads))
-
-    jax.config.update("jax_enable_x64", x64)
-    timing_state = {"start": time.perf_counter(), "last": time.perf_counter()}
-
-    def _mark(label: str) -> None:
-        if not timing:
-            return
-        now = time.perf_counter()
-        elapsed = now - timing_state["last"]
-        total = now - timing_state["start"]
-        print(f"[timing] {label}: +{elapsed:.3f}s (total {total:.3f}s)", flush=True)
-        timing_state["last"] = now
+    _configure_runtime(
+        platform=platform,
+        x64=x64,
+        xla_cpu_parallelism=xla_cpu_parallelism,
+        omp_threads=omp_threads,
+        low_mem=low_mem,
+    )
+    _mark = _make_timer(timing)
 
     def _mesh_spacing(box):
         return box.lx / box.nx, box.ly / box.ny, box.lz / box.nz
@@ -713,9 +817,6 @@ def run_fluxfem_demo(
                 pass
         _mark("K_contact assemble (2nd)")
 
-    K_block = ff.block_diag_flux(K1, K2)
-    K = ff.concat_flux(K_block, K_contact, n_dofs=K_block.n_dofs)
-
     force_surface = ff.SurfaceMesh.from_facets(mesh_top.coords, force_facets_top)
     area = float(np.sum(force_surface.facet_areas()))
     pressure = params.total_force / area
@@ -725,41 +826,52 @@ def run_fluxfem_demo(
         n_total_nodes=mesh_top.n_nodes,
     )
     bot_F = np.zeros(space_bot.n_dofs, dtype=float)
-    F = np.hstack([top_F, bot_F])
 
+    system_full = ff.build_block_system(
+        diag=[K1, K2],
+        add_contiguous=K_contact,
+        rhs=[top_F, bot_F],
+    )
+    K = system_full.K
+    F = system_full.F
+    K_block = None
+    if petsc_shell_pmat and petsc_shell_pmat_mode == "block":
+        K_block = ff.block_diag_flux(K1, K2)
+
+    n_top = int(space_top.n_dofs)
     dir_dofs_bot = mesh_bot.boundary_dofs_plane(axis=2, value=-0.5, dof_per_node=3)
-    dir_dofs = dir_dofs_bot + space_top.n_dofs
-    dir_vals = np.zeros(dir_dofs.shape[0], dtype=float)
-
-    n_total = int(K.n_dofs)
-    dir_dofs = np.asarray(dir_dofs, dtype=int)
-    free_mask = np.ones(n_total, dtype=bool)
-    free_mask[dir_dofs] = False
-    free = np.nonzero(free_mask)[0]
-    free_j = jnp.asarray(free)
-    dir_vals_j = jnp.asarray(dir_vals)
-
+    dir_dofs = dir_dofs_bot + n_top
+    bc = ff.DirichletBC(dir_dofs, 0.0)
+    petsc_opts = None
+    if linear_solver == "petsc_shell":
+        petsc_opts = {
+            "ksp": petsc_shell_ksp,
+            "pc": petsc_shell_pc,
+            "precon": None if petsc_shell_precon == "none" else petsc_shell_precon,
+            "rtol": petsc_shell_rtol,
+            "atol": petsc_shell_atol,
+            "maxiter": petsc_shell_maxiter,
+            "norm_type": petsc_shell_norm_type,
+            "monitor_true_residual": petsc_shell_monitor_true_residual,
+            "converged_reason": petsc_shell_converged_reason,
+            "monitor_short": petsc_shell_monitor_short,
+        }
+    u, u_free, info, condensed, F_free, K_free = _solve_with_dirichlet(
+        K,
+        F,
+        bc,
+        linear_solver=linear_solver,
+        cg_tol=cg_tol,
+        cg_maxiter=cg_maxiter,
+        cg_precond=cg_precond,
+        petsc_shell_pmat=petsc_shell_pmat,
+        petsc_shell_pmat_mode=petsc_shell_pmat_mode,
+        petsc_opts=petsc_opts,
+        K_block=K_block,
+    )
     F_j = jnp.asarray(F)
-    if np.all(dir_vals == 0.0):
-        F_free = F_j[free_j]
-    else:
-        u_dir = jnp.zeros(n_total, dtype=F_j.dtype).at[dir_dofs].set(dir_vals_j)
-        F_free = (F_j - K.matvec(u_dir))[free_j]
+    n_total = int(condensed.n_dofs)
     _mark("apply dirichlet")
-
-    K_free = ff.restrict_flux_to_free(K, free)
-    pmat_free = None
-    if linear_solver == "petsc_shell" and petsc_shell_pmat:
-        if petsc_shell_pmat_mode not in ("full", "block", "block_diag_match"):
-            raise ValueError("petsc_shell_pmat_mode must be 'full', 'block', or 'block_diag_match'.")
-        if petsc_shell_pmat_mode == "full":
-            pmat_free = K_free
-        elif petsc_shell_pmat_mode == "block":
-            K_block_free = ff.restrict_flux_to_free(K_block, free)
-            pmat_free = K_block_free
-        else:
-            K_block_free = ff.restrict_flux_to_free(K_block, free)
-            pmat_free = _scale_rows_to_match_diag(K_block_free, K_free.diag())
     _mark("build K_free")
 
     mv_free = jax.jit(K_free.matvec)
@@ -775,12 +887,7 @@ def run_fluxfem_demo(
         b = jnp.vdot(y, mv_free(x))
         denom = jnp.abs(a) + 1e-30
         print("symmetry ratio =", float(jnp.abs(a - b) / denom))
-    u_free, info = _solve_linear_system(K_free, F_free, pmat_free=pmat_free)
     _mark("cg solve")
-
-    u = jnp.zeros(n_total, dtype=u_free.dtype).at[free_j].set(u_free)
-    if not np.all(dir_vals == 0.0):
-        u = u.at[dir_dofs].set(dir_vals_j)
     F_from_U = mv_free(u_free)
     F_pred_full = K.matvec(u)
     residual_full = F_pred_full - F_j
@@ -891,49 +998,18 @@ def run_fluxfem_oneside_demo(
     verbose: bool = True,
     return_nodes: bool = False,
 ) -> NitscheContactResult:
-    import os
-    import time
     import jax
     import jax.numpy as jnp
     import fluxfem as ff
 
-    def _append_xla_flag(flag: str) -> None:
-        existing = os.environ.get("XLA_FLAGS", "")
-        if flag in existing.split():
-            return
-        if existing:
-            os.environ["XLA_FLAGS"] = f"{existing} {flag}"
-        else:
-            os.environ["XLA_FLAGS"] = flag
-
-    if low_mem:
-        if platform == "auto":
-            platform = "cpu"
-        x64 = False
-        if omp_threads is None:
-            omp_threads = 1
-
-    if platform != "auto":
-        os.environ.setdefault("JAX_PLATFORMS", platform)
-        os.environ.setdefault("JAX_PLATFORM_NAME", platform)
-    if xla_cpu_parallelism is not None:
-        _append_xla_flag(f"--xla_cpu_compilation_parallelism={xla_cpu_parallelism}")
-    if omp_threads:
-        os.environ.setdefault("OMP_NUM_THREADS", str(omp_threads))
-        os.environ.setdefault("OPENBLAS_NUM_THREADS", str(omp_threads))
-        os.environ.setdefault("MKL_NUM_THREADS", str(omp_threads))
-
-    jax.config.update("jax_enable_x64", x64)
-    timing_state = {"start": time.perf_counter(), "last": time.perf_counter()}
-
-    def _mark(label: str) -> None:
-        if not timing:
-            return
-        now = time.perf_counter()
-        elapsed = now - timing_state["last"]
-        total = now - timing_state["start"]
-        print(f"[timing] {label}: +{elapsed:.3f}s (total {total:.3f}s)", flush=True)
-        timing_state["last"] = now
+    _configure_runtime(
+        platform=platform,
+        x64=x64,
+        xla_cpu_parallelism=xla_cpu_parallelism,
+        omp_threads=omp_threads,
+        low_mem=low_mem,
+    )
+    _mark = _make_timer(timing)
 
     if timing:
         _mark("start")
@@ -1029,8 +1105,6 @@ def run_fluxfem_oneside_demo(
         )
         _mark("K_contact assemble (2nd)")
 
-    K = ff.block_diag_flux(K1, K2)
-
     force_surface = ff.SurfaceMesh.from_facets(mesh_top.coords, force_facets_top)
     area = float(np.sum(force_surface.facet_areas()))
     pressure = params.total_force / area
@@ -1041,35 +1115,34 @@ def run_fluxfem_oneside_demo(
     )
     top_F = np.asarray(top_F) + np.asarray(f_contact)
     bot_F = np.zeros(space_bot.n_dofs, dtype=float)
-    F = np.hstack([top_F, bot_F])
+    system_full = ff.build_block_system(
+        diag=[K1, K2],
+        rhs=[top_F, bot_F],
+    )
+    K = system_full.K
+    F = system_full.F
 
+    n_top = int(space_top.n_dofs)
     dir_dofs_bot = mesh_bot.boundary_dofs_plane(axis=2, value=-0.5, dof_per_node=3)
-    dir_dofs = dir_dofs_bot + space_top.n_dofs
-    dir_vals = np.zeros(dir_dofs.shape[0], dtype=float)
-
-    n_total = int(K.n_dofs)
-    dir_dofs = np.asarray(dir_dofs, dtype=int)
-    free_mask = np.ones(n_total, dtype=bool)
-    free_mask[dir_dofs] = False
-    free = np.nonzero(free_mask)[0]
-    free_j = jnp.asarray(free)
-    dir_vals_j = jnp.asarray(dir_vals)
-
+    dir_dofs = dir_dofs_bot + n_top
+    bc = ff.DirichletBC(dir_dofs, 0.0)
+    linear_solver = "cg"
+    u, u_free, info, condensed, F_free, K_free = _solve_with_dirichlet(
+        K,
+        F,
+        bc,
+        linear_solver=linear_solver,
+        cg_tol=cg_tol,
+        cg_maxiter=cg_maxiter,
+        cg_precond=cg_precond,
+        petsc_shell_pmat=False,
+        petsc_shell_pmat_mode="full",
+        petsc_opts=None,
+        K_block=None,
+    )
     F_j = jnp.asarray(F)
-    if np.all(dir_vals == 0.0):
-        F_free = F_j[free_j]
-    else:
-        u_dir = jnp.zeros(n_total, dtype=F_j.dtype).at[dir_dofs].set(dir_vals_j)
-        F_free = (F_j - K.matvec(u_dir))[free_j]
+    n_total = int(condensed.n_dofs)
     _mark("apply dirichlet")
-
-    K_free = ff.restrict_flux_to_free(K, free)
-    pmat_free = None
-    if linear_solver == "petsc_shell" and petsc_shell_pmat:
-        if petsc_shell_pmat_mode not in ("full", "block", "block_diag_match"):
-            raise ValueError("petsc_shell_pmat_mode must be 'full', 'block', or 'block_diag_match'.")
-        # One-sided contact folds the contact term into K1; fall back to full pmat.
-        pmat_free = K_free
     _mark("build K_free")
 
     mv_free = jax.jit(K_free.matvec)
@@ -1085,12 +1158,7 @@ def run_fluxfem_oneside_demo(
         b = jnp.vdot(y, mv_free(x))
         denom = jnp.abs(a) + 1e-30
         print("symmetry ratio =", float(jnp.abs(a - b) / denom))
-    u_free, info = _solve_linear_system(K_free, F_free, pmat_free=pmat_free)
     _mark("cg solve")
-
-    u = jnp.zeros(n_total, dtype=u_free.dtype).at[free_j].set(u_free)
-    if not np.all(dir_vals == 0.0):
-        u = u.at[dir_dofs].set(dir_vals_j)
     F_from_U = mv_free(u_free)
     F_pred_full = K.matvec(u)
     residual_full = F_pred_full - F_j

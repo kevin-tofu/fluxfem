@@ -4,8 +4,7 @@ from typing import Protocol
 import jax
 import jax.numpy as jnp
 import numpy as np
-from .dtypes import DEFAULT_DTYPE as _FDTYPE
-# from .dtypes import DEFAULT_DTYPE
+from .dtypes import default_dtype
 
 
 def build_B_matrices(dN_dx: jnp.ndarray) -> jnp.ndarray:
@@ -271,6 +270,7 @@ class TetLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
 
     @property
     def ref_node_coords(self) -> jnp.ndarray:
+        dtype = default_dtype()
         return jnp.array(
             [
                 [0.0, 0.0, 0.0],
@@ -278,7 +278,7 @@ class TetLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
                 [0.0, 1.0, 0.0],
                 [0.0, 0.0, 1.0],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
 
     def shape_functions(self) -> jnp.ndarray:
@@ -294,6 +294,7 @@ class TetLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
 
     def shape_grads_ref(self) -> jnp.ndarray:
         # constant gradients in reference tetra
+        dtype = default_dtype()
         dN = jnp.array(
             [
                 [-1.0, -1.0, -1.0],
@@ -301,7 +302,7 @@ class TetLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
                 [0.0, 1.0, 0.0],
                 [0.0, 0.0, 1.0],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
         dN = jnp.tile(dN[None, :, :], (self.n_q, 1, 1))  # (n_q,4,3)
         return dN
@@ -446,6 +447,7 @@ class HexTriLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
         6: ( 1, 1, 1)
         7: (-1, 1, 1)
         """
+        dtype = default_dtype()
         return jnp.array(
             [
                 [-1.0, -1.0, -1.0],
@@ -457,7 +459,7 @@ class HexTriLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
                 [ 1.0,  1.0,  1.0],
                 [-1.0,  1.0,  1.0],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
 
     # ---------- reference shape functions & gradients ----------
@@ -581,6 +583,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
 
     @property
     def ref_node_coords(self) -> jnp.ndarray:
+        dtype = default_dtype()
         corners = jnp.array(
             [
                 [-1.0, -1.0, -1.0],
@@ -592,7 +595,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
                 [ 1.0,  1.0,  1.0],
                 [-1.0,  1.0,  1.0],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
         edges = jnp.array(
             [
@@ -609,7 +612,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
                 [ 1.0,  1.0,  0.0],  # 2-6
                 [-1.0,  1.0,  0.0],  # 3-7
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
         return jnp.concatenate([corners, edges], axis=0)  # (20,3)
 
@@ -620,6 +623,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
         zeta = qp[:, 2:3]
 
         # corners
+        dtype = default_dtype()
         s = jnp.array(
             [
                 [-1, -1, -1],
@@ -631,7 +635,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
                 [ 1,  1,  1],
                 [-1,  1,  1],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
         sx = s[:, 0]
         sy = s[:, 1]
@@ -672,6 +676,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
         eta = qp[:, 1:2]
         zeta = qp[:, 2:3]
 
+        dtype = default_dtype()
         s = jnp.array(
             [
                 [-1, -1, -1],
@@ -683,7 +688,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
                 [ 1,  1,  1],
                 [-1,  1,  1],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
         sx = s[:, 0]
         sy = s[:, 1]
@@ -858,7 +863,8 @@ def _gauss_legendre_1d(order: int) -> tuple[jnp.ndarray, jnp.ndarray]:
     if order <= 0:
         raise ValueError("quadrature order must be positive")
     pts, wts = np.polynomial.legendre.leggauss(order)
-    return jnp.array(pts, dtype=_FDTYPE), jnp.array(wts, dtype=_FDTYPE)
+    dtype = default_dtype()
+    return jnp.array(pts, dtype=dtype), jnp.array(wts, dtype=dtype)
 
 
 def _gl_points_for_degree(degree: int) -> int:
@@ -877,10 +883,12 @@ def _tet_quadrature(degree: int) -> tuple[jnp.ndarray, jnp.ndarray]:
     degree<=1: 1-point; degree<=2: 4-point; degree>=3: 5-point (Stroud T3-5).
     """
     if degree <= 1:
-        qp = jnp.array([[0.25, 0.25, 0.25]], dtype=_FDTYPE)
-        qw = jnp.array([1.0 / 6.0], dtype=_FDTYPE)
+        dtype = default_dtype()
+        qp = jnp.array([[0.25, 0.25, 0.25]], dtype=dtype)
+        qw = jnp.array([1.0 / 6.0], dtype=dtype)
         return qp, qw
     if degree <= 2:
+        dtype = default_dtype()
         qp = jnp.array(
             [
                 [0.58541020, 0.13819660, 0.13819660],
@@ -888,11 +896,12 @@ def _tet_quadrature(degree: int) -> tuple[jnp.ndarray, jnp.ndarray]:
                 [0.13819660, 0.13819660, 0.58541020],
                 [0.13819660, 0.13819660, 0.13819660],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
-        qw = jnp.full((4,), (1.0 / 24.0), dtype=_FDTYPE)
+        qw = jnp.full((4,), (1.0 / 24.0), dtype=dtype)
         return qp, qw
     # degree 3 rule: centroid + 4 symmetric points
+    dtype = default_dtype()
     qp = jnp.array(
         [
             [0.25, 0.25, 0.25],
@@ -901,11 +910,11 @@ def _tet_quadrature(degree: int) -> tuple[jnp.ndarray, jnp.ndarray]:
             [1.0 / 6.0, 1.0 / 6.0, 0.50],
             [1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0],
         ],
-        dtype=_FDTYPE,
+        dtype=dtype,
     )
     qw = jnp.array(
         [-2.0 / 15.0, 3.0 / 40.0, 3.0 / 40.0, 3.0 / 40.0, 3.0 / 40.0],
-        dtype=_FDTYPE,
+        dtype=dtype,
     )
     return qp, qw
 

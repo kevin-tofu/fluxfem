@@ -9,90 +9,47 @@ import fluxfem.helpers_wf as h_wf
 from fluxfem.core.weakform import einsum as wf_einsum
 from fluxfem.mesh import mortar as mortar_mod
 from fluxfem.solver.bc import facet_normals
+from tutorials._contact_compare_utils import (
+    build_fluxfem_contact_space,
+    build_fluxfem_surface_mesh,
+    fluxfem_mesh_for,
+    tet4_coords,
+)
 
 jax.config.update("jax_enable_x64", True)
+def _facet_area(nodes: np.ndarray, coords_local: np.ndarray) -> float:
+    n = int(len(nodes))
+    if n == 3:
+        pts = coords_local[nodes]
+        return mortar_mod.tri_area(pts[0], pts[1], pts[2])
+    if n == 4:
+        pts = coords_local[nodes]
+        return mortar_mod.tri_area(pts[0], pts[1], pts[2]) + mortar_mod.tri_area(pts[0], pts[2], pts[3])
+    if n == 8:
+        corner = nodes[:4]
+        pts = coords_local[corner]
+        return mortar_mod.tri_area(pts[0], pts[1], pts[2]) + mortar_mod.tri_area(pts[0], pts[2], pts[3])
+    if n == 9:
+        corner = nodes[[0, 2, 8, 6]]
+        pts = coords_local[corner]
+        return mortar_mod.tri_area(pts[0], pts[1], pts[2]) + mortar_mod.tri_area(pts[0], pts[2], pts[3])
+    pts = coords_local[nodes]
+    area = 0.0
+    p0 = pts[0]
+    for i in range(1, len(pts) - 1):
+        area += mortar_mod.tri_area(p0, pts[i], pts[i + 1])
+    return float(area)
 
 
-def _build_hex_facets(conn: np.ndarray, order: int) -> np.ndarray:
-    elem = conn[0]
-    if order == 1:
-        pattern = (0, 1, 2, 3)
-    elif order == 2:
-        pattern = (0, 8, 1, 9, 2, 10, 3, 11)
-    elif order == 3:
-        pattern = (0, 1, 2, 3, 4, 5, 6, 7, 8)
-    else:
-        raise ValueError("order must be 1, 2, or 3")
-    return np.array([[int(elem[i]) for i in pattern]], dtype=int)
-
-
-def _build_tet_facets(conn: np.ndarray, order: int) -> np.ndarray:
-    elem = conn[0]
-    if order == 1:
-        pattern = (0, 1, 2)
-    elif order == 2:
-        pattern = (0, 1, 2)
-    else:
-        raise ValueError("order must be 1 or 2")
-    return np.array([[int(elem[i]) for i in pattern]], dtype=int)
-
-
-def _tet4_coords() -> np.ndarray:
-    return np.array(
-        [
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ],
-        dtype=float,
-    )
-
-
-def _tet10_coords() -> np.ndarray:
-    p = _tet4_coords()
-    n0, n1, n2, n3 = p
-    n01 = 0.5 * (n0 + n1)
-    n12 = 0.5 * (n1 + n2)
-    n02 = 0.5 * (n0 + n2)
-    n03 = 0.5 * (n0 + n3)
-    n13 = 0.5 * (n1 + n3)
-    n23 = 0.5 * (n2 + n3)
-    return np.array([n0, n1, n2, n3, n01, n12, n02, n03, n13, n23], dtype=float)
-
-
-def _fluxfem_mesh_for(elem: str) -> tuple[np.ndarray, np.ndarray, int]:
-    if elem == "hex8":
-        mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, order=1).build()
-        return np.asarray(mesh.coords, dtype=float), np.asarray(mesh.conn, dtype=int), 1
-    if elem == "hex27":
-        mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, order=3).build()
-        return np.asarray(mesh.coords, dtype=float), np.asarray(mesh.conn, dtype=int), 3
-    if elem == "tet4":
-        coords = _tet4_coords()
-        conn = np.array([[0, 1, 2, 3]], dtype=int)
-        return coords, conn, 1
-    if elem == "tet10":
-        coords = _tet10_coords()
-        conn = np.array([[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]], dtype=int)
-        return coords, conn, 2
-    raise ValueError(f"unsupported element: {elem}")
-
-
-def _build_fluxfem_surface_mesh(elem: str):
-    coords, conn, order = _fluxfem_mesh_for(elem)
-    if elem.startswith("hex"):
-        facets = _build_hex_facets(conn, order)
-    else:
-        facets = _build_tet_facets(conn, order)
-    surf_a = ff.SurfaceMesh.from_facets(coords, facets)
-    surf_b = ff.SurfaceMesh.from_facets(coords, facets)
-    sm = ff.build_surface_supermesh(surf_a, surf_b)
-    return coords, surf_a, surf_b, sm
+def _surface_arrays(surface: ff.SurfaceMesh) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    coords = np.asarray(surface.coords, dtype=float)
+    facets = np.asarray(surface.conn, dtype=int)
+    normals = facet_normals(surface, outward_from=np.mean(coords, axis=0), normalize=True)
+    return coords, facets, normals
 
 
 def _diag_contact_surface(elem: str, quad_order: int, *, verbose: bool) -> None:
-    coords, surf_a, surf_b, sm = _build_fluxfem_surface_mesh(elem)
+    coords, surf_a, surf_b, sm = build_fluxfem_surface_mesh(elem)
     if sm.conn.shape[0] == 0:
         print(f"[diag][{elem}] supermesh empty; check facet intersection")
         return
@@ -100,35 +57,8 @@ def _diag_contact_surface(elem: str, quad_order: int, *, verbose: bool) -> None:
         quad_order = 5
 
     quad_pts, quad_w = mortar_mod.tri_quadrature(quad_order)
-    coords_a = np.asarray(surf_a.coords, dtype=float)
-    coords_b = np.asarray(surf_b.coords, dtype=float)
-    facets_a = np.asarray(surf_a.conn, dtype=int)
-    facets_b = np.asarray(surf_b.conn, dtype=int)
-    normals_a = facet_normals(surf_a, outward_from=np.mean(coords_a, axis=0), normalize=True)
-    normals_b = facet_normals(surf_b, outward_from=np.mean(coords_b, axis=0), normalize=True)
-
-    def _facet_area(nodes: np.ndarray, coords_local: np.ndarray) -> float:
-        n = int(len(nodes))
-        if n == 3:
-            pts = coords_local[nodes]
-            return mortar_mod.tri_area(pts[0], pts[1], pts[2])
-        if n == 4:
-            pts = coords_local[nodes]
-            return mortar_mod.tri_area(pts[0], pts[1], pts[2]) + mortar_mod.tri_area(pts[0], pts[2], pts[3])
-        if n == 8:
-            corner = nodes[:4]
-            pts = coords_local[corner]
-            return mortar_mod.tri_area(pts[0], pts[1], pts[2]) + mortar_mod.tri_area(pts[0], pts[2], pts[3])
-        if n == 9:
-            corner = nodes[[0, 2, 8, 6]]
-            pts = coords_local[corner]
-            return mortar_mod.tri_area(pts[0], pts[1], pts[2]) + mortar_mod.tri_area(pts[0], pts[2], pts[3])
-        pts = coords_local[nodes]
-        area = 0.0
-        p0 = pts[0]
-        for i in range(1, len(pts) - 1):
-            area += mortar_mod.tri_area(p0, pts[i], pts[i + 1])
-        return float(area)
+    coords_a, facets_a, normals_a = _surface_arrays(surf_a)
+    coords_b, facets_b, normals_b = _surface_arrays(surf_b)
 
     area_scale = float(os.getenv("FLUXFEM_SMALL_TRI_EPS_SCALE", "1e-14"))
     facet_area_a = np.array([_facet_area(fa, coords_a) for fa in facets_a], dtype=float)
@@ -219,7 +149,7 @@ def _diag_contact_surface(elem: str, quad_order: int, *, verbose: bool) -> None:
 
 
 def _hex27_param_data():
-    coords_ff, surf_a, _surf_b, _sm = _build_fluxfem_surface_mesh("hex27")
+    coords_ff, surf_a, _surf_b, _sm = build_fluxfem_surface_mesh("hex27")
     facet_nodes = np.asarray(surf_a.conn[0], dtype=int)
     facet_coords = coords_ff[facet_nodes]
     corner_coords = facet_coords[[0, 2, 8, 6]]
@@ -600,7 +530,7 @@ def _diag_hex27_quad_compare(quad_order: int) -> None:
         print(f"[diag][hex27][quad] skfem not available: {exc}")
         return
 
-    coords, surf_a, _surf_b, sm = _build_fluxfem_surface_mesh("hex27")
+    coords, surf_a, _surf_b, sm = build_fluxfem_surface_mesh("hex27")
     if sm.conn.shape[0] == 0:
         print("[diag][hex27][quad] supermesh empty")
         return
@@ -678,8 +608,8 @@ def _diag_hex27_volumeN_compare(quad_order: int) -> None:
         print(f"[diag][hex27][volN] skfem not available: {exc}")
         return
 
-    coords_ff, surf_a, _surf_b, sm = _build_fluxfem_surface_mesh("hex27")
-    elem_conn = np.asarray(_fluxfem_mesh_for("hex27")[1], dtype=int)[0]
+    coords_ff, surf_a, _surf_b, sm = build_fluxfem_surface_mesh("hex27")
+    elem_conn = np.asarray(fluxfem_mesh_for("hex27")[1], dtype=int)[0]
     elem_coords = coords_ff[elem_conn]
     if sm.conn.shape[0] == 0:
         print("[diag][hex27][volN] supermesh empty")
@@ -716,7 +646,7 @@ def _diag_hex27_sigma(*, verbose: bool) -> None:
         print(f"[diag][hex27][sigma] skfem not available: {exc}")
         return
 
-    coords_ff, _conn_ff, _order = _fluxfem_mesh_for("hex27")
+    coords_ff, _conn_ff, _order = fluxfem_mesh_for("hex27")
     mesh_ff = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, order=3).build()
     elem_conn = np.asarray(mesh_ff.conn)[0]
     elem_coords = np.asarray(mesh_ff.coords)[elem_conn]
@@ -749,6 +679,10 @@ def _diag_hex27_sigma(*, verbose: bool) -> None:
     for d in range(3):
         interp_fns.append(basis_sf.interpolator(u_sf[:, d]))
 
+    def _interp_scalar(fn, point: np.ndarray) -> float:
+        val = fn(point[:, None])
+        return float(np.asarray(val).reshape(-1)[0])
+
     def _grad_sf(point: np.ndarray) -> np.ndarray:
         eps = 1e-6
         grad = np.zeros((3, 3), dtype=float)
@@ -758,16 +692,16 @@ def _diag_hex27_sigma(*, verbose: bool) -> None:
             x_fwd[a] += eps
             x_bwd[a] -= eps
             for comp in range(3):
-                f0 = float(interp_fns[comp](point[:, None]))
+                f0 = _interp_scalar(interp_fns[comp], point)
                 if x_bwd[a] < bounds_min[a]:
-                    f_fwd = float(interp_fns[comp](x_fwd[:, None]))
+                    f_fwd = _interp_scalar(interp_fns[comp], x_fwd)
                     grad[comp, a] = (f_fwd - f0) / eps
                 elif x_fwd[a] > bounds_max[a]:
-                    f_bwd = float(interp_fns[comp](x_bwd[:, None]))
+                    f_bwd = _interp_scalar(interp_fns[comp], x_bwd)
                     grad[comp, a] = (f0 - f_bwd) / eps
                 else:
-                    f_fwd = float(interp_fns[comp](x_fwd[:, None]))
-                    f_bwd = float(interp_fns[comp](x_bwd[:, None]))
+                    f_fwd = _interp_scalar(interp_fns[comp], x_fwd)
+                    f_bwd = _interp_scalar(interp_fns[comp], x_bwd)
                     grad[comp, a] = (f_fwd - f_bwd) / (2.0 * eps)
         return grad
 
@@ -849,19 +783,8 @@ def build_fluxfem_contact(
     normal_sign: float | None,
     quad_order: int,
 ) -> np.ndarray:
-    coords, conn, order = _fluxfem_mesh_for(elem)
-    if elem.startswith("hex"):
-        facets = _build_hex_facets(conn, order)
-    else:
-        facets = _build_tet_facets(conn, order)
-
-    surf_a = ff.SurfaceMesh.from_facets(coords, facets)
-    surf_b = ff.SurfaceMesh.from_facets(coords, facets)
-    side_a = ff.ContactSide.from_surfaces(surf_a, elem_conn=conn, value_dim=3)
-    side_b = ff.ContactSide.from_surfaces(surf_b, elem_conn=conn, value_dim=3)
-    contact = ff.ContactSurfaceSpace.from_sides(
-        side_a,
-        side_b,
+    coords, conn, contact = build_fluxfem_contact_space(
+        elem,
         quad_order=quad_order,
         normal_sign=normal_sign,
     )
@@ -936,14 +859,14 @@ def build_skfem_contact(
         elem_s = ElementHex2()
         trace_type = skfem.MeshQuad
     elif elem == "tet4":
-        coords = _tet4_coords()
+        coords = tet4_coords()
         conn = np.array([[0, 1, 2, 3]], dtype=int)
         mesh_a = MeshTet(coords.T, conn.T)
         mesh_b = MeshTet(coords.T, conn.T)
         elem_s = ElementTetP1()
         trace_type = skfem.MeshTri
     elif elem == "tet10":
-        coords = _tet4_coords()
+        coords = tet4_coords()
         conn = np.array([[0, 1, 2, 3]], dtype=int)
         mesh_a = MeshTet(coords.T, conn.T)
         mesh_b = MeshTet(coords.T, conn.T)
@@ -1025,7 +948,7 @@ def build_skfem_contact(
             h_ref = float(np.asarray(h_val).mean())
     else:
         h_ref = float(np.asarray(mesh_params).mean())
-    coords_ff, _conn_ff, _order = _fluxfem_mesh_for(elem)
+    coords_ff, _conn_ff, _order = fluxfem_mesh_for(elem)
     perm_vec_a = _vector_perm_for_skfem(
         coords_ff,
         np.asarray(basis_scalar_a.doflocs),
@@ -1144,7 +1067,7 @@ if __name__ == "__main__":
                 _diag_hex27_volumeN_compare(quad_order)
             if diag_quad:
                 _diag_hex27_quad_compare(quad_order)
-            coords_hex27, _conn_hex27, _order_hex27 = _fluxfem_mesh_for("hex27")
+            coords_hex27, _conn_hex27, _order_hex27 = fluxfem_mesh_for("hex27")
         _diag_contact_surface(elem, quad_order, verbose=diag_verbose)
         for name, use_penalty, use_traction in cases:
             K_sf, h_ref = build_skfem_contact(

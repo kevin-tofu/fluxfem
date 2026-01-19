@@ -10,6 +10,7 @@ from .dtypes import INDEX_DTYPE
 from .forms import MixedFormContext, FieldPair
 from .weakform import MixedWeakForm, compile_mixed_residual, make_mixed_residuals
 from ..solver.dirichlet import DirichletBC, free_dofs
+from ..solver.sparse import FluxSparseMatrix
 from .space import FESpaceClosure
 
 
@@ -182,6 +183,44 @@ class MixedFESpace:
         vals_sorted = np.array([dof_map[d] for d in dofs_sorted], dtype=float)
         return MixedDirichletBC(dofs_sorted, vals_sorted)
 
+    def build_block_system(
+        self,
+        *,
+        diag: Mapping[str, object] | Sequence[object],
+        rel: Mapping[tuple[str, str], object] | None = None,
+        add_contiguous: object | None = None,
+        rhs: Mapping[str, object] | Sequence[object] | np.ndarray | None = None,
+        constraints=None,
+        merge: str = "check_equal",
+        format: str = "auto",
+        symmetric: bool = False,
+        transpose_rule: str = "T",
+    ):
+        """
+        Build a mixed block system and apply optional constraints.
+        """
+        from ..solver.block_system import build_block_system as _build_block_system
+
+        sizes = {name: int(self.fields[name].n_dofs) for name in self.field_names}
+
+        if isinstance(constraints, MixedDirichletBC):
+            constraints = constraints.as_dirichlet_bc()
+
+        system = _build_block_system(
+            diag=diag,
+            rel=rel,
+            add_contiguous=add_contiguous,
+            rhs=rhs,
+            constraints=constraints,
+            merge=merge,
+            sizes=sizes,
+            format=format,
+            symmetric=symmetric,
+            transpose_rule=transpose_rule,
+        )
+        bc = MixedDirichletBC(system.dirichlet.dofs, system.dirichlet.vals)
+        return MixedBlockSystem(self, system.K, system.F, free_dofs=system.free_dofs, dirichlet=bc)
+
 
 @dataclass(eq=False)
 class MixedProblem:
@@ -288,4 +327,22 @@ class MixedDirichletBC:
         return self.as_dirichlet_bc().expand_solution(u_free, free=free, n_total=n_total)
 
 
-__all__ = ["MixedFESpace", "MixedProblem", "MixedDirichletBC"]
+@dataclass(frozen=True)
+class MixedBlockSystem:
+    mixed: MixedFESpace
+    K: object
+    F: object
+    free_dofs: np.ndarray
+    dirichlet: MixedDirichletBC
+
+    def expand(self, u_free):
+        return self.dirichlet.expand_solution(u_free, free=self.free_dofs, n_total=self.mixed.n_dofs)
+
+    def split(self, u_full: jnp.ndarray) -> dict[str, jnp.ndarray]:
+        return self.mixed.unpack_fields(u_full)
+
+    def join(self, fields: Mapping[str, jnp.ndarray]) -> jnp.ndarray:
+        return self.mixed.pack_fields(fields)
+
+
+__all__ = ["MixedFESpace", "MixedProblem", "MixedDirichletBC", "MixedBlockSystem"]

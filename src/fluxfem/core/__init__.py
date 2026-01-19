@@ -17,7 +17,7 @@ from .space import (
     make_hex27_space,
     make_hex27_space_pytree,
 )
-from .mixed_space import MixedFESpace, MixedProblem, MixedDirichletBC
+from .mixed_space import MixedFESpace, MixedProblem, MixedDirichletBC, MixedBlockSystem
 from .data import MeshData, BasisData, SpaceData
 from .basis import (
     make_hex_basis,
@@ -172,6 +172,9 @@ _SOLVER_EXPORTS = {
     "coalesce_coo",
     "concat_flux",
     "block_diag_flux",
+    "build_block_system",
+    "split_block_matrix",
+    "BlockSystem",
     "DirichletBC",
     "LinearSolver",
     "NonlinearSolver",
@@ -179,7 +182,11 @@ _SOLVER_EXPORTS = {
     "petsc_shell_solve",
     "petsc_is_available",
     "enforce_dirichlet_dense",
+    "enforce_dirichlet_dense_jax",
+    "enforce_dirichlet_fluxsparse",
     "enforce_dirichlet_sparse",
+    "enforce_dirichlet_system",
+    "split_dirichlet_matrix",
     "free_dofs",
     "restrict_flux_to_free",
     "condense_dirichlet_system",
@@ -191,7 +198,6 @@ _SOLVER_EXPORTS = {
     "cg_solve_jax",
     "build_cg_operator",
     "CGOperator",
-    "make_block_jacobi_preconditioner",
     "make_block_jacobi_preconditioner",
     "NonlinearAnalysis",
     "NewtonLoopConfig",
@@ -238,6 +244,7 @@ __all__ = [
     "MixedFESpace",
     "MixedProblem",
     "MixedDirichletBC",
+    "MixedBlockSystem",
     "FormContext",
     "MixedFormContext",
     "VolumeContext",
@@ -407,7 +414,11 @@ __all__ = [
     "LinearSolver",
     "NonlinearSolver",
     "enforce_dirichlet_dense",
+    "enforce_dirichlet_dense_jax",
+    "enforce_dirichlet_fluxsparse",
     "enforce_dirichlet_sparse",
+    "enforce_dirichlet_system",
+    "split_dirichlet_matrix",
     "free_dofs",
     "restrict_flux_to_free",
     "condense_dirichlet_system",

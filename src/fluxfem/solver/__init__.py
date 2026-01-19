@@ -8,10 +8,14 @@ from .sparse import (
 from .dirichlet import (
     DirichletBC,
     enforce_dirichlet_dense,
+    enforce_dirichlet_dense_jax,
+    enforce_dirichlet_fluxsparse,
     enforce_dirichlet_sparse,
     free_dofs,
+    split_dirichlet_matrix,
     restrict_flux_to_free,
     condense_dirichlet_system,
+    enforce_dirichlet_system,
     condense_dirichlet_fluxsparse,
     condense_dirichlet_fluxsparse_coo,
     condense_dirichlet_dense,
@@ -19,6 +23,8 @@ from .dirichlet import (
 )
 from .cg import cg_solve, cg_solve_jax, build_cg_operator, CGOperator
 from .preconditioner import make_block_jacobi_preconditioner
+from .block_system import build_block_system, split_block_matrix, BlockSystem
+from .block_matrix import diag as block_diag, make as make_block_matrix
 from .newton import newton_solve
 from .solve_runner import (
     NonlinearAnalysis,
@@ -42,7 +48,11 @@ __all__ = [
     "block_diag_flux",
     "DirichletBC",
     "enforce_dirichlet_dense",
+    "enforce_dirichlet_dense_jax",
+    "enforce_dirichlet_fluxsparse",
     "enforce_dirichlet_sparse",
+    "split_dirichlet_matrix",
+    "enforce_dirichlet_system",
     "free_dofs",
     "restrict_flux_to_free",
     "condense_dirichlet_system",
@@ -55,6 +65,11 @@ __all__ = [
     "build_cg_operator",
     "CGOperator",
     "make_block_jacobi_preconditioner",
+    "build_block_system",
+    "split_block_matrix",
+    "BlockSystem",
+    "block_diag",
+    "make_block_matrix",
     "newton_solve",
     "LinearAnalysis",
     "LinearSolveConfig",

@@ -5,11 +5,11 @@ import jax
 import jax.numpy as jnp
 
 from fluxfem import (
+    DirichletBC,
     FluxSparseMatrix,
     LinearSolver,
     StructuredHexBox,
     build_cg_operator,
-    condense_dirichlet_system,
 )
 from fluxfem.tools.timer import SectionTimer
 from fluxfem.physics.operators import sym_grad
@@ -23,21 +23,18 @@ def make_structured_mesh(n: int, ny_mult: float, nz_mult: float, lx: float, ly: 
     return mesh, ny, nz
 
 
-def compute_dirichlet_dofs(mesh) -> tuple[np.ndarray, np.ndarray]:
+def compute_dirichlet_dofs(mesh) -> DirichletBC:
     coords = np.asarray(mesh.coords)
     xmin = float(coords[:, 0].min())
-    dir_dofs = mesh.boundary_dofs_where(
+    return DirichletBC.from_boundary_dofs(
+        mesh,
         lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
         components="xyz",
         dof_per_node=3,
+        values=0.0,
     )
-    dir_vals = np.zeros(len(dir_dofs), dtype=float)
-    return dir_dofs, dir_vals
 
 
-def condense_flux_dirichlet(K, F, dir_dofs, dir_vals):
-    system = condense_dirichlet_system(K, F, dir_dofs, dir_vals)
-    return system.K, system.F, system.free_dofs
 
 
 def _residual_error(K_ff, F_free, u) -> float:

@@ -435,6 +435,45 @@ class ContactSurfaceSpace:
         return obj
 
     @classmethod
+    def from_facets(
+        cls,
+        coords: np.ndarray,
+        facets: np.ndarray,
+        *,
+        elem_conn: np.ndarray | None = None,
+        value_dim: int = 1,
+        quad_order: int = 1,
+        normal_sign: float | None = None,
+        tol: float = 1e-8,
+        backend: str = "jax",
+        fd_eps: float = 1e-6,
+        fd_mode: str = "central",
+        fd_block_size: int = 1,
+        batch_jac: bool | None = None,
+        setup_cache_enabled: bool | None = None,
+        setup_cache_trace: bool | None = None,
+    ) -> "ContactSurfaceSpace":
+        surface = SurfaceMesh.from_facets(coords, facets)
+        return cls.from_surfaces(
+            surface,
+            surface,
+            elem_conn_master=elem_conn,
+            elem_conn_slave=elem_conn,
+            value_dim_master=value_dim,
+            value_dim_slave=value_dim,
+            quad_order=quad_order,
+            normal_sign=normal_sign,
+            tol=tol,
+            backend=backend,
+            fd_eps=fd_eps,
+            fd_mode=fd_mode,
+            fd_block_size=fd_block_size,
+            batch_jac=batch_jac,
+            setup_cache_enabled=setup_cache_enabled,
+            setup_cache_trace=setup_cache_trace,
+        )
+
+    @classmethod
     def from_surfaces_and_spaces(
         cls,
         surface_master: SurfaceMesh,

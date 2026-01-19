@@ -32,12 +32,28 @@ import fluxfem as ff  # noqa: E402
 import fluxfem.helpers_wf as h_wf  # noqa: E402
 from fluxfem.core.mixed_space import MixedFESpace  # noqa: E402
 from fluxfem.core.weakform import einsum  # noqa: E402
-from tutorials._thermoelastic_utils import (  # noqa: E402
-    boundary_bc_at_x,
-    build_bar_mesh,
-    default_output_path,
-    x_bounds,
-)
+
+
+def build_bar_mesh(*, nx: int, ny: int, nz: int, lx: float, ly: float, lz: float):
+    return ff.StructuredHexBox(
+        nx=nx,
+        ny=ny,
+        nz=nz,
+        lx=lx,
+        ly=ly,
+        lz=lz,
+    ).build()
+
+
+def x_bounds(mesh):
+    coords = np.asarray(mesh.coords)
+    xmin = float(coords[:, 0].min())
+    xmax = float(coords[:, 0].max())
+    return xmin, xmax, coords
+
+
+def default_output_path(filename: str) -> str:
+    return os.path.join("result", "tutorials", filename)
 
 
 def parse_args():
@@ -77,12 +93,18 @@ def main():
     mixed = MixedFESpace({"u": space, "T": space})
 
     xmin, xmax, coords = x_bounds(mesh)
-    dir_left = boundary_bc_at_x(mesh, xmin)
-    dir_right = boundary_bc_at_x(mesh, xmax)
+    left_dofs = mesh.boundary_dofs_where(
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
+        components="x",
+    )
+    right_dofs = mesh.boundary_dofs_where(
+        lambda pts: np.isclose(pts[:, 0], xmax, atol=1e-8),
+        components="x",
+    )
 
     bc = mixed.make_dirichlet(
-        u=(dir_left.dofs, None),
-        T=(np.unique(np.concatenate([dir_left.dofs, dir_right.dofs])), None),
+        u=(left_dofs, None),
+        T=(np.unique(np.concatenate([left_dofs, right_dofs])), None),
     )
 
     def res_T(v, T, p):

@@ -72,7 +72,6 @@ from fluxfem.tools.timer import SectionTimer
 from linearelastic_dof_sweep_common import (
     make_structured_mesh,
     compute_dirichlet_dofs,
-    condense_flux_dirichlet,
     make_block_jacobi_preconditioner,
     _residual_error,
     time_flux_cg_samples,
@@ -284,7 +283,7 @@ def assemble_fluxfem_case(n: int, args, dtype):
         node_tags=getattr(mesh, "node_tags", None),
     )
     space = make_hex_space(mesh, dim=3, intorder=args.intorder)
-    dir_dofs, dir_vals = compute_dirichlet_dofs(mesh)
+    bc = compute_dirichlet_dofs(mesh)
     pattern = None
 
     facets, tags = tag_axis_minmax_facets(mesh, axis=0, dirichlet_tag=1, neumann_tag=2)
@@ -438,7 +437,10 @@ def assemble_fluxfem_case(n: int, args, dtype):
     if last_K is None or last_F is None:
         raise RuntimeError("Internal error: no assembly samples collected.")
 
-    K_ff, F_free, free = condense_flux_dirichlet(last_K, last_F, dir_dofs, dir_vals)
+    condensed = bc.condense_system(last_K, last_F)
+    K_ff = condensed.K
+    F_free = condensed.F
+    free = condensed.free_dofs
 
     backend = jax.default_backend()
     solve_sps_warm = np.full((args.warmup,), np.nan, dtype=float)
@@ -451,7 +453,7 @@ def assemble_fluxfem_case(n: int, args, dtype):
             solve_sps_warm, residual_sps_warm = time_spsolve_samples(
                 last_K,
                 last_F,
-                (dir_dofs, dir_vals),
+                bc,
                 K_ff,
                 F_free,
                 free,
@@ -462,7 +464,7 @@ def assemble_fluxfem_case(n: int, args, dtype):
         solve_sps_times, residual_sps = time_spsolve_samples(
             last_K,
             last_F,
-            (dir_dofs, dir_vals),
+            bc,
             K_ff,
             F_free,
             free,

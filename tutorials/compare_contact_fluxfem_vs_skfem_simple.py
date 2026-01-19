@@ -149,14 +149,11 @@ def build_fluxfem_contact(
         facets = _build_hex_facets(conn, order)
     else:
         facets = _build_tet_facets(conn, order)
-
-    surf_a = ff.SurfaceMesh.from_facets(coords, facets)
-    surf_b = ff.SurfaceMesh.from_facets(coords, facets)
-    side_a = ff.ContactSide.from_surfaces(surf_a, elem_conn=conn, value_dim=3)
-    side_b = ff.ContactSide.from_surfaces(surf_b, elem_conn=conn, value_dim=3)
-    contact = ff.ContactSurfaceSpace.from_sides(
-        side_a,
-        side_b,
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        elem_conn=conn,
+        value_dim=3,
         quad_order=quad_order,
         normal_sign=normal_sign,
     )

@@ -45,6 +45,8 @@ class CondensedSystem:
         return u_full
 
 
+
+
 @dataclass(frozen=True)
 class DirichletBC:
     """
@@ -95,6 +97,23 @@ class DirichletBC:
     def condense_system(self, A, F, *, check: bool = True) -> CondensedSystem:
         return condense_dirichlet_system(A, F, self.dofs, self.vals, check=check)
 
+    def enforce_system(self, A, F):
+        return enforce_dirichlet_system(A, F, self.dofs, self.vals)
+
+    def condense_flux(self, A: FluxSparseMatrix, F):
+        """
+        Condense for FluxSparseMatrix and return (K_free, F_free, free_dofs).
+        """
+        condensed = self.condense_system(A, F)
+        free = condensed.free_dofs
+        return restrict_flux_to_free(A, free), condensed.F, free
+
+    def enforce_flux(self, A: FluxSparseMatrix, F):
+        return enforce_dirichlet_fluxsparse(A, F, self.dofs, self.vals)
+
+    def split_matrix(self, A, *, n_total: int | None = None):
+        return split_dirichlet_matrix(A, self.dofs, n_total=n_total)
+
     def free_dofs(self, n_dofs: int) -> np.ndarray:
         return free_dofs(n_dofs, self.dofs)
 
@@ -128,6 +147,78 @@ def enforce_dirichlet_dense(K, F, dofs, vals):
         else:
             Fc[d] = v
     return Kc, Fc
+
+
+def enforce_dirichlet_dense_jax(K, F, dofs, vals):
+    """Apply Dirichlet conditions directly to stiffness/load (dense, JAX-friendly)."""
+    import jax.numpy as jnp
+
+    dofs, vals = _normalize_dirichlet(dofs, vals)
+    dofs = jnp.asarray(dofs, dtype=jnp.int32)
+    vals = jnp.asarray(vals, dtype=F.dtype)
+    if F.ndim == 2:
+        F_mod = F - (K[:, dofs] @ vals)[:, None]
+    else:
+        F_mod = F - K[:, dofs] @ vals
+    K_mod = K.at[:, dofs].set(0.0)
+    K_mod = K_mod.at[dofs, :].set(0.0)
+    K_mod = K_mod.at[dofs, dofs].set(1.0)
+    if F.ndim == 2:
+        F_mod = F_mod.at[dofs, :].set(vals[:, None])
+    else:
+        F_mod = F_mod.at[dofs].set(vals)
+    return K_mod, F_mod
+
+
+def enforce_dirichlet_system(A, F, dofs, vals):
+    """
+    Apply Dirichlet conditions directly to stiffness/load.
+    Dispatches based on matrix type (FluxSparseMatrix, JAX dense, or numpy dense).
+    """
+    if isinstance(A, FluxSparseMatrix):
+        return enforce_dirichlet_sparse(A, F, dofs, vals)
+    try:
+        import jax.numpy as jnp
+
+        if isinstance(A, jnp.ndarray):
+            return enforce_dirichlet_dense_jax(A, F, dofs, vals)
+    except Exception:
+        pass
+    return enforce_dirichlet_dense(A, F, dofs, vals)
+
+
+def split_dirichlet_matrix(A, dir_dofs, *, n_total: int | None = None):
+    """
+    Split a matrix into free-free and free-dirichlet blocks.
+
+    Returns (free, dir_dofs, A_ff, A_fd).
+    """
+    dir_dofs, _ = _normalize_dirichlet(dir_dofs, None)
+    if n_total is None:
+        if hasattr(A, "n_dofs"):
+            n_total = int(A.n_dofs)
+        else:
+            arr = np.asarray(A)
+            if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
+                raise ValueError("A must be square when n_total is not provided.")
+            n_total = int(arr.shape[0])
+    free = free_dofs(n_total, dir_dofs)
+
+    if isinstance(A, FluxSparseMatrix):
+        if sp is None:
+            raise ImportError("scipy is required to split FluxSparseMatrix.")
+        A = A.to_csr()
+
+    if sp is not None and sp.issparse(A):
+        return free, dir_dofs, A[free][:, free], A[free][:, dir_dofs]
+
+    if isinstance(A, jnp.ndarray):
+        free_j = jnp.asarray(free, dtype=jnp.int32)
+        dir_j = jnp.asarray(dir_dofs, dtype=jnp.int32)
+        return free, dir_dofs, A[jnp.ix_(free_j, free_j)], A[jnp.ix_(free_j, dir_j)]
+
+    arr = np.asarray(A)
+    return free, dir_dofs, arr[np.ix_(free, free)], arr[np.ix_(free, dir_dofs)]
 
 
 def condense_dirichlet_system(A, F, dofs, vals, *, check: bool = True) -> CondensedSystem:
@@ -185,6 +276,8 @@ def condense_dirichlet_system(A, F, dofs, vals, *, check: bool = True) -> Conden
     )
 
 
+
+
 def enforce_dirichlet_sparse(A: FluxSparseMatrix, F, dofs, vals):
     """Apply Dirichlet conditions to FluxSparseMatrix + load (CSR)."""
     K_csr = A.to_csr().tolil()
@@ -204,6 +297,11 @@ def enforce_dirichlet_sparse(A: FluxSparseMatrix, F, dofs, vals):
         else:
             Fc[d] = v
     return K_csr.tocsr(), Fc
+
+
+def enforce_dirichlet_fluxsparse(A: FluxSparseMatrix, F, dofs, vals):
+    """Alias for enforce_dirichlet_sparse for FluxSparseMatrix inputs."""
+    return enforce_dirichlet_sparse(A, F, dofs, vals)
 
 
 def condense_dirichlet_fluxsparse(A: FluxSparseMatrix, F, dofs, vals):

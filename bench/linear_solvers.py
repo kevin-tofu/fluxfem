@@ -33,6 +33,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from fluxfem.tools.timer import SectionTimer
 from fluxfem import (  # noqa: E402
+    DirichletBC,
     FluxSparseMatrix,
     StructuredHexBox,
     isotropic_3d_D,
@@ -40,7 +41,6 @@ from fluxfem import (  # noqa: E402
     make_hex_space,
     spdirect_solve_cpu,
     spdirect_solve_jax,
-    condense_dirichlet_fluxsparse_coo,
     build_cg_operator,
 )
 
@@ -88,26 +88,16 @@ def make_structured_mesh(n: int, ny_mult: float, nz_mult: float):
     return mesh, ny, nz
 
 
-def compute_dirichlet_dofs(mesh):
+def compute_dirichlet_dofs(mesh) -> DirichletBC:
     coords = np.asarray(mesh.coords)
     xmin = float(coords[:, 0].min())
-    dir_dofs = mesh.boundary_dofs_where(
+    return DirichletBC.from_boundary_dofs(
+        mesh,
         lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
         components="xyz",
         dof_per_node=3,
+        values=0.0,
     )
-    dir_vals = np.zeros(len(dir_dofs), dtype=float)
-    return dir_dofs, dir_vals
-
-
-def condense_dirichlet(K: FluxSparseMatrix, dir_dofs, dir_vals):
-    if np.asarray(dir_vals).size and np.any(dir_vals):
-        raise NotImplementedError("Nonzero Dirichlet values not supported in this micro benchmark.")
-    F0 = np.zeros(K.n_dofs, dtype=float)
-    K_ff, _F_free, free, _dir, _vals = condense_dirichlet_fluxsparse_coo(
-        K, F0, dir_dofs, dir_vals, coalesce=True
-    )
-    return K_ff, free
 
 
 def build_flux_matrix(n: int, args) -> tuple[FluxSparseMatrix, np.ndarray]:
@@ -120,7 +110,7 @@ def build_flux_matrix(n: int, args) -> tuple[FluxSparseMatrix, np.ndarray]:
         node_tags=getattr(mesh, "node_tags", None),
     )
     space = make_hex_space(mesh, dim=3, intorder=args.intorder)
-    dir_dofs, dir_vals = compute_dirichlet_dofs(mesh)
+    bc = compute_dirichlet_dofs(mesh)
     D = isotropic_3d_D(args.E, args.nu)
 
     assemble_K = jax.jit(
@@ -132,7 +122,9 @@ def build_flux_matrix(n: int, args) -> tuple[FluxSparseMatrix, np.ndarray]:
     )
     K_full = assemble_K()
     jax.block_until_ready(K_full.data)
-    K_ff, free = condense_dirichlet(K_full, dir_dofs, dir_vals)
+    condensed = bc.condense_system(K_full, np.zeros(K_full.n_dofs, dtype=float))
+    K_ff = condensed.K
+    free = condensed.free_dofs
     return K_ff, free
 
 

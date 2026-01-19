@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .dtypes import DEFAULT_DTYPE, INDEX_DTYPE
+from .dtypes import INDEX_DTYPE, default_dtype
 from .base import BaseMesh, BaseMeshPytree
 
 
@@ -135,9 +135,10 @@ class StructuredHexBox:
             raise ValueError("order must be 1, 2, or 3")
 
         ox, oy, oz = self.origin
-        xs = jnp.linspace(ox, ox + self.lx, self.nx + 1, dtype=DEFAULT_DTYPE)
-        ys = jnp.linspace(oy, oy + self.ly, self.ny + 1, dtype=DEFAULT_DTYPE)
-        zs = jnp.linspace(oz, oz + self.lz, self.nz + 1, dtype=DEFAULT_DTYPE)
+        dtype = default_dtype()
+        xs = jnp.linspace(ox, ox + self.lx, self.nx + 1, dtype=dtype)
+        ys = jnp.linspace(oy, oy + self.ly, self.ny + 1, dtype=dtype)
+        zs = jnp.linspace(oz, oz + self.lz, self.nz + 1, dtype=dtype)
 
         if self.order == 1:
             return self._build_hex8(xs, ys, zs)
@@ -151,7 +152,7 @@ class StructuredHexBox:
             for j in range(self.ny + 1):
                 for i in range(self.nx + 1):
                     coords_list.append([xs[i], ys[j], zs[k]])
-        coords = jnp.array(coords_list, dtype=DEFAULT_DTYPE)
+        coords = jnp.array(coords_list, dtype=default_dtype())
 
         def node_id(i: int, j: int, k: int) -> int:
             return k * (self.ny + 1) * (self.nx + 1) + j * (self.nx + 1) + i
@@ -241,7 +242,7 @@ class StructuredHexBox:
                         ]
                     )
 
-        coords = jnp.array(coords_list, dtype=DEFAULT_DTYPE)
+        coords = jnp.array(coords_list, dtype=default_dtype())
         conn = jnp.array(conn_list, dtype=INDEX_DTYPE)
         return HexMesh(coords=coords, conn=conn)
 
@@ -323,6 +324,6 @@ class StructuredHexBox:
                     # order in lexicographic k,j,i -> length 27
                     conn_list.append(nodes)
 
-        coords = jnp.array(coords_list, dtype=DEFAULT_DTYPE)
+        coords = jnp.array(coords_list, dtype=default_dtype())
         conn = jnp.array(conn_list, dtype=INDEX_DTYPE)
         return HexMesh(coords=coords, conn=conn)

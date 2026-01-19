@@ -179,11 +179,8 @@ def run_backend(args, backend: str) -> dict:
     bc_free = ff.DirichletBC.from_bbox(mesh, components="x", tol=1e-8)
     n_dofs = int(space.n_dofs)
     dir_dofs = bc_free.dofs
-    free = bc_free.free_dofs(n_dofs)
-    K_ff = K_csr[free][:, free]
-    K_fd = K_csr[free][:, dir_dofs]
-    M_ff = M_csr[free][:, free]
-    M_fd = M_csr[free][:, dir_dofs]
+    free, _dir_dofs, K_ff, K_fd = bc_free.split_matrix(K_csr, n_total=n_dofs)
+    _free, _dir_dofs, M_ff, M_fd = bc_free.split_matrix(M_csr, n_total=n_dofs)
     A_ff = (M_ff / args.dt) + K_ff
     A_fd = (M_fd / args.dt) + K_fd
 

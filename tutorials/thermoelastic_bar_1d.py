@@ -31,12 +31,28 @@ jax.config.update("jax_enable_x64", True)
 import fluxfem as ff  # noqa: E402
 import fluxfem.helpers_wf as h_wf  # noqa: E402
 from fluxfem.core.assembly import assemble_linear_form  # noqa: E402
-from tutorials._thermoelastic_utils import (  # noqa: E402
-    boundary_bc_at_x,
-    build_bar_mesh,
-    default_output_path,
-    x_bounds,
-)
+
+
+def build_bar_mesh(*, nx: int, ny: int, nz: int, lx: float, ly: float, lz: float):
+    return ff.StructuredHexBox(
+        nx=nx,
+        ny=ny,
+        nz=nz,
+        lx=lx,
+        ly=ly,
+        lz=lz,
+    ).build()
+
+
+def x_bounds(mesh):
+    coords = np.asarray(mesh.coords)
+    xmin = float(coords[:, 0].min())
+    xmax = float(coords[:, 0].max())
+    return xmin, xmax, coords
+
+
+def default_output_path(filename: str) -> str:
+    return os.path.join("result", "tutorials", filename)
 
 
 def parse_args():
@@ -75,8 +91,16 @@ def main():
     space = ff.make_hex_space(mesh, dim=1, intorder=args.intorder)
 
     xmin, xmax, coords = x_bounds(mesh)
-    dir_left = boundary_bc_at_x(mesh, xmin)
-    dir_right = boundary_bc_at_x(mesh, xmax)
+    dir_left = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
+        components="x",
+    )
+    dir_right = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], xmax, atol=1e-8),
+        components="x",
+    )
     dir_temp = np.unique(np.concatenate([dir_left.dofs, dir_right.dofs]))
 
     # --- Heat solve ---
