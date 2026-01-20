@@ -32,6 +32,7 @@ where variational forms are treated as first-class, differentiable programs.
 - Weak-form–centric API that keeps formulations close to code; weak forms are represented as expression trees and compiled into element kernels, enabling automatic differentiation of residuals, tangents, and objectives.
 - Two assembly approaches: tensor-based (scikit-fem–style) assembly and weak-form-based assembly.
 - Handles both linear and nonlinear analyses with AD in JAX.
+- Optional PETSc/PETSc-shell solvers via `petsc4py` for scalable linear solves (add `fluxfem[petsc]`).
 
 ## Usage 
 

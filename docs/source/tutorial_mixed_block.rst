@@ -48,6 +48,21 @@ Related mixed tutorials:
 - `tutorials/thermoelastic_bar_1d_mixed.py`
 - `tutorials/nitsche_contact_supermesh_api.py`
 
+Mixed PDE view
+--------------
+
+The residual definitions above correspond to a coupled continuum system:
+
+.. math::
+
+   -\nabla\cdot(\kappa\,\nabla T) &= q, \\
+   -\nabla\cdot(E\,\nabla u) &= \alpha\,\nabla\cdot T.
+
+The temperature residual ``res_T`` mirrors :math:`\int_\Omega \kappa \nabla v\cdot\nabla T - v q`
+and ``res_u`` mimics :math:`\int_\Omega E \nabla v\cdot\nabla u - \alpha \nabla v\cdot T`.
+Because both weak forms live in the same ``MixedProblem``, FluxFEM assembles the full
+coupled Jacobian and RHS, including the off-diagonal coupling between ``u`` and ``T``.
+
 Block utilities (minimal)
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -90,3 +105,22 @@ tutorial scripts for full examples:
 
 - `tutorials/nitsche_contact_supermesh_api.py`
 - `tutorials/nitsche_contact_supermesh_demo_fluxfem.py`
+
+Block matrix intuition
+----------------------
+
+The assembled Jacobian from the mixed residuals can be viewed as a block operator
+
+.. math::
+
+   \begin{bmatrix}
+       K_{uu} & K_{uT} \\
+       K_{Tu} & K_{TT}
+   \end{bmatrix},
+
+where the diagonal entries come from the self-residuals (``res_u`` / ``res_T``)
+and the off-diagonal blocks arise from cross-couplings.  The block helpers above
+let you construct this matrix explicitly: ``diag`` supplies ``K_{uu}``/``K_{TT}``
+and ``rel`` inserts pairs such as ``K_{uT}``.  Passing the resulting ``blocks``
+dictionary into ``MixedFESpace.build_block_system`` makes it easy to swap in
+Schur-complement solvers, block preconditioners, or other multiphysics strategies.
