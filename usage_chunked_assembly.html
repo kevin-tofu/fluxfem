@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Usage &#8212; FluxFEM 0.1.8 documentation</title>
+    <title>Chunked Assembly &#8212; FluxFEM 0.1.8 documentation</title>
   
   
   
@@ -41,12 +41,12 @@
     <script src="_static/documentation_options.js?v=72e2dd8f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'usage';</script>
-    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/usage.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'usage_chunked_assembly';</script>
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/usage_chunked_assembly.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Assembly" href="assembly.html" />
-    <link rel="prev" title="Installation" href="installation.html" />
+    <link rel="next" title="Tutorial Page" href="tutorial.html" />
+    <link rel="prev" title="Solvers" href="solver.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -133,7 +133,7 @@
 
 
 <li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+  <a class="nav-link nav-internal" href="usage.html">
     Usage
   </a>
 </li>
@@ -249,7 +249,7 @@
 
 
 <li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+  <a class="nav-link nav-internal" href="usage.html">
     Usage
   </a>
 </li>
@@ -312,10 +312,10 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Usage</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="assembly.html">Assembly</a></li>
 <li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="usage_chunked_assembly.html">Chunked Assembly</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Chunked Assembly</a></li>
 </ul>
 </div>
 </nav></div>
@@ -356,7 +356,10 @@
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Usage</span></li>
+    
+    <li class="breadcrumb-item"><a href="usage.html" class="nav-link">Usage</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Chunked Assembly</span></li>
   </ul>
 </nav>
 </div>
@@ -373,32 +376,73 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="usage">
-<h1>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h1>
-<div class="toctree-wrapper compound">
-<p aria-level="2" class="caption" role="heading"><span class="caption-text">Usage</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="assembly.html">Assembly</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="form_context.html">FormContext and Expr Resolution</a></li>
-<li class="toctree-l2"><a class="reference internal" href="assembly_tensor.html">Tensor Assembly</a></li>
-<li class="toctree-l2"><a class="reference internal" href="assembly_weakform.html">Weak form Assembly</a></li>
+  <section id="chunked-assembly">
+<h1>Chunked Assembly<a class="headerlink" href="#chunked-assembly" title="Link to this heading">#</a></h1>
+<p>Large meshes can cause JAX to recompile a new kernel every time the global
+assembly trim of data changes (e.g., the last chunk is smaller than the
+others). Chunked assembly puts a ceiling on the per-call compilation shape by
+splitting the mesh into <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code> pieces and processing each chunk with a
+fixed-size, padded batch.</p>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#why-chunked-assembly" id="id1">Why chunked assembly?</a></p></li>
+<li><p><a class="reference internal" href="#how-to-use-n-chunks" id="id2">How to use <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code></a></p></li>
+<li><p><a class="reference internal" href="#best-practices" id="id3">Best practices</a></p></li>
 </ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="solver.html#linear-solves">Linear solves</a></li>
-<li class="toctree-l2"><a class="reference internal" href="solver.html#nonlinear-solves-newton">Nonlinear solves (Newton)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="solver.html#choosing-a-linear-solver">Choosing a linear solver</a></li>
-<li class="toctree-l2"><a class="reference internal" href="solver.html#dirichlet-handling">Dirichlet handling</a></li>
+</nav>
+<section id="why-chunked-assembly">
+<h2><a class="toc-backref" href="#id1" role="doc-backlink">Why chunked assembly?</a><a class="headerlink" href="#why-chunked-assembly" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Stable JIT shapes:</strong> Each chunk is padded to a constant <code class="docutils literal notranslate"><span class="pre">chunk_size</span></code> so JAX
+sees the same array dimensions during tracing, rather than a barely smaller
+last element batch that would trigger recompilation.</p></li>
+<li><p><strong>Smaller working sets:</strong> Chunking keeps the per-call intermediate footprint
+bounded, which can reduce memory pressure when assembling very large meshes
+(or running batched <code class="docutils literal notranslate"><span class="pre">jit``+``vmap</span></code> loops).</p></li>
+<li><p><strong>Optional tracing hints:</strong> <cite>pad_trace=True</cite> emits statistics about the chosen
+chunk layout, which helps tune <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code> for your problem.</p></li>
 </ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="usage_chunked_assembly.html">Chunked Assembly</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="usage_chunked_assembly.html#why-chunked-assembly">Why chunked assembly?</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_chunked_assembly.html#how-to-use-n-chunks">How to use <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_chunked_assembly.html#best-practices">Best practices</a></li>
-</ul>
-</li>
-</ul>
+</section>
+<section id="how-to-use-n-chunks">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">How to use <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code></a><a class="headerlink" href="#how-to-use-n-chunks" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code> argument is supported by the functional APIs
+<code class="docutils literal notranslate"><span class="pre">fluxfem.core.assemble_bilinear_form</span></code>, <code class="docutils literal notranslate"><span class="pre">assemble_linear_form</span></code>,
+<code class="docutils literal notranslate"><span class="pre">assemble_residual</span></code>, <code class="docutils literal notranslate"><span class="pre">assemble_jacobian</span></code>, and the <code class="docutils literal notranslate"><span class="pre">space.assemble_*</span></code>/
+<code class="docutils literal notranslate"><span class="pre">space.assemble</span></code> helpers. Pass a positive integer to request chunking:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span>
+    <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">,</span>
+    <span class="n">n_chunks</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+    <span class="n">pad_trace</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
 </div>
+<p>FluxFEM automatically chooses <code class="docutils literal notranslate"><span class="pre">chunk_size</span> <span class="pre">=</span> <span class="pre">ceil(n_elems</span> <span class="pre">/</span> <span class="pre">n_chunks)</span></code>
+and rounds up the padded element data to the nearest multiple of that size.
+During chunked assembly the padded elements are evaluated but never used in the
+final sparse matrix because the final data vector is sliced back to
+<code class="docutils literal notranslate"><span class="pre">n_elems</span> <span class="pre">*</span> <span class="pre">n_ldofs^2</span></code> (or <code class="docutils literal notranslate"><span class="pre">n_elems</span> <span class="pre">*</span> <span class="pre">n_ldofs</span></code> for RHS assembly).</p>
+</section>
+<section id="best-practices">
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">Best practices</a><a class="headerlink" href="#best-practices" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Pick powers of two when possible;</strong> they keep <code class="docutils literal notranslate"><span class="pre">chunk_size</span></code> regular and mesh
+partitions predictable.</p></li>
+<li><p><strong>Keep ``n_chunks`` ≤ ``n_elems``;</strong> the helper raises if you pass a larger
+value.</p></li>
+<li><p><strong>Combine with ``pad_trace=True`` when tuning.</strong> The trace output reports how
+many elements were padded so you can balance between padding overhead and
+JIT stability.</p></li>
+<li><p><strong>Use the same ``n_chunks`` for residual/Jacobian pairs</strong> so the sparsity
+pattern remains stable for nonlinear solves.</p></li>
+</ul>
+<p>Chunked assembly is a lightweight way to improve JAX stability without rewriting
+your weak form or introducing new scalar-friendly kernels. When <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code> is
+<code class="docutils literal notranslate"><span class="pre">None</span></code> (the default) the entire mesh is assembled at once, so you only need
+to set the option once you see JIT recompile churn or trace warnings for
+variable-sized inputs.</p>
+</section>
 </section>
 
 
@@ -412,20 +456,20 @@
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="installation.html"
+       href="solver.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Installation</p>
+        <p class="prev-next-title">Solvers</p>
       </div>
     </a>
     <a class="right-next"
-       href="assembly.html"
+       href="tutorial.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Assembly</p>
+        <p class="prev-next-title">Tutorial Page</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -441,10 +485,24 @@
 
 
   <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-chunked-assembly">Why chunked assembly?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-to-use-n-chunks">How to use <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best practices</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="_sources/usage.rst.txt"
+      <li><a href="_sources/usage_chunked_assembly.rst.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>

@@ -7,3 +7,4 @@ Usage
 
    assembly
    solver
+   usage_chunked_assembly
