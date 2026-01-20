@@ -388,6 +388,15 @@
 </ul>
 <p>They show how to wrap FluxFEM operators in PETSc shells for flexible
 preconditioning and matrix-free solves.</p>
+<section id="prerequisites">
+<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">#</a></h2>
+<p>The demos require PETSc and <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> (the <code class="docutils literal notranslate"><span class="pre">petsc</span></code> extra). Install with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="w"> </span>--extras<span class="w"> </span><span class="s2">&quot;petsc&quot;</span>
+</pre></div>
+</div>
+<p>Ensure <code class="docutils literal notranslate"><span class="pre">PETSC_DIR</span></code> (and optionally <code class="docutils literal notranslate"><span class="pre">PETSC_ARCH</span></code>) point to a valid PETSc build
+so <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> can import successfully. Once PETSc is configured, run:</p>
+</section>
 <section id="run-the-examples">
 <h2>Run the examples<a class="headerlink" href="#run-the-examples" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/petsc_shell_poisson_demo.py
@@ -395,26 +404,39 @@ python<span class="w"> </span>tutorials/petsc_shell_poisson_pmat_demo.py
 </pre></div>
 </div>
 </section>
-<section id="prerequisites">
-<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">#</a></h2>
-<p>You need PETSc + petsc4py:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="w"> </span>--extras<span class="w"> </span><span class="s2">&quot;petsc&quot;</span>
-</pre></div>
-</div>
-</section>
 <section id="what-the-demos-do">
 <h2>What the demos do<a class="headerlink" href="#what-the-demos-do" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p>Build a Poisson problem on a structured mesh.</p></li>
-<li><p>Assemble the residual and wrap it in a PETSc shell matrix.</p></li>
-<li><p>Solve with PETSc, optionally providing a matrix for preconditioning.</p></li>
+<li><p>Build a structured 2D Poisson residual and wrap its action in a PETSc shell
+matrix via <code class="docutils literal notranslate"><span class="pre">ff.petsc_shell_solve</span></code>.</p></li>
+<li><p>Let PETSc control the Krylov method (<code class="docutils literal notranslate"><span class="pre">ksp_type</span></code>) and preconditioning via the
+options database.</p></li>
+<li><p>Show both a pure shell solve with a diagonal preconditioner and a hybrid mode
+where <code class="docutils literal notranslate"><span class="pre">pmat</span></code> supplies an explicit matrix for PETSc preconditioners such as
+ILU or Jacobi.</p></li>
 </ul>
+</section>
+<section id="details-per-script">
+<h2>Details per script<a class="headerlink" href="#details-per-script" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_demo.py</span></code> keeps everything matrix-free and
+sets <code class="docutils literal notranslate"><span class="pre">preconditioner=&quot;diag0&quot;</span></code> so PETSc only sees the shell operator.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_pmat_demo.py</span></code> still uses the shell for the
+mat-vec but passes <code class="docutils literal notranslate"><span class="pre">pmat=A</span></code> plus <code class="docutils literal notranslate"><span class="pre">pc_type=&quot;jacobi&quot;</span></code> so PETSc can build an
+explicit preconditioner from the assembled stiffness while the shell retains
+flexibility for the operator action.</p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">pmat</span></code> argument is handy whenever a preconditioner needs access to the
+numerical matrix or sparsity pattern even though the mat-vec is computed on
+the fly. These demos thus document both a fully matrix-free workflow and a
+hybrid matrix-preconditioner setup that keeps the best of both worlds.</p>
 </section>
 <section id="notes">
 <h2>Notes<a class="headerlink" href="#notes" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p>If PETSc is not installed, the scripts will error at import time.</p></li>
-<li><p>These demos are a good starting point for matrix-free workflows.</p></li>
+<li><p>If PETSc is not installed, the scripts will raise during import.</p></li>
+<li><p>The demos are a good starting point for matrix-free or hybrid preconditioning
+workflows inside FluxFEM.</p></li>
 </ul>
 </section>
 </section>
@@ -466,9 +488,10 @@ python<span class="w"> </span>tutorials/petsc_shell_poisson_pmat_demo.py
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-examples">Run the examples</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-examples">Run the examples</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-demos-do">What the demos do</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#details-per-script">Details per script</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notes">Notes</a></li>
 </ul>
   </nav></div>

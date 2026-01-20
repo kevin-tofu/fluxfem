@@ -41,6 +41,7 @@
     <script src="_static/documentation_options.js?v=72e2dd8f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial_mixed_block';</script>
     <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial_mixed_block.html" />
     <link rel="index" title="Index" href="genindex.html" />
@@ -424,6 +425,17 @@
 <li><p><cite>tutorials/thermoelastic_bar_1d_mixed.py</cite></p></li>
 <li><p><cite>tutorials/nitsche_contact_supermesh_api.py</cite></p></li>
 </ul>
+<section id="mixed-pde-view">
+<h3>Mixed PDE view<a class="headerlink" href="#mixed-pde-view" title="Link to this heading">#</a></h3>
+<p>The residual definitions above correspond to a coupled continuum system:</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}-\nabla\cdot(\kappa\,\nabla T) &amp;= q, \\
+-\nabla\cdot(E\,\nabla u) &amp;= \alpha\,\nabla\cdot T.\end{split}\]</div>
+<p>The temperature residual <code class="docutils literal notranslate"><span class="pre">res_T</span></code> mirrors <span class="math notranslate nohighlight">\(\int_\Omega \kappa \nabla v\cdot\nabla T - v q\)</span>
+and <code class="docutils literal notranslate"><span class="pre">res_u</span></code> mimics <span class="math notranslate nohighlight">\(\int_\Omega E \nabla v\cdot\nabla u - \alpha \nabla v\cdot T\)</span>.
+Because both weak forms live in the same <code class="docutils literal notranslate"><span class="pre">MixedProblem</span></code>, FluxFEM assembles the full
+coupled Jacobian and RHS, including the off-diagonal coupling between <code class="docutils literal notranslate"><span class="pre">u</span></code> and <code class="docutils literal notranslate"><span class="pre">T</span></code>.</p>
+</section>
 </section>
 <section id="block-utilities-minimal">
 <h2>Block utilities (minimal)<a class="headerlink" href="#block-utilities-minimal" title="Link to this heading">#</a></h2>
@@ -463,6 +475,21 @@ tutorial scripts for full examples:</p>
 <li><p><cite>tutorials/nitsche_contact_supermesh_api.py</cite></p></li>
 <li><p><cite>tutorials/nitsche_contact_supermesh_demo_fluxfem.py</cite></p></li>
 </ul>
+<section id="block-matrix-intuition">
+<h3>Block matrix intuition<a class="headerlink" href="#block-matrix-intuition" title="Link to this heading">#</a></h3>
+<p>The assembled Jacobian from the mixed residuals can be viewed as a block operator</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}\begin{bmatrix}
+    K_{uu} &amp; K_{uT} \\
+    K_{Tu} &amp; K_{TT}
+\end{bmatrix},\end{split}\]</div>
+<p>where the diagonal entries come from the self-residuals (<code class="docutils literal notranslate"><span class="pre">res_u</span></code> / <code class="docutils literal notranslate"><span class="pre">res_T</span></code>)
+and the off-diagonal blocks arise from cross-couplings.  The block helpers above
+let you construct this matrix explicitly: <code class="docutils literal notranslate"><span class="pre">diag</span></code> supplies <code class="docutils literal notranslate"><span class="pre">K_{uu}</span></code>/<code class="docutils literal notranslate"><span class="pre">K_{TT}</span></code>
+and <code class="docutils literal notranslate"><span class="pre">rel</span></code> inserts pairs such as <code class="docutils literal notranslate"><span class="pre">K_{uT}</span></code>.  Passing the resulting <code class="docutils literal notranslate"><span class="pre">blocks</span></code>
+dictionary into <code class="docutils literal notranslate"><span class="pre">MixedFESpace.build_block_system</span></code> makes it easy to swap in
+Schur-complement solvers, block preconditioners, or other multiphysics strategies.</p>
+</section>
 </section>
 </section>
 
@@ -513,9 +540,15 @@ tutorial scripts for full examples:</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mixed-form-minimal">Mixed form (minimal)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mixed-form-minimal">Mixed form (minimal)</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mixed-pde-view">Mixed PDE view</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#block-utilities-minimal">Block utilities (minimal)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#off-diagonal-coupling-k12-k21">Off-diagonal coupling (K12 / K21)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#off-diagonal-coupling-k12-k21">Off-diagonal coupling (K12 / K21)</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#block-matrix-intuition">Block matrix intuition</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 
