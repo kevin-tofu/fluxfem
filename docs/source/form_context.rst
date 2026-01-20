@@ -37,7 +37,7 @@ context and params during compilation/evaluation:
    )
 
    compiled = form.get_compiled()
-   K = space.assemble_bilinear_form(compiled, params=ff.Params(kappa=1.0))
+   K = space.assemble(compiled, params=ff.Params(kappa=1.0), kind="bilinear")
 
 In the weak-form path, symbolic refs like ``u`` and ``v`` are resolved to the
 corresponding context fields (``ctx.trial`` / ``ctx.test``), and measure terms
