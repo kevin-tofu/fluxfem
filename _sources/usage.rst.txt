@@ -6,5 +6,5 @@ Usage
    :caption: Usage
 
    assembly
-   solver
    usage_chunked_assembly
+   solver
