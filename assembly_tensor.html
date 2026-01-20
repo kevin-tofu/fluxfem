@@ -429,7 +429,7 @@ The assembly routines handle the quadrature weights and Jacobian determinants.</
     <span class="n">grad_u</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">trial</span><span class="o">.</span><span class="n">gradN</span>
     <span class="k">return</span> <span class="n">kappa</span> <span class="o">*</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;qia,qja-&gt;qij&quot;</span><span class="p">,</span> <span class="n">grad_v</span><span class="p">,</span> <span class="n">grad_u</span><span class="p">)</span>
 
-<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

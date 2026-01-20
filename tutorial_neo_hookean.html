@@ -434,7 +434,9 @@ Neo-Hookean cantilever.</p>
 <h3>2) Assemble external forces<a class="headerlink" href="#assemble-external-forces" title="Link to this heading">#</a></h3>
 <p>Body force:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">f_body</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">body_force</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
-<span class="n">F_ext</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_linear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">vector_body_force_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">f_body</span><span class="p">,</span> <span class="n">sparse</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">F_ext</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">vector_body_force_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">f_body</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;linear&quot;</span><span class="p">,</span> <span class="n">sparse</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
 </pre></div>
 </div>
 <p>Surface traction on <code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">=</span> <span class="pre">xmax</span></code>:</p>

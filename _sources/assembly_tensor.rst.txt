@@ -28,7 +28,7 @@ The assembly routines handle the quadrature weights and Jacobian determinants.
        grad_u = ctx.trial.gradN
        return kappa * ff.jnp.einsum("qia,qja->qij", grad_v, grad_u)
 
-   K = space.assemble_bilinear_form(diffusion_form, params=1.0)
+   K = space.assemble(diffusion_form, params=1.0, kind="bilinear")
 
 
 Forms and signatures

@@ -28,7 +28,7 @@ The kernel **must return the integrated element contribution** (not the integran
 
    # bilinear: kernel(ctx) -> (n_ldofs, n_ldofs)
    ker_K = ff.make_element_bilinear_kernel(ff.diffusion_form, 1.0, jit=True)
-   K = space.assemble_bilinear_form(ff.diffusion_form, 1.0, kernel=ker_K)
+   K = space.assemble(ff.diffusion_form, 1.0, kind="bilinear", kernel=ker_K)
 
    # linear: kernel(ctx) -> (n_ldofs,)
    def linear_kernel(ctx):
@@ -37,7 +37,7 @@ The kernel **must return the integrated element contribution** (not the integran
        return (integrand * wJ[:, None]).sum(axis=0)
 
    ker_F = jax.jit(linear_kernel)
-   F = space.assemble_linear_form(ff.scalar_body_force_form, 2.0, kernel=ker_F)
+   F = space.assemble(ff.scalar_body_force_form, 2.0, kind="linear", kernel=ker_F)
 
 You can also use the unified entry point for all kernel kinds:
 
@@ -45,11 +45,11 @@ You can also use the unified entry point for all kernel kinds:
 
    # bilinear: kernel(ctx) -> (n_ldofs, n_ldofs)
    ker_K = ff.make_element_kernel(ff.diffusion_form, 1.0, kind="bilinear")
-   K = space.assemble_bilinear_form(ff.diffusion_form, 1.0, kernel=ker_K)
+   K = space.assemble(ff.diffusion_form, 1.0, kind="bilinear", kernel=ker_K)
 
    # linear: kernel(ctx) -> (n_ldofs,)
    ker_F = ff.make_element_kernel(ff.scalar_body_force_form, 2.0, kind="linear")
-   F = space.assemble_linear_form(ff.scalar_body_force_form, 2.0, kernel=ker_F)
+   F = space.assemble(ff.scalar_body_force_form, 2.0, kind="linear", kernel=ker_F)
 
    # residual: kernel(ctx, u_elem) -> (n_ldofs,)
    ker_R = ff.make_element_kernel(res_form, params, kind="residual")
@@ -77,7 +77,7 @@ the compiled form (``get_compiled()``).
 
    params = ff.Params(kappa=1.0)
    ker = ff.make_element_bilinear_kernel(form_wf, params, jit=True)
-   K = space.assemble_bilinear_form(form_wf, params, kernel=ker)
+   K = space.assemble(form_wf, params, kind="bilinear", kernel=ker)
 
 
 Residual and Jacobian

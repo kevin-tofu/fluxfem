@@ -432,7 +432,7 @@ assembly, and boundary conditions with the key equations.</p>
     <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">D_mat</span><span class="p">:</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">,</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">matmul_std</span><span class="p">(</span><span class="n">D_mat</span><span class="p">,</span> <span class="n">u</span><span class="o">.</span><span class="n">sym_grad</span><span class="p">))</span>
     <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
 <span class="p">)</span>
-<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">bilinear_form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">bilinear_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">D</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

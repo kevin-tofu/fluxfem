@@ -66,7 +66,7 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
        lambda u, v, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
        * h_wf.dOmega()
    )
-   K = space.assemble_bilinear_form(bilinear_form.get_compiled(), params=D)
+   K = space.assemble(bilinear_form, params=D)
 
 3) Assemble the surface traction
 """"""""""""""""""""""""""""""""
