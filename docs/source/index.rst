@@ -6,6 +6,6 @@ FluxFEM Documentation
    :caption: Contents
 
    project
-   tutorial
    usage
+   tutorial
    api
