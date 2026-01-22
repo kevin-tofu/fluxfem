@@ -1,6 +1,6 @@
 [project]
 name = "fluxfem"
-version = "0.1.8"
+version = "0.2.0"
 description = ""
 authors = [
     {name = "Kohei Watanabe",email = "koheitech001@gmail.com"}
@@ -30,7 +30,7 @@ cuda12 = ["jax (==0.8.2)", "jaxlib (==0.8.2)", "jax-cuda12-plugin (==0.8.2)", "j
 
 [tool.poetry]
 name = "fluxfem"
-version = "0.1.8"
+version = "0.2.0"
 description = "FluxFEM: A weak-form-centric differentiable finite element framework in JAX"
 authors = ["Kohei Watanabe <koheitech001@gmail.com>"]
 readme = "README.md"
