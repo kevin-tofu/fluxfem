@@ -62,7 +62,7 @@ inside the JAX-traced function:
 .. code-block:: python
 
    K0 = jnp.asarray(
-       space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense(),
+       space.assemble(ff.diffusion_form, params=1.0).to_dense(),
        dtype=jnp.float64,
    )
    F_base = surface.assemble_linear_form_on_space(

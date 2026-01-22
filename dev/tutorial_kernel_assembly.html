@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Kernel-based Assembly (JIT-Friendly) &#8212; FluxFEM 0.1.8 documentation</title>
+    <title>Kernel-based Assembly (JIT-Friendly) &#8212; FluxFEM 0.2.0 documentation</title>
   
   
   
@@ -38,14 +38,14 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=72e2dd8f"></script>
+    <script src="_static/documentation_options.js?v=95e61db4"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial_kernel_assembly';</script>
     <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial_kernel_assembly.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="PETSc Shell Solvers" href="tutorial_petsc_shell.html" />
+    <link rel="next" title="MixedForm and Block Utilities" href="tutorial_mixed_block.html" />
     <link rel="prev" title="Load a Gmsh .msh and use it in analysis" href="tutorial_gmsh_msh.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.1.8 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.0 documentation</p>
   
 </a></div>
     
@@ -132,16 +132,16 @@
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="tutorial.html">
-    Tutorial Page
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="usage.html">
+    Usage
   </a>
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="usage.html">
-    Usage
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="tutorial.html">
+    Tutorial Page
   </a>
 </li>
 
@@ -248,16 +248,16 @@
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="tutorial.html">
-    Tutorial Page
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="usage.html">
+    Usage
   </a>
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="usage.html">
-    Usage
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="tutorial.html">
+    Tutorial Page
   </a>
 </li>
 
@@ -317,6 +317,7 @@
 <li class="toctree-l1"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_gmsh_msh.html">Load a Gmsh .msh and use it in analysis</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Kernel-based Assembly (JIT-Friendly)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
 </ul>
 </div>
@@ -391,7 +392,9 @@ The idea is to separate:</p>
 <h2>Core idea<a class="headerlink" href="#core-idea" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">make_element_*_kernel</span></code> returns a JIT-compiled function that operates per element.
 You can pass that kernel to <code class="docutils literal notranslate"><span class="pre">space.assemble_*</span></code>.</p>
-<p>The kernel <strong>must return the integrated element contribution</strong> (not the integrand).</p>
+<p>The kernel <strong>must return the integrated element contribution</strong> (not the integrand).
+If you pass an untagged raw kernel to <code class="docutils literal notranslate"><span class="pre">space.assemble</span></code> with <code class="docutils literal notranslate"><span class="pre">kind=</span></code>,
+FluxFEM emits a one-time warning; prefer tagging with <code class="docutils literal notranslate"><span class="pre">&#64;ff.kernel</span></code>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
@@ -401,7 +404,7 @@ You can pass that kernel to <code class="docutils literal notranslate"><span cla
 
 <span class="c1"># bilinear: kernel(ctx) -&gt; (n_ldofs, n_ldofs)</span>
 <span class="n">ker_K</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_bilinear_kernel</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">jit</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_K</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_K</span><span class="p">)</span>
 
 <span class="c1"># linear: kernel(ctx) -&gt; (n_ldofs,)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">linear_kernel</span><span class="p">(</span><span class="n">ctx</span><span class="p">):</span>
@@ -410,17 +413,17 @@ You can pass that kernel to <code class="docutils literal notranslate"><span cla
     <span class="k">return</span> <span class="p">(</span><span class="n">integrand</span> <span class="o">*</span> <span class="n">wJ</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">])</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
 
 <span class="n">ker_F</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">linear_kernel</span><span class="p">)</span>
-<span class="n">F</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_linear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">scalar_body_force_form</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_F</span><span class="p">)</span>
+<span class="n">F</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">scalar_body_force_form</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_F</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>You can also use the unified entry point for all kernel kinds:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># bilinear: kernel(ctx) -&gt; (n_ldofs, n_ldofs)</span>
 <span class="n">ker_K</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_kernel</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">)</span>
-<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_K</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_K</span><span class="p">)</span>
 
 <span class="c1"># linear: kernel(ctx) -&gt; (n_ldofs,)</span>
 <span class="n">ker_F</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_kernel</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">scalar_body_force_form</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;linear&quot;</span><span class="p">)</span>
-<span class="n">F</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_linear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">scalar_body_force_form</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_F</span><span class="p">)</span>
+<span class="n">F</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">scalar_body_force_form</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_F</span><span class="p">)</span>
 
 <span class="c1"># residual: kernel(ctx, u_elem) -&gt; (n_ldofs,)</span>
 <span class="n">ker_R</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_kernel</span><span class="p">(</span><span class="n">res_form</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;residual&quot;</span><span class="p">)</span>
@@ -445,7 +448,7 @@ the compiled form (<code class="docutils literal notranslate"><span class="pre">
 
 <span class="n">params</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
 <span class="n">ker</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_bilinear_kernel</span><span class="p">(</span><span class="n">form_wf</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">jit</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">form_wf</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">form_wf</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -497,11 +500,11 @@ compilation when the last chunk is smaller.</p></li>
       </div>
     </a>
     <a class="right-next"
-       href="tutorial_petsc_shell.html"
+       href="tutorial_mixed_block.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">PETSc Shell Solvers</p>
+        <p class="prev-next-title">MixedForm and Block Utilities</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

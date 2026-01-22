@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Autodiff Tutorial: Inverse Diffusion &#8212; FluxFEM 0.1.8 documentation</title>
+    <title>Autodiff Tutorial: Inverse Diffusion &#8212; FluxFEM 0.2.0 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=72e2dd8f"></script>
+    <script src="_static/documentation_options.js?v=95e61db4"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
@@ -112,7 +112,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.1.8 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.0 documentation</p>
   
 </a></div>
     
@@ -133,16 +133,16 @@
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="tutorial.html">
-    Tutorial Page
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="usage.html">
+    Usage
   </a>
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="usage.html">
-    Usage
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="tutorial.html">
+    Tutorial Page
   </a>
 </li>
 
@@ -249,16 +249,16 @@
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="tutorial.html">
-    Tutorial Page
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="usage.html">
+    Usage
   </a>
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="usage.html">
-    Usage
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="tutorial.html">
+    Tutorial Page
   </a>
 </li>
 
@@ -318,6 +318,7 @@
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Autodiff Tutorial: Inverse Diffusion</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_gmsh_msh.html">Load a Gmsh .msh and use it in analysis</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_kernel_assembly.html">Kernel-based Assembly (JIT-Friendly)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
 </ul>
 </div>
@@ -428,7 +429,7 @@ by minimizing a mean-squared error on observed dofs on the <code class="docutils
 linear in the traction, the script precomputes reference matrices and scales them
 inside the JAX-traced function:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">K0</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
-    <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">(),</span>
+    <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">(),</span>
     <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">F_base</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>
