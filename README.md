@@ -177,6 +177,51 @@ loss_theta_jit = jax.jit(loss_theta)
 grad_fn = jax.jit(jax.grad(loss_theta))
 ```
 
+### Mixed systems
+
+Mixed problems can be assembled from residual blocks and solved as a coupled system.
+
+```Python
+import fluxfem as ff
+import jax.numpy as jnp
+
+mixed = ff.MixedFESpace({"u": space_u, "p": space_p})
+residuals = ff.make_mixed_residuals(
+    u=res_u,  # (v, u, params) -> Expr
+    p=res_p,  # (q, u, params) -> Expr
+)
+problem = ff.MixedProblem(mixed, residuals, params=ff.Params(alpha=1.0))
+
+u0 = jnp.zeros(mixed.n_dofs)
+R = problem.assemble_residual(u0)
+J = problem.assemble_jacobian(u0, return_flux_matrix=True)
+```
+
+### Block assembly
+
+For constraints like contact problems (e.g., adding Lagrange multipliers), build
+a block matrix explicitly:
+
+```Python
+from fluxfem import solver as ff_solver
+
+# Example blocks from contact coupling
+K_uu = ...
+K_cc = ...
+K_uc = ...
+
+blocks = ff_solver.make_block_matrix(
+    diag=ff_solver.block_diag(u=K_uu, c=K_cc),
+    rel={("u", "c"): K_uc},
+    sizes={"u": K_uu.shape[0], "c": K_cc.shape[0]},
+    symmetric=True,
+    transpose_rule="T",
+)
+```
+
+FluxFEM also provides contact utilities like `ContactSurfaceSpace` to build constraint contributions.
+
+
 ## Documentation
 
 Full documentation, tutorials, and API reference are hosted at [this site](https://fluxfem.readthedocs.io/en/latest/).
