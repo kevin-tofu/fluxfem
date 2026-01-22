@@ -251,15 +251,13 @@ def assemble_fluxfem_case(n: int, args, dtype):
     D = jnp.asarray(D)
     f_body = jnp.array([args.fx, args.fy, args.fz], dtype=dtype)
 
-    form_const = lambda ctx, _p: linear_elasticity_form(ctx, D)
-    kernel = make_element_bilinear_kernel(form_const, None, jit=args.kernel_jit)
+    kernel = make_element_bilinear_kernel(linear_elasticity_form, D, jit=args.kernel_jit)
     elem_data = space.build_form_contexts()
 
     assemble_K = jax.jit(
         lambda: space.assemble(
-            form_const,
-            None,
-            kind="bilinear",
+            linear_elasticity_form,
+            D,
             kernel=kernel,
             pattern=pattern,
         )

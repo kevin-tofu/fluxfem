@@ -58,8 +58,8 @@ As a result, both assembly approaches:
 
 ### kernel-based assembly (explicit JIT units)
 If you want to control JIT boundaries explicitly, build a JIT-compiled element kernel
-and pass it to `space.assemble` with the appropriate `kind`. The kernel must return the integrated element
-contribution (not the quadrature integrand).
+and pass it to `space.assemble`. The kernel must return the integrated element
+contribution (not the quadrature integrand). For untagged raw kernels, pass `kind=`.
 
 ```Python
 import fluxfem as ff
@@ -70,7 +70,7 @@ space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
    # bilinear: kernel(ctx) -> (n_ldofs, n_ldofs)
    ker_K = ff.make_element_bilinear_kernel(ff.diffusion_form, 1.0, jit=True)
-   K = space.assemble(ff.diffusion_form, 1.0, kind="bilinear", kernel=ker_K)
+   K = space.assemble(ff.diffusion_form, 1.0, kernel=ker_K)
 
 # linear: kernel(ctx) -> (n_ldofs,)
 def linear_kernel(ctx):
@@ -79,7 +79,7 @@ def linear_kernel(ctx):
     return (integrand * wJ[:, None]).sum(axis=0)
 
    ker_F = jax.jit(linear_kernel)
-   F = space.assemble(ff.scalar_body_force_form, 2.0, kind="linear", kernel=ker_F)
+   F = space.assemble(ff.scalar_body_force_form, 2.0, kernel=ker_F)
 ```
 
 ### tensor-based vs weak-form-based (diffusion example)
@@ -90,6 +90,7 @@ The tensor-based assembly provides an explicit, low-level formulation with eleme
 import fluxfem as ff
 import jax.numpy as jnp
 
+@ff.kernel(kind="bilinear", domain="volume")
 def diffusion_form(ctx: ff.FormContext, kappa):
     # ctx.test.gradN / ctx.trial.gradN: (n_qp, n_nodes, dim)
     # output tensor: (n_qp, n_nodes, n_nodes)
@@ -97,7 +98,7 @@ def diffusion_form(ctx: ff.FormContext, kappa):
 
 space = ff.make_hex_space(mesh, dim=3, intorder=2)
 params = ff.Params(kappa=1.0)
-K_ts = space.assemble(diffusion_form, params=params.kappa, kind="bilinear")
+K_ts = space.assemble(diffusion_form, params=params.kappa)
 ```
 
 #### weak-form-based assembly
@@ -118,7 +119,7 @@ form_wf = ff.BilinearForm.volume(
     lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
 ).get_compiled()
 
-K_wf = space.assemble(form_wf, params=params, kind="bilinear")
+K_wf = space.assemble(form_wf, params=params)
 ```
 
 ### Linear Elasticity assembly (weak-form based assembly)
@@ -134,7 +135,7 @@ form_wf = ff.BilinearForm.volume(
     lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
 ).get_compiled()
 
-K = space.assemble(form_wf, params=D, kind="bilinear")
+K = space.assemble(form_wf, params=D)
 ```
 
 ### Neo-Hookean residual assembly (weak-form DSL)
@@ -154,6 +155,8 @@ def neo_hookean_residual_wf(v, u, params):
     S = mu * (h_wf.I(3) - C_inv) + lam * h_wf.log(J) * C_inv
     dE = 0.5 * (h_wf.matmul(h_wf.grad(v), F) + h_wf.transpose(h_wf.matmul(h_wf.grad(v), F)))
     return h_wf.ddot(S, dE) * h_wf.dOmega()
+
+  res_form = ff.ResidualForm.volume(neo_hookean_residual_wf).get_compiled()
 ```
 
 

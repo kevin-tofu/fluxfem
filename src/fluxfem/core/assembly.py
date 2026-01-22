@@ -1327,6 +1327,10 @@ def scalar_body_force_form(ctx: FormContext, load: float) -> jnp.ndarray:
     return load * ctx.test.N  # (n_q, n_ldofs)
 
 
+scalar_body_force_form._ff_kind = "linear"
+scalar_body_force_form._ff_domain = "volume"
+
+
 def make_scalar_body_force_form(body_force: Callable[[Array], Array]) -> Kernel[Any]:
     """
     Build a scalar linear form from a callable f(x_q) -> (n_q,).
@@ -1334,6 +1338,8 @@ def make_scalar_body_force_form(body_force: Callable[[Array], Array]) -> Kernel[
     def _form(ctx: FormContext, _params):
         f_q = body_force(ctx.x_q)
         return f_q[..., None] * ctx.test.N
+    _form._ff_kind = "linear"
+    _form._ff_domain = "volume"
     return _form
 
 

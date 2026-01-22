@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Literal, get_args
 import inspect
+from dataclasses import dataclass
+from functools import update_wrapper
 
 import numpy as np
 
@@ -863,6 +865,62 @@ def _call_user(fn, *args, params):
     return fn(*args)
 
 
+@dataclass(frozen=True)
+class KernelSpec:
+    kind: str
+    domain: str
+
+
+class TaggedKernel:
+    def __init__(self, fn, spec: KernelSpec):
+        self._fn = fn
+        self._ff_spec = spec
+        self._ff_kind = spec.kind
+        self._ff_domain = spec.domain
+        update_wrapper(self, fn)
+        self.__wrapped__ = fn
+
+    def __call__(self, *args, **kwargs):
+        return self._fn(*args, **kwargs)
+
+    def __repr__(self) -> str:
+        return f"TaggedKernel(kind={self._ff_kind!r}, domain={self._ff_domain!r})"
+
+    @property
+    def spec(self) -> KernelSpec:
+        return self._ff_spec
+
+    @property
+    def kind(self) -> str:
+        return self._ff_kind
+
+    @property
+    def domain(self) -> str:
+        return self._ff_domain
+
+    def __hash__(self) -> int:
+        return hash(self._fn)
+
+
+def _tag_form(fn, *, kind: str, domain: str):
+    spec = KernelSpec(kind=kind, domain=domain)
+    fn._ff_spec = spec
+    fn._ff_kind = kind
+    fn._ff_domain = domain
+    return fn
+
+
+def kernel(*, kind: str, domain: str = "volume"):
+    """
+    Decorator to tag raw kernels with kind/domain metadata for assembly inference.
+    """
+    def _deco(fn):
+        spec = KernelSpec(kind=kind, domain=domain)
+        return TaggedKernel(fn, spec)
+
+    return _deco
+
+
 def compile_bilinear(fn):
     """get_compiled a bilinear weak form (u, v, params) -> Expr into a kernel."""
     if isinstance(fn, Expr):
@@ -891,7 +949,7 @@ def compile_bilinear(fn):
         return eval_with_plan(plan, ctx, params)
 
     _form._includes_measure = True
-    return _form
+    return _tag_form(_form, kind="bilinear", domain="volume")
 
 
 def compile_linear(fn):
@@ -921,7 +979,7 @@ def compile_linear(fn):
         return eval_with_plan(plan, ctx, params)
 
     _form._includes_measure = True
-    return _form
+    return _tag_form(_form, kind="linear", domain="volume")
 
 
 def _expr_contains(expr: Expr, op: str) -> bool:
@@ -1584,7 +1642,7 @@ def compile_surface_linear(fn):
         return eval_with_plan(plan, ctx, params)
 
     _form._includes_measure = True  # type: ignore[attr-defined]
-    return _form
+    return _tag_form(_form, kind="linear", domain="surface")
 
 
 def compile_surface_bilinear(fn):
@@ -1616,7 +1674,7 @@ def compile_surface_bilinear(fn):
         return eval_with_plan(plan, ctx, params)
 
     _form._includes_measure = True  # type: ignore[attr-defined]
-    return _form
+    return _tag_form(_form, kind="bilinear", domain="surface")
 
 
 class LinearForm:
@@ -1699,7 +1757,7 @@ def compile_residual(fn):
         return eval_with_plan(plan, ctx, params, u_elem=u_elem)
 
     _form._includes_measure = True
-    return _form
+    return _tag_form(_form, kind="residual", domain="volume")
 
 
 def compile_mixed_residual(residuals: dict[str, Callable]):
@@ -1761,7 +1819,7 @@ def compile_mixed_residual(residuals: dict[str, Callable]):
         }
 
     _form._includes_measure = includes_measure
-    return _form
+    return _tag_form(_form, kind="residual", domain="volume")
 
 
 def compile_mixed_surface_residual(residuals: dict[str, Callable]):
@@ -1821,7 +1879,7 @@ def compile_mixed_surface_residual(residuals: dict[str, Callable]):
         }
 
     _form._includes_measure = includes_measure
-    return _form
+    return _tag_form(_form, kind="residual", domain="surface")
 
 
 def compile_mixed_surface_residual_numpy(residuals: dict[str, Callable]):
@@ -1881,7 +1939,7 @@ def compile_mixed_surface_residual_numpy(residuals: dict[str, Callable]):
         }
 
     _form._includes_measure = includes_measure
-    return _form
+    return _tag_form(_form, kind="residual", domain="surface")
 
 
 class MixedWeakForm:
@@ -1932,6 +1990,7 @@ __all__ = [
     "Params",
     "MixedWeakForm",
     "make_mixed_residuals",
+    "kernel",
     "ResidualForm",
     "compile_bilinear",
     "compile_linear",

@@ -22,13 +22,38 @@ The assembly routines handle the quadrature weights and Jacobian determinants.
 
    import fluxfem as ff
    import fluxfem.helpers_ts as h_ts
+   import jax.numpy as jnp
 
-   def diffusion_form(ctx: ff.FormContext, kappa: float) -> ff.jnp.ndarray:
+   @ff.kernel(kind="bilinear", domain="volume")
+   def diffusion_form(ctx: ff.FormContext, kappa: float) -> jnp.ndarray:
        grad_v = ctx.test.gradN  # (n_q, n_nodes, dim)
        grad_u = ctx.trial.gradN
-       return kappa * ff.jnp.einsum("qia,qja->qij", grad_v, grad_u)
+       return kappa * jnp.einsum("qia,qja->qij", grad_v, grad_u)
 
-   K = space.assemble(diffusion_form, params=1.0, kind="bilinear")
+   K = space.assemble(diffusion_form, params=1.0)
+
+
+Kernel metadata (ff.kernel)
+---------------------------
+
+Tensor-based kernels do not include measure terms, so FluxFEM cannot infer
+whether they are volume or surface forms. Use ``@ff.kernel`` to tag them:
+
+- ``kind``: ``"bilinear"``, ``"linear"``, ``"residual"``, ``"jacobian"`` (future-ready)
+- ``domain``: ``"volume"`` or ``"surface"``
+
+If you pass an untagged kernel and also provide ``kind=`` explicitly,
+FluxFEM will emit a one-time warning to encourage tagging. You can silence it with:
+
+.. code-block:: python
+
+   import warnings
+
+   warnings.filterwarnings(
+       "ignore",
+       message="Raw kernel has no _ff_kind metadata",
+       category=UserWarning,
+   )
 
 
 Forms and signatures
@@ -45,9 +70,11 @@ Signature: ``(ctx, params) -> ndarray``
 
 .. code-block:: python
 
-   def mass_form(ctx: ff.FormContext, _p) -> ff.jnp.ndarray:
+   import jax.numpy as jnp
+
+   def mass_form(ctx: ff.FormContext, _p) -> jnp.ndarray:
        N = ctx.test.N  # (n_q, n_nodes)
-       return ff.jnp.einsum("qa,qb->qab", N, N)
+       return jnp.einsum("qa,qb->qab", N, N)
 
 
 Linear form (volume)
@@ -59,7 +86,9 @@ Signature: ``(ctx, params) -> ndarray``
 
 .. code-block:: python
 
-   def body_force_form(ctx: ff.FormContext, f: float) -> ff.jnp.ndarray:
+   import jax.numpy as jnp
+
+   def body_force_form(ctx: ff.FormContext, f: float) -> jnp.ndarray:
        return ctx.test.N * f
 
 
@@ -117,9 +146,11 @@ Mass (scalar)
 
 .. code-block:: python
 
-   def mass_form(ctx: ff.FormContext, _p) -> ff.jnp.ndarray:
+   import jax.numpy as jnp
+
+   def mass_form(ctx: ff.FormContext, _p) -> jnp.ndarray:
        N = ctx.test.N
-       return ff.jnp.einsum("qa,qb->qab", N, N)
+       return jnp.einsum("qa,qb->qab", N, N)
 
 
 Diffusion
@@ -127,10 +158,12 @@ Diffusion
 
 .. code-block:: python
 
-   def diffusion_form(ctx: ff.FormContext, kappa: float) -> ff.jnp.ndarray:
+   import jax.numpy as jnp
+
+   def diffusion_form(ctx: ff.FormContext, kappa: float) -> jnp.ndarray:
        grad_v = ctx.test.gradN
        grad_u = ctx.trial.gradN
-       return kappa * ff.jnp.einsum("qia,qja->qij", grad_v, grad_u)
+       return kappa * jnp.einsum("qia,qja->qij", grad_v, grad_u)
 
 
 Linear elasticity
@@ -140,8 +173,9 @@ Linear elasticity
 
    import numpy as np
    import fluxfem.helpers_ts as h_ts
+   import jax.numpy as jnp
 
-   def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> ff.jnp.ndarray:
+   def linear_elasticity_form(ctx: ff.FormContext, D: np.ndarray) -> jnp.ndarray:
        Bu = h_ts.sym_grad(ctx.trial)
        Bv = h_ts.sym_grad(ctx.test)
        return h_ts.ddot(Bv, D, Bu)

@@ -5,6 +5,7 @@ from typing import Any, Callable, Protocol, TYPE_CHECKING, TypeVar
 import jax
 import jax.numpy as jnp
 import numpy as np
+import warnings
 
 P = TypeVar("P")
 
@@ -24,6 +25,21 @@ else:
     ElementLinearKernel = Callable[..., Any]
     ElementResidualKernel = Callable[..., Any]
     ElementJacobianKernel = Callable[..., Any]
+
+_WARNED_UNTAGGED_KERNELS: set[int] = set()
+
+
+def _warn_untagged_kernel(form) -> None:
+    key = id(form)
+    if key in _WARNED_UNTAGGED_KERNELS:
+        return
+    _WARNED_UNTAGGED_KERNELS.add(key)
+    warnings.warn(
+        "Raw kernel has no _ff_kind metadata; prefer tagging with ff.kernel(...) or "
+        "set _ff_kind/_ff_domain on the callable.",
+        category=UserWarning,
+        stacklevel=3,
+    )
 
 from .dtypes import INDEX_DTYPE
 from ..mesh import (
@@ -219,11 +235,12 @@ class FESpaceClosure:
     def _kernel_cache_key(self, kind: str, form, params, *, jit: bool):
         if not jit:
             return None
+        form_key = getattr(form, "__wrapped__", form)
         try:
             params_key = hash(params)
         except Exception:
             return None
-        return (kind, id(form), params_key, True)
+        return (kind, id(form_key), params_key, True)
 
     def _get_cached_kernel(self, kind: str, form, params, *, jit: bool, maker):
         key = self._kernel_cache_key(kind, form, params, jit=jit)
@@ -253,7 +270,8 @@ class FESpaceClosure:
         """
         High-level assembly entry point with optional kernel caching.
 
-        kind: "bilinear" or "linear". If None, inferred from LinearForm/BilinearForm.
+        kind: "bilinear" or "linear". If None, inferred from LinearForm/BilinearForm
+            or compiled/kernels tagged with _ff_kind metadata.
         pattern: "auto" to reuse cached sparsity pattern for bilinear assembly.
         """
         from .weakform import BilinearForm, LinearForm
@@ -267,7 +285,35 @@ class FESpaceClosure:
                 kind = "linear"
                 form = form.get_compiled()
             else:
-                raise ValueError("kind is required for raw form callables.")
+                inferred_kind = getattr(form, "_ff_kind", None)
+                inferred_domain = getattr(form, "_ff_domain", None)
+                if inferred_kind is None:
+                    raise ValueError(
+                        f"kind is required for raw kernels without metadata (got {form!r}). "
+                        "Use @ff.kernel(kind=..., domain=...) or pass kind=."
+                    )
+                if inferred_domain not in (None, "volume"):
+                    raise ValueError(
+                        f"Unsupported form domain '{inferred_domain}' for Space.assemble. "
+                        "Use assemble_surface_linear_form or assemble_surface_bilinear_form."
+                    )
+                kind = inferred_kind
+        else:
+            inferred_kind = getattr(form, "_ff_kind", None)
+            inferred_domain = getattr(form, "_ff_domain", None)
+            if inferred_kind is None:
+                _warn_untagged_kernel(form)
+            if inferred_kind is not None and inferred_kind != kind:
+                raise ValueError(
+                    f"assemble kind '{kind}' does not match form kind '{inferred_kind}' "
+                    f"for {form!r}. "
+                    "Align kind= with the kernel metadata (or retag the kernel)."
+                )
+            if inferred_domain not in (None, "volume"):
+                raise ValueError(
+                    f"Unsupported form domain '{inferred_domain}' for Space.assemble. "
+                    "Use assemble_surface_linear_form or assemble_surface_bilinear_form."
+                )
 
         if kind == "bilinear":
             if kernel is None:

@@ -29,10 +29,17 @@ def linear_elasticity_form(ctx: FormContext, D: jnp.ndarray) -> jnp.ndarray:
     return jnp.einsum("qik,kl,qlm->qim", jnp.swapaxes(Bv, 1, 2), D, Bu)
 
 
+linear_elasticity_form._ff_kind = "bilinear"
+linear_elasticity_form._ff_domain = "volume"
+
+
 def vector_body_force_form(ctx: FormContext, load_vec: jnp.ndarray) -> jnp.ndarray:
     """Linear form for 3D vector body force f (constant in space)."""
     return vector_load_form(ctx.test, load_vec)
 
+
+vector_body_force_form._ff_kind = "linear"
+vector_body_force_form._ff_domain = "volume"
 
 def assemble_constant_body_force(space, gravity_vec, density: float, *, sparse: bool = False):
     """

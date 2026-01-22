@@ -287,7 +287,6 @@ def main() -> int:
                 lambda: space.assemble(
                     ff.diffusion_form,
                     kappa,
-                    kind="bilinear",
                     n_chunks=n_chunks,
                     pad_trace=args.pad_trace,
                 )
@@ -296,7 +295,6 @@ def main() -> int:
                 lambda: space.assemble(
                     ff.scalar_body_force_form,
                     1.0,
-                    kind="linear",
                     n_chunks=n_chunks,
                     pad_trace=args.pad_trace,
                 )

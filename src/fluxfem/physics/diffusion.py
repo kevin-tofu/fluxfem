@@ -15,4 +15,7 @@ def diffusion_form(ctx: FormContext, kappa: float) -> jnp.ndarray:
     return kappa * G
 
 
+diffusion_form._ff_kind = "bilinear"
+diffusion_form._ff_domain = "volume"
+
 __all__ = ["diffusion_form"]

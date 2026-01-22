@@ -107,6 +107,10 @@ def vector_surface_load_form(ctx: SurfaceFormContext, load: npt.ArrayLike) -> np
     return np.asarray(vector_load_form(ctx.v, load_arr))
 
 
+vector_surface_load_form._ff_kind = "linear"
+vector_surface_load_form._ff_domain = "surface"
+
+
 def make_vector_surface_load_form(load_fn):
     """
     Build a vector surface load form from a callable f(x_q) -> (n_q, dim).
@@ -115,6 +119,8 @@ def make_vector_surface_load_form(load_fn):
         load_q = load_fn(ctx.x_q)
         return vector_surface_load_form(ctx, load_q)
 
+    _form._ff_kind = "linear"
+    _form._ff_domain = "surface"
     return _form
 
 

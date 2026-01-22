@@ -19,6 +19,7 @@ __all__ = [
     "ResidualForm",
     "MixedWeakForm",
     "make_mixed_residuals",
+    "kernel",
     "MixedFESpace",
     "MixedProblem",
     "MixedDirichletBC",

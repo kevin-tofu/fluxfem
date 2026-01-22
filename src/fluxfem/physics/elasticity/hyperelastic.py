@@ -78,6 +78,9 @@ def neo_hookean_residual_form(ctx: FormContext, u_elem: jnp.ndarray, params) -> 
     return jnp.einsum("qik,qk->qi", BT, S_voigt)   # (n_q, n_ldofs)
 
 
+neo_hookean_residual_form._ff_kind = "residual"
+neo_hookean_residual_form._ff_domain = "volume"
+
 __all__ = [
     "right_cauchy_green",
     "green_lagrange_strain",

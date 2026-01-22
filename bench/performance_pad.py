@@ -169,7 +169,6 @@ def fluxfem_cases(args, backend: str, *, n_chunks: int | None):
             return space.assemble(
                 diffusion_form,
                 1.0,
-                kind="bilinear",
                 dep=dummy,
                 **kwargs,
             )
@@ -181,7 +180,6 @@ def fluxfem_cases(args, backend: str, *, n_chunks: int | None):
             return space.assemble(
                 scalar_body_force_form,
                 1.0,
-                kind="linear",
                 dep=dummy,
                 **kwargs,
             )

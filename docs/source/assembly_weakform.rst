@@ -206,7 +206,7 @@ Example that matches ``ff.linear_elasticity_form``:
    )
 
    K_expr = space.assemble(form, params=D).to_dense()
-   K_ref  = space.assemble(ff.linear_elasticity_form, params=D, kind="bilinear").to_dense()
+   K_ref  = space.assemble(ff.linear_elasticity_form, params=D).to_dense()
    assert np.allclose(np.asarray(K_expr), np.asarray(K_ref))
 
 About ``ddot``:

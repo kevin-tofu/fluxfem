@@ -117,7 +117,6 @@ def build_flux_matrix(n: int, args) -> tuple[FluxSparseMatrix, np.ndarray]:
         lambda: space.assemble(
             linear_elasticity_form,
             D,
-            kind="bilinear",
         )
     )
     K_full = assemble_K()
