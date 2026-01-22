@@ -26,6 +26,7 @@ Tensor vs weak-form resolution
 
    import jax.numpy as jnp
 
+   @ff.kernel(kind="bilinear", domain="volume")
    def diffusion_form(ctx: ff.FormContext, kappa):
        return kappa * jnp.einsum("qia,qja->qij", ctx.test.gradN, ctx.trial.gradN)
 
