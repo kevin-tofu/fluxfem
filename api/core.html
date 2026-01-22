@@ -526,6 +526,19 @@ element=ElementVector(dim) → vector dof per node, value_dim=dim</p>
 <p>res = make_mixed_residuals(u=res_u, p=res_p)</p>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.core.kernel">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">kernel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'volume'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.kernel" title="Link to this definition">#</a></dt>
+<dd><p>Decorator to tag raw kernels with kind/domain metadata for assembly inference.</p>
+</dd></dl>
+
+</section>
+<section id="kernel-metadata-ff-kernel">
+<h2>Kernel metadata (ff.kernel)<a class="headerlink" href="#kernel-metadata-ff-kernel" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">&#64;ff.kernel</span></code> attaches metadata used by <code class="docutils literal notranslate"><span class="pre">space.assemble</span></code> to infer the
+form kind and domain. The following combinations are supported:</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">domain=&quot;surface&quot;</span></code> with the surface-specific assembly helpers
+(<code class="docutils literal notranslate"><span class="pre">assemble_surface_linear_form</span></code>, <code class="docutils literal notranslate"><span class="pre">assemble_surface_bilinear_form</span></code>).</p>
 </section>
 <section id="example-mixedproblem">
 <h2>Example (MixedProblem)<a class="headerlink" href="#example-mixedproblem" title="Link to this heading">#</a></h2>
@@ -643,8 +656,10 @@ compression strategy, keep this ordering contract in sync.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.ResidualForm"><code class="docutils literal notranslate"><span class="pre">ResidualForm</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.MixedWeakForm"><code class="docutils literal notranslate"><span class="pre">MixedWeakForm</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.make_mixed_residuals"><code class="docutils literal notranslate"><span class="pre">make_mixed_residuals()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.kernel"><code class="docutils literal notranslate"><span class="pre">kernel()</span></code></a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#kernel-metadata-ff-kernel">Kernel metadata (ff.kernel)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-mixedproblem">Example (MixedProblem)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-mixedblocksystem">Example (MixedBlockSystem)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#assembly">Assembly</a><ul class="nav section-nav flex-column">

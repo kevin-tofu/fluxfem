@@ -429,7 +429,7 @@ by minimizing a mean-squared error on observed dofs on the <code class="docutils
 linear in the traction, the script precomputes reference matrices and scales them
 inside the JAX-traced function:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">K0</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
-    <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">(),</span>
+    <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span><span class="o">.</span><span class="n">to_dense</span><span class="p">(),</span>
     <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">F_base</span> <span class="o">=</span> <span class="n">surface</span><span class="o">.</span><span class="n">assemble_linear_form_on_space</span><span class="p">(</span>

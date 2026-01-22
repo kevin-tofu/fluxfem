@@ -72,7 +72,7 @@ Body force:
 
    f_body = jnp.array(body_force, dtype=dtype)
    F_ext = space.assemble(
-       ff.vector_body_force_form, params=f_body, kind="linear", sparse=False
+       ff.vector_body_force_form, params=f_body, sparse=False
    )
 
 Surface traction on ``x = xmax``:

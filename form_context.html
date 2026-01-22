@@ -404,8 +404,10 @@ context, but they differ in how you write the integrand.</p>
 <section id="tensor-vs-weak-form-resolution">
 <h2>Tensor vs weak-form resolution<a class="headerlink" href="#tensor-vs-weak-form-resolution" title="Link to this heading">#</a></h2>
 <p><strong>Tensor assembly</strong> reads these arrays directly:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">diffusion_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">kappa</span><span class="p">):</span>
-    <span class="k">return</span> <span class="n">kappa</span> <span class="o">*</span> <span class="n">ff</span><span class="o">.</span><span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;qia,qja-&gt;qij&quot;</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">test</span><span class="o">.</span><span class="n">gradN</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">trial</span><span class="o">.</span><span class="n">gradN</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">diffusion_form</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">FormContext</span><span class="p">,</span> <span class="n">kappa</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">kappa</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;qia,qja-&gt;qij&quot;</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">test</span><span class="o">.</span><span class="n">gradN</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">trial</span><span class="o">.</span><span class="n">gradN</span><span class="p">)</span>
 </pre></div>
 </div>
 <p><strong>Weak-form assembly</strong> builds an <code class="docutils literal notranslate"><span class="pre">Expr</span></code> tree, then resolves it against the
@@ -415,7 +417,7 @@ context and params during compilation/evaluation:</p>
 <span class="p">)</span>
 
 <span class="n">compiled</span> <span class="o">=</span> <span class="n">form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">()</span>
-<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">compiled</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">compiled</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">))</span>
 </pre></div>
 </div>
 <p>In the weak-form path, symbolic refs like <code class="docutils literal notranslate"><span class="pre">u</span></code> and <code class="docutils literal notranslate"><span class="pre">v</span></code> are resolved to the

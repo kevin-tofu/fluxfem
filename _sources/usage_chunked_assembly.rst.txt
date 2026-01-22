@@ -36,7 +36,6 @@ The ``n_chunks`` argument is supported by the functional APIs
    K = space.assemble(
        ff.diffusion_form,
        params=1.0,
-       kind="bilinear",
        n_chunks=16,
        pad_trace=True,
    )
