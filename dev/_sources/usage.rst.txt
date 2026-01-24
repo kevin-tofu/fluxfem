@@ -8,3 +8,4 @@ Usage
    assembly
    usage_chunked_assembly
    solver
+   space
