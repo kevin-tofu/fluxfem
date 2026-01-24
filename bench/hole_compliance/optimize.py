@@ -20,7 +20,12 @@ import fluxfem.helpers_wf as h_wf
 jax.config.update("jax_enable_x64", True)
 
 
-def warp_coords_radial(coords: jnp.ndarray, center_xy: jnp.ndarray, r0: float, r: jnp.ndarray, delta: float) -> jnp.ndarray:
+def warp_coords_radial(
+    coords: jnp.ndarray,
+    center_xy: jnp.ndarray,
+    r0: float, r: jnp.ndarray,
+    delta: float
+) -> jnp.ndarray:
     xy = coords[:, :2] - center_xy
     rho = jnp.linalg.norm(xy, axis=1)
     smooth = jnp.exp(-((rho - r0) / delta) ** 2)

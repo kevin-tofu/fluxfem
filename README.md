@@ -177,6 +177,14 @@ loss_theta_jit = jax.jit(loss_theta)
 grad_fn = jax.jit(jax.grad(loss_theta))
 ```
 
+### FESpace vs FESpacePytree
+
+Use `FESpace` for standard workflows with a fixed mesh. When you need to carry
+the space through JAX transformations (e.g., shape optimization where mesh
+coordinates are part of the computation), use `FESpacePytree` via
+`make_*_space_pytree(...)`. This keeps the mesh/basis in the pytree so
+`jax.jit`/`jax.grad` can see geometry changes.
+
 ### Mixed systems
 
 Mixed problems can be assembled from residual blocks and solved as a coupled system.
