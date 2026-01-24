@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Tutorial Page &#8212; FluxFEM 0.2.0 documentation</title>
+    <title>FE Spaces &#8212; FluxFEM 0.2.0 documentation</title>
   
   
   
@@ -41,12 +41,12 @@
     <script src="_static/documentation_options.js?v=95e61db4"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial';</script>
-    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'space';</script>
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/space.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Linear Elasticity: Tensile Bar" href="tutorial_linear_elasticity.html" />
-    <link rel="prev" title="FE Spaces" href="space.html" />
+    <link rel="next" title="Tutorial Page" href="tutorial.html" />
+    <link rel="prev" title="Solvers" href="solver.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -132,15 +132,15 @@
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="usage.html">
     Usage
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorial.html">
     Tutorial Page
   </a>
 </li>
@@ -248,15 +248,15 @@
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="usage.html">
     Usage
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorial.html">
     Tutorial Page
   </a>
 </li>
@@ -311,14 +311,12 @@
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_gmsh_msh.html">Load a Gmsh .msh and use it in analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_kernel_assembly.html">Kernel-based Assembly (JIT-Friendly)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
+  <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Usage</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="assembly.html">Assembly</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage_chunked_assembly.html">Chunked Assembly</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">FE Spaces</a></li>
 </ul>
 </div>
 </nav></div>
@@ -359,7 +357,10 @@
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Tutorial Page</span></li>
+    
+    <li class="breadcrumb-item"><a href="usage.html" class="nav-link">Usage</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">FE Spaces</span></li>
   </ul>
 </nav>
 </div>
@@ -376,20 +377,57 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="tutorial-page">
-<h1>Tutorial Page<a class="headerlink" href="#tutorial-page" title="Link to this heading">#</a></h1>
-<p>This section contains tutorials for FluxFEM.</p>
-<div class="toctree-wrapper compound">
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_gmsh_msh.html">Load a Gmsh .msh and use it in analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_kernel_assembly.html">Kernel-based Assembly (JIT-Friendly)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
+  <section id="fe-spaces">
+<h1>FE Spaces<a class="headerlink" href="#fe-spaces" title="Link to this heading">#</a></h1>
+<p>FluxFEM provides two closely related space types:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">FESpace</span></code>: the default space for fixed meshes and standard solves.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FESpacePytree</span></code>: a pytree-compatible space for JAX transformations.</p></li>
 </ul>
+<section id="when-to-use-which">
+<h2>When to use which<a class="headerlink" href="#when-to-use-which" title="Link to this heading">#</a></h2>
+<p>Use <code class="docutils literal notranslate"><span class="pre">FESpace</span></code> for typical PDE solves where the mesh is fixed. Use
+<code class="docutils literal notranslate"><span class="pre">FESpacePytree</span></code> when the mesh coordinates or basis need to participate in
+<code class="docutils literal notranslate"><span class="pre">jax.jit</span></code>/<code class="docutils literal notranslate"><span class="pre">jax.grad</span></code>/<code class="docutils literal notranslate"><span class="pre">jax.vmap</span></code> workflows (e.g., shape optimization,
+geometry inference, or coordinate warping).</p>
+</section>
+<section id="building-pytree-spaces">
+<h2>Building pytree spaces<a class="headerlink" href="#building-pytree-spaces" title="Link to this heading">#</a></h2>
+<p>The easiest entry point is the pytree helpers:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
+
+<span class="n">mesh</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">load_gmsh_tet_mesh</span><span class="p">(</span><span class="s2">&quot;mesh.msh&quot;</span><span class="p">)</span>
+<span class="n">space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_tet_space_pytree</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">intorder</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
 </div>
+<p>If you need to update coordinates inside a JAX function, construct a pytree
+mesh and space explicitly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">space_with_coords</span><span class="p">(</span><span class="n">coords</span><span class="p">):</span>
+    <span class="n">mesh_py</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">TetMeshPytree</span><span class="p">(</span>
+        <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">,</span>
+        <span class="n">conn</span><span class="o">=</span><span class="n">mesh</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span>
+        <span class="n">cell_tags</span><span class="o">=</span><span class="n">mesh</span><span class="o">.</span><span class="n">cell_tags</span><span class="p">,</span>
+        <span class="n">node_tags</span><span class="o">=</span><span class="n">mesh</span><span class="o">.</span><span class="n">node_tags</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">ff</span><span class="o">.</span><span class="n">FESpacePytree</span><span class="p">(</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh_py</span><span class="p">,</span>
+        <span class="n">basis</span><span class="o">=</span><span class="n">space</span><span class="o">.</span><span class="n">basis</span><span class="p">,</span>
+        <span class="n">elem_dofs</span><span class="o">=</span><span class="n">space</span><span class="o">.</span><span class="n">elem_dofs</span><span class="p">,</span>
+        <span class="n">value_dim</span><span class="o">=</span><span class="n">space</span><span class="o">.</span><span class="n">value_dim</span><span class="p">,</span>
+        <span class="n">_n_dofs</span><span class="o">=</span><span class="n">space</span><span class="o">.</span><span class="n">_n_dofs</span><span class="p">,</span>
+        <span class="n">_n_ldofs</span><span class="o">=</span><span class="n">space</span><span class="o">.</span><span class="n">_n_ldofs</span><span class="p">,</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="notes">
+<h2>Notes<a class="headerlink" href="#notes" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">FESpacePytree</span></code> shares the same API as <code class="docutils literal notranslate"><span class="pre">FESpace</span></code>; only the pytree behavior
+differs.</p></li>
+<li><p>Prefer <code class="docutils literal notranslate"><span class="pre">FESpace</span></code> unless you need the mesh/basis to be part of a JAX pytree.</p></li>
+</ul>
+</section>
 </section>
 
 
@@ -403,20 +441,20 @@
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="space.html"
+       href="solver.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">FE Spaces</p>
+        <p class="prev-next-title">Solvers</p>
       </div>
     </a>
     <a class="right-next"
-       href="tutorial_linear_elasticity.html"
+       href="tutorial.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Linear Elasticity: Tensile Bar</p>
+        <p class="prev-next-title">Tutorial Page</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -432,10 +470,24 @@
 
 
   <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-to-use-which">When to use which</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building-pytree-spaces">Building pytree spaces</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notes">Notes</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="_sources/tutorial.rst.txt"
+      <li><a href="_sources/space.rst.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>
