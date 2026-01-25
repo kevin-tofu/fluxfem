@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence, TYPE_CHECKING, TypeAlias
 
 import numpy as np
+import numpy.typing as npt
 
 from .mortar import (
     assemble_mixed_surface_jacobian,
@@ -17,6 +18,20 @@ from .mortar import (
 from .supermesh import build_surface_supermesh
 from .surface import SurfaceMesh
 from .base import BaseMesh
+
+if TYPE_CHECKING:
+    from .mortar import MortarMatrix
+    from ..core.weakform import Params as WeakParams
+    from .mortar import SurfaceMixedFormContext
+
+ContactJacobianReturn: TypeAlias = np.ndarray | tuple[np.ndarray, np.ndarray, np.ndarray, int]
+MixedSurfaceResidualForm: TypeAlias = Callable[
+    ["SurfaceMixedFormContext", Mapping[str, npt.ArrayLike], Any],
+    Mapping[str, npt.ArrayLike],
+]
+SurfaceHatFn: TypeAlias = Callable[[np.ndarray], npt.ArrayLike]
+
+_CONTACT_SETUP_CACHE: dict[tuple, "ContactSurfaceSpace"] = {}
 
 
 @dataclass(frozen=True)
@@ -257,7 +272,7 @@ class OneSidedContactSurfaceSpace:
 
     def assemble_bilinear(
         self,
-        u_hat_fn,
+        u_hat_fn: SurfaceHatFn | None,
         params: "WeakParams",
         *,
         u_master: np.ndarray | None = None,
@@ -559,7 +574,7 @@ class ContactSurfaceSpace:
             setup_cache_trace=setup_cache_trace,
         )
 
-    @classmethod
+    @classmethod  # type: ignore[no-redef]
     def from_facets(
         cls,
         coords_master: np.ndarray,
@@ -636,7 +651,8 @@ class ContactSurfaceSpace:
             raise ValueError("backend must be 'jax' or 'numpy'")
         return use_backend
 
-    def assemble_mortar_matrices(self):
+    def assemble_mortar_matrices(self) -> tuple["MortarMatrix", "MortarMatrix"]:
+        """Return (M_aa, M_ab) mortar coupling matrices."""
         return assemble_mortar_matrices(
             self.supermesh_coords,
             self.supermesh_conn,
@@ -648,13 +664,13 @@ class ContactSurfaceSpace:
 
     def assemble_residual(
         self,
-        res_form,
-        u,
-        params,
+        res_form: MixedSurfaceResidualForm,
+        u: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike],
+        params: "WeakParams",
         *,
         normal_sign: float | None = None,
         normal_source: str = "master",
-    ):
+    ) -> np.ndarray:
         u_master, u_slave = self._split_fields(u)
         if normal_sign is None:
             normal_sign = self.normal_sign
@@ -691,16 +707,16 @@ class ContactSurfaceSpace:
 
     def assemble_jacobian(
         self,
-        res_form,
-        u,
-        params,
+        res_form: MixedSurfaceResidualForm,
+        u: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike],
+        params: "WeakParams",
         *,
         normal_sign: float | None = None,
         normal_source: str = "master",
         sparse: bool = False,
         backend: str | None = None,
         batch_jac: bool | None = None,
-    ):
+    ) -> ContactJacobianReturn:
         u_master, u_slave = self._split_fields(u)
         if normal_sign is None:
             normal_sign = self.normal_sign
@@ -745,14 +761,14 @@ class ContactSurfaceSpace:
 
     def assemble_bilinear(
         self,
-        bilin,
-        u_master,
-        u_slave=None,
-        params=None,
+        bilin: Callable[..., Any],
+        u_master: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | npt.ArrayLike,
+        u_slave: npt.ArrayLike | None = None,
+        params: "WeakParams" | None = None,
         *,
         sparse: bool = False,
         normal_source: str = "master",
-    ):
+    ) -> ContactJacobianReturn:
         """
         Assemble a mixed surface bilinear form with signature (v1, v2, u1, u2, params).
 

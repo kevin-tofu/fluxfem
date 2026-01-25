@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Sequence, Callable
+from typing import Any, Callable, Mapping, Sequence, TYPE_CHECKING, TypeAlias, TypeVar
 
 import numpy as np
 import jax.numpy as jnp
@@ -12,6 +12,16 @@ from .weakform import MixedWeakForm, compile_mixed_residual, make_mixed_residual
 from ..solver.dirichlet import DirichletBC, free_dofs
 from ..solver.sparse import FluxSparseMatrix
 from .space import FESpaceClosure
+
+P = TypeVar("P")
+
+if TYPE_CHECKING:
+    from .assembly import JacobianReturn, LinearReturn
+
+MixedResidualForm: TypeAlias = Callable[
+    [MixedFormContext, Mapping[str, jnp.ndarray], P],
+    Mapping[str, jnp.ndarray],
+]
 
 
 @dataclass(eq=False)
@@ -133,11 +143,23 @@ class MixedFESpace:
         from .assembly import make_sparsity_pattern
         return make_sparsity_pattern(self, with_idx=with_idx)
 
-    def assemble_residual(self, res_form, u, params, **kwargs):
+    def assemble_residual(
+        self,
+        res_form: MixedResidualForm[P],
+        u: Mapping[str, jnp.ndarray] | Sequence[jnp.ndarray] | jnp.ndarray,
+        params: P,
+        **kwargs,
+    ) -> "LinearReturn":
         from .mixed_assembly import assemble_mixed_residual
         return assemble_mixed_residual(self, res_form, u, params, **kwargs)
 
-    def assemble_jacobian(self, res_form, u, params, **kwargs):
+    def assemble_jacobian(
+        self,
+        res_form: MixedResidualForm[P],
+        u: Mapping[str, jnp.ndarray] | Sequence[jnp.ndarray] | jnp.ndarray,
+        params: P,
+        **kwargs,
+    ) -> "JacobianReturn":
         from .mixed_assembly import assemble_mixed_jacobian
         return assemble_mixed_jacobian(self, res_form, u, params, **kwargs)
 
@@ -261,14 +283,26 @@ class MixedProblem:
             return _wrapped, None
         return self._compiled, params
 
-    def assemble_residual(self, u, *, params=None, **kwargs):
+    def assemble_residual(
+        self,
+        u: Mapping[str, jnp.ndarray] | Sequence[jnp.ndarray] | jnp.ndarray,
+        *,
+        params: P | None = None,
+        **kwargs,
+    ) -> "LinearReturn":
         use_params = self.params if params is None else params
         res_form, use_params = self._wrap_params(use_params)
         return self.space.assemble_residual(
             res_form, u, use_params, **self._merge_kwargs(kwargs)
         )
 
-    def assemble_jacobian(self, u, *, params=None, **kwargs):
+    def assemble_jacobian(
+        self,
+        u: Mapping[str, jnp.ndarray] | Sequence[jnp.ndarray] | jnp.ndarray,
+        *,
+        params: P | None = None,
+        **kwargs,
+    ) -> "JacobianReturn":
         use_params = self.params if params is None else params
         res_form, use_params = self._wrap_params(use_params)
         return self.space.assemble_jacobian(

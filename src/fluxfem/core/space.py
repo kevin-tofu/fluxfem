@@ -16,8 +16,13 @@ if TYPE_CHECKING:
         ElementLinearKernel,
         ElementResidualKernel,
         Kernel,
+        BilinearReturn,
+        JacobianReturn,
+        LinearReturn,
+        MassReturn,
         ResidualForm,
     )
+    from ..solver import FluxSparseMatrix
 else:
     Kernel = Callable[..., Any]
     ResidualForm = Callable[..., Any]
@@ -25,6 +30,11 @@ else:
     ElementLinearKernel = Callable[..., Any]
     ElementResidualKernel = Callable[..., Any]
     ElementJacobianKernel = Callable[..., Any]
+    BilinearReturn = Any
+    JacobianReturn = Any
+    LinearReturn = Any
+    MassReturn = Any
+    FluxSparseMatrix = Any
 
 _WARNED_UNTAGGED_KERNELS: set[int] = set()
 
@@ -367,7 +377,7 @@ class FESpaceClosure:
         dep: jnp.ndarray | None = None,
         kernel: ElementBilinearKernel | None = None,
         **kwargs,
-    ):
+    ) -> FluxSparseMatrix:
         """Assemble bilinear form; kernel(ctx) -> (n_ldofs, n_ldofs) if provided."""
         from .assembly import assemble_bilinear_form
         if "pattern" not in kwargs or kwargs.get("pattern") is None:
@@ -385,22 +395,32 @@ class FESpaceClosure:
         dep: jnp.ndarray | None = None,
         kernel: ElementLinearKernel | None = None,
         **kwargs,
-    ):
+    ) -> LinearReturn:
         """Assemble linear form; kernel(ctx) -> (n_ldofs,) if provided."""
         from .assembly import assemble_linear_form
         return assemble_linear_form(
             self, form, params, n_chunks=n_chunks, dep=dep, kernel=kernel, **kwargs
         )
 
-    def assemble_functional(self, form, params):
+    def assemble_functional(self, form: Kernel[P], params: P) -> jnp.ndarray:
         from .assembly import assemble_functional
         return assemble_functional(self, form, params)
 
-    def assemble_mass_matrix(self, *, n_chunks=None, **kwargs):
+    def assemble_mass_matrix(
+        self,
+        *,
+        n_chunks: int | None = None,
+        **kwargs,
+    ) -> MassReturn:
         from .assembly import assemble_mass_matrix
         return assemble_mass_matrix(self, n_chunks=n_chunks, **kwargs)
 
-    def assemble_bilinear_dense(self, kernel, params, **kwargs):
+    def assemble_bilinear_dense(
+        self,
+        kernel: Kernel[P],
+        params: P,
+        **kwargs,
+    ) -> BilinearReturn:
         from .assembly import assemble_bilinear_dense
         return assemble_bilinear_dense(self, kernel, params, **kwargs)
 
@@ -412,7 +432,7 @@ class FESpaceClosure:
         *,
         kernel: ElementResidualKernel | None = None,
         **kwargs,
-    ):
+    ) -> LinearReturn:
         """Assemble residual; kernel(ctx, u_elem) -> (n_ldofs,) if provided."""
         from .assembly import assemble_residual
         return assemble_residual(self, res_form, u, params, kernel=kernel, **kwargs)
@@ -425,7 +445,7 @@ class FESpaceClosure:
         *,
         kernel: ElementJacobianKernel | None = None,
         **kwargs,
-    ):
+    ) -> JacobianReturn:
         """Assemble Jacobian; kernel(u_elem, ctx) -> (n_ldofs, n_ldofs) if provided."""
         from .assembly import assemble_jacobian
         return assemble_jacobian(self, res_form, u, params, kernel=kernel, **kwargs)

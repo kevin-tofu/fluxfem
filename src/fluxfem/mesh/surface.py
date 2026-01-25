@@ -1,17 +1,31 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional, Protocol, Sequence, TYPE_CHECKING, TypeVar, cast
 import jax
 import jax.numpy as jnp
 
 from .dtypes import INDEX_DTYPE
 import numpy as np
+import numpy.typing as npt
 
 DTYPE = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
 
 from .base import BaseMesh, BaseMeshPytree
 from .hex import HexMesh, HexMeshPytree
+
+P = TypeVar("P")
+
+if TYPE_CHECKING:
+    from ..solver.bc import SurfaceFormContext
+
+
+class SurfaceSpaceLike(Protocol):
+    value_dim: int
+    mesh: BaseMesh
+
+
+SurfaceLinearForm = Callable[["SurfaceFormContext", P], npt.ArrayLike]
 
 
 def _polygon_area(pts: np.ndarray) -> float:
@@ -26,7 +40,7 @@ def _polygon_area(pts: np.ndarray) -> float:
     for i in range(1, pts.shape[0] - 1):
         v1 = pts[i] - p0
         v2 = pts[i + 1] - p0
-        area += 0.5 * np.linalg.norm(np.cross(v1, v2))
+        area += float(0.5 * np.linalg.norm(np.cross(v1, v2)))
     return float(area)
 
 
@@ -103,20 +117,43 @@ class SurfaceMesh(BaseMesh):
         from ..solver.bc import facet_normals
         return facet_normals(self, outward_from=outward_from, normalize=normalize)
 
-    def assemble_load(self, load, *, dim: int, n_total_nodes: int | None = None, F0=None):
+    def assemble_load(
+        self,
+        load: npt.ArrayLike,
+        *,
+        dim: int,
+        n_total_nodes: int | None = None,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_load
         return assemble_surface_load(self, load, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
-    def assemble_linear_form(self, form, params, *, dim: int, n_total_nodes: int | None = None, F0=None):
+    def assemble_linear_form(
+        self,
+        form: SurfaceLinearForm[P],
+        params: P,
+        *,
+        dim: int,
+        n_total_nodes: int | None = None,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_linear_form
         return assemble_surface_linear_form(self, form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
-    def assemble_linear_form_on_space(self, space, form, params, *, F0=None):
+    def assemble_linear_form_on_space(
+        self,
+        space: SurfaceSpaceLike,
+        form: SurfaceLinearForm[P],
+        params: P,
+        *,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         """
         Assemble surface linear form using global size inferred from a volume space.
         """
         dim = int(getattr(space, "value_dim", 1))
-        n_total_nodes = int(getattr(space, "mesh", self).n_nodes)
+        mesh = cast(BaseMesh, getattr(space, "mesh", self))
+        n_total_nodes = int(mesh.n_nodes)
         return self.assemble_linear_form(form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
 
@@ -137,13 +174,13 @@ def surface_with_elem_conn(mesh: BaseMesh, facets, *, mode: str = "touching") ->
 
     def assemble_traction(
         self,
-        traction,
+        traction: float | Sequence[float],
         *,
         dim: int = 3,
         n_total_nodes: int | None = None,
-        F0=None,
-        outward_from=None,
-    ):
+        F0: npt.ArrayLike | None = None,
+        outward_from: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_traction
         return assemble_surface_traction(
             self,
@@ -222,31 +259,54 @@ class SurfaceMeshPytree(BaseMeshPytree):
         from ..solver.bc import facet_normals
         return facet_normals(self, outward_from=outward_from, normalize=normalize)
 
-    def assemble_load(self, load, *, dim: int, n_total_nodes: int | None = None, F0=None):
+    def assemble_load(
+        self,
+        load: npt.ArrayLike,
+        *,
+        dim: int,
+        n_total_nodes: int | None = None,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_load
         return assemble_surface_load(self, load, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
-    def assemble_linear_form(self, form, params, *, dim: int, n_total_nodes: int | None = None, F0=None):
+    def assemble_linear_form(
+        self,
+        form: SurfaceLinearForm[P],
+        params: P,
+        *,
+        dim: int,
+        n_total_nodes: int | None = None,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_linear_form
         return assemble_surface_linear_form(self, form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
-    def assemble_linear_form_on_space(self, space, form, params, *, F0=None):
+    def assemble_linear_form_on_space(
+        self,
+        space: SurfaceSpaceLike,
+        form: SurfaceLinearForm[P],
+        params: P,
+        *,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         """
         Assemble surface linear form using global size inferred from a volume space.
         """
         dim = int(getattr(space, "value_dim", 1))
-        n_total_nodes = int(getattr(space, "mesh", self).n_nodes)
+        mesh = cast(BaseMesh, getattr(space, "mesh", self))
+        n_total_nodes = int(mesh.n_nodes)
         return self.assemble_linear_form(form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
     def assemble_traction(
         self,
-        traction,
+        traction: float | Sequence[float],
         *,
         dim: int = 3,
         n_total_nodes: int | None = None,
-        F0=None,
-        outward_from=None,
-    ):
+        F0: npt.ArrayLike | None = None,
+        outward_from: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_traction
         return assemble_surface_traction(
             self,
@@ -259,12 +319,12 @@ class SurfaceMeshPytree(BaseMeshPytree):
 
     def assemble_flux(
         self,
-        flux,
+        flux: npt.ArrayLike,
         *,
         n_total_nodes: int | None = None,
-        F0=None,
-        outward_from=None,
-    ):
+        F0: npt.ArrayLike | None = None,
+        outward_from: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_flux
         return assemble_surface_flux(
             self,
