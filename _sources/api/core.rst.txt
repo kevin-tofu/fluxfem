@@ -39,19 +39,27 @@ Kernel metadata (ff.kernel)
 ``@ff.kernel`` attaches metadata used by ``space.assemble`` to infer the
 form kind and domain. The following combinations are supported:
 
-+-----------+----------+----------------------------------------+
-| kind      | domain   | expected kernel signature              |
-+===========+==========+========================================+
-| bilinear  | volume   | ``(ctx, params) -> (n_q, n_ldofs, n_ldofs)`` |
-+-----------+----------+----------------------------------------+
-| linear    | volume   | ``(ctx, params) -> (n_q, n_ldofs)``     |
-+-----------+----------+----------------------------------------+
-| linear    | surface  | ``(ctx, params) -> (n_q, n_ldofs)``     |
-+-----------+----------+----------------------------------------+
-| residual  | volume   | ``(ctx, u_elem, params) -> (n_q, n_ldofs)`` |
-+-----------+----------+----------------------------------------+
-| jacobian  | volume   | ``(u_elem, ctx) -> (n_ldofs, n_ldofs)`` |
-+-----------+----------+----------------------------------------+
+.. list-table::
+   :header-rows: 1
+
+   * - kind
+     - domain
+     - expected kernel signature
+   * - bilinear
+     - volume
+     - ``(ctx, params) -> (n_q, n_ldofs, n_ldofs)``
+   * - linear
+     - volume
+     - ``(ctx, params) -> (n_q, n_ldofs)``
+   * - linear
+     - surface
+     - ``(ctx, params) -> (n_q, n_ldofs)``
+   * - residual
+     - volume
+     - ``(ctx, u_elem, params) -> (n_q, n_ldofs)``
+   * - jacobian
+     - volume
+     - ``(u_elem, ctx) -> (n_ldofs, n_ldofs)``
 
 Use ``domain="surface"`` with the surface-specific assembly helpers
 (``assemble_surface_linear_form``, ``assemble_surface_bilinear_form``).
