@@ -393,6 +393,8 @@ The idea is to separate:</p>
 <p><code class="docutils literal notranslate"><span class="pre">make_element_*_kernel</span></code> returns a JIT-compiled function that operates per element.
 You can pass that kernel to <code class="docutils literal notranslate"><span class="pre">space.assemble_*</span></code>.</p>
 <p>The kernel <strong>must return the integrated element contribution</strong> (not the integrand).
+By contrast, a <strong>form</strong> (<code class="docutils literal notranslate"><span class="pre">form(ctx,</span> <span class="pre">params)</span></code>) returns the per-quadrature
+integrand, and the assembler applies <code class="docutils literal notranslate"><span class="pre">wJ</span></code> and sums over quadrature points.
 If you pass an untagged raw kernel to <code class="docutils literal notranslate"><span class="pre">space.assemble</span></code> with <code class="docutils literal notranslate"><span class="pre">kind=</span></code>,
 FluxFEM emits a one-time warning; prefer tagging with <code class="docutils literal notranslate"><span class="pre">&#64;ff.kernel</span></code>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
