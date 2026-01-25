@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Iterable, Sequence, TypeAlias
 
 import numpy as np
 import jax
@@ -12,7 +13,13 @@ except Exception:  # pragma: no cover
     sp = None
 
 
-def coalesce_coo(rows, cols, data):
+ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+COOTuple: TypeAlias = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int]
+
+
+def coalesce_coo(
+    rows: ArrayLike, cols: ArrayLike, data: ArrayLike
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Sum duplicate COO entries by sorting (CPU-friendly).
     Returns (rows_u, cols_u, data_u) as NumPy arrays.
@@ -35,7 +42,7 @@ def coalesce_coo(rows, cols, data):
     return r_u, c_u, d_u
 
 
-def _normalize_flux_mats(mats):
+def _normalize_flux_mats(mats: Sequence["FluxSparseMatrix"]) -> tuple["FluxSparseMatrix", ...]:
     if len(mats) == 1 and isinstance(mats[0], (list, tuple)):
         mats = tuple(mats[0])
     if not mats:
@@ -43,7 +50,7 @@ def _normalize_flux_mats(mats):
     return mats
 
 
-def concat_flux(*mats, n_dofs: int | None = None):
+def concat_flux(*mats: "FluxSparseMatrix", n_dofs: int | None = None) -> "FluxSparseMatrix":
     """
     Concatenate COO entries from multiple FluxSparseMatrix objects.
     All matrices must share the same n_dofs unless n_dofs is provided.
@@ -63,7 +70,7 @@ def concat_flux(*mats, n_dofs: int | None = None):
     return FluxSparseMatrix(rows, cols, data, int(n_dofs))
 
 
-def block_diag_flux(*mats):
+def block_diag_flux(*mats: "FluxSparseMatrix") -> "FluxSparseMatrix":
     """Block-diagonal concatenation for FluxSparseMatrix objects."""
     mats = _normalize_flux_mats(mats)
     rows_out = []
@@ -153,7 +160,14 @@ class FluxSparseMatrix:
     - data stores the numeric values for the current nonlinear iterate
     """
 
-    def __init__(self, rows_or_pattern, cols=None, data=None, n_dofs: int | None = None, meta: dict | None = None):
+    def __init__(
+        self,
+        rows_or_pattern: SparsityPattern | ArrayLike,
+        cols: ArrayLike | None = None,
+        data: ArrayLike | None = None,
+        n_dofs: int | None = None,
+        meta: dict | None = None,
+    ):
         # New signature: FluxSparseMatrix(pattern, data)
         if isinstance(rows_or_pattern, SparsityPattern):
             pattern = rows_or_pattern
@@ -188,35 +202,35 @@ class FluxSparseMatrix:
         self.meta = dict(meta) if meta is not None else None
 
     @classmethod
-    def from_bilinear(cls, coo_tuple):
+    def from_bilinear(cls, coo_tuple: COOTuple) -> "FluxSparseMatrix":
         """Construct from assemble_bilinear_dense(..., sparse=True)."""
         rows, cols, data, n_dofs = coo_tuple
         return cls(rows, cols, data, n_dofs)
 
     @classmethod
-    def from_linear(cls, coo_tuple):
+    def from_linear(cls, coo_tuple: tuple[jnp.ndarray, jnp.ndarray, int]) -> "FluxSparseMatrix":
         """Construct from assemble_linear_form(..., sparse=True) (matrix interpretation only)."""
         rows, data, n_dofs = coo_tuple
         cols = jnp.zeros_like(rows)
         return cls(rows, cols, data, n_dofs)
 
-    def with_data(self, data):
+    def with_data(self, data: ArrayLike) -> "FluxSparseMatrix":
         """Return a new FluxSparseMatrix sharing the same pattern with updated data."""
         return FluxSparseMatrix(self.pattern, data, meta=self.meta)
 
-    def add_dense(self, dense):
+    def add_dense(self, dense: ArrayLike) -> "FluxSparseMatrix":
         """Return a new FluxSparseMatrix with dense entries added on the pattern."""
         dense_vals = jnp.asarray(dense)[self.pattern.rows, self.pattern.cols]
         return FluxSparseMatrix(self.pattern, self.data + dense_vals)
 
-    def to_coo(self):
+    def to_coo(self) -> COOTuple:
         return self.pattern.rows, self.pattern.cols, self.data, self.pattern.n_dofs
 
     @property
     def nnz(self) -> int:
         return int(self.data.shape[0])
 
-    def coalesce(self):
+    def coalesce(self) -> "FluxSparseMatrix":
         """Return a new FluxSparseMatrix with duplicate entries summed."""
         rows_u, cols_u, data_u = coalesce_coo(self.pattern.rows, self.pattern.cols, self.data)
         return FluxSparseMatrix(rows_u, cols_u, data_u, self.pattern.n_dofs)
@@ -238,7 +252,7 @@ class FluxSparseMatrix:
         d = np.array(self.data, copy=True)
         return sp.csr_matrix((d, (r, c)), shape=(self.pattern.n_dofs, self.pattern.n_dofs))
 
-    def to_dense(self):
+    def to_dense(self) -> jnp.ndarray:
         # small debug helper
         dense = jnp.zeros((self.pattern.n_dofs, self.pattern.n_dofs), dtype=self.data.dtype)
         dense = dense.at[self.pattern.rows, self.pattern.cols].add(self.data)
@@ -253,7 +267,7 @@ class FluxSparseMatrix:
         idx = jnp.stack([self.pattern.rows, self.pattern.cols], axis=-1)
         return jsparse.BCOO((self.data, idx), shape=(self.pattern.n_dofs, self.pattern.n_dofs))
 
-    def matvec(self, x):
+    def matvec(self, x: ArrayLike) -> jnp.ndarray:
         """Compute y = A x in JAX (iterative solvers)."""
         xj = jnp.asarray(x)
         contrib = self.data * xj[self.pattern.cols]

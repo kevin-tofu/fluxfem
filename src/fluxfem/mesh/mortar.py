@@ -3,13 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import time
-from typing import Iterable, TYPE_CHECKING
+from typing import Any, Callable, Iterable, Sequence, TYPE_CHECKING, cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from .surface import SurfaceMesh
+from ..core.forms import FormFieldLike
 if TYPE_CHECKING:
     from ..core.forms import FieldPair
     from ..core.weakform import Params as WeakParams
@@ -54,7 +55,7 @@ _DEBUG_CONTACT_PROJ_ONCE = False
 _DEBUG_PROJ_QP_CACHE = None
 _DEBUG_PROJ_QP_SOURCE = None
 _DEBUG_PROJ_QP_DUMPED = False
-_PROJ_DIAG_STATS = None
+_PROJ_DIAG_STATS: dict[str, Any] | None = None
 _PROJ_DIAG_COUNT = 0
 _PROJ_DIAG_CONTEXT: dict[str, int | str] = {}
 
@@ -139,6 +140,8 @@ def _quad_quadrature(order: int) -> tuple[np.ndarray, np.ndarray]:
         order = 2
     n = int(np.ceil((order + 1.0) / 2.0))
     x1d, w1d = np.polynomial.legendre.leggauss(n)
+    X: np.ndarray
+    Y: np.ndarray
     X, Y = np.meshgrid(x1d, x1d, indexing="xy")
     W = np.outer(w1d, w1d)
     pts = np.stack([X.ravel(), Y.ravel()], axis=1)
@@ -360,7 +363,7 @@ def _proj_diag_log(
     if _PROJ_DIAG_STATS is None:
         return
     _PROJ_DIAG_STATS["fail"] += 1
-    by_code = _PROJ_DIAG_STATS["by_code"]
+    by_code = cast(dict[str, int], _PROJ_DIAG_STATS["by_code"])
     by_code[code] = by_code.get(code, 0) + 1
     if _PROJ_DIAG_COUNT >= _proj_diag_max():
         return
@@ -534,7 +537,7 @@ def _barycentric(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray):
 
 
 def _point_in_tri(lam: np.ndarray, *, tol: float) -> bool:
-    return np.all(lam >= -tol) and np.all(lam <= 1.0 + tol)
+    return bool(np.all(lam >= -tol) and np.all(lam <= 1.0 + tol))
 
 
 def _plane_basis(pts: np.ndarray, *, tol: float):
@@ -978,13 +981,13 @@ def map_surface_facets_to_tet_elements(surface: SurfaceMesh, tet_conn: np.ndarra
     """
     Map surface triangle facets to parent tet elements by node matching (tet4/tet10).
     """
-    face_patterns_corner = [
+    face_patterns_corner: list[tuple[int, ...]] = [
         (0, 1, 2),
         (0, 1, 3),
         (0, 2, 3),
         (1, 2, 3),
     ]
-    face_patterns_quad = [
+    face_patterns_quad: list[tuple[int, ...]] = [
         (0, 1, 2, 4, 5, 6),
         (0, 1, 3, 4, 8, 7),
         (0, 2, 3, 6, 9, 7),
@@ -997,7 +1000,7 @@ def map_surface_facets_to_tet_elements(surface: SurfaceMesh, tet_conn: np.ndarra
     mapping_quad: dict[tuple[int, ...], int] = {}
     for e_id, elem in enumerate(tet_conn):
         for pattern in face_patterns_corner:
-            face_nodes = tuple(sorted(int(elem[i]) for i in pattern))
+            face_nodes: tuple[int, ...] = tuple(sorted(int(elem[i]) for i in pattern))
             mapping_corner.setdefault(face_nodes, e_id)
         if elem.shape[0] == 10:
             for pattern in face_patterns_quad:
@@ -1022,7 +1025,7 @@ def map_surface_facets_to_hex_elements(surface: SurfaceMesh, hex_conn: np.ndarra
     hex_conn = np.asarray(hex_conn, dtype=int)
     if hex_conn.shape[1] not in {8, 20, 27}:
         raise NotImplementedError("Only hex8/hex20/hex27 are supported.")
-    face_patterns_corner = [
+    face_patterns_corner: list[tuple[int, ...]] = [
         (0, 1, 2, 3),
         (4, 5, 6, 7),
         (0, 1, 5, 4),
@@ -1030,7 +1033,7 @@ def map_surface_facets_to_hex_elements(surface: SurfaceMesh, hex_conn: np.ndarra
         (2, 3, 7, 6),
         (3, 0, 4, 7),
     ]
-    face_patterns_corner27 = [
+    face_patterns_corner27: list[tuple[int, ...]] = [
         (0, 2, 8, 6),
         (18, 20, 26, 24),
         (0, 2, 20, 18),
@@ -1038,7 +1041,7 @@ def map_surface_facets_to_hex_elements(surface: SurfaceMesh, hex_conn: np.ndarra
         (0, 6, 24, 18),
         (2, 8, 26, 20),
     ]
-    face_patterns_quad = [
+    face_patterns_quad: list[tuple[int, ...]] = [
         (0, 1, 2, 3, 8, 9, 10, 11),
         (4, 5, 6, 7, 12, 13, 14, 15),
         (0, 1, 5, 4, 8, 17, 12, 16),
@@ -1046,7 +1049,7 @@ def map_surface_facets_to_hex_elements(surface: SurfaceMesh, hex_conn: np.ndarra
         (2, 3, 7, 6, 10, 19, 14, 18),
         (3, 0, 4, 7, 11, 16, 15, 19),
     ]
-    face_patterns_quad9 = [
+    face_patterns_quad9: list[tuple[int, ...]] = [
         (0, 1, 2, 3, 4, 5, 6, 7, 8),
         (18, 19, 20, 21, 22, 23, 24, 25, 26),
         (0, 1, 2, 9, 10, 11, 18, 19, 20),
@@ -1062,7 +1065,7 @@ def map_surface_facets_to_hex_elements(surface: SurfaceMesh, hex_conn: np.ndarra
         else:
             corner_patterns = face_patterns_corner
         for pattern in corner_patterns:
-            face_nodes = tuple(sorted(int(elem[i]) for i in pattern))
+            face_nodes: tuple[int, ...] = tuple(sorted(int(elem[i]) for i in pattern))
             mapping_corner.setdefault(face_nodes, e_id)
         if elem.shape[0] == 20:
             for pattern in face_patterns_quad:
@@ -2186,7 +2189,13 @@ def assemble_mixed_surface_residual(
     if offset_b is None:
         offset_b = offset_a + n_a
     n_total = int(offset_b + n_b)
-    R = np.zeros((n_total,), dtype=float)
+    R: np.ndarray = np.zeros((n_total,), dtype=float)
+
+    trace = os.getenv("FLUXFEM_MORTAR_TRACE", "0") not in ("0", "", "false", "False")
+
+    def _trace_time(msg: str, t0: float) -> None:
+        if trace:
+            print(f"{msg} dt={time.perf_counter() - t0:.3e}s", flush=True)
 
     t_norm = time.perf_counter()
     normals_a = None
@@ -2213,6 +2222,12 @@ def assemble_mixed_surface_residual(
 
     use_elem_a = elem_conn_a is not None and facet_to_elem_a is not None
     use_elem_b = elem_conn_b is not None and facet_to_elem_b is not None
+    if use_elem_a:
+        assert elem_conn_a is not None
+        assert facet_to_elem_a is not None
+    if use_elem_b:
+        assert elem_conn_b is not None
+        assert facet_to_elem_b is not None
 
     if grad_source not in {"volume", "surface"}:
         raise ValueError("grad_source must be 'volume' or 'surface'")
@@ -2295,8 +2310,8 @@ def assemble_mixed_surface_residual(
                     basis=_SurfaceBasis(dofs_per_node=value_dim_b),
                 )
                 fields = {
-                    field_a: FieldPair(test=field_a_obj, trial=field_a_obj),
-                    field_b: FieldPair(test=field_b_obj, trial=field_b_obj),
+                    field_a: FieldPair(test=cast("FormFieldLike", field_a_obj), trial=cast("FormFieldLike", field_a_obj)),
+                    field_b: FieldPair(test=cast("FormFieldLike", field_b_obj), trial=cast("FormFieldLike", field_b_obj)),
                 }
                 ctx = SurfaceMixedFormContext(
                     fields=fields,
@@ -2372,6 +2387,8 @@ def assemble_mixed_surface_residual(
         elem_nodes_a = None
         elem_coords_a = None
         if use_elem_a:
+            assert elem_conn_a is not None
+            assert facet_to_elem_a is not None
             elem_id_a = int(facet_to_elem_a[int(fa)])
             if elem_id_a < 0:
                 raise ValueError("facet_to_elem_a has invalid mapping")
@@ -2384,6 +2401,8 @@ def assemble_mixed_surface_residual(
         elem_nodes_b = None
         elem_coords_b = None
         if use_elem_b:
+            assert elem_conn_b is not None
+            assert facet_to_elem_b is not None
             elem_id_b = int(facet_to_elem_b[int(fb)])
             if elem_id_b < 0:
                 raise ValueError("facet_to_elem_b has invalid mapping")
@@ -2411,10 +2430,14 @@ def assemble_mixed_surface_residual(
                 dtype=float,
             )
         if use_elem_a and grad_source == "volume":
+            assert elem_nodes_a is not None
+            assert elem_coords_a is not None
             local = _local_indices(elem_nodes_a, facet_a)
             gradNa = _tet_gradN_at_points(x_q, elem_coords_a, local=local, tol=tol)
 
         if use_elem_b and grad_source == "volume":
+            assert elem_nodes_b is not None
+            assert elem_coords_b is not None
             local = _local_indices(elem_nodes_b, facet_b)
             gradNb = _tet_gradN_at_points(x_q, elem_coords_b, local=local, tol=tol)
 
@@ -2492,8 +2515,8 @@ def assemble_mixed_surface_residual(
             basis=_SurfaceBasis(dofs_per_node=value_dim_b),
         )
         fields = {
-            field_a: FieldPair(test=field_a_obj, trial=field_a_obj),
-            field_b: FieldPair(test=field_b_obj, trial=field_b_obj),
+            field_a: FieldPair(test=cast("FormFieldLike", field_a_obj), trial=cast("FormFieldLike", field_a_obj)),
+            field_b: FieldPair(test=cast("FormFieldLike", field_b_obj), trial=cast("FormFieldLike", field_b_obj)),
         }
         normal_q = None if normal is None else np.repeat(normal[None, :], quad_pts.shape[0], axis=0)
         ctx = SurfaceMixedFormContext(
@@ -2575,6 +2598,8 @@ def assemble_mixed_surface_jacobian(
     to pick which field acts as the master when normal_source is "master"/"slave".
     dof_source="volume" assembles into element nodes (requires elem_conn_* mappings).
     """
+    source_facets_a = list(source_facets_a)
+    source_facets_b = list(source_facets_b)
     from ..core.forms import FieldPair
     _mortar_dbg(
         f"[mortar] enter assemble_mixed_surface_jacobian quad_order={quad_order} backend={backend}"
@@ -2648,7 +2673,7 @@ def assemble_mixed_surface_jacobian(
     rows: list[int] = []
     cols: list[int] = []
     data: list[float] = []
-    K_dense = np.zeros((n_total, n_total), dtype=float) if not sparse else None
+    K_dense: np.ndarray | None = np.zeros((n_total, n_total), dtype=float) if not sparse else None
 
     use_elem_a = elem_conn_a is not None and facet_to_elem_a is not None
     use_elem_b = elem_conn_b is not None and facet_to_elem_b is not None
@@ -2746,8 +2771,8 @@ def assemble_mixed_surface_jacobian(
                     basis=_SurfaceBasis(dofs_per_node=value_dim_b),
                 )
                 fields = {
-                    field_a: FieldPair(test=field_a_obj, trial=field_a_obj),
-                    field_b: FieldPair(test=field_b_obj, trial=field_b_obj),
+                    field_a: FieldPair(test=cast("FormFieldLike", field_a_obj), trial=cast("FormFieldLike", field_a_obj)),
+                    field_b: FieldPair(test=cast("FormFieldLike", field_b_obj), trial=cast("FormFieldLike", field_b_obj)),
                 }
                 ctx = SurfaceMixedFormContext(
                     fields=fields,
@@ -2831,6 +2856,7 @@ def assemble_mixed_surface_jacobian(
                             cols.append(int(gj))
                             data.append(val)
                         else:
+                            assert K_dense is not None
                             K_dense[int(gi), int(gj)] += val
             if sparse:
                 return np.asarray(rows, dtype=int), np.asarray(cols, dtype=int), np.asarray(data, dtype=float), n_total
@@ -2881,8 +2907,8 @@ def assemble_mixed_surface_jacobian(
                     basis=_SurfaceBasis(dofs_per_node=value_dim_b),
                 )
                 fields = {
-                    field_a: FieldPair(test=field_a_obj, trial=field_a_obj),
-                    field_b: FieldPair(test=field_b_obj, trial=field_b_obj),
+                    field_a: FieldPair(test=cast("FormFieldLike", field_a_obj), trial=cast("FormFieldLike", field_a_obj)),
+                    field_b: FieldPair(test=cast("FormFieldLike", field_b_obj), trial=cast("FormFieldLike", field_b_obj)),
                 }
                 normal_q = jnp.repeat(normal[None, :], x_q.shape[0], axis=0)
                 ctx = SurfaceMixedFormContext(
@@ -2916,7 +2942,7 @@ def assemble_mixed_surface_jacobian(
             jac_fun = jax.vmap(jax.jacrev(_res_local_batch))
             return jax.jit(jac_fun) if jit_batch else jac_fun
 
-        jac_fun_cache: dict[tuple[int, int], object] = {}
+        jac_fun_cache: dict[tuple[int, int], Callable[..., jnp.ndarray]] = {}
 
         def _emit_batch(
             Na_b,
@@ -2999,9 +3025,13 @@ def assemble_mixed_surface_jacobian(
             facet_b = facets_b[int(fb)]
             x_q = np.array([a + r * (b - a) + s * (c - a) for r, s in quad_pts], dtype=float)
 
+            assert facet_to_elem_a is not None
+            assert elem_conn_a is not None
             elem_id_a = int(facet_to_elem_a[int(fa)])
             elem_nodes_a = np.asarray(elem_conn_a[elem_id_a], dtype=int)
             elem_coords_a = coords_a[elem_nodes_a]
+            assert facet_to_elem_b is not None
+            assert elem_conn_b is not None
             elem_id_b = int(facet_to_elem_b[int(fb)])
             elem_nodes_b = np.asarray(elem_conn_b[elem_id_b], dtype=int)
             elem_coords_b = coords_b[elem_nodes_b]
@@ -3072,6 +3102,8 @@ def assemble_mixed_surface_jacobian(
                         normal_b = jnp.asarray(np.stack(normal_b, axis=0))
                         u_local_b = jnp.asarray(np.stack(u_local_batch, axis=0))
                         dofs_batch_np = np.asarray(dofs_batch, dtype=int)
+                        assert n_a_local_const is not None
+                        assert n_b_local_const is not None
                         _emit_batch(
                             Na_b,
                             Nb_b,
@@ -3108,6 +3140,8 @@ def assemble_mixed_surface_jacobian(
                 normal_b = jnp.asarray(np.stack(normal_b, axis=0))
                 u_local_b = jnp.asarray(np.stack(u_local_batch, axis=0))
                 dofs_batch_np = np.asarray(dofs_batch, dtype=int)
+                assert n_a_local_const is not None
+                assert n_b_local_const is not None
                 _emit_batch(
                     Na_b,
                     Nb_b,
@@ -3139,6 +3173,8 @@ def assemble_mixed_surface_jacobian(
             normal_b = jnp.asarray(np.stack(normal_b, axis=0))
             u_local_b = jnp.asarray(np.stack(u_local_batch, axis=0))
             dofs_batch_np = np.asarray(dofs_batch, dtype=int)
+            assert n_a_local_const is not None
+            assert n_b_local_const is not None
             _emit_batch(
                 Na_b,
                 Nb_b,
@@ -3158,14 +3194,14 @@ def assemble_mixed_surface_jacobian(
         if not batch_failed and (batch_rows or (not sparse and K_dense is not None)):
             if sparse:
                 if batch_rows:
-                    rows = np.concatenate(batch_rows)
-                    cols = np.concatenate(batch_cols)
-                    data = np.concatenate(batch_data)
+                    rows_np = np.concatenate(batch_rows)
+                    cols_np = np.concatenate(batch_cols)
+                    data_np = np.concatenate(batch_data)
                 else:
-                    rows = np.zeros((0,), dtype=int)
-                    cols = np.zeros((0,), dtype=int)
-                    data = np.zeros((0,), dtype=float)
-                return rows, cols, data, n_total
+                    rows_np = np.zeros((0,), dtype=int)
+                    cols_np = np.zeros((0,), dtype=int)
+                    data_np = np.zeros((0,), dtype=float)
+                return rows_np, cols_np, data_np, n_total
             assert K_dense is not None
             return K_dense
 
@@ -3250,6 +3286,8 @@ def assemble_mixed_surface_jacobian(
         elem_coords_a = None
         local_a = None
         if use_elem_a:
+            assert elem_conn_a is not None
+            assert facet_to_elem_a is not None
             elem_id_a = int(facet_to_elem_a[int(fa)])
             if elem_id_a < 0:
                 raise ValueError("facet_to_elem_a has invalid mapping")
@@ -3263,6 +3301,8 @@ def assemble_mixed_surface_jacobian(
         elem_coords_b = None
         local_b = None
         if use_elem_b:
+            assert elem_conn_b is not None
+            assert facet_to_elem_b is not None
             elem_id_b = int(facet_to_elem_b[int(fb)])
             if elem_id_b < 0:
                 raise ValueError("facet_to_elem_b has invalid mapping")
@@ -3291,10 +3331,14 @@ def assemble_mixed_surface_jacobian(
                 dtype=float,
             )
         if use_elem_a and grad_source == "volume":
+            assert elem_nodes_a is not None
+            assert elem_coords_a is not None
             local_a = _local_indices(elem_nodes_a, facet_a)
             gradNa = _tet_gradN_at_points(x_q, elem_coords_a, local=local_a, tol=tol)
 
         if use_elem_b and grad_source == "volume":
+            assert elem_nodes_b is not None
+            assert elem_coords_b is not None
             local_b = _local_indices(elem_nodes_b, facet_b)
             gradNb = _tet_gradN_at_points(x_q, elem_coords_b, local=local_b, tol=tol)
 
@@ -3325,8 +3369,16 @@ def assemble_mixed_surface_jacobian(
 
         global _DEBUG_CONTACT_MAP_ONCE
         if diag_map and not _DEBUG_CONTACT_MAP_ONCE:
-            elem_id_a = int(facet_to_elem_a[int(fa)]) if use_elem_a else -1
-            elem_id_b = int(facet_to_elem_b[int(fb)]) if use_elem_b else -1
+            if use_elem_a:
+                assert facet_to_elem_a is not None
+                elem_id_a = int(facet_to_elem_a[int(fa)])
+            else:
+                elem_id_a = -1
+            if use_elem_b:
+                assert facet_to_elem_b is not None
+                elem_id_b = int(facet_to_elem_b[int(fb)])
+            else:
+                elem_id_b = -1
             print("[fluxfem][diag][contact-map] first facet")
             print(f"  fa={int(fa)} fb={int(fb)} elem_a={elem_id_a} elem_b={elem_id_b}")
             print(f"  facet_nodes_a={facet_a.tolist()}")
@@ -3389,8 +3441,8 @@ def assemble_mixed_surface_jacobian(
             basis=_SurfaceBasis(dofs_per_node=value_dim_b),
         )
         fields = {
-            field_a: FieldPair(test=field_a_obj, trial=field_a_obj),
-            field_b: FieldPair(test=field_b_obj, trial=field_b_obj),
+            field_a: FieldPair(test=cast("FormFieldLike", field_a_obj), trial=cast("FormFieldLike", field_a_obj)),
+            field_b: FieldPair(test=cast("FormFieldLike", field_b_obj), trial=cast("FormFieldLike", field_b_obj)),
         }
         normal_q = None if normal is None else np.repeat(normal[None, :], quad_pts.shape[0], axis=0)
         ctx = SurfaceMixedFormContext(
@@ -3501,6 +3553,7 @@ def assemble_mixed_surface_jacobian(
                             _trace_time(f"[CONTACT] tri {it} fd_block r_m", t_rm)
                         cols = (r_p - r_m) / (2.0 * fd_eps)
                     else:
+                        assert r0 is not None
                         cols = (r_p - r0[:, None]) / fd_eps
                     J_local_np[:, idxs] = np.asarray(cols, dtype=float)
         if log_tri:
@@ -3543,6 +3596,7 @@ def assemble_mixed_surface_jacobian(
             cols.extend(np.tile(dofs, n_ldofs).tolist())
             data.extend(J_local_np.reshape(-1).tolist())
         else:
+            assert K_dense is not None
             K_dense[np.ix_(dofs, dofs)] += J_local_np
         if log_tri:
             _trace_time(f"[CONTACT] tri {it} scatter_done", t_scatter)
@@ -3591,8 +3645,8 @@ def assemble_onesided_bilinear(
     coords_m = np.asarray(surface_master.coords, dtype=float) if surface_master is not None else coords_s
     facets_m = np.asarray(surface_master.conn, dtype=int) if surface_master is not None else facets_s
     n_s = int(coords_s.shape[0] * value_dim)
-    K = np.zeros((n_s, n_s), dtype=float)
-    f = np.zeros((n_s,), dtype=float)
+    K: np.ndarray = np.zeros((n_s, n_s), dtype=float)
+    f: np.ndarray = np.zeros((n_s,), dtype=float)
 
     normals_s = surface_slave.facet_normals() if hasattr(surface_slave, "facet_normals") else None
     use_elem = elem_conn is not None and facet_to_elem is not None
@@ -3654,6 +3708,8 @@ def assemble_onesided_bilinear(
         elem_coords = None
         local = None
         if use_elem:
+            assert facet_to_elem is not None
+            assert elem_conn is not None
             elem_id = int(facet_to_elem[int(f_id)])
             if elem_id < 0:
                 raise ValueError("facet_to_elem has invalid mapping")
@@ -3668,6 +3724,7 @@ def assemble_onesided_bilinear(
             x_q = np.array([a + r * (b - a) + s * (c - a) for r, s in quad_pts], dtype=float)
             if use_master:
                 if dof_source == "surface":
+                    assert u_master is not None
                     facet_m = facets_m[int(f_id)]
                     u_master_local = _gather_u_local(u_master, facet_m, value_dim).reshape(-1, value_dim)
                     N_master = np.array(
@@ -3676,6 +3733,9 @@ def assemble_onesided_bilinear(
                     )
                     u_hat = N_master @ u_master_local
                 else:
+                    assert u_master is not None
+                    assert facet_to_elem_master is not None
+                    assert elem_conn_master is not None
                     elem_id_m = int(facet_to_elem_master[int(f_id)])
                     if elem_id_m < 0:
                         raise ValueError("facet_to_elem_master has invalid mapping")
@@ -3699,6 +3759,8 @@ def assemble_onesided_bilinear(
                     dtype=float,
                 )
             if use_elem and grad_source == "volume":
+                assert elem_nodes is not None
+                assert elem_coords is not None
                 local = _local_indices(elem_nodes, facet)
                 gradN = _tet_gradN_at_points(x_q, elem_coords, local=local, tol=tol)
 
@@ -3718,7 +3780,7 @@ def assemble_onesided_bilinear(
                 value_dim=value_dim,
                 basis=_SurfaceBasis(dofs_per_node=value_dim),
             )
-            fields = {"u": FieldPair(test=field, trial=field)}
+            fields = {"u": FieldPair(test=cast("FormFieldLike", field), trial=cast("FormFieldLike", field))}
             normal = normals_s[int(f_id)] if normals_s is not None else None
             if normal is not None:
                 normal = normal_sign * normal
@@ -3740,7 +3802,7 @@ def assemble_onesided_bilinear(
                 inv_h=inv_h,
                 u_hat=u_hat,
             )
-            u_zero = np.zeros((len(nodes) * value_dim,), dtype=float)
+            u_zero: np.ndarray = np.zeros((len(nodes) * value_dim,), dtype=float)
             u_dict = {"u": u_zero}
             sizes = (u_zero.shape[0],)
             slices = {"u": slice(0, sizes[0])}
@@ -3763,11 +3825,11 @@ def assemble_onesided_bilinear(
 
             f_local = _res_local_np(u_zero)
             n_ldofs = int(u_zero.shape[0])
-            k_local = np.zeros((n_ldofs, n_ldofs), dtype=float)
+            k_local: np.ndarray = np.zeros((n_ldofs, n_ldofs), dtype=float)
             block = max(1, int(os.getenv("FLUXFEM_ONESIDE_BLOCK_SIZE", "16")))
             for start in range(0, n_ldofs, block):
-                idxs = np.arange(start, min(n_ldofs, start + block), dtype=int)
-                u_block = np.zeros((n_ldofs, idxs.size), dtype=float)
+                idxs: np.ndarray = np.arange(start, min(n_ldofs, start + block), dtype=int)
+                u_block: np.ndarray = np.zeros((n_ldofs, idxs.size), dtype=float)
                 u_block[idxs, np.arange(idxs.size, dtype=int)] = 1.0
                 r_block = _res_local_np(u_block)
                 k_local[:, idxs] = r_block - f_local[:, None]
@@ -3815,8 +3877,8 @@ def assemble_contact_onesided_floor(
     coords_s = np.asarray(surface_slave.coords, dtype=float)
     facets_s = np.asarray(surface_slave.conn, dtype=int)
     n_s = int(coords_s.shape[0] * value_dim)
-    K = np.zeros((n_s, n_s), dtype=float)
-    f = np.zeros((n_s,), dtype=float)
+    K: np.ndarray = np.zeros((n_s, n_s), dtype=float)
+    f: np.ndarray = np.zeros((n_s,), dtype=float)
 
     normals_s = surface_slave.facet_normals() if hasattr(surface_slave, "facet_normals") else None
     if n is not None:
@@ -3852,6 +3914,7 @@ def assemble_contact_onesided_floor(
         if n is not None:
             normal = n
         else:
+            assert normals_s is not None
             normal = normal_sign * normals_s[int(f_id)]
 
         for a, b, c_tri in triangles:

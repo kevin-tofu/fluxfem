@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence, TypeAlias
 
 import numpy as np
 import jax.numpy as jnp
@@ -11,6 +11,9 @@ except Exception:  # pragma: no cover
     jsparse = None
 
 from .sparse import FluxSparseMatrix
+
+ArrayLike: TypeAlias = jnp.ndarray
+Preconditioner: TypeAlias = Callable[[jnp.ndarray], jnp.ndarray]
 
 
 def _extract_block_sizes(
@@ -51,11 +54,11 @@ def _extract_block_sizes(
 
 
 def make_block_jacobi_preconditioner(
-    A,
+    A: FluxSparseMatrix | "jsparse.BCOO",
     *,
     dof_per_node: int | None = None,
     block_sizes: Sequence[int] | None = None,
-):
+) -> Preconditioner:
     """
     Build block Jacobi preconditioner for blocked DOF layouts.
 
@@ -98,7 +101,7 @@ def make_block_jacobi_preconditioner(
     blocks = blocks + 1e-12 * jnp.eye(block_size)[None, :, :]
     inv_blocks = jnp.linalg.inv(blocks)
 
-    def precon(r):
+    def precon(r: jnp.ndarray) -> jnp.ndarray:
         rb = r.reshape((n_block, block_size))
         zb = jnp.einsum("bij,bj->bi", inv_blocks, rb)
         return zb.reshape((-1,))

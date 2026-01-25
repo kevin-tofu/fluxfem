@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import time
 import warnings
-from typing import Any, Callable
+from typing import Any, Callable, TypeAlias
 
 try:
     import scipy.sparse as sp
@@ -11,6 +11,10 @@ except Exception:  # pragma: no cover
     sp = None
 
 from .sparse import FluxSparseMatrix
+
+ArrayLike: TypeAlias = np.ndarray
+MatVec: TypeAlias = Callable[[np.ndarray], np.ndarray]
+SolveInfo: TypeAlias = dict[str, Any]
 
 
 def petsc_is_available() -> bool:
@@ -31,7 +35,9 @@ def _require_petsc4py():
         raise ImportError("petsc4py is required for PETSc solves. Install with the petsc extra.") from exc
 
 
-def _coo_to_csr(rows, cols, data, n_dofs: int):
+def _coo_to_csr(
+    rows: ArrayLike, cols: ArrayLike, data: ArrayLike, n_dofs: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     r = np.asarray(rows, dtype=np.int64)
     c = np.asarray(cols, dtype=np.int64)
     d = np.asarray(data)
@@ -71,7 +77,7 @@ def _infer_n_dofs(K: Any, F: Any | None, n_dofs: int | None) -> int:
     raise ValueError("n_dofs is required when operator shape is not available.")
 
 
-def _matvec_builder(A: Any):
+def _matvec_builder(A: Any) -> MatVec:
     if isinstance(A, FluxSparseMatrix):
         return lambda x: np.asarray(A.matvec(x))
     if hasattr(A, "matvec"):
@@ -89,7 +95,7 @@ def _matvec_builder(A: Any):
     return mv
 
 
-def _diag_from_coo(rows, cols, data, n_dofs: int) -> np.ndarray:
+def _diag_from_coo(rows: ArrayLike, cols: ArrayLike, data: ArrayLike, n_dofs: int) -> np.ndarray:
     r = np.asarray(rows, dtype=np.int64)
     c = np.asarray(cols, dtype=np.int64)
     d = np.asarray(data)
@@ -119,7 +125,7 @@ def _diag_from_operator(A: Any, n_dofs: int) -> np.ndarray:
     raise ValueError("diag0 preconditioner requires access to the matrix diagonal.")
 
 
-def _as_csr(K: Any):
+def _as_csr(K: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     if isinstance(K, FluxSparseMatrix):
         rows, cols, data, n_dofs = K.to_coo()
         indptr, indices, data = _coo_to_csr(rows, cols, data, int(n_dofs))
@@ -158,7 +164,7 @@ def petsc_solve(
     atol: float | None = None,
     max_it: int | None = None,
     options: dict[str, Any] | None = None,
-) -> np.ndarray | tuple[np.ndarray, dict[str, Any]]:
+) -> np.ndarray:
     """
     Solve K u = F using PETSc.
 
@@ -235,7 +241,7 @@ def petsc_shell_solve(
     options: dict[str, Any] | None = None,
     options_prefix: str | None = "fluxfem_",
     return_info: bool = False,
-) -> np.ndarray:
+) -> np.ndarray | tuple[np.ndarray, SolveInfo]:
     """
     Solve A x = F using PETSc with a matrix-free Shell Mat.
 

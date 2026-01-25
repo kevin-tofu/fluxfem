@@ -5,12 +5,14 @@ from contextlib import AbstractContextManager
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, DefaultDict, Dict, Iterator, List, Optional
+from typing import Any, Callable, DefaultDict, Dict, Iterator, List, Optional, TypeAlias
 
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+PlotResult: TypeAlias = tuple[Any, Any]
 
 
 @dataclass
@@ -30,7 +32,7 @@ class BaseTimer(ABC):
 
 class NullTimer(BaseTimer):
     @contextmanager
-    def section(self, name: str):
+    def section(self, name: str) -> Iterator[None]:
         yield
 
 
@@ -85,7 +87,7 @@ class SectionTimer(BaseTimer):
             self._records[full_name].append(duration)
             self._stack.pop()
 
-    def wrap(self, name: str):
+    def wrap(self, name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """
         Decorator form of :meth:`section`.
 
@@ -97,8 +99,8 @@ class SectionTimer(BaseTimer):
                 ...
         """
 
-        def _decorator(func):
-            def _wrapper(*args, **kwargs):
+        def _decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            def _wrapper(*args: Any, **kwargs: Any) -> Any:
                 with self.section(name):
                     return func(*args, **kwargs)
             return _wrapper
@@ -211,7 +213,7 @@ class SectionTimer(BaseTimer):
         self,
         sort_by: str = "total",
         descending: bool = True,
-        logger_instance=None,
+        logger_instance: logging.Logger | None = None,
     ) -> str:
         stats = self.summary(sort_by=sort_by, descending=descending)
         if not stats:
@@ -231,7 +233,7 @@ class SectionTimer(BaseTimer):
 
     def plot_bar(
         self,
-        ax=None,
+        ax: Any | None = None,
         sort_by: str = "total",
         value: str = "total",
         descending: bool = True,
@@ -240,7 +242,7 @@ class SectionTimer(BaseTimer):
         stacked_nested: bool = False,
         moving_average: bool = False,
         use_self_time: bool = False,
-    ):
+    ) -> PlotResult:
         """
         Plot timing results as a horizontal bar chart without relying on pyplot state.
 
@@ -417,7 +419,7 @@ class SectionTimer(BaseTimer):
 
     def plot_pie(
         self,
-        ax=None,
+        ax: Any | None = None,
         sort_by: str = "total",
         value: str = "total",
         descending: bool = True,
@@ -430,7 +432,7 @@ class SectionTimer(BaseTimer):
         show_total: bool = True,
         moving_average: bool = False,
         use_self_time: bool = False,
-    ):
+    ) -> PlotResult:
         """
         Plot timing results as a pie chart to show relative time share.
 
@@ -552,7 +554,7 @@ class SectionTimer(BaseTimer):
 
     def plot(
         self,
-        ax=None,
+        ax: Any | None = None,
         sort_by: str = "total",
         value: str = "total",
         descending: bool = True,
@@ -563,7 +565,7 @@ class SectionTimer(BaseTimer):
         moving_average: bool = False,
         use_self_time: bool = False,
         **kwargs,
-    ):
+    ) -> PlotResult:
         """
         Plot timing results choosing between pie (default) or bar chart.
 

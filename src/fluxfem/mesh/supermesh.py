@@ -8,6 +8,8 @@ import numpy as np
 
 from .surface import SurfaceMesh
 
+_SUPERMESH_CACHE: dict[tuple, "SurfaceSupermesh"] = {}
+
 
 @dataclass(eq=False)
 class SurfaceSupermesh:

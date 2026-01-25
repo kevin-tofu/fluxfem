@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping, Sequence, TYPE_CHECKING, TypeAlias, TypeVar
+from typing import Any, Callable, Mapping, Sequence, TYPE_CHECKING, TypeAlias, TypeVar, cast
 
 import numpy as np
 import jax.numpy as jnp
@@ -141,7 +141,7 @@ class MixedFESpace:
 
     def get_sparsity_pattern(self, *, with_idx: bool = True):
         from .assembly import make_sparsity_pattern
-        return make_sparsity_pattern(self, with_idx=with_idx)
+        return make_sparsity_pattern(cast(Any, self), with_idx=with_idx)
 
     def assemble_residual(
         self,
@@ -255,7 +255,7 @@ class MixedProblem:
     pattern: object | None = None
     n_chunks: int | None = None
     pad_trace: bool = False
-    _compiled: object = field(init=False, repr=False)
+    _compiled: Callable[..., Any] = field(init=False, repr=False)
 
     def __post_init__(self):
         if isinstance(self.residuals, MixedWeakForm):
@@ -279,7 +279,7 @@ class MixedProblem:
             def _wrapped(ctx, u_elem, _params):
                 return self._compiled(ctx, u_elem, params(ctx))
 
-            _wrapped._includes_measure = getattr(self._compiled, "_includes_measure", False)
+            _wrapped._includes_measure = getattr(self._compiled, "_includes_measure", False)  # type: ignore[attr-defined]
             return _wrapped, None
         return self._compiled, params
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 import jax.numpy as jnp
@@ -13,8 +13,11 @@ except Exception:  # pragma: no cover
 
 from .sparse import FluxSparseMatrix, coalesce_coo
 
+ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+DirichletLike: TypeAlias = tuple[np.ndarray, np.ndarray]
 
-def _normalize_dirichlet_values(dofs, vals):
+
+def _normalize_dirichlet_values(dofs: ArrayLike, vals: ArrayLike | None) -> np.ndarray:
     if vals is None:
         return np.zeros(np.asarray(dofs).shape[0], dtype=float)
     arr = np.asarray(vals)
@@ -23,7 +26,7 @@ def _normalize_dirichlet_values(dofs, vals):
     return arr
 
 
-def _normalize_dirichlet(dofs, vals):
+def _normalize_dirichlet(dofs: ArrayLike, vals: ArrayLike | None) -> DirichletLike:
     dir_arr = np.asarray(dofs, dtype=int)
     return dir_arr, _normalize_dirichlet_values(dir_arr, vals)
 
@@ -37,7 +40,7 @@ class CondensedSystem:
     dir_vals: np.ndarray
     n_dofs: int
 
-    def expand(self, u_free, *, fill_dirichlet: bool = True):
+    def expand(self, u_free: ArrayLike, *, fill_dirichlet: bool = True) -> np.ndarray:
         u_full = np.zeros(self.n_dofs, dtype=np.asarray(u_free).dtype)
         u_full[self.free_dofs] = np.asarray(u_free)
         if fill_dirichlet and self.dir_dofs.size:
@@ -61,7 +64,7 @@ class DirichletBC:
         object.__setattr__(self, "vals", vals)
 
     @classmethod
-    def from_boundary_dofs(cls, mesh, predicate, *, values=None, **kwargs):
+    def from_boundary_dofs(cls, mesh, predicate, *, values: ArrayLike | None = None, **kwargs) -> "DirichletBC":
         """
         Build from mesh.boundary_dofs_where predicate.
 
@@ -72,7 +75,16 @@ class DirichletBC:
         return cls(dofs, vals)
 
     @classmethod
-    def from_bbox(cls, mesh, *, mins=None, maxs=None, tol: float = 1e-8, values=None, **kwargs):
+    def from_bbox(
+        cls,
+        mesh,
+        *,
+        mins: ArrayLike | None = None,
+        maxs: ArrayLike | None = None,
+        tol: float = 1e-8,
+        values: ArrayLike | None = None,
+        **kwargs,
+    ) -> "DirichletBC":
         """
         Build from the mesh axis-aligned bounding box.
 
@@ -94,13 +106,13 @@ class DirichletBC:
     def as_tuple(self) -> tuple[np.ndarray, np.ndarray]:
         return self.dofs, self.vals
 
-    def condense_system(self, A, F, *, check: bool = True) -> CondensedSystem:
+    def condense_system(self, A: Any, F: ArrayLike, *, check: bool = True) -> CondensedSystem:
         return condense_dirichlet_system(A, F, self.dofs, self.vals, check=check)
 
-    def enforce_system(self, A, F):
+    def enforce_system(self, A: Any, F: ArrayLike):
         return enforce_dirichlet_system(A, F, self.dofs, self.vals)
 
-    def condense_flux(self, A: FluxSparseMatrix, F):
+    def condense_flux(self, A: FluxSparseMatrix, F: ArrayLike):
         """
         Condense for FluxSparseMatrix and return (K_free, F_free, free_dofs).
         """
@@ -108,16 +120,22 @@ class DirichletBC:
         free = condensed.free_dofs
         return restrict_flux_to_free(A, free), condensed.F, free
 
-    def enforce_flux(self, A: FluxSparseMatrix, F):
+    def enforce_flux(self, A: FluxSparseMatrix, F: ArrayLike):
         return enforce_dirichlet_fluxsparse(A, F, self.dofs, self.vals)
 
-    def split_matrix(self, A, *, n_total: int | None = None):
+    def split_matrix(self, A: Any, *, n_total: int | None = None):
         return split_dirichlet_matrix(A, self.dofs, n_total=n_total)
 
     def free_dofs(self, n_dofs: int) -> np.ndarray:
         return free_dofs(n_dofs, self.dofs)
 
-    def expand_solution(self, u_free, *, free=None, n_total: int | None = None):
+    def expand_solution(
+        self,
+        u_free: ArrayLike,
+        *,
+        free: np.ndarray | None = None,
+        n_total: int | None = None,
+    ) -> np.ndarray:
         if free is None:
             if n_total is None:
                 raise ValueError("n_total is required when free is not provided.")

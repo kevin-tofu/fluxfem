@@ -1,6 +1,8 @@
 from __future__ import annotations
 import time
 
+from typing import Any, Callable, Mapping, TypeAlias
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -8,6 +10,7 @@ import jax.numpy as jnp
 from ..core.assembly import (
     assemble_residual_scatter,
     assemble_jacobian_scatter,
+    ResidualForm,
     make_element_residual_kernel,
     make_element_jacobian_kernel,
     make_sparsity_pattern,
@@ -19,12 +22,15 @@ from .result import SolverResult
 from .sparse import SparsityPattern, FluxSparseMatrix
 from .dirichlet import _normalize_dirichlet
 
+ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+ExtraTerm: TypeAlias = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, Mapping[str, Any]] | None]
+
 
 def newton_solve(
     space,
-    res_form,
-    u0,
-    params,
+    res_form: ResidualForm[Any],
+    u0: ArrayLike,
+    params: Any,
     *,
     tol: float = 1e-8,
     atol: float = 0.0,
@@ -32,18 +38,18 @@ def newton_solve(
     linear_solver: str = "spsolve",  # "spsolve", "spdirect_solve_gpu", "cg", "cg_jax", "cg_custom", or "cg_matfree"
     linear_maxiter: int | None = None,
     linear_tol: float | None = None,
-    linear_preconditioner=None,
+    linear_preconditioner: object | None = None,
     matfree_mode: str = "linearize",
-    matfree_cache: dict | None = None,
-    dirichlet=None,
-    callback=None,
+    matfree_cache: dict[str, Any] | None = None,
+    dirichlet: tuple[np.ndarray, np.ndarray] | None = None,
+    callback: Callable[[np.ndarray, SolverResult], Any] | None = None,
     line_search: bool = False,
     max_ls: int = 10,
     ls_c: float = 1e-4,
-    external_vector=None,
-    jacobian_pattern=None,
-    extra_terms=None,
-):
+    external_vector: np.ndarray | None = None,
+    jacobian_pattern: SparsityPattern | None = None,
+    extra_terms: list[ExtraTerm] | None = None,
+) -> tuple[np.ndarray, SolverResult]:
     """
     Gridap-style Newton–Raphson solver on free DOFs only.
 

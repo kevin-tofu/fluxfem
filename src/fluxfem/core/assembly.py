@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Callable, Literal, Optional, Protocol, TYPE_CHECKING, TypeAlias, TypeVar, Union
+from typing import Any, Callable, Literal, Mapping, Optional, Protocol, TYPE_CHECKING, TypeAlias, TypeVar, Union, cast
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -10,11 +10,16 @@ from .forms import FormContext
 from .space import FESpaceBase
 
 # Shared call signatures for kernels/forms
-Array = jnp.ndarray
+Array: TypeAlias = jnp.ndarray
 P = TypeVar("P")
 
-Kernel = Callable[[FormContext, P], Array]
+FormKernel: TypeAlias = Callable[[FormContext, P], Array]
+# Form kernels return integrands; element kernels return integrated element arrays.
+Kernel: TypeAlias = Callable[[FormContext, P], Array]
+ResidualInput: TypeAlias = Array | Mapping[str, Array]
+ResidualValue: TypeAlias = Array | Mapping[str, Array]
 ResidualForm = Callable[[FormContext, Array, P], Array]
+ResidualFormLike = Callable[[FormContext, ResidualInput, P], ResidualValue]
 ElementDofMapper = Callable[[Array], Array]
 
 if TYPE_CHECKING:
@@ -107,7 +112,7 @@ class BatchedAssembler:
     def __init__(
         self,
         space: SpaceLike,
-        elem_data: Any,
+        elem_data: FormContext,
         elem_dofs: Array,
         *,
         pattern: SparsityPattern | None = None,
@@ -119,8 +124,8 @@ class BatchedAssembler:
         self.n_ldofs = int(space.n_ldofs)
         self.n_dofs = int(space.n_dofs)
         self.pattern = pattern
-        self._rows = None
-        self._cols = None
+        self._rows: Array | None = None
+        self._cols: Array | None = None
 
     @classmethod
     def from_space(
@@ -135,7 +140,7 @@ class BatchedAssembler:
 
     def make_mask(self, n_active: int) -> Array:
         n_active = max(0, min(int(n_active), self.n_elems))
-        mask = np.zeros((self.n_elems,), dtype=float)
+        mask: np.ndarray = np.zeros((self.n_elems,), dtype=float)
         if n_active:
             mask[:n_active] = 1.0
         return jnp.asarray(mask)
@@ -177,7 +182,7 @@ class BatchedAssembler:
 
     def assemble_bilinear(
         self,
-        form: Kernel[P],
+        form: FormKernel[P],
         params: P,
         *,
         mask: Array | None = None,
@@ -208,7 +213,7 @@ class BatchedAssembler:
 
     def assemble_linear(
         self,
-        form: Kernel[P],
+        form: FormKernel[P],
         params: P,
         *,
         mask: Array | None = None,
@@ -359,7 +364,7 @@ class SpaceLike(FESpaceBase, Protocol):
 
 def assemble_bilinear_dense(
     space: SpaceLike,
-    kernel: Kernel[P],
+    kernel: FormKernel[P],
     params: P,
     *,
     sparse: bool = False,
@@ -412,7 +417,7 @@ def assemble_bilinear_dense(
 
 def assemble_bilinear_form(
     space: SpaceLike,
-    form: Kernel[P],
+    form: FormKernel[P],
     params: P,
     *,
     pattern: SparsityPattern | None = None,
@@ -589,7 +594,7 @@ def assemble_mass_matrix(
 
 def assemble_linear_form(
     space: SpaceLike,
-    form: Kernel[P],
+    form: FormKernel[P],
     params: P,
     *,
     kernel: ElementLinearKernel | None = None,
@@ -670,7 +675,7 @@ def assemble_linear_form(
     return F
 
 
-def assemble_functional(space: SpaceLike, form: Kernel[P], params: P) -> jnp.ndarray:
+def assemble_functional(space: SpaceLike, form: FormKernel[P], params: P) -> jnp.ndarray:
     """
     Assemble scalar functional J = ∫ form(ctx, params) dΩ.
     Expects form(ctx, params) -> (n_q,) or (n_q, 1).
@@ -798,7 +803,7 @@ def assemble_jacobian_elementwise(
     )
     K_flat = jnp.zeros(n_entries, dtype=data.dtype)
     K_flat = jax.lax.scatter_add(K_flat, idx[:, None], data, sdn)
-    return K_flat.reshape(pat.n_dofs, pat.n_dofs)
+    return K_flat.reshape(n_dofs, n_dofs)
 
 
 def assemble_residual_global(
@@ -885,7 +890,7 @@ assemble_residual_elementwise_xla = assemble_residual_elementwise
 
 
 def make_element_bilinear_kernel(
-    form: Kernel[P], params: P, *, jit: bool = True
+    form: FormKernel[P], params: P, *, jit: bool = True
 ) -> ElementBilinearKernel:
     """Element kernel: (ctx) -> Ke."""
 
@@ -900,7 +905,7 @@ def make_element_bilinear_kernel(
 
 
 def make_element_linear_kernel(
-    form: Kernel[P], params: P, *, jit: bool = True
+    form: FormKernel[P], params: P, *, jit: bool = True
 ) -> ElementLinearKernel:
     """Element kernel: (ctx) -> fe."""
 
@@ -945,8 +950,8 @@ def make_element_jacobian_kernel(
 
 
 def element_residual(
-    res_form: ResidualForm[P], ctx: FormContext, u_elem: jnp.ndarray, params: P
-) -> Any:
+    res_form: ResidualFormLike[P], ctx: FormContext, u_elem: ResidualInput, params: P
+) -> ResidualValue:
     """
     Element residual vector r_e(u_e) = sum_q w_q * detJ_q * res_form(ctx, u_e, params).
     Returns shape (n_ldofs,).
@@ -972,8 +977,8 @@ def element_residual(
 
 
 def element_jacobian(
-    res_form: ResidualForm[P], ctx: FormContext, u_elem: jnp.ndarray, params: P
-) -> Any:
+    res_form: ResidualFormLike[P], ctx: FormContext, u_elem: ResidualInput, params: P
+) -> ResidualValue:
     """
     Element Jacobian K_e = d r_e / d u_e (AD via jacfwd), shape (n_ldofs, n_ldofs).
     """
@@ -984,7 +989,7 @@ def element_jacobian(
 
 
 def make_element_kernel(
-    form: Kernel[P] | ResidualForm[P],
+    form: FormKernel[P] | ResidualForm[P],
     params: P,
     *,
     kind: Literal["bilinear", "linear", "residual", "jacobian"],
@@ -999,22 +1004,26 @@ def make_element_kernel(
       - "residual": kernel(ctx, u_elem) -> (n_ldofs,)
       - "jacobian": kernel(u_elem, ctx) -> (n_ldofs, n_ldofs)
     """
-    kind = kind.lower()
+    kind = cast(Literal["bilinear", "linear", "residual", "jacobian"], kind.lower())
     if kind == "bilinear":
-        return make_element_bilinear_kernel(form, params, jit=jit)
+        form_bilinear = cast(FormKernel[P], form)
+        return make_element_bilinear_kernel(form_bilinear, params, jit=jit)
     if kind == "linear":
+        form_linear = cast(FormKernel[P], form)
         def per_element(ctx: FormContext):
-            integrand = form(ctx, params)
-            if getattr(form, "_includes_measure", False):
+            integrand = form_linear(ctx, params)
+            if getattr(form_linear, "_includes_measure", False):
                 return integrand.sum(axis=0)
             wJ = ctx.w * ctx.test.detJ
             return (integrand * wJ[:, None]).sum(axis=0)
 
         return jax.jit(per_element) if jit else per_element
     if kind == "residual":
-        return make_element_residual_kernel(form, params)
+        form_residual = cast(ResidualForm[P], form)
+        return make_element_residual_kernel(form_residual, params)
     if kind == "jacobian":
-        return make_element_jacobian_kernel(form, params)
+        form_residual = cast(ResidualForm[P], form)
+        return make_element_jacobian_kernel(form_residual, params)
     raise ValueError(f"Unknown kernel kind: {kind}")
 
 
@@ -1327,19 +1336,19 @@ def scalar_body_force_form(ctx: FormContext, load: float) -> jnp.ndarray:
     return load * ctx.test.N  # (n_q, n_ldofs)
 
 
-scalar_body_force_form._ff_kind = "linear"
-scalar_body_force_form._ff_domain = "volume"
+scalar_body_force_form._ff_kind = "linear"  # type: ignore[attr-defined]
+scalar_body_force_form._ff_domain = "volume"  # type: ignore[attr-defined]
 
 
-def make_scalar_body_force_form(body_force: Callable[[Array], Array]) -> Kernel[Any]:
+def make_scalar_body_force_form(body_force: Callable[[Array], Array]) -> FormKernel[Any]:
     """
     Build a scalar linear form from a callable f(x_q) -> (n_q,).
     """
     def _form(ctx: FormContext, _params):
         f_q = body_force(ctx.x_q)
         return f_q[..., None] * ctx.test.N
-    _form._ff_kind = "linear"
-    _form._ff_domain = "volume"
+    _form._ff_kind = "linear"  # type: ignore[attr-defined]
+    _form._ff_domain = "volume"  # type: ignore[attr-defined]
     return _form
 
 

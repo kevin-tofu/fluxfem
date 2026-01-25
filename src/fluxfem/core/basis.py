@@ -421,7 +421,7 @@ class HexTriLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
 
     def tree_flatten(self):
         children = (self.quad_points, self.quad_weights)
-        aux_data = {}
+        aux_data: dict[str, object] = {}
         return children, aux_data
 
     @classmethod
@@ -569,7 +569,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
 
     def tree_flatten(self):
         children = (self.quad_points, self.quad_weights)
-        aux_data = {}
+        aux_data: dict[str, object] = {}
         return children, aux_data
 
     @classmethod

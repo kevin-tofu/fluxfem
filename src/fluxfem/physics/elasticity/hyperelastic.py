@@ -1,10 +1,17 @@
+from typing import Mapping, TypeAlias
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from ...core.forms import FormContext
+from ...core.space import FESpace
+from ...mesh import BaseMesh
 from ...core.basis import build_B_matrices_finite
 from ..postprocess import make_point_data_displacement, write_point_data_vtu
+
+ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+ParamsLike: TypeAlias = Mapping[str, float] | tuple[float, float]
 
 
 def right_cauchy_green(F: jnp.ndarray) -> jnp.ndarray:
@@ -46,7 +53,9 @@ def pk2_neo_hookean(F: jnp.ndarray, mu: float, lam: float) -> jnp.ndarray:
     return mu * (I - C_inv) + lam * jnp.log(J)[..., None, None] * C_inv
 
 
-def neo_hookean_residual_form(ctx: FormContext, u_elem: jnp.ndarray, params) -> jnp.ndarray:
+def neo_hookean_residual_form(
+    ctx: FormContext, u_elem: jnp.ndarray, params: ParamsLike
+) -> jnp.ndarray:
     """
     Compressible Neo-Hookean residual (Total Lagrangian, PK2).
     params: dict-like with keys \"mu\", \"lam\" or tuple (mu, lam)
@@ -92,11 +101,26 @@ __all__ = [
 ]
 
 
-def make_elastic_point_data(mesh, space, u, *, compute_j: bool = True, deformed_scale: float = 1.0):
+def make_elastic_point_data(
+    mesh: BaseMesh,
+    space: FESpace,
+    u: ArrayLike,
+    *,
+    compute_j: bool = True,
+    deformed_scale: float = 1.0,
+) -> dict[str, np.ndarray]:
     """Alias to postprocess.make_point_data_displacement for backward compatibility."""
     return make_point_data_displacement(mesh, space, u, compute_j=compute_j, deformed_scale=deformed_scale)
 
 
-def write_elastic_vtu(mesh, space, u, filepath: str, *, compute_j: bool = True, deformed_scale: float = 1.0):
+def write_elastic_vtu(
+    mesh: BaseMesh,
+    space: FESpace,
+    u: ArrayLike,
+    filepath: str,
+    *,
+    compute_j: bool = True,
+    deformed_scale: float = 1.0,
+) -> None:
     """Alias to postprocess.write_point_data_vtu for backward compatibility."""
     return write_point_data_vtu(mesh, space, u, filepath, compute_j=compute_j, deformed_scale=deformed_scale)

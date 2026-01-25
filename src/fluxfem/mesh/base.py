@@ -160,7 +160,7 @@ class BaseMeshClosure:
             for pattern in patterns:
                 nodes = tuple(sorted(int(elem_conn[i]) for i in pattern))
                 face_counts[nodes] = face_counts.get(nodes, 0) + 1
-        bnodes = set()
+        bnodes: set[int] = set()
         for nodes, count in face_counts.items():
             if count == 1:
                 bnodes.update(nodes)
@@ -172,7 +172,7 @@ class BaseMeshClosure:
         """
         Return boolean mask for boundary nodes (shape: n_nodes).
         """
-        mask = np.zeros(self.n_nodes, dtype=bool)
+        mask: np.ndarray = np.zeros(self.n_nodes, dtype=bool)
         nodes = self.boundary_node_indices()
         mask[nodes] = True
         return mask
@@ -449,7 +449,7 @@ class BaseMeshClosure:
         nodes_arr = np.asarray(list(nodes), dtype=int)
         if nodes_arr.size == 0:
             return np.asarray([], dtype=int)
-        mark = np.zeros(self.n_nodes, dtype=bool)
+        mark: np.ndarray = np.zeros(self.n_nodes, dtype=bool)
         mark[nodes_arr] = True
         conn = np.asarray(self.conn)
         return np.nonzero(np.any(mark[conn], axis=1))[0]

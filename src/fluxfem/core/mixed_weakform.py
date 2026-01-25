@@ -40,7 +40,7 @@ def _wrap_params(res_form, params):
         def _wrapped(ctx, u_elem, _params):
             return res_form(ctx, u_elem, params(ctx))
 
-        _wrapped._includes_measure = getattr(res_form, "_includes_measure", False)
+        _wrapped._includes_measure = getattr(res_form, "_includes_measure", False)  # type: ignore[attr-defined]
         return _wrapped, None
     return res_form, params
 

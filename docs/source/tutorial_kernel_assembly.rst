@@ -16,6 +16,8 @@ Core idea
 You can pass that kernel to ``space.assemble_*``.
 
 The kernel **must return the integrated element contribution** (not the integrand).
+By contrast, a **form** (``form(ctx, params)``) returns the per-quadrature
+integrand, and the assembler applies ``wJ`` and sums over quadrature points.
 If you pass an untagged raw kernel to ``space.assemble`` with ``kind=``,
 FluxFEM emits a one-time warning; prefer tagging with ``@ff.kernel``.
 

@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List, Optional, TypeAlias
+
+import jax.numpy as jnp
+import numpy as np
+
+from .result import SolverResult
+
+ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
 
 
 @dataclass
@@ -23,9 +30,9 @@ class NewtonIterRecord:
 @dataclass
 class LoadStepResult:
     load_factor: float
-    info: Any
+    info: SolverResult
     solve_time: float
-    u: Any
+    u: ArrayLike
     iter_history: List[NewtonIterRecord] = field(default_factory=list)
     exception: Optional[str] = None
     meta: dict[str, Any] = field(default_factory=dict)

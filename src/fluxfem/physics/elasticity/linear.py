@@ -1,8 +1,13 @@
+from typing import TypeAlias
+
 import jax.numpy as jnp
 
+from ...core.assembly import LinearReturn
 from ...core.forms import FormContext, vector_load_form
-from ...core.basis import build_B_matrices
+from ...core.space import FESpace
 from ...physics.operators import sym_grad
+
+ArrayLike: TypeAlias = jnp.ndarray
 
 # from ...mechanics.kinematics import build_B_matrices
 
@@ -41,7 +46,13 @@ def vector_body_force_form(ctx: FormContext, load_vec: jnp.ndarray) -> jnp.ndarr
 vector_body_force_form._ff_kind = "linear"
 vector_body_force_form._ff_domain = "volume"
 
-def assemble_constant_body_force(space, gravity_vec, density: float, *, sparse: bool = False):
+def assemble_constant_body_force(
+    space: FESpace,
+    gravity_vec: ArrayLike,
+    density: float,
+    *,
+    sparse: bool = False,
+) -> LinearReturn:
     """
     Convenience: assemble body force from density * gravity vector.
     gravity_vec: length-3 array-like (direction and magnitude of g)

@@ -223,11 +223,14 @@ class StructuredTetTensorBox:
         npx = len(xs)
         npy = len(ys)
         npz = len(zs)
+        X: np.ndarray
+        Y: np.ndarray
+        Z: np.ndarray
         X, Y, Z = np.meshgrid(np.sort(xs), np.sort(ys), np.sort(zs))
         p = np.vstack((X.flatten("F"), Y.flatten("F"), Z.flatten("F")))
-        ix = np.arange(npx * npy * npz)
+        ix: np.ndarray = np.arange(npx * npy * npz)
         ne = (npx - 1) * (npy - 1) * (npz - 1)
-        t = np.zeros((8, ne), dtype=np.int64)
+        t: np.ndarray = np.zeros((8, ne), dtype=np.int64)
         ix = ix.reshape(npy, npx, npz, order="F").copy()
         t[0] = ix[0:(npy - 1), 0:(npx - 1), 0:(npz - 1)].reshape(ne, 1, order="F").copy().flatten()
         t[1] = ix[1:npy, 0:(npx - 1), 0:(npz - 1)].reshape(ne, 1, order="F").copy().flatten()
@@ -238,7 +241,7 @@ class StructuredTetTensorBox:
         t[6] = ix[0:(npy - 1), 1:npx, 1:npz].reshape(ne, 1, order="F").copy().flatten()
         t[7] = ix[1:npy, 1:npx, 1:npz].reshape(ne, 1, order="F").copy().flatten()
 
-        T = np.zeros((4, 6 * ne), dtype=np.int64)
+        T: np.ndarray = np.zeros((4, 6 * ne), dtype=np.int64)
         T[:, :ne] = t[[0, 1, 5, 7]]
         T[:, ne:(2 * ne)] = t[[0, 1, 4, 7]]
         T[:, (2 * ne):(3 * ne)] = t[[0, 2, 4, 7]]
@@ -247,6 +250,6 @@ class StructuredTetTensorBox:
         T[:, (5 * ne):] = t[[0, 3, 6, 7]]
 
         coords = p.T.astype(DTYPE, copy=False)
-        conn = T.T.astype(NP_INDEX_DTYPE, copy=False)
+        conn: np.ndarray = T.T.astype(NP_INDEX_DTYPE, copy=False)
         conn = self._fix_orientation(coords, conn)
         return TetMesh(coords=jnp.array(coords), conn=jnp.array(conn))

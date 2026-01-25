@@ -1,15 +1,28 @@
 from __future__ import annotations
 
+from typing import TypeAlias
+
 import numpy as np
 import jax
 import jax.numpy as jnp
 
 # from ..core.assembly import build_form_contexts
 from ..tools.visualizer import write_vtu
+from ..mesh import BaseMesh
+from ..core.space import FESpace
+
+ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
 from ..core.interp import interpolate_field_at_element_points
 
 
-def make_point_data_displacement(mesh, space, u, *, compute_j: bool = True, deformed_scale: float = 1.0):
+def make_point_data_displacement(
+    mesh: BaseMesh,
+    space: FESpace,
+    u: ArrayLike,
+    *,
+    compute_j: bool = True,
+    deformed_scale: float = 1.0,
+) -> dict[str, np.ndarray]:
     """
     Common postprocess helper to build point data dictionaries:
       - displacement
@@ -58,14 +71,22 @@ def make_point_data_displacement(mesh, space, u, *, compute_j: bool = True, defo
     return point_data
 
 
-def write_point_data_vtu(mesh, space, u, filepath: str, *, compute_j: bool = True, deformed_scale: float = 1.0):
+def write_point_data_vtu(
+    mesh: BaseMesh,
+    space: FESpace,
+    u: ArrayLike,
+    filepath: str,
+    *,
+    compute_j: bool = True,
+    deformed_scale: float = 1.0,
+) -> None:
     """Write VTU with displacement/deformed_coords and optional J."""
     pdata = make_point_data_displacement(mesh, space, u, compute_j=compute_j, deformed_scale=deformed_scale)
     write_vtu(mesh, filepath, point_data=pdata)
 
 
 __all__ = ["make_point_data_displacement", "write_point_data_vtu", "interpolate_at_points"]
-def interpolate_at_points(space, u, points: np.ndarray):
+def interpolate_at_points(space: FESpace, u: ArrayLike, points: np.ndarray) -> np.ndarray:
     """
     Interpolate displacement field at given physical points (Hex8 only, structured search).
     - points: (m,3) array of physical coordinates.

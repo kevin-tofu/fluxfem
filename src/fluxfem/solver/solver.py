@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, TypeAlias
+
 import numpy as np
 import jax.numpy as jnp
 
@@ -18,6 +20,11 @@ from .dirichlet import (
 from .sparse import FluxSparseMatrix
 from ..core.space import FESpace
 
+ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+DirichletLike: TypeAlias = DirichletBC | tuple[np.ndarray, np.ndarray]
+SolveInfo: TypeAlias = dict[str, Any]
+SolveReturn: TypeAlias = tuple[np.ndarray, SolveInfo]
+
 
 class LinearSolver:
     """
@@ -32,7 +39,7 @@ class LinearSolver:
         self.tol = tol
         self.maxiter = maxiter
 
-    def _solve_free(self, A, b):
+    def _solve_free(self, A: Any, b: Any) -> SolveReturn:
         if self.method == "cg":
             x, info = cg_solve_jax(A, b, tol=self.tol, maxiter=self.maxiter)
             return np.asarray(x), {"iters": info.get("iters"), "converged": info.get("converged", True)}
@@ -59,13 +66,13 @@ class LinearSolver:
 
     def solve(
         self,
-        A,
-        b,
+        A: Any,
+        b: Any,
         *,
-        dirichlet=None,
+        dirichlet: DirichletLike | None = None,
         dirichlet_mode: str = "condense",
         n_total: int | None = None,
-    ):
+    ) -> SolveReturn:
         if dirichlet is None:
             return self._solve_free(A, b)
 
@@ -109,8 +116,8 @@ class NonlinearSolver:
     def __init__(
         self,
         space: FESpace,
-        res_form,
-        params,
+        res_form: Any,
+        params: Any,
         *,
         tol: float = 1e-8,
         maxiter: int = 20,
@@ -119,10 +126,10 @@ class NonlinearSolver:
         max_ls: int = 10,
         ls_c: float = 1e-4,
         linear_tol: float | None = None,
-        dirichlet=None,
-        external_vector=None,
+        dirichlet: DirichletLike | None = None,
+        external_vector: ArrayLike | None = None,
         linear_maxiter: int | None = None,
-        jacobian_pattern=None,
+        jacobian_pattern: Any | None = None,
     ):
         self.space = space
         self.res_form = res_form
@@ -139,7 +146,7 @@ class NonlinearSolver:
         self.linear_maxiter = linear_maxiter
         self.jacobian_pattern = jacobian_pattern
 
-    def solve(self, u0):
+    def solve(self, u0: ArrayLike):
         return newton_solve(
             self.space,
             self.res_form,

@@ -26,6 +26,8 @@ from .preconditioner import make_block_jacobi_preconditioner
 from .block_system import build_block_system, split_block_matrix, BlockSystem
 from .block_matrix import diag as block_diag, make as make_block_matrix
 from .newton import newton_solve
+from .result import SolverResult
+from .history import NewtonIterRecord
 from .solve_runner import (
     NonlinearAnalysis,
     NewtonLoopConfig,
@@ -71,6 +73,8 @@ __all__ = [
     "block_diag",
     "make_block_matrix",
     "newton_solve",
+    "SolverResult",
+    "NewtonIterRecord",
     "LinearAnalysis",
     "LinearSolveConfig",
     "LinearStepResult",

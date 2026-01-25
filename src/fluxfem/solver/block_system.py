@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence, TypeAlias
 
 import numpy as np
 
@@ -13,23 +13,27 @@ except Exception:  # pragma: no cover
 from .dirichlet import DirichletBC, free_dofs
 from .sparse import FluxSparseMatrix
 
+MatrixLike: TypeAlias = Any
+FieldKey: TypeAlias = str | int
+BlockMap: TypeAlias = Mapping[FieldKey, Mapping[FieldKey, MatrixLike]]
+
 
 @dataclass(frozen=True)
 class BlockSystem:
-    K: object
+    K: MatrixLike
     F: np.ndarray
     free_dofs: np.ndarray
     dirichlet: DirichletBC
-    field_order: tuple[str, ...]
-    field_slices: dict[str, slice]
+    field_order: tuple[FieldKey, ...]
+    field_slices: dict[FieldKey, slice]
 
-    def expand(self, u_free):
+    def expand(self, u_free: np.ndarray) -> np.ndarray:
         return self.dirichlet.expand_solution(u_free, free=self.free_dofs, n_total=self.F.shape[0])
 
-    def split(self, u_full: np.ndarray) -> dict[str, np.ndarray]:
+    def split(self, u_full: np.ndarray) -> dict[FieldKey, np.ndarray]:
         return {name: np.asarray(u_full)[self.field_slices[name]] for name in self.field_order}
 
-    def join(self, fields: Mapping[str, np.ndarray]) -> np.ndarray:
+    def join(self, fields: Mapping[FieldKey, np.ndarray]) -> np.ndarray:
         parts = []
         for name in self.field_order:
             if name not in fields:
@@ -38,7 +42,9 @@ class BlockSystem:
         return np.concatenate(parts, axis=0)
 
 
-def _build_field_slices(order, sizes):
+def _build_field_slices(
+    order: Sequence[FieldKey], sizes: Mapping[FieldKey, int]
+) -> tuple[dict[FieldKey, int], dict[FieldKey, slice], int]:
     offsets = {}
     slices = {}
     offset = 0
@@ -50,7 +56,12 @@ def _build_field_slices(order, sizes):
     return offsets, slices, offset
 
 
-def split_block_matrix(matrix, *, sizes: Mapping[str, int], order: Sequence[str] | None = None):
+def split_block_matrix(
+    matrix: MatrixLike,
+    *,
+    sizes: Mapping[FieldKey, int],
+    order: Sequence[FieldKey] | None = None,
+) -> dict[FieldKey, dict[FieldKey, MatrixLike]]:
     """
     Split a block matrix into a dict-of-dicts by field order and sizes.
     """
@@ -72,7 +83,7 @@ def split_block_matrix(matrix, *, sizes: Mapping[str, int], order: Sequence[str]
     if mat.shape != (n_total, n_total):
         raise ValueError(f"matrix has shape {mat.shape}, expected {(n_total, n_total)}")
 
-    blocks: dict[str, dict[str, object]] = {}
+    blocks: dict[FieldKey, dict[FieldKey, MatrixLike]] = {}
     for name_i in field_order:
         row = {}
         i0 = offsets[name_i]
@@ -85,7 +96,7 @@ def split_block_matrix(matrix, *, sizes: Mapping[str, int], order: Sequence[str]
     return blocks
 
 
-def _infer_format(blocks, fmt):
+def _infer_format(blocks: BlockMap, fmt: str) -> str:
     if fmt != "auto":
         return fmt
     for row in blocks.values():
@@ -97,7 +108,7 @@ def _infer_format(blocks, fmt):
     return "dense"
 
 
-def _infer_sizes_from_diag_seq(diag_seq):
+def _infer_sizes_from_diag_seq(diag_seq: Sequence[MatrixLike]) -> dict[int, int]:
     sizes = {}
     for idx, blk in enumerate(diag_seq):
         if isinstance(blk, FluxSparseMatrix):
@@ -115,7 +126,11 @@ def _infer_sizes_from_diag_seq(diag_seq):
     return sizes
 
 
-def _coerce_rhs(rhs, order, sizes):
+def _coerce_rhs(
+    rhs: MatrixLike | Sequence[MatrixLike] | Mapping[FieldKey, MatrixLike] | None,
+    order: Sequence[FieldKey],
+    sizes: Mapping[FieldKey, int],
+) -> np.ndarray:
     if rhs is None:
         return np.zeros(sum(int(sizes[n]) for n in order), dtype=float)
     if isinstance(rhs, Mapping):
@@ -139,7 +154,9 @@ def _coerce_rhs(rhs, order, sizes):
     return np.concatenate(parts, axis=0)
 
 
-def _build_dirichlet_from_fields(fields, offsets, *, merge: str):
+def _build_dirichlet_from_fields(
+    fields: Mapping[FieldKey, object], offsets: Mapping[FieldKey, int], *, merge: str
+) -> DirichletBC:
     if merge not in {"check_equal", "error", "first", "last"}:
         raise ValueError("merge must be one of: check_equal, error, first, last")
     dof_map: dict[int, float] = {}
@@ -174,7 +191,13 @@ def _build_dirichlet_from_fields(fields, offsets, *, merge: str):
     return DirichletBC(dofs_sorted, vals_sorted)
 
 
-def _build_dirichlet_from_sequence(seq, order, offsets, *, merge: str):
+def _build_dirichlet_from_sequence(
+    seq: Sequence[object | None],
+    order: Sequence[FieldKey],
+    offsets: Mapping[FieldKey, int],
+    *,
+    merge: str,
+) -> DirichletBC:
     if merge not in {"check_equal", "error", "first", "last"}:
         raise ValueError("merge must be one of: check_equal, error, first, last")
     if len(seq) != len(order):
@@ -211,7 +234,7 @@ def _build_dirichlet_from_sequence(seq, order, offsets, *, merge: str):
     return DirichletBC(dofs_sorted, vals_sorted)
 
 
-def _transpose_block(block, rule: str):
+def _transpose_block(block: MatrixLike, rule: str) -> MatrixLike:
     if isinstance(block, FluxSparseMatrix):
         if sp is None:
             raise ImportError("scipy is required to transpose FluxSparseMatrix blocks.")
@@ -225,7 +248,7 @@ def _transpose_block(block, rule: str):
     return out
 
 
-def _add_blocks(a, b):
+def _add_blocks(a: MatrixLike | None, b: MatrixLike | None) -> MatrixLike | None:
     if a is None:
         return b
     if b is None:
@@ -245,14 +268,14 @@ def _add_blocks(a, b):
 
 def _blocks_from_diag_rel(
     *,
-    diag: Mapping[str, object] | Sequence[object],
-    sizes: Mapping[str, int],
-    order: Sequence[str],
-    rel: Mapping[tuple[str, str], object] | None = None,
-    add_contiguous: object | None = None,
+    diag: Mapping[FieldKey, MatrixLike] | Sequence[MatrixLike],
+    sizes: Mapping[FieldKey, int],
+    order: Sequence[FieldKey],
+    rel: Mapping[tuple[FieldKey, FieldKey], MatrixLike] | None = None,
+    add_contiguous: MatrixLike | None = None,
     symmetric: bool = False,
     transpose_rule: str = "T",
-) -> Mapping[str, Mapping[str, object]]:
+) -> BlockMap:
     if isinstance(diag, Mapping):
         diag_map = dict(diag)
     else:
@@ -296,12 +319,12 @@ def _blocks_from_diag_rel(
 
 def build_block_system(
     *,
-    diag: Mapping[str, object] | Sequence[object],
-    sizes: Mapping[str, int] | None = None,
-    rel: Mapping[tuple[str, str], object] | None = None,
-    add_contiguous: object | None = None,
-    rhs: Mapping[str, object] | Sequence[object] | np.ndarray | None = None,
-    constraints=None,
+    diag: Mapping[FieldKey, MatrixLike] | Sequence[MatrixLike],
+    sizes: Mapping[FieldKey, int] | None = None,
+    rel: Mapping[tuple[FieldKey, FieldKey], MatrixLike] | None = None,
+    add_contiguous: MatrixLike | None = None,
+    rhs: Mapping[FieldKey, MatrixLike] | Sequence[MatrixLike] | np.ndarray | None = None,
+    constraints: object | None = None,
     merge: str = "check_equal",
     format: str = "auto",
     symmetric: bool = False,

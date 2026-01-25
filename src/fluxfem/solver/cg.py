@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, Callable, TypeAlias
+
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
@@ -14,8 +16,12 @@ from dataclasses import dataclass
 
 from .preconditioner import make_block_jacobi_preconditioner
 
+ArrayLike: TypeAlias = jnp.ndarray
+MatVec: TypeAlias = Callable[[jnp.ndarray], jnp.ndarray]
+CGInfo: TypeAlias = dict[str, Any]
 
-def _matvec_builder(A):
+
+def _matvec_builder(A: Any) -> MatVec:
     if jsparse is not None and isinstance(A, jsparse.BCOO):
         return lambda x: A @ x
     if isinstance(A, FluxSparseMatrix):
@@ -33,7 +39,7 @@ def _matvec_builder(A):
     return mv
 
 
-def _coo_tuple_from_any(A):
+def _coo_tuple_from_any(A: Any):
     if isinstance(A, FluxSparseMatrix):
         return A.to_coo()
     if isinstance(A, tuple) and len(A) == 4:
@@ -53,7 +59,7 @@ def _coo_tuple_from_any(A):
     return None
 
 
-def _to_flux_matrix(A):
+def _to_flux_matrix(A: Any) -> FluxSparseMatrix:
     if isinstance(A, FluxSparseMatrix):
         return A
     coo = _coo_tuple_from_any(A)
@@ -62,7 +68,7 @@ def _to_flux_matrix(A):
     return FluxSparseMatrix.from_bilinear(coo)
 
 
-def _to_bcoo_matrix(A):
+def _to_bcoo_matrix(A: Any):
     if jsparse is None:
         raise ImportError("jax.experimental.sparse is required for BCOO matvec")
     if jsparse is not None and isinstance(A, jsparse.BCOO):
@@ -75,7 +81,7 @@ def _to_bcoo_matrix(A):
     return jsparse.BCOO((data, idx), shape=(n, n))
 
 
-def _normalize_matvec_matrix(A, matvec: str):
+def _normalize_matvec_matrix(A: Any, matvec: str):
     if matvec == "flux":
         return _to_flux_matrix(A)
     if matvec == "bcoo":
@@ -101,7 +107,14 @@ class CGOperator:
     preconditioner: object | None = None
     solver: str = "cg"
 
-    def solve(self, b, *, x0=None, tol: float = 1e-8, maxiter: int | None = None):
+    def solve(
+        self,
+        b: jnp.ndarray,
+        *,
+        x0: jnp.ndarray | None = None,
+        tol: float = 1e-8,
+        maxiter: int | None = None,
+    ):
         if self.solver == "cg":
             return cg_solve(
                 self.A,
@@ -124,13 +137,13 @@ class CGOperator:
 
 
 def build_cg_operator(
-    A,
+    A: Any,
     *,
     matvec: str = "flux",
-    preconditioner=None,
+    preconditioner: object | None = None,
     solver: str = "cg",
     dof_per_node: int | None = None,
-    block_sizes=None,
+    block_sizes: object | None = None,
 ) -> CGOperator:
     """
     Normalize CG inputs into a single operator interface.
@@ -144,7 +157,7 @@ def build_cg_operator(
     return CGOperator(A=A_mat, preconditioner=precon, solver=solver)
 
 
-def _diag_builder(A, n: int):
+def _diag_builder(A: Any, n: int) -> jnp.ndarray:
     """
     Build diagonal for a Jacobi preconditioner when available.
     """
@@ -171,14 +184,14 @@ def _diag_builder(A, n: int):
 
 
 def _cg_solve_single(
-    A,
-    b,
+    A: Any,
+    b: jnp.ndarray,
     *,
-    x0=None,
+    x0: jnp.ndarray | None = None,
     tol: float = 1e-8,
     maxiter: int | None = None,
-    preconditioner=None,
-):
+    preconditioner: object | None = None,
+) -> tuple[jnp.ndarray, CGInfo]:
     """
     Conjugate gradient (Ax=b) in JAX.
     A: FluxSparseMatrix / (rows, cols, data, n) / dense array
@@ -241,14 +254,14 @@ def _cg_solve_single(
 
 
 def cg_solve(
-    A,
-    b,
+    A: Any,
+    b: jnp.ndarray,
     *,
-    x0=None,
+    x0: jnp.ndarray | None = None,
     tol: float = 1e-8,
     maxiter: int | None = None,
-    preconditioner=None,
-):
+    preconditioner: object | None = None,
+) -> tuple[jnp.ndarray, CGInfo]:
     """
     Conjugate gradient (Ax=b) in JAX.
     Supports single RHS (n,) or multiple RHS (n, n_rhs).
@@ -290,14 +303,14 @@ def cg_solve(
 
 
 def _cg_solve_jax_single(
-    A,
-    b,
+    A: Any,
+    b: jnp.ndarray,
     *,
-    x0=None,
+    x0: jnp.ndarray | None = None,
     tol: float = 1e-8,
     maxiter: int | None = None,
-    preconditioner=None,
-):
+    preconditioner: object | None = None,
+) -> tuple[jnp.ndarray, CGInfo]:
     """
     Conjugate gradient via jax.scipy.sparse.linalg.cg.
     A: FluxSparseMatrix / (rows, cols, data, n) / dense array / callable
@@ -359,14 +372,14 @@ def _cg_solve_jax_single(
 
 
 def cg_solve_jax(
-    A,
-    b,
+    A: Any,
+    b: jnp.ndarray,
     *,
-    x0=None,
+    x0: jnp.ndarray | None = None,
     tol: float = 1e-8,
     maxiter: int | None = None,
-    preconditioner=None,
-):
+    preconditioner: object | None = None,
+) -> tuple[jnp.ndarray, CGInfo]:
     """
     Conjugate gradient via jax.scipy.sparse.linalg.cg.
     Supports single RHS (n,) or multiple RHS (n, n_rhs).

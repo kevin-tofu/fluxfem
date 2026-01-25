@@ -2,11 +2,18 @@
 
 # fluxfem/mechanics/operators.py
 from __future__ import annotations
+
+from typing import Any, TypeAlias
+
 import jax
 import jax.numpy as jnp
 
+from ..core.context_types import FormFieldLike
 
-def dot(a, b):
+ArrayLike: TypeAlias = jnp.ndarray
+
+
+def dot(a: FormFieldLike | ArrayLike, b: ArrayLike) -> ArrayLike:
     """
     Batched matrix product on the last two axes.
 
@@ -19,7 +26,7 @@ def dot(a, b):
     return jnp.matmul(a, b)
 
 
-def ddot(a, b, c=None):
+def ddot(a: ArrayLike, b: ArrayLike, c: ArrayLike | None = None) -> ArrayLike:
     """
     Double contraction on the last two axes.
 
@@ -32,12 +39,12 @@ def ddot(a, b, c=None):
     return jnp.einsum("...ik,kl,...lm->...im", a_t, b, c)
 
 
-def transpose_last2(a):
+def transpose_last2(a: ArrayLike) -> ArrayLike:
     """Swap the last two axes (batched transpose)."""
     return jnp.swapaxes(a, -1, -2)
 
 
-def sym_grad(field) -> jnp.ndarray:
+def sym_grad(field: FormFieldLike) -> jnp.ndarray:
     """
     Symmetric gradient operator for vector mechanics (small strain).
 
@@ -89,7 +96,7 @@ def sym_grad(field) -> jnp.ndarray:
     return jax.vmap(B_single)(gradN)
 
 
-def sym_grad_u(field, u_elem: jnp.ndarray) -> jnp.ndarray:
+def sym_grad_u(field: FormFieldLike, u_elem: jnp.ndarray) -> jnp.ndarray:
     """
     Apply sym_grad(field) to a local displacement vector.
 

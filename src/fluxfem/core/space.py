@@ -1,7 +1,7 @@
 from __future__ import annotations
 import operator
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol, TYPE_CHECKING, TypeVar
+from typing import Any, Callable, Protocol, TYPE_CHECKING, TypeAlias, TypeVar, cast
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -16,15 +16,18 @@ if TYPE_CHECKING:
         ElementLinearKernel,
         ElementResidualKernel,
         Kernel,
+        FormKernel,
         BilinearReturn,
         JacobianReturn,
         LinearReturn,
         MassReturn,
         ResidualForm,
     )
-    from ..solver import FluxSparseMatrix
+    from .weakform import BilinearForm, LinearForm
+    from ..solver import FluxSparseMatrix, SparsityPattern
 else:
     Kernel = Callable[..., Any]
+    FormKernel = Callable[..., Any]
     ResidualForm = Callable[..., Any]
     ElementBilinearKernel = Callable[..., Any]
     ElementLinearKernel = Callable[..., Any]
@@ -34,7 +37,18 @@ else:
     JacobianReturn = Any
     LinearReturn = Any
     MassReturn = Any
+    BilinearForm = Any
+    LinearForm = Any
     FluxSparseMatrix = Any
+    SparsityPattern = Any
+
+KernelCacheKey: TypeAlias = tuple[str, int, int, bool]
+KernelCache: TypeAlias = dict[
+    KernelCacheKey,
+    ElementBilinearKernel | ElementLinearKernel | ElementResidualKernel | ElementJacobianKernel,
+]
+PatternCache: TypeAlias = dict[bool, SparsityPattern]
+PatternLike: TypeAlias = str | SparsityPattern | None
 
 _WARNED_UNTAGGED_KERNELS: set[int] = set()
 
@@ -103,8 +117,12 @@ class FESpaceBase(Protocol):
     """
     elem_dofs: jnp.ndarray
     value_dim: int
-    n_dofs: int
-    n_ldofs: int
+
+    @property
+    def n_dofs(self) -> int: ...
+
+    @property
+    def n_ldofs(self) -> int: ...
 
     def build_form_contexts(self, dep: jnp.ndarray | None = None) -> FormContext: ...
 
@@ -130,8 +148,8 @@ class FESpaceClosure:
     _n_dofs: int | None = None
     _n_ldofs: int | None = None
     data: SpaceData | None = None
-    _pattern_cache: dict[bool, object] = field(default_factory=dict, repr=False)
-    _kernel_cache: dict[tuple, object] = field(default_factory=dict, repr=False)
+    _pattern_cache: PatternCache = field(default_factory=dict, repr=False)
+    _kernel_cache: KernelCache = field(default_factory=dict, repr=False)
     _elem_rows_cache: jnp.ndarray | None = field(default=None, repr=False)
 
     def __post_init__(self):
@@ -242,7 +260,7 @@ class FESpaceClosure:
             block_sizes=block_sizes,
         )
 
-    def _kernel_cache_key(self, kind: str, form, params, *, jit: bool):
+    def _kernel_cache_key(self, kind: str, form, params, *, jit: bool) -> KernelCacheKey | None:
         if not jit:
             return None
         form_key = getattr(form, "__wrapped__", form)
@@ -266,15 +284,15 @@ class FESpaceClosure:
 
     def assemble(
         self,
-        form,
-        params=None,
+        form: FormKernel[P] | BilinearForm | LinearForm,
+        params: P | None = None,
         *,
         kind: str | None = None,
         n_chunks: int | None = None,
         dep: jnp.ndarray | None = None,
         jit: bool = True,
-        pattern: str | object | None = "auto",
-        kernel=None,
+        pattern: PatternLike = "auto",
+        kernel: ElementBilinearKernel | ElementLinearKernel | None = None,
         **kwargs,
     ):
         """
@@ -334,13 +352,14 @@ class FESpaceClosure:
                     jit=jit,
                     maker=make_element_bilinear_kernel,
                 )
+            form_kernel = cast(FormKernel[P | None], form)
             pattern_use = None
             if pattern == "auto":
                 pattern_use = self.get_sparsity_pattern(with_idx=True)
             else:
                 pattern_use = pattern
             return self.assemble_bilinear_form(
-                form,
+                form_kernel,
                 params,
                 n_chunks=n_chunks,
                 dep=dep,
@@ -357,8 +376,9 @@ class FESpaceClosure:
                     jit=jit,
                     maker=make_element_linear_kernel,
                 )
+            form_kernel = cast(FormKernel[P | None], form)
             return self.assemble_linear_form(
-                form,
+                form_kernel,
                 params,
                 n_chunks=n_chunks,
                 dep=dep,
@@ -370,7 +390,7 @@ class FESpaceClosure:
     # --- Thin wrappers over functional assembly APIs (kept functional for JAX friendliness) ---
     def assemble_bilinear_form(
         self,
-        form: Kernel[P],
+        form: FormKernel[P],
         params: P,
         *,
         n_chunks: int | None = None,
@@ -388,7 +408,7 @@ class FESpaceClosure:
 
     def assemble_linear_form(
         self,
-        form: Kernel[P],
+        form: FormKernel[P],
         params: P,
         *,
         n_chunks: int | None = None,
@@ -402,7 +422,7 @@ class FESpaceClosure:
             self, form, params, n_chunks=n_chunks, dep=dep, kernel=kernel, **kwargs
         )
 
-    def assemble_functional(self, form: Kernel[P], params: P) -> jnp.ndarray:
+    def assemble_functional(self, form: FormKernel[P], params: P) -> jnp.ndarray:
         from .assembly import assemble_functional
         return assemble_functional(self, form, params)
 
@@ -417,7 +437,7 @@ class FESpaceClosure:
 
     def assemble_bilinear_dense(
         self,
-        kernel: Kernel[P],
+        kernel: FormKernel[P],
         params: P,
         **kwargs,
     ) -> BilinearReturn:
@@ -605,7 +625,7 @@ def make_tet10_space_pytree(
     """Create a pytree quadratic tet space (10-node elements)."""
     basis = make_tet10_basis_pytree(intorder)
     element = None if dim == 1 else ElementVector(dim)
-    return make_space_pytree(mesh, basis, element)
+    return make_space_pytree(cast(BaseMeshPytree, mesh), basis, element)
 
 
 def make_hex_space(mesh: HexMesh, dim: int = 1, intorder: int = 2) -> FESpace:
@@ -621,7 +641,7 @@ def make_hex_space_pytree(
     """Create a pytree trilinear hex space (8-node elements)."""
     basis = make_hex_basis_pytree(intorder)
     element = None if dim == 1 else ElementVector(dim)
-    return make_space_pytree(mesh, basis, element)
+    return make_space_pytree(cast(BaseMeshPytree, mesh), basis, element)
 
 
 def make_hex20_space(
@@ -639,7 +659,7 @@ def make_hex20_space_pytree(
     """Create a pytree serendipity hex space (20-node elements)."""
     basis = make_hex20_basis_pytree(intorder)
     element = None if dim == 1 else ElementVector(dim)
-    return make_space_pytree(mesh, basis, element)
+    return make_space_pytree(cast(BaseMeshPytree, mesh), basis, element)
 
 
 def make_hex27_space(
@@ -657,14 +677,14 @@ def make_hex27_space_pytree(
     """Create a pytree triquadratic hex space (27-node elements)."""
     basis = make_hex27_basis_pytree(intorder)
     element = None if dim == 1 else ElementVector(dim)
-    return make_space_pytree(mesh, basis, element)
+    return make_space_pytree(cast(BaseMeshPytree, mesh), basis, element)
 
 
 def make_tet_space(mesh: TetMesh, dim: int = 1, intorder: int = 2) -> FESpace:
     """Create a linear or quadratic tet space based on mesh nodes."""
     n_nodes = mesh.conn.shape[1]
     if n_nodes == 10:
-        basis = make_tet10_basis(intorder if intorder > 1 else 2)
+        basis: Basis3D = make_tet10_basis(intorder if intorder > 1 else 2)
     else:
         basis = make_tet_basis(intorder)
     element = None if dim == 1 else ElementVector(dim)
@@ -677,8 +697,8 @@ def make_tet_space_pytree(
     """Create a pytree linear or quadratic tet space based on mesh nodes."""
     n_nodes = mesh.conn.shape[1]
     if n_nodes == 10:
-        basis = make_tet10_basis_pytree(intorder if intorder > 1 else 2)
+        basis: Basis3D = make_tet10_basis_pytree(intorder if intorder > 1 else 2)
     else:
         basis = make_tet_basis_pytree(intorder)
     element = None if dim == 1 else ElementVector(dim)
-    return make_space_pytree(mesh, basis, element)
+    return make_space_pytree(cast(BaseMeshPytree, mesh), basis, element)

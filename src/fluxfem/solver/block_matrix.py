@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence, TypeAlias
 
 import numpy as np
 
@@ -12,12 +12,16 @@ except Exception:  # pragma: no cover
 from .block_system import split_block_matrix
 from .sparse import FluxSparseMatrix
 
+MatrixLike: TypeAlias = Any
+FieldKey: TypeAlias = str | int
+BlockMap: TypeAlias = dict[FieldKey, dict[FieldKey, MatrixLike]]
 
-def diag(**blocks):
+
+def diag(**blocks: MatrixLike) -> dict[str, MatrixLike]:
     return dict(blocks)
 
 
-def _infer_sizes_from_diag(diag_blocks):
+def _infer_sizes_from_diag(diag_blocks: Mapping[FieldKey, MatrixLike]) -> dict[FieldKey, int]:
     sizes = {}
     for name, blk in diag_blocks.items():
         if isinstance(blk, FluxSparseMatrix):
@@ -35,7 +39,7 @@ def _infer_sizes_from_diag(diag_blocks):
     return sizes
 
 
-def _add_blocks(a, b):
+def _add_blocks(a: MatrixLike | None, b: MatrixLike | None) -> MatrixLike | None:
     if a is None:
         return b
     if b is None:
@@ -53,7 +57,7 @@ def _add_blocks(a, b):
     return np.asarray(a) + np.asarray(b)
 
 
-def _transpose_block(block, rule: str):
+def _transpose_block(block: MatrixLike, rule: str) -> MatrixLike:
     if isinstance(block, FluxSparseMatrix):
         if sp is None:
             raise ImportError("scipy is required to transpose FluxSparseMatrix blocks.")
@@ -69,13 +73,13 @@ def _transpose_block(block, rule: str):
 
 def make(
     *,
-    diag: Mapping[str, object] | Sequence[object],
-    rel: Mapping[tuple[str, str], object] | None = None,
-    add_contiguous: object | None = None,
-    sizes: Mapping[str, int] | None = None,
+    diag: Mapping[FieldKey, MatrixLike] | Sequence[MatrixLike],
+    rel: Mapping[tuple[FieldKey, FieldKey], MatrixLike] | None = None,
+    add_contiguous: MatrixLike | None = None,
+    sizes: Mapping[FieldKey, int] | None = None,
     symmetric: bool = False,
     transpose_rule: str = "T",
-):
+) -> BlockMap:
     """
     Build a blocks dict from diagonal blocks, optional relations, and a full matrix.
     """

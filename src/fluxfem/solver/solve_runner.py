@@ -3,12 +3,12 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 import warnings
-from typing import Any, Callable, Iterable, List, Sequence
+from typing import Any, Callable, Iterable, List, Sequence, TypeAlias
 
 import numpy as np
 import jax.numpy as jnp
 
-from ..core.assembly import assemble_bilinear_form
+from ..core.assembly import FormKernel, ResidualForm, assemble_bilinear_form
 from ..core.solver import spdirect_solve_cpu, spdirect_solve_gpu
 from .cg import cg_solve, cg_solve_jax
 from .petsc import petsc_shell_solve
@@ -18,6 +18,13 @@ from .newton import newton_solve
 from .result import SolverResult
 from .history import NewtonIterRecord, LoadStepResult
 from ..tools.timer import SectionTimer, NullTimer
+
+ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+DirichletLike: TypeAlias = tuple[np.ndarray, np.ndarray]
+ExtraTerm: TypeAlias = Callable[
+    [np.ndarray],
+    tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, dict[str, Any]] | None,
+]
 
 
 @dataclass
@@ -46,15 +53,15 @@ class NonlinearAnalysis:
     """
 
     space: Any
-    residual_form: Any
+    residual_form: ResidualForm[Any]
     params: Any
-    base_external_vector: Any | None = None
-    dirichlet: tuple | None = None
-    extra_terms: list[Callable] | None = None
+    base_external_vector: ArrayLike | None = None
+    dirichlet: DirichletLike | None = None
+    extra_terms: list[ExtraTerm] | None = None
     jacobian_pattern: Any | None = None
     dtype: Any = jnp.float64
 
-    def external_for_load(self, load_factor: float):
+    def external_for_load(self, load_factor: float) -> ArrayLike | None:
         if self.base_external_vector is None:
             return None
         return jnp.asarray(load_factor * self.base_external_vector, dtype=self.dtype)
@@ -105,14 +112,14 @@ class NewtonSolveRunner:
 
     def run(
         self,
-        u0=None,
+        u0: ArrayLike | None = None,
         *,
         load_sequence: Sequence[float] | None = None,
-        newton_callback: Callable | None = None,
+        newton_callback: Callable[[dict[str, Any]], None] | None = None,
         step_callback: Callable[[LoadStepResult], None] | None = None,
         timer: "SectionTimer | None" = None,
         report_timing: bool = True
-    ):
+    ) -> tuple[np.ndarray, list[LoadStepResult]]:
         """
         Execute Newton solves over the configured load schedule.
 
@@ -276,7 +283,9 @@ class NewtonSolveRunner:
         return u, history
 
 
-def _condense_flux_dirichlet(K: FluxSparseMatrix, F, dirichlet):
+def _condense_flux_dirichlet(
+    K: FluxSparseMatrix, F: ArrayLike, dirichlet: DirichletLike
+) -> tuple[Any, np.ndarray, np.ndarray | None, np.ndarray, np.ndarray, np.ndarray]:
     dir_dofs, dir_vals = dirichlet
     dir_arr = np.asarray(dir_dofs, dtype=int)
     dir_vals_arr = np.asarray(dir_vals, dtype=float)
@@ -294,12 +303,12 @@ def _condense_flux_dirichlet(K: FluxSparseMatrix, F, dirichlet):
 
 def solve_nonlinear(
     space,
-    residual_form,
-    params,
+    residual_form: ResidualForm[Any],
+    params: Any,
     *,
-    dirichlet: tuple | None = None,
-    base_external_vector=None,
-    extra_terms=None,
+    dirichlet: DirichletLike | None = None,
+    base_external_vector: ArrayLike | None = None,
+    extra_terms: list[ExtraTerm] | None = None,
     dtype=jnp.float64,
     maxiter: int = 20,
     tol: float = 1e-8,
@@ -314,8 +323,8 @@ def solve_nonlinear(
     ls_c: float = 1e-4,
     n_steps: int = 1,
     jacobian_pattern=None,
-    u0=None,
-):
+    u0: ArrayLike | None = None,
+) -> tuple[np.ndarray, list[LoadStepResult]]:
     """
     Convenience wrapper: build NonlinearAnalysis and run NewtonSolveRunner.
     """
@@ -359,10 +368,10 @@ class LinearAnalysis:
     """
 
     space: Any
-    bilinear_form: Any
+    bilinear_form: FormKernel[Any]
     params: Any
-    base_rhs_vector: Any
-    dirichlet: tuple | None = None
+    base_rhs_vector: ArrayLike
+    dirichlet: DirichletLike | None = None
     pattern: Any | None = None
     dtype: Any = jnp.float64
 
@@ -373,7 +382,7 @@ class LinearAnalysis:
             pattern=self.pattern,
         )
 
-    def rhs_for_load(self, load_factor: float):
+    def rhs_for_load(self, load_factor: float) -> ArrayLike:
         return jnp.asarray(load_factor * self.base_rhs_vector, dtype=self.dtype)
 
 
@@ -437,7 +446,7 @@ class LinearStepResult:
     """
     info: SolverResult
     solve_time: float
-    u: Any
+    u: ArrayLike
 
 
 class LinearSolveRunner:
