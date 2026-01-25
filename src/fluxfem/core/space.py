@@ -352,7 +352,7 @@ class FESpaceClosure:
                     jit=jit,
                     maker=make_element_bilinear_kernel,
                 )
-            form_kernel = cast(FormKernel[P | None], form)
+            form_kernel = cast(FormKernel, form)
             pattern_use = None
             if pattern == "auto":
                 pattern_use = self.get_sparsity_pattern(with_idx=True)
@@ -376,7 +376,7 @@ class FESpaceClosure:
                     jit=jit,
                     maker=make_element_linear_kernel,
                 )
-            form_kernel = cast(FormKernel[P | None], form)
+            form_kernel = cast(FormKernel, form)
             return self.assemble_linear_form(
                 form_kernel,
                 params,
