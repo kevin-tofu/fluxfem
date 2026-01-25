@@ -102,55 +102,6 @@ from .weakform import (
     matmul_std,
     einsum,
 )
-from ..mesh import (
-    BaseMeshPytree,
-    SurfaceWithFacetMap,
-    bbox_predicate,
-    plane_predicate,
-    axis_plane_predicate,
-    slab_predicate,
-    HexMesh,
-    HexMeshPytree,
-    StructuredHexBox,
-    SurfaceMesh,
-    SurfaceMeshPytree,
-    SurfaceWithElemConn,
-    surface_with_elem_conn,
-    SurfaceSupermesh,
-    build_surface_supermesh,
-    tag_axis_minmax_facets,
-    TetMesh,
-    TetMeshPytree,
-    StructuredTetBox,
-    StructuredTetTensorBox,
-    load_gmsh_mesh,
-    load_gmsh_hex_mesh,
-    load_gmsh_tet_mesh,
-    make_surface_from_facets,
-    SurfaceSupermesh,
-    build_surface_supermesh,
-    MortarMatrix,
-    assemble_mortar_matrices,
-    assemble_contact_onesided_floor,
-    assemble_mixed_surface_residual,
-    assemble_mixed_surface_jacobian,
-    map_surface_facets_to_tet_elements,
-    map_surface_facets_to_hex_elements,
-    tri_area,
-    tri_quadrature,
-    facet_triangles,
-    facet_shape_values,
-    volume_shape_values_at_points,
-    quad_shape_and_local,
-    quad9_shape_values,
-    hex27_gradN,
-    ContactSurfaceSpace,
-    ContactSide,
-    OneSidedContact,
-    OneSidedContactSurfaceSpace,
-    facet_gap_values,
-    active_contact_facets,
-)
 from .basis import (
     HexTriLinearBasis,
     HexTriLinearBasisPytree,
@@ -166,6 +117,54 @@ from .basis import (
 import importlib
 
 from .solver import spdirect_solve_cpu, spdirect_solve_gpu, spdirect_solve_jax, coo_to_csr
+
+_MESH_EXPORTS = {
+    "BaseMeshPytree",
+    "SurfaceWithFacetMap",
+    "bbox_predicate",
+    "plane_predicate",
+    "axis_plane_predicate",
+    "slab_predicate",
+    "HexMesh",
+    "HexMeshPytree",
+    "StructuredHexBox",
+    "SurfaceMesh",
+    "SurfaceMeshPytree",
+    "SurfaceWithElemConn",
+    "surface_with_elem_conn",
+    "SurfaceSupermesh",
+    "build_surface_supermesh",
+    "tag_axis_minmax_facets",
+    "TetMesh",
+    "TetMeshPytree",
+    "StructuredTetBox",
+    "StructuredTetTensorBox",
+    "load_gmsh_mesh",
+    "load_gmsh_hex_mesh",
+    "load_gmsh_tet_mesh",
+    "make_surface_from_facets",
+    "MortarMatrix",
+    "assemble_mortar_matrices",
+    "assemble_contact_onesided_floor",
+    "assemble_mixed_surface_residual",
+    "assemble_mixed_surface_jacobian",
+    "map_surface_facets_to_tet_elements",
+    "map_surface_facets_to_hex_elements",
+    "tri_area",
+    "tri_quadrature",
+    "facet_triangles",
+    "facet_shape_values",
+    "volume_shape_values_at_points",
+    "quad_shape_and_local",
+    "quad9_shape_values",
+    "hex27_gradN",
+    "ContactSurfaceSpace",
+    "ContactSide",
+    "OneSidedContact",
+    "OneSidedContactSurfaceSpace",
+    "facet_gap_values",
+    "active_contact_facets",
+}
 
 _SOLVER_EXPORTS = {
     "SparsityPattern",
@@ -227,7 +226,9 @@ _SOLVER_BC_EXPORTS = {
 
 
 def __getattr__(name: str):
-    if name in _SOLVER_EXPORTS:
+    if name in _MESH_EXPORTS:
+        module = importlib.import_module("..mesh", __name__)
+    elif name in _SOLVER_EXPORTS:
         module = importlib.import_module("..solver", __name__)
     elif name in _SOLVER_BC_EXPORTS:
         module = importlib.import_module("..solver.bc", __name__)

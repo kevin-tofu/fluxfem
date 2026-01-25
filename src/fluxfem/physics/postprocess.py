@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
 
 import numpy as np
 import jax
@@ -10,9 +10,14 @@ import jax.numpy as jnp
 from ..tools.visualizer import write_vtu
 from ..mesh import BaseMesh
 from ..core.space import FESpace
-
-ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
 from ..core.interp import interpolate_field_at_element_points
+
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 
 
 def make_point_data_displacement(

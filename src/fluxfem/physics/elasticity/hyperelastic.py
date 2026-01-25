@@ -1,4 +1,4 @@
-from typing import Mapping, TypeAlias
+from typing import Mapping, TYPE_CHECKING, TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +10,12 @@ from ...mesh import BaseMesh
 from ...core.basis import build_B_matrices_finite
 from ..postprocess import make_point_data_displacement, write_point_data_vtu
 
-ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 ParamsLike: TypeAlias = Mapping[str, float] | tuple[float, float]
 
 

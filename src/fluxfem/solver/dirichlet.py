@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, TypeAlias
+from typing import Any, TYPE_CHECKING, TypeAlias
 
 import numpy as np
 import jax.numpy as jnp
@@ -13,7 +13,12 @@ except Exception:  # pragma: no cover
 
 from .sparse import FluxSparseMatrix, coalesce_coo
 
-ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 DirichletLike: TypeAlias = tuple[np.ndarray, np.ndarray]
 
 

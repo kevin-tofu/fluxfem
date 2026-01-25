@@ -1,7 +1,7 @@
 from __future__ import annotations
 import time
 
-from typing import Any, Callable, Mapping, TypeAlias
+from typing import Any, Callable, Mapping, TYPE_CHECKING, TypeAlias
 
 import numpy as np
 import jax
@@ -22,7 +22,12 @@ from .result import SolverResult
 from .sparse import SparsityPattern, FluxSparseMatrix
 from .dirichlet import _normalize_dirichlet
 
-ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 ExtraTerm: TypeAlias = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, Mapping[str, Any]] | None]
 
 

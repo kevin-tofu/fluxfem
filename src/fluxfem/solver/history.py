@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, TypeAlias
+from typing import Any, List, Optional, TYPE_CHECKING, TypeAlias
 
 import jax.numpy as jnp
 import numpy as np
 
 from .result import SolverResult
 
-ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 
 
 @dataclass

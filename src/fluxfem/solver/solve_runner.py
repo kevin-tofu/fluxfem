@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 import warnings
-from typing import Any, Callable, Iterable, List, Sequence, TypeAlias
+from typing import Any, Callable, Iterable, List, Sequence, TYPE_CHECKING, TypeAlias
 
 import numpy as np
 import jax.numpy as jnp
@@ -19,7 +19,12 @@ from .result import SolverResult
 from .history import NewtonIterRecord, LoadStepResult
 from ..tools.timer import SectionTimer, NullTimer
 
-ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 DirichletLike: TypeAlias = tuple[np.ndarray, np.ndarray]
 ExtraTerm: TypeAlias = Callable[
     [np.ndarray],

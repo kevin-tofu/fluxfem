@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence, TypeAlias
+from typing import Any, Iterable, Sequence, TYPE_CHECKING, TypeAlias
 
 import numpy as np
 import jax
@@ -13,7 +13,12 @@ except Exception:  # pragma: no cover
     sp = None
 
 
-ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 COOTuple: TypeAlias = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int]
 
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import jax
 
 from typing import Callable, TypeVar

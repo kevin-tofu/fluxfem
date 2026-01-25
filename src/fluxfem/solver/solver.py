@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, TypeAlias
+from typing import Any, TYPE_CHECKING, TypeAlias
 
 import numpy as np
 import jax.numpy as jnp
@@ -20,7 +20,12 @@ from .dirichlet import (
 from .sparse import FluxSparseMatrix
 from ..core.space import FESpace
 
-ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 DirichletLike: TypeAlias = DirichletBC | tuple[np.ndarray, np.ndarray]
 SolveInfo: TypeAlias = dict[str, Any]
 SolveReturn: TypeAlias = tuple[np.ndarray, SolveInfo]

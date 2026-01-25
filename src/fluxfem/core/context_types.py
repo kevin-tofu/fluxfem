@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, Mapping, Protocol, TypeAlias, runtime_checkable
+from typing import Any, Mapping, Protocol, TYPE_CHECKING, TypeAlias, runtime_checkable
 
-import jax.numpy as jnp
 import numpy as np
 
-ArrayLike: TypeAlias = np.ndarray | jnp.ndarray
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 
 
 @runtime_checkable
