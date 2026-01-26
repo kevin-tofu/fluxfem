@@ -88,9 +88,11 @@ def test_mixed_problem_solve_condense():
     b = np.arange(mixed.n_dofs, dtype=float)
     bc = mixed.make_dirichlet(u=([0], [0.0]))
 
+    import fluxfem.helpers_wf as wf
+
     residuals = ff.make_mixed_residuals(
-        u=lambda v, u, p: v * ff.dOmega(),
-        v=lambda v, u, p: v * ff.dOmega(),
+        u=lambda v, u, p: v * wf.dOmega(),
+        v=lambda v, u, p: v * wf.dOmega(),
     )
     prob = ff.MixedProblem(mixed, residuals)
     u, _info = prob.solve(K, b, dirichlet=bc, dirichlet_mode="condense", n_total=mixed.n_dofs)

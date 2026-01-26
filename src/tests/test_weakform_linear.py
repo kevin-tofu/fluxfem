@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
+import fluxfem.helpers_ts as h_ts
 
 
 def test_weakform_mass_matches():
@@ -153,7 +154,7 @@ def test_linearform_surface_matches_tensor():
     traction = np.array([1.0, 0.0, 0.0], dtype=float)
 
     def traction_form(ctx: ff.SurfaceFormContext, t: np.ndarray) -> np.ndarray:
-        return ff.dot(ctx.v, t)
+        return h_ts.dot(ctx.v, t)
 
     surface_form = ff.LinearForm.surface(lambda v, p: h_wf.dot(v, p) * h_wf.ds())
     F_tensor = surface.assemble_linear_form_on_space(

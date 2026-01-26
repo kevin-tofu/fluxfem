@@ -61,8 +61,10 @@ form kind and domain. The following combinations are supported:
      - volume
      - ``(u_elem, ctx) -> (n_ldofs, n_ldofs)``
 
-Use ``domain="surface"`` with the surface-specific assembly helpers
-(``assemble_surface_linear_form``, ``assemble_surface_bilinear_form``).
+Use ``domain="surface"`` with a surface-specific assembly helper. For most workflows
+use ``SurfaceMesh.assemble_linear_form_on_space(...)``; lower-level options include
+``assemble_surface_linear_form`` and ``assemble_surface_bilinear_form`` when you need
+explicit ``dim``/``n_total_nodes`` control.
 
 Example (MixedProblem)
 ----------------------

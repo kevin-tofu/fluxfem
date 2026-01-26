@@ -68,9 +68,9 @@ import jax.numpy as jnp
 
 space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
-   # bilinear: kernel(ctx) -> (n_ldofs, n_ldofs)
-   ker_K = ff.make_element_bilinear_kernel(ff.diffusion_form, 1.0, jit=True)
-   K = space.assemble(ff.diffusion_form, 1.0, kernel=ker_K)
+# bilinear: kernel(ctx) -> (n_ldofs, n_ldofs)
+ker_K = ff.make_element_bilinear_kernel(ff.diffusion_form, 1.0, jit=True)
+K = space.assemble(ff.diffusion_form, 1.0, kernel=ker_K)
 
 # linear: kernel(ctx) -> (n_ldofs,)
 def linear_kernel(ctx):
@@ -78,8 +78,8 @@ def linear_kernel(ctx):
     wJ = ctx.w * ctx.test.detJ
     return (integrand * wJ[:, None]).sum(axis=0)
 
-   ker_F = jax.jit(linear_kernel)
-   F = space.assemble(ff.scalar_body_force_form, 2.0, kernel=ker_F)
+ker_F = jax.jit(linear_kernel)
+F = space.assemble(ff.scalar_body_force_form, 2.0, kernel=ker_F)
 ```
 
 ### tensor-based vs weak-form-based (diffusion example)
@@ -156,7 +156,7 @@ def neo_hookean_residual_wf(v, u, params):
     dE = 0.5 * (h_wf.matmul(h_wf.grad(v), F) + h_wf.transpose(h_wf.matmul(h_wf.grad(v), F)))
     return h_wf.ddot(S, dE) * h_wf.dOmega()
 
-  res_form = ff.ResidualForm.volume(neo_hookean_residual_wf).get_compiled()
+res_form = ff.ResidualForm.volume(neo_hookean_residual_wf).get_compiled()
 ```
 
 
