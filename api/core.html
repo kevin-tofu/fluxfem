@@ -568,8 +568,10 @@ form kind and domain. The following combinations are supported:</p>
 </tbody>
 </table>
 </div>
-<p>Use <code class="docutils literal notranslate"><span class="pre">domain=&quot;surface&quot;</span></code> with the surface-specific assembly helpers
-(<code class="docutils literal notranslate"><span class="pre">assemble_surface_linear_form</span></code>, <code class="docutils literal notranslate"><span class="pre">assemble_surface_bilinear_form</span></code>).</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">domain=&quot;surface&quot;</span></code> with a surface-specific assembly helper. For most workflows
+use <code class="docutils literal notranslate"><span class="pre">SurfaceMesh.assemble_linear_form_on_space(...)</span></code>; lower-level options include
+<code class="docutils literal notranslate"><span class="pre">assemble_surface_linear_form</span></code> and <code class="docutils literal notranslate"><span class="pre">assemble_surface_bilinear_form</span></code> when you need
+explicit <code class="docutils literal notranslate"><span class="pre">dim</span></code>/<code class="docutils literal notranslate"><span class="pre">n_total_nodes</span></code> control.</p>
 </section>
 <section id="example-mixedproblem">
 <h2>Example (MixedProblem)<a class="headerlink" href="#example-mixedproblem" title="Link to this heading">#</a></h2>
