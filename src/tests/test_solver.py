@@ -217,6 +217,11 @@ def test_block_make_diag_sequence():
     np.testing.assert_allclose(blocks["b"]["b"], 2.0 * np.eye(3))
 
 
+def test_block_diag_order():
+    diag = ff_solver.block_diag(order=("b", "a"), a=1.0, b=2.0)
+    assert list(diag.keys()) == ["b", "a"]
+
+
 def test_enforce_dirichlet_sparse():
     # same system but via FluxSparseMatrix
     rows = np.array([0, 0, 1, 1])

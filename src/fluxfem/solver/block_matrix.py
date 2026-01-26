@@ -18,8 +18,22 @@ FieldKey: TypeAlias = str | int
 BlockMap: TypeAlias = dict[FieldKey, dict[FieldKey, MatrixLike]]
 
 
-def diag(**blocks: MatrixLike) -> dict[str, MatrixLike]:
-    return dict(blocks)
+def diag(*, order: Sequence[FieldKey] | None = None, **blocks: MatrixLike) -> dict[FieldKey, MatrixLike]:
+    """
+    Build a dict of diagonal blocks with an optional explicit field order.
+    """
+    if order is None:
+        return dict(blocks)
+    ordered_blocks: dict[FieldKey, MatrixLike] = {}
+    for name in order:
+        if name not in blocks:
+            raise KeyError(f"Missing block '{name}' in block_diag order")
+        ordered_blocks[name] = blocks[name]
+    extra = set(blocks) - set(order)
+    if extra:
+        extra_list = ", ".join(str(name) for name in sorted(extra, key=str))
+        raise KeyError(f"Unknown block(s) not in order: {extra_list}")
+    return ordered_blocks
 
 
 def _infer_sizes_from_diag(diag_blocks: Mapping[FieldKey, MatrixLike]) -> dict[FieldKey, int]:

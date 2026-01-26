@@ -73,7 +73,7 @@ Build a lazy block matrix (for manual assembly or inspection):
    import numpy as np
    from fluxfem import solver as ff_solver
 
-   diag = ff_solver.block_diag(a=np.eye(2), b=2.0 * np.eye(2))
+   diag = ff_solver.block_diag(order=("a", "b"), a=np.eye(2), b=2.0 * np.eye(2))
    blocks = ff_solver.make_block_matrix(
        diag=diag,
        sizes={"a": 2, "b": 2},
@@ -94,7 +94,7 @@ insert `K12` and (optionally) its transpose:
        ("u", "p"): K_up,
    }
    blocks = ff_solver.make_block_matrix(
-       diag=ff_solver.block_diag(u=K_uu, p=K_pp),
+       diag=ff_solver.block_diag(order=("u", "p"), u=K_uu, p=K_pp),
        rel=rel,
        sizes={"u": K_uu.shape[0], "p": K_pp.shape[0]},
        symmetric=True,
