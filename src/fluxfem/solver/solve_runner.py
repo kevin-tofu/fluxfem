@@ -13,7 +13,7 @@ from ..core.solver import spdirect_solve_cpu, spdirect_solve_gpu
 from .cg import cg_solve, cg_solve_jax
 from .petsc import petsc_shell_solve
 from .sparse import FluxSparseMatrix
-from .dirichlet import expand_dirichlet_solution
+from .dirichlet import DirichletBC, expand_dirichlet_solution
 from .newton import newton_solve
 from .result import SolverResult
 from .history import NewtonIterRecord, LoadStepResult
@@ -65,6 +65,10 @@ class NonlinearAnalysis:
     extra_terms: list[ExtraTerm] | None = None
     jacobian_pattern: Any | None = None
     dtype: Any = jnp.float64
+
+    def __post_init__(self) -> None:
+        if isinstance(self.dirichlet, DirichletBC):
+            self.dirichlet = self.dirichlet.as_tuple()
 
     def external_for_load(self, load_factor: float) -> ArrayLike | None:
         if self.base_external_vector is None:

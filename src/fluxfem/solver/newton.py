@@ -20,7 +20,7 @@ from .cg import cg_solve, cg_solve_jax
 from .preconditioner import make_block_jacobi_preconditioner
 from .result import SolverResult
 from .sparse import SparsityPattern, FluxSparseMatrix
-from .dirichlet import _normalize_dirichlet
+from .dirichlet import DirichletBC, _normalize_dirichlet
 
 if TYPE_CHECKING:
     from jax import Array as JaxArray
@@ -72,6 +72,8 @@ def newton_solve(
     """
 
     if dirichlet is not None:
+        if isinstance(dirichlet, DirichletBC):
+            dirichlet = dirichlet.as_tuple()
         dir_dofs, dir_vals = dirichlet
         dir_dofs, dir_vals = _normalize_dirichlet(dir_dofs, dir_vals)
         if dir_vals.ndim == 0:

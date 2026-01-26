@@ -148,6 +148,7 @@ _MESH_EXPORTS = {
 _SOLVER_EXPORTS = {
     "SparsityPattern",
     "FluxSparseMatrix",
+    "FluxBlockMatrix",
     "coalesce_coo",
     "concat_flux",
     "block_diag_flux",
@@ -390,6 +391,7 @@ __all__ = [
     "coo_to_csr",
     "SparsityPattern",
     "FluxSparseMatrix",
+    "FluxBlockMatrix",
     "coalesce_coo",
     "concat_flux",
     "block_diag_flux",

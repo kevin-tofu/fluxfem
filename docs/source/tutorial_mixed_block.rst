@@ -66,7 +66,7 @@ coupled Jacobian and RHS, including the off-diagonal coupling between ``u`` and 
 Block utilities (minimal)
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Build a named block dictionary (for use with `MixedFESpace.build_block_system`):
+Build a lazy block matrix (for manual assembly or inspection):
 
 .. code-block:: python
 
@@ -80,6 +80,7 @@ Build a named block dictionary (for use with `MixedFESpace.build_block_system`):
    )
 
    # blocks["a"]["a"], blocks["a"]["b"], blocks["b"]["a"], blocks["b"]["b"]
+   K = blocks.assemble()
 
 Off-diagonal coupling (K12 / K21)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

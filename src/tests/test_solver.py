@@ -190,6 +190,7 @@ def test_block_make_add_contiguous():
         add_contiguous=mat,
         sizes={"a": 2, "b": 2},
     )
+    assert isinstance(blocks, ff_solver.FluxBlockMatrix)
     np.testing.assert_allclose(blocks["a"]["a"], mat[:2, :2] + np.eye(2))
     np.testing.assert_allclose(blocks["b"]["b"], mat[2:, 2:] + 2.0 * np.eye(2))
 

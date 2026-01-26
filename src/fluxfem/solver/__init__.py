@@ -24,7 +24,7 @@ from .dirichlet import (
 from .cg import cg_solve, cg_solve_jax, build_cg_operator, CGOperator
 from .preconditioner import make_block_jacobi_preconditioner
 from .block_system import build_block_system, split_block_matrix, BlockSystem
-from .block_matrix import diag as block_diag, make as make_block_matrix
+from .block_matrix import FluxBlockMatrix, diag as block_diag, make as make_block_matrix
 from .newton import newton_solve
 from .result import SolverResult
 from .history import NewtonIterRecord
@@ -70,6 +70,7 @@ __all__ = [
     "build_block_system",
     "split_block_matrix",
     "BlockSystem",
+    "FluxBlockMatrix",
     "block_diag",
     "make_block_matrix",
     "newton_solve",

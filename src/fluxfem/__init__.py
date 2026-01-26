@@ -164,6 +164,7 @@ __all__ = [
     "coo_to_csr",
     "SparsityPattern",
     "FluxSparseMatrix",
+    "FluxBlockMatrix",
     "coalesce_coo",
     "concat_flux",
     "block_diag_flux",

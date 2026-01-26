@@ -225,6 +225,9 @@ blocks = ff_solver.make_block_matrix(
     symmetric=True,
     transpose_rule="T",
 )
+
+# Lazy container; assemble when you need the global matrix.
+K = blocks.assemble()
 ```
 
 FluxFEM also provides contact utilities like `ContactSurfaceSpace` to build constraint contributions.
