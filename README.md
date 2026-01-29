@@ -221,7 +221,6 @@ K_uc = ...
 blocks = ff_solver.make_block_matrix(
     diag=ff_solver.block_diag(order=("u", "c"), u=K_uu, c=K_cc),
     rel={("u", "c"): K_uc},
-    sizes={"u": K_uu.shape[0], "c": K_cc.shape[0]},
     symmetric=True,
     transpose_rule="T",
 )
