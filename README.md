@@ -270,14 +270,31 @@ poetry add fluxfem[cuda12]
 
 Optional PETSc-based solvers are available via `petsc4py`. Enable with the extra:
 
+
+```bash
+pip install "fluxfem[petsc]"
+or
+pip install "fluxfem[petsc,cuda12]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+```
+
 ```bash
 poetry add fluxfem --extras "petsc"
+or
+poetry add "fluxfem[petsc,cuda12]"
+or
+poetry add fluxfem --extras "petsc" --extras "cuda12"
 ```
 
 Note: newer `petsc4py` expects PETSc builds that include the `PetscRegressor`
 API. If your PETSc build does not have it, `petsc4py` will fail to compile. In
 that case, rebuild PETSc with regressor support or pin `petsc4py` to a version
 compatible with your PETSc build.
+
+Important: you must match the `petsc4py` version to the PETSc version you have
+installed. The current FluxFEM extra pins `petsc4py==3.23.6` (see
+`[project.optional-dependencies]`), so make sure your PETSc install is
+compatible with that `petsc4py` release, or override it to match your PETSc
+build.
 
 GPU note: this repo currently tests CUDA via the `cuda12` extra only. Other CUDA
 versions are not covered by CI and may require manual JAX installation.
