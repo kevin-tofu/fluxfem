@@ -16,6 +16,7 @@ import jax
 import jax.numpy as jnp
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
+from fluxfem.physics import operators as ops
 
 jax.config.update("jax_enable_x64", True)
 
@@ -34,6 +35,17 @@ def warp_coords_radial(
     xy_new = coords[:, :2] + scale[:, None] * xy
     return coords.at[:, :2].set(xy_new)
 
+def _voigt_to_tensor_stress(v: jnp.ndarray) -> jnp.ndarray:
+    """
+    Convert Voigt stress (xx,yy,zz,xy,yz,zx) to 3x3 tensor.
+    Voigt shear components are physical stresses (no 1/2 factor).
+    """
+    sxx, syy, szz, sxy, syz, szx = [v[..., i] for i in range(6)]
+    row1 = jnp.stack([sxx, sxy, szx], axis=-1)
+    row2 = jnp.stack([sxy, syy, syz], axis=-1)
+    row3 = jnp.stack([szx, syz, szz], axis=-1)
+    return jnp.stack([row1, row2, row3], axis=-2)
+
 
 def main():
     p = argparse.ArgumentParser(description="Hole-radius compliance sensitivity (FluxFEM + AD).")
@@ -49,6 +61,12 @@ def main():
     p.add_argument("--traction", type=float, default=1.0)
     p.add_argument("--E", type=float, default=210_000.0)
     p.add_argument("--nu", type=float, default=0.3)
+    p.add_argument("--objective", type=str, default="vm_pnorm", choices=["compliance", "vm_pnorm", "vm_ks"])
+    p.add_argument("--p", type=float, default=12.0, help="p for von Mises p-norm objective.")
+    p.add_argument("--rho", type=float, default=50.0, help="rho for KS objective.")
+    p.add_argument("--r-target", type=float, default=None, help="Target radius for penalty (default: r0).")
+    p.add_argument("--r-penalty", type=float, default=0.0, help="Weight for (r-r_target)^2 penalty.")
+    p.add_argument("--fd-eps", type=float, default=1e-4, help="Finite-difference step for gradients.")
     p.add_argument("--fd-check", action="store_true", help="Run finite-difference check for dJ/dr.")
     p.add_argument(
         "--eps-list",
@@ -157,10 +175,94 @@ def main():
         u = u.at[free_dofs].set(u_free)
         return jnp.dot(F, u)
 
+    def vm_pnorm(r: jnp.ndarray, *, rebuild_force: bool, p: float) -> jnp.ndarray:
+        coords = warp_coords_radial(coords0, center_xy, r0, r, delta)
+        space = space_with_coords(coords)
+        K = space.assemble_bilinear_form(ff.linear_elasticity_form, params=D).to_dense()
+
+        if rebuild_force:
+            surface = ff.make_surface_from_facets(coords, facets)
+            F = surface.assemble_linear_form_on_space(
+                space, surface_form.get_compiled(), params=traction_vec
+            )
+            F = jnp.asarray(F, dtype=dtype)
+        else:
+            F = F_base
+
+        K_ff = K[free_dofs][:, free_dofs]
+        F_ff = F[free_dofs]
+        u_free = jnp.linalg.solve(K_ff, F_ff)
+
+        u = jnp.zeros(base_space.n_dofs, dtype=K.dtype)
+        u = u.at[free_dofs].set(u_free)
+
+        ctxs = space.build_form_contexts()
+        u_e = u[space.elem_dofs]
+
+        def elem_vm(ctx, u_elem):
+            eps = ops.sym_grad_u(ctx.trial, u_elem)  # (n_q, 6)
+            sigma_v = jnp.einsum("ij,qj->qi", D, eps)
+            sigma_t = _voigt_to_tensor_stress(sigma_v)
+            vm = ff.von_mises_stress(sigma_t)
+            wJ = ctx.w * ctx.trial.detJ
+            return vm, wJ
+
+        vm_q, wJ_q = jax.vmap(elem_vm)(ctxs, u_e)
+        num = jnp.sum((vm_q**p) * wJ_q)
+        den = jnp.sum(wJ_q)
+        return (num / jnp.maximum(den, 1e-30)) ** (1.0 / p)
+
+    def vm_ks(r: jnp.ndarray, *, rebuild_force: bool, rho: float) -> jnp.ndarray:
+        coords = warp_coords_radial(coords0, center_xy, r0, r, delta)
+        space = space_with_coords(coords)
+        K = space.assemble_bilinear_form(ff.linear_elasticity_form, params=D).to_dense()
+
+        if rebuild_force:
+            surface = ff.make_surface_from_facets(coords, facets)
+            F = surface.assemble_linear_form_on_space(
+                space, surface_form.get_compiled(), params=traction_vec
+            )
+            F = jnp.asarray(F, dtype=dtype)
+        else:
+            F = F_base
+
+        K_ff = K[free_dofs][:, free_dofs]
+        F_ff = F[free_dofs]
+        u_free = jnp.linalg.solve(K_ff, F_ff)
+
+        u = jnp.zeros(base_space.n_dofs, dtype=K.dtype)
+        u = u.at[free_dofs].set(u_free)
+
+        ctxs = space.build_form_contexts()
+        u_e = u[space.elem_dofs]
+
+        def elem_vm(ctx, u_elem):
+            eps = ops.sym_grad_u(ctx.trial, u_elem)
+            sigma_v = jnp.einsum("ij,qj->qi", D, eps)
+            sigma_t = _voigt_to_tensor_stress(sigma_v)
+            vm = ff.von_mises_stress(sigma_t)
+            wJ = ctx.w * ctx.trial.detJ
+            return vm, wJ
+
+        vm_q, wJ_q = jax.vmap(elem_vm)(ctxs, u_e)
+        num = jnp.sum(jnp.exp(rho * vm_q) * wJ_q)
+        den = jnp.sum(wJ_q)
+        return (1.0 / rho) * jnp.log(num / jnp.maximum(den, 1e-30))
+
     def compliance_active(r: jnp.ndarray) -> jnp.ndarray:
-        return compliance(r, rebuild_force=args.rebuild_force)
+        if args.objective == "compliance":
+            base = compliance(r, rebuild_force=args.rebuild_force)
+        elif args.objective == "vm_ks":
+            base = vm_ks(r, rebuild_force=args.rebuild_force, rho=args.rho)
+        else:
+            base = vm_pnorm(r, rebuild_force=args.rebuild_force, p=args.p)
+        if args.r_penalty > 0.0:
+            base = base + args.r_penalty * (r - r_target) ** 2
+        return base
 
     r = jnp.clip(jnp.array(args.r, dtype=dtype), args.r_min, args.r_max)
+    r_target = args.r0 if args.r_target is None else args.r_target
+    r_target = jnp.array(r_target, dtype=dtype)
     if args.fd_check:
         grad_ad = jax.grad(compliance_active)(r)
         eps_list = [float(x) for x in args.eps_list.split(",") if x.strip()]
@@ -205,11 +307,17 @@ def main():
         grad_rel = float(jnp.abs((grad_rebuild - grad_fixed) / jnp.maximum(jnp.abs(grad_fixed), 1e-30)))
         print(f"[force] comp_fixed={float(comp_fixed):.6e} comp_rebuild={float(comp_rebuild):.6e} rel_diff={comp_rel:.3e}")
         print(f"[force] grad_fixed={float(grad_fixed):.6e} grad_rebuild(FD)={float(grad_rebuild):.6e} rel_diff={grad_rel:.3e}")
+
+    def fd_grad(curr_r: jnp.ndarray) -> jnp.ndarray:
+        eps = jnp.array(args.fd_eps, dtype=dtype)
+        j_plus = compliance_active(curr_r + eps)
+        j_minus = compliance_active(curr_r - eps)
+        return (j_plus - j_minus) / (2.0 * eps)
     for step in range(args.steps + 1):
         comp = compliance_active(r)
-        grad = jax.grad(compliance_active)(r)
+        grad = fd_grad(r) if args.rebuild_force else jax.grad(compliance_active)(r)
         print(
-            f"step={step:02d} r={float(r):.6f} compliance={float(comp):.6e} dJ/dr={float(grad):.6e}"
+            f"step={step:02d} r={float(r):.6f} J={float(comp):.6e} dJ/dr={float(grad):.6e}"
         )
         if step == args.steps:
             break
