@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 import numpy as np
 import numpy.typing as npt
+import jax
 import jax.numpy as jnp
 
 from ..mesh.surface import SurfaceMesh
@@ -212,6 +213,121 @@ def assemble_surface_linear_form(
     """
     Assemble a linear form over surface facets using a weak-form callback.
     """
+    def _is_jax(x) -> bool:
+        return isinstance(x, jax.Array) or isinstance(x, jax.core.Tracer)
+
+    def _assemble_surface_linear_form_jax():
+        facets = jnp.asarray(surface.conn, dtype=jnp.int32)
+        coords = jnp.asarray(surface.coords)
+        if facets.ndim != 2 or facets.shape[1] not in (3, 4):
+            raise NotImplementedError("JAX surface assembly supports only tri/quad facets.")
+
+        n_nodes = surface.n_nodes if n_total_nodes is None else int(n_total_nodes)
+        n_dofs = n_nodes * dim
+        dtype = coords.dtype if F0 is None else jnp.asarray(F0).dtype
+        F = jnp.zeros(n_dofs, dtype=dtype) if F0 is None else jnp.asarray(F0, dtype=dtype)
+        if F.shape[0] != n_dofs:
+            raise ValueError(f"F length {F.shape[0]} does not match expected {n_dofs}")
+
+        coords_f = coords[facets]
+        facet_ids = jnp.arange(facets.shape[0], dtype=jnp.int32)
+        outward_from = jnp.mean(coords, axis=0)
+
+        def facet_fe_tri(facet_id, nodes):
+            p0, p1, p2 = nodes[0], nodes[1], nodes[2]
+            cross = jnp.cross(p1 - p0, p2 - p0)
+            area = 0.5 * jnp.linalg.norm(cross)
+            centroid = (p0 + p1 + p2) / 3.0
+            norm = jnp.linalg.norm(cross)
+            norm = jnp.where(norm < 1e-12, 1e-12, norm)
+            normal = cross / norm
+            v = centroid - outward_from
+            normal = jnp.where(jnp.dot(normal, v) < 0.0, -normal, normal)
+
+            N = jnp.array([[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]], dtype=dtype)
+            w = jnp.array([1.0], dtype=dtype)
+            ctx = SurfaceFormContext(
+                v=SurfaceFormField(N=N, value_dim=dim),
+                x_q=centroid[None, :],
+                w=w,
+                detJ=jnp.array([area], dtype=dtype),
+                facet_id=facet_id,
+                normal=normal,
+            )
+            fe_q = form(ctx, params)
+            if getattr(form, "_includes_measure", False):
+                fe = jnp.einsum("qi->i", fe_q)
+            else:
+                fe = jnp.einsum("qi,q->i", fe_q, w * area)
+            return fe
+
+        def facet_fe_quad(facet_id, nodes):
+            p0, p1, p2, p3 = nodes[0], nodes[1], nodes[2], nodes[3]
+            cross = jnp.cross(p1 - p0, p3 - p0)
+            norm = jnp.linalg.norm(cross)
+            norm = jnp.where(norm < 1e-12, 1e-12, norm)
+            normal = cross / norm
+            centroid = (p0 + p1 + p2 + p3) / 4.0
+            v = centroid - outward_from
+            normal = jnp.where(jnp.dot(normal, v) < 0.0, -normal, normal)
+
+            gp = jnp.array([-1.0 / jnp.sqrt(3.0), 1.0 / jnp.sqrt(3.0)], dtype=dtype)
+            xi, eta = jnp.meshgrid(gp, gp, indexing="xy")
+            xi = xi.reshape(-1)
+            eta = eta.reshape(-1)
+            w = jnp.ones_like(xi)
+
+            N = 0.25 * jnp.stack(
+                [
+                    (1 - xi) * (1 - eta),
+                    (1 + xi) * (1 - eta),
+                    (1 + xi) * (1 + eta),
+                    (1 - xi) * (1 + eta),
+                ],
+                axis=1,
+            )
+            dN_dxi = 0.25 * jnp.stack(
+                [-(1 - eta), (1 - eta), (1 + eta), -(1 + eta)], axis=1
+            )
+            dN_deta = 0.25 * jnp.stack(
+                [-(1 - xi), -(1 + xi), (1 + xi), (1 - xi)], axis=1
+            )
+
+            dx_dxi = jnp.einsum("qa,ai->qi", dN_dxi, nodes)
+            dx_deta = jnp.einsum("qa,ai->qi", dN_deta, nodes)
+            detJ = jnp.linalg.norm(jnp.cross(dx_dxi, dx_deta), axis=1)
+            x_q = jnp.einsum("qa,ai->qi", N, nodes)
+
+            ctx = SurfaceFormContext(
+                v=SurfaceFormField(N=N, value_dim=dim),
+                x_q=x_q,
+                w=w,
+                detJ=detJ,
+                facet_id=facet_id,
+                normal=normal,
+            )
+            fe_q = form(ctx, params)
+            if getattr(form, "_includes_measure", False):
+                fe = jnp.einsum("qi->i", fe_q)
+            else:
+                fe = jnp.einsum("qi,q->i", fe_q, w * detJ)
+            return fe
+
+        if facets.shape[1] == 3:
+            fe = jax.vmap(facet_fe_tri)(facet_ids, coords_f)
+        else:
+            fe = jax.vmap(facet_fe_quad)(facet_ids, coords_f)
+
+        fe = fe.astype(dtype)
+        offsets = jnp.arange(dim, dtype=jnp.int32)
+        dofs = facets[:, :, None] * dim + offsets[None, None, :]
+        dofs = dofs.reshape(facets.shape[0], -1)
+        F = F.at[dofs].add(fe)
+        return F
+
+    if _is_jax(surface.coords) or _is_jax(surface.conn) or _is_jax(F0):
+        return _assemble_surface_linear_form_jax()
+
     facets = np.asarray(surface.conn, dtype=int)
     coords = np.asarray(surface.coords)
     n_nodes = surface.n_nodes if n_total_nodes is None else int(n_total_nodes)
