@@ -560,7 +560,7 @@ def run_fluxfem_demo(
     xla_cpu_parallelism: int | None = None,
     omp_threads: int | None = None,
     low_mem: bool = False,
-    n_chunks: int | None = None,
+    assembly_policy = None,
     timing: bool = False,
     cg_tol: float = 1e-8,
     cg_maxiter: int | None = None,
@@ -638,6 +638,7 @@ def run_fluxfem_demo(
 
     lam, mu = _lame_parameters(params)
     D = _isotropic_3d_D(lam, mu, dtype=jnp.asarray(0.0).dtype)
+    policy = assembly_policy or ff.AssemblyPolicy()
     _mark("material params")
 
     cached_setup = cache.get(cache_key) if reuse_flag else None
@@ -677,9 +678,9 @@ def run_fluxfem_demo(
         _mark("mesh build")
         _mark("space build")
 
-    K1 = space_top.assemble_bilinear_form(ff.linear_elasticity_form, params=D, n_chunks=n_chunks)
+    K1 = space_top.assemble_bilinear_form(ff.linear_elasticity_form, params=D, policy=policy)
     _mark("K1 assemble")
-    K2 = space_bot.assemble_bilinear_form(ff.linear_elasticity_form, params=D, n_chunks=n_chunks)
+    K2 = space_bot.assemble_bilinear_form(ff.linear_elasticity_form, params=D, policy=policy)
     _mark("K2 assemble")
 
     if cached_setup is None:
@@ -983,7 +984,7 @@ def run_fluxfem_oneside_demo(
     xla_cpu_parallelism: int | None = None,
     omp_threads: int | None = None,
     low_mem: bool = False,
-    n_chunks: int | None = None,
+    assembly_policy = None,
     timing: bool = False,
     cg_tol: float = 1e-8,
     cg_maxiter: int | None = None,
@@ -1016,6 +1017,7 @@ def run_fluxfem_oneside_demo(
 
     lam, mu = _lame_parameters(params)
     D = _isotropic_3d_D(lam, mu, dtype=jnp.asarray(0.0).dtype)
+    policy = assembly_policy or ff.AssemblyPolicy()
     _mark("material params")
 
     box_top = ff.StructuredTetTensorBox(
@@ -1044,9 +1046,9 @@ def run_fluxfem_oneside_demo(
     space_bot = ff.make_tet_space(mesh_bot, dim=3)
     _mark("space build")
 
-    K1 = space_top.assemble_bilinear_form(ff.linear_elasticity_form, params=D, n_chunks=n_chunks)
+    K1 = space_top.assemble_bilinear_form(ff.linear_elasticity_form, params=D, policy=policy)
     _mark("K1 assemble")
-    K2 = space_bot.assemble_bilinear_form(ff.linear_elasticity_form, params=D, n_chunks=n_chunks)
+    K2 = space_bot.assemble_bilinear_form(ff.linear_elasticity_form, params=D, policy=policy)
     _mark("K2 assemble")
 
     contact_facets_top = mesh_top.facets_on_plane(axis=2, value=0.0)

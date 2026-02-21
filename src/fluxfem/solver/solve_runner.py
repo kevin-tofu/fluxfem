@@ -539,8 +539,8 @@ class LinearSolveRunner:
                         coo = K_ff.tocoo()
                         A_cg = FluxSparseMatrix.from_bilinear(
                             (
-                                jnp.asarray(coo.row, dtype=jnp.int32),
-                                jnp.asarray(coo.col, dtype=jnp.int32),
+                                jnp.asarray(coo.row, dtype=jnp.int64),
+                                jnp.asarray(coo.col, dtype=jnp.int64),
                                 jnp.asarray(coo.data),
                                 K_ff.shape[0],
                             )

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping, Optional, Protocol, TYPE_CHECKING, TypeAlias, TypeVar, Union, cast
 import numpy as np
 import jax
@@ -34,6 +35,73 @@ JacobianReturn: TypeAlias = Union[Array, FluxSparseMatrix, SparseCOO]
 BilinearReturn: TypeAlias = Union[Array, FluxSparseMatrix, SparseCOO]
 LinearReturn: TypeAlias = Union[Array, LinearCOO]
 MassReturn: TypeAlias = Union[FluxSparseMatrix, Array]
+PairReturn: TypeAlias = tuple[FluxSparseMatrix, Array]
+
+
+@dataclass(frozen=True)
+class AssemblyPolicy:
+    """
+    Shared execution policy for volume assembly.
+
+    Use this instead of passing many low-level tuning knobs to each assemble call.
+    Explicit function arguments still take precedence over policy values.
+    """
+
+    n_chunks: int | None = None
+    include_x_q: bool = True
+    lightweight_context: bool = True
+    chunk_build_context: bool = False
+    pad_trace: bool = False
+
+    @classmethod
+    def chunked(
+        cls,
+        n_chunks: int,
+        *,
+        include_x_q: bool = False,
+        lightweight_context: bool = True,
+        chunk_build_context: bool = True,
+        pad_trace: bool = False,
+    ) -> "AssemblyPolicy":
+        return cls(
+            n_chunks=int(n_chunks),
+            include_x_q=bool(include_x_q),
+            lightweight_context=bool(lightweight_context),
+            chunk_build_context=bool(chunk_build_context),
+            pad_trace=bool(pad_trace),
+        )
+
+
+def _resolve_assembly_policy(
+    *,
+    policy: AssemblyPolicy | None,
+    n_chunks: int | None,
+    include_x_q: bool | None,
+    lightweight_context: bool | None,
+    chunk_build_context: bool | None,
+    pad_trace: bool | None,
+) -> tuple[int | None, bool, bool, bool, bool]:
+    p = policy or AssemblyPolicy()
+    return (
+        n_chunks if n_chunks is not None else p.n_chunks,
+        include_x_q if include_x_q is not None else p.include_x_q,
+        lightweight_context if lightweight_context is not None else p.lightweight_context,
+        chunk_build_context if chunk_build_context is not None else p.chunk_build_context,
+        pad_trace if pad_trace is not None else p.pad_trace,
+    )
+
+
+def _resolve_chunk_policy(
+    *,
+    policy: AssemblyPolicy | None,
+    n_chunks: int | None,
+    pad_trace: bool | None,
+) -> tuple[int | None, bool]:
+    p = policy or AssemblyPolicy()
+    return (
+        n_chunks if n_chunks is not None else p.n_chunks,
+        pad_trace if pad_trace is not None else p.pad_trace,
+    )
 
 
 class ElementBilinearKernel(Protocol):
@@ -423,9 +491,14 @@ def assemble_bilinear_form(
     pattern: SparsityPattern | None = None,
     n_chunks: Optional[int] = None,   # None -> no chunking
     dep: jnp.ndarray | None = None,
+    elem_data: FormContext | None = None,
+    include_x_q: bool | None = None,
+    lightweight_context: bool | None = None,
+    chunk_build_context: bool | None = None,
     kernel: ElementBilinearKernel | None = None,
     jit: bool = True,
-    pad_trace: bool = False,
+    pad_trace: bool | None = None,
+    policy: AssemblyPolicy | None = None,
 ) -> FluxSparseMatrix:
     """
     Assemble a sparse bilinear form into a FluxSparseMatrix.
@@ -434,6 +507,14 @@ def assemble_bilinear_form(
     If kernel is provided: kernel(ctx) -> (n_ldofs, n_ldofs).
     """
     from ..solver import FluxSparseMatrix
+    n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
+        policy=policy,
+        n_chunks=n_chunks,
+        include_x_q=include_x_q,
+        lightweight_context=lightweight_context,
+        chunk_build_context=chunk_build_context,
+        pad_trace=pad_trace,
+    )
 
     if pattern is None:
         if hasattr(space, "get_sparsity_pattern"):
@@ -442,8 +523,6 @@ def assemble_bilinear_form(
             pat = make_sparsity_pattern(space, with_idx=True)
     else:
         pat = pattern
-    elem_data = space.build_form_contexts(dep=dep)
-
     includes_measure = getattr(form, "_includes_measure", False)
 
     def per_element(ctx):
@@ -456,8 +535,13 @@ def assemble_bilinear_form(
     if kernel is None:
         kernel = make_element_bilinear_kernel(form, params, jit=jit)
 
-    # --- no-chunk path (your current implementation) ---
     if n_chunks is None:
+        if elem_data is None:
+            elem_data = space.build_form_contexts(
+                dep=dep,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+            )
         K_e_all = jax.vmap(kernel)(elem_data)  # (n_elems, m, m)
         data = K_e_all.reshape(-1)
         return FluxSparseMatrix(pat, data)
@@ -472,19 +556,11 @@ def assemble_bilinear_form(
     _maybe_trace_pad(stats, n_chunks=n_chunks, pad_trace=pad_trace)
     # Ideally get m from pat (otherwise infer from one element).
     m = getattr(pat, "n_ldofs", None)
-    if m is None:
+    if m is None and elem_data is not None:
         m = kernel(jax.tree_util.tree_map(lambda x: x[0], elem_data)).shape[0]
 
     # Pad to fixed-size chunks for JIT stability.
     pad = (-n_elems) % chunk_size
-    if pad:
-        elem_data_pad = jax.tree_util.tree_map(
-            lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
-            elem_data,
-        )
-    else:
-        elem_data_pad = elem_data
-
     n_pad = n_elems + pad
     n_chunks = n_pad // chunk_size
 
@@ -493,17 +569,83 @@ def assemble_bilinear_form(
         slice_sizes = (size,) + x.shape[1:]
         return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
 
-    def chunk_fn(i):
-        start = i * chunk_size
-        ctx_chunk = jax.tree_util.tree_map(
-            lambda x: _slice_first_dim(x, start, chunk_size),
-            elem_data_pad,
-        )
-        Ke = jax.vmap(kernel)(ctx_chunk)             # (chunk, m, m)
-        return Ke.reshape(-1)                             # (chunk*m*m,)
+    n_pad = int(n_pad)
+    n_chunks = int(n_chunks)
+    valid_mask = jnp.arange(n_pad, dtype=INDEX_DTYPE) < int(n_elems)
 
-    data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
-    data = data_chunks.reshape(-1)[: n_elems * m * m]
+    # In chunked mode, default to chunk-local context generation to avoid
+    # allocating all-element contexts at once.
+    use_chunk_context = bool(
+        dep is None
+        and hasattr(space, "build_form_contexts_from_elem_coords")
+        and hasattr(space, "mesh")
+        and (chunk_build_context or elem_data is None)
+    )
+
+    if use_chunk_context:
+        conn = space.mesh.conn
+        if pad:
+            conn_pad = jnp.concatenate([conn, jnp.repeat(conn[-1:], pad, axis=0)], axis=0)
+        else:
+            conn_pad = conn
+        elem_ids = jnp.arange(n_pad, dtype=INDEX_DTYPE)
+        first_conn = _slice_first_dim(conn_pad, 0, 1)
+        first_coords = space.mesh.coords[first_conn]
+        sample_ctx = space.build_form_contexts_from_elem_coords(
+            first_coords,
+            dep=None,
+            include_x_q=include_x_q,
+            lightweight=lightweight_context,
+            elem_id=_slice_first_dim(elem_ids, 0, 1),
+        )
+        sample_ctx = jax.tree_util.tree_map(lambda x: x[0], sample_ctx)
+    else:
+        if elem_data is None:
+            elem_data = space.build_form_contexts(
+                dep=dep,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+            )
+        if pad:
+            elem_data_pad = jax.tree_util.tree_map(
+                lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
+                elem_data,
+            )
+        else:
+            elem_data_pad = elem_data
+        sample_ctx = jax.tree_util.tree_map(lambda x: x[0], elem_data_pad)
+
+    sample_ke = kernel(sample_ctx)
+    if m is None:
+        m = int(sample_ke.shape[0])
+    data = jnp.zeros((n_pad * m * m,), dtype=sample_ke.dtype)
+
+    def loop_body(i, data_flat):
+        start = i * chunk_size
+        if use_chunk_context:
+            conn_chunk = _slice_first_dim(conn_pad, start, chunk_size)
+            elem_coords_chunk = space.mesh.coords[conn_chunk]
+            elem_id_chunk = _slice_first_dim(elem_ids, start, chunk_size)
+            ctx_chunk = space.build_form_contexts_from_elem_coords(
+                elem_coords_chunk,
+                dep=None,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+                elem_id=elem_id_chunk,
+            )
+        else:
+            ctx_chunk = jax.tree_util.tree_map(
+                lambda x: _slice_first_dim(x, start, chunk_size),
+                elem_data_pad,
+            )
+        Ke = jax.vmap(kernel)(ctx_chunk)  # (chunk, m, m)
+        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(Ke.dtype)
+        Ke = Ke * chunk_valid[:, None, None]
+        ke_flat = Ke.reshape(chunk_size * m * m)
+        return jax.lax.dynamic_update_slice(data_flat, ke_flat, (start * m * m,))
+
+    data = jax.lax.fori_loop(0, n_chunks, loop_body, data)
+    data = data[: n_elems * m * m]
     return FluxSparseMatrix(pat, data)
 
 
@@ -512,15 +654,22 @@ def assemble_mass_matrix(
     *,
     lumped: bool = False,
     n_chunks: Optional[int] = None,
-    pad_trace: bool = False,
+    pad_trace: bool | None = None,
+    policy: AssemblyPolicy | None = None,
 ) -> MassReturn:
     """
     Assemble mass matrix M_ij = ∫ N_i N_j dΩ.
     Supports scalar and vector spaces. If lumped=True, rows are summed to diagonal.
     """
     from ..solver import FluxSparseMatrix  # local import to avoid circular
-
-    ctxs = space.build_form_contexts()
+    n_chunks, _include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
+        policy=policy,
+        n_chunks=n_chunks,
+        include_x_q=False,  # mass matrix does not require x_q
+        lightweight_context=None,
+        chunk_build_context=None,
+        pad_trace=pad_trace,
+    )
     n_ldofs = space.n_ldofs
 
     def per_element(ctx: FormContext):
@@ -535,6 +684,7 @@ def assemble_mass_matrix(
         return jnp.einsum("qab,q->ab", base, wJ)
 
     if n_chunks is None:
+        ctxs = space.build_form_contexts(include_x_q=False, lightweight=lightweight_context)
         M_e_all = jax.vmap(per_element)(ctxs)  # (n_elems, n_ldofs, n_ldofs)
         data = M_e_all.reshape(-1)
     else:
@@ -546,14 +696,6 @@ def assemble_mass_matrix(
         stats = chunk_pad_stats(n_elems, n_chunks)
         _maybe_trace_pad(stats, n_chunks=n_chunks, pad_trace=pad_trace)
         pad = (-n_elems) % chunk_size
-        if pad:
-            ctxs_pad = jax.tree_util.tree_map(
-                lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
-                ctxs,
-            )
-        else:
-            ctxs_pad = ctxs
-
         n_pad = n_elems + pad
         n_chunks = n_pad // chunk_size
 
@@ -562,17 +704,63 @@ def assemble_mass_matrix(
             slice_sizes = (size,) + x.shape[1:]
             return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
 
-        def chunk_fn(i):
-            start = i * chunk_size
-            ctx_chunk = jax.tree_util.tree_map(
-                lambda x: _slice_first_dim(x, start, chunk_size),
-                ctxs_pad,
-            )
-            Me = jax.vmap(per_element)(ctx_chunk)  # (chunk, n_ldofs, n_ldofs)
-            return Me.reshape(-1)
+        n_pad = int(n_pad)
+        n_chunks = int(n_chunks)
+        valid_mask = jnp.arange(n_pad, dtype=INDEX_DTYPE) < int(n_elems)
 
-        data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
-        data = data_chunks.reshape(-1)[: n_elems * n_ldofs * n_ldofs]
+        use_chunk_context = bool(
+            chunk_build_context
+            and hasattr(space, "build_form_contexts_from_elem_coords")
+            and hasattr(space, "mesh")
+        )
+
+        if use_chunk_context:
+            conn = space.mesh.conn
+            if pad:
+                conn_pad = jnp.concatenate([conn, jnp.repeat(conn[-1:], pad, axis=0)], axis=0)
+            else:
+                conn_pad = conn
+            elem_ids = jnp.arange(n_pad, dtype=INDEX_DTYPE)
+        else:
+            ctxs = space.build_form_contexts(include_x_q=False, lightweight=lightweight_context)
+            if pad:
+                ctxs_pad = jax.tree_util.tree_map(
+                    lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
+                    ctxs,
+                )
+            else:
+                ctxs_pad = ctxs
+
+        data = jnp.zeros((n_pad * n_ldofs * n_ldofs,), dtype=space.mesh.coords.dtype)
+
+        def loop_body(i, data_flat):
+            start = i * chunk_size
+            if use_chunk_context:
+                conn_chunk = _slice_first_dim(conn_pad, start, chunk_size)
+                elem_coords_chunk = space.mesh.coords[conn_chunk]
+                elem_id_chunk = _slice_first_dim(elem_ids, start, chunk_size)
+                ctx_chunk = space.build_form_contexts_from_elem_coords(
+                    elem_coords_chunk,
+                    include_x_q=False,
+                    lightweight=lightweight_context,
+                    elem_id=elem_id_chunk,
+                )
+            else:
+                ctx_chunk = jax.tree_util.tree_map(
+                    lambda x: _slice_first_dim(x, start, chunk_size),
+                    ctxs_pad,
+                )
+            Me = jax.vmap(per_element)(ctx_chunk)
+            chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(Me.dtype)
+            Me = Me * chunk_valid[:, None, None]
+            return jax.lax.dynamic_update_slice(
+                data_flat,
+                Me.reshape(chunk_size * n_ldofs * n_ldofs),
+                (start * n_ldofs * n_ldofs,),
+            )
+
+        data = jax.lax.fori_loop(0, n_chunks, loop_body, data)
+        data = data[: n_elems * n_ldofs * n_ldofs]
 
     elem_dofs = space.elem_dofs
     pat = _get_pattern(space, with_idx=False)
@@ -601,7 +789,12 @@ def assemble_linear_form(
     sparse: bool = False,
     n_chunks: Optional[int] = None,
     dep: jnp.ndarray | None = None,
-    pad_trace: bool = False,
+    elem_data: FormContext | None = None,
+    include_x_q: bool | None = None,
+    lightweight_context: bool | None = None,
+    chunk_build_context: bool | None = None,
+    pad_trace: bool | None = None,
+    policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
     """
     Expects form(ctx, params) -> (n_q, n_ldofs) and integrates Σ_q form * wJ for RHS.
@@ -610,8 +803,14 @@ def assemble_linear_form(
     elem_dofs = space.elem_dofs
     n_dofs = space.n_dofs
     n_ldofs = space.n_ldofs
-
-    elem_data = space.build_form_contexts(dep=dep)
+    n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
+        policy=policy,
+        n_chunks=n_chunks,
+        include_x_q=include_x_q,
+        lightweight_context=lightweight_context,
+        chunk_build_context=chunk_build_context,
+        pad_trace=pad_trace,
+    )
 
     includes_measure = getattr(form, "_includes_measure", False)
 
@@ -626,6 +825,12 @@ def assemble_linear_form(
         per_element = kernel
 
     if n_chunks is None:
+        if elem_data is None:
+            elem_data = space.build_form_contexts(
+                dep=dep,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+            )
         F_e_all = jax.vmap(per_element)(elem_data)            # (n_elems, m)
         data = F_e_all.reshape(-1)
     else:
@@ -638,14 +843,6 @@ def assemble_linear_form(
         stats = chunk_pad_stats(n_elems, n_chunks)
         _maybe_trace_pad(stats, n_chunks=n_chunks, pad_trace=pad_trace)
         pad = (-n_elems) % chunk_size
-        if pad:
-            elem_data_pad = jax.tree_util.tree_map(
-                lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
-                elem_data,
-            )
-        else:
-            elem_data_pad = elem_data
-
         n_pad = n_elems + pad
         n_chunks = n_pad // chunk_size
 
@@ -654,17 +851,79 @@ def assemble_linear_form(
             slice_sizes = (size,) + x.shape[1:]
             return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
 
-        def chunk_fn(i):
-            start = i * chunk_size
-            ctx_chunk = jax.tree_util.tree_map(
-                lambda x: _slice_first_dim(x, start, chunk_size),
-                elem_data_pad,
-            )
-            fe = jax.vmap(per_element)(ctx_chunk)  # (chunk, m)
-            return fe.reshape(-1)
+        n_pad = int(n_pad)
+        n_chunks = int(n_chunks)
+        valid_mask = jnp.arange(n_pad, dtype=INDEX_DTYPE) < int(n_elems)
 
-        data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
-        data = data_chunks.reshape(-1)[: n_elems * m]
+        use_chunk_context = bool(
+            dep is None
+            and hasattr(space, "build_form_contexts_from_elem_coords")
+            and hasattr(space, "mesh")
+            and (chunk_build_context or elem_data is None)
+        )
+
+        if use_chunk_context:
+            conn = space.mesh.conn
+            if pad:
+                conn_pad = jnp.concatenate([conn, jnp.repeat(conn[-1:], pad, axis=0)], axis=0)
+            else:
+                conn_pad = conn
+            elem_ids = jnp.arange(n_pad, dtype=INDEX_DTYPE)
+            first_conn = _slice_first_dim(conn_pad, 0, 1)
+            first_coords = space.mesh.coords[first_conn]
+            sample_ctx = space.build_form_contexts_from_elem_coords(
+                first_coords,
+                dep=None,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+                elem_id=_slice_first_dim(elem_ids, 0, 1),
+            )
+            sample_ctx = jax.tree_util.tree_map(lambda x: x[0], sample_ctx)
+        else:
+            if elem_data is None:
+                elem_data = space.build_form_contexts(
+                    dep=dep,
+                    include_x_q=include_x_q,
+                    lightweight=lightweight_context,
+                )
+            if pad:
+                elem_data_pad = jax.tree_util.tree_map(
+                    lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
+                    elem_data,
+                )
+            else:
+                elem_data_pad = elem_data
+            sample_ctx = jax.tree_util.tree_map(lambda x: x[0], elem_data_pad)
+
+        sample_fe = per_element(sample_ctx)
+        data = jnp.zeros((n_pad * m,), dtype=sample_fe.dtype)
+
+        def loop_body(i, data_flat):
+            start = i * chunk_size
+            if use_chunk_context:
+                conn_chunk = _slice_first_dim(conn_pad, start, chunk_size)
+                elem_coords_chunk = space.mesh.coords[conn_chunk]
+                elem_id_chunk = _slice_first_dim(elem_ids, start, chunk_size)
+                ctx_chunk = space.build_form_contexts_from_elem_coords(
+                    elem_coords_chunk,
+                    dep=None,
+                    include_x_q=include_x_q,
+                    lightweight=lightweight_context,
+                    elem_id=elem_id_chunk,
+                )
+            else:
+                ctx_chunk = jax.tree_util.tree_map(
+                    lambda x: _slice_first_dim(x, start, chunk_size),
+                    elem_data_pad,
+                )
+            Fe = jax.vmap(per_element)(ctx_chunk)  # (chunk, m)
+            chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(Fe.dtype)
+            Fe = Fe * chunk_valid[:, None]
+            fe_flat = Fe.reshape(chunk_size * m)
+            return jax.lax.dynamic_update_slice(data_flat, fe_flat, (start * m,))
+
+        data = jax.lax.fori_loop(0, n_chunks, loop_body, data)
+        data = data[: n_elems * m]
 
     rows = _get_elem_rows(space)
 
@@ -673,6 +932,166 @@ def assemble_linear_form(
 
     F = jax.ops.segment_sum(data, rows, n_dofs)
     return F
+
+
+def assemble_bilinear_linear_pair(
+    space: SpaceLike,
+    bilinear_form: FormKernel[P],
+    bilinear_params: P,
+    linear_form: FormKernel[P],
+    linear_params: P,
+    *,
+    pattern: SparsityPattern | None = None,
+    n_chunks: Optional[int] = None,
+    dep: jnp.ndarray | None = None,
+    elem_data: FormContext | None = None,
+    include_x_q: bool | None = None,
+    lightweight_context: bool | None = None,
+    chunk_build_context: bool | None = None,
+    bilinear_kernel: ElementBilinearKernel | None = None,
+    linear_kernel: ElementLinearKernel | None = None,
+    jit: bool = True,
+    pad_trace: bool | None = None,
+    policy: AssemblyPolicy | None = None,
+) -> PairReturn:
+    from ..solver import FluxSparseMatrix
+    n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
+        policy=policy,
+        n_chunks=n_chunks,
+        include_x_q=include_x_q,
+        lightweight_context=lightweight_context,
+        chunk_build_context=chunk_build_context,
+        pad_trace=pad_trace,
+    )
+
+    if pattern is None:
+        if hasattr(space, "get_sparsity_pattern"):
+            pat = space.get_sparsity_pattern(with_idx=True)
+        else:
+            pat = make_sparsity_pattern(space, with_idx=True)
+    else:
+        pat = pattern
+
+    if bilinear_kernel is None:
+        bilinear_kernel = make_element_bilinear_kernel(bilinear_form, bilinear_params, jit=jit)
+    if linear_kernel is None:
+        linear_kernel = make_element_linear_kernel(linear_form, linear_params, jit=jit)
+
+    n_elems = int(space.elem_dofs.shape[0])
+    n_ldofs = int(space.n_ldofs)
+
+    if n_chunks is None:
+        if elem_data is None:
+            elem_data = space.build_form_contexts(
+                dep=dep,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+            )
+        assert elem_data is not None
+        Ke = jax.vmap(bilinear_kernel)(elem_data)
+        Fe = jax.vmap(linear_kernel)(elem_data)
+        K_data = Ke.reshape(-1)
+        F_data = Fe.reshape(-1)
+        rows = _get_elem_rows(space)
+        F = jax.ops.segment_sum(F_data, rows, space.n_dofs)
+        return FluxSparseMatrix(pat, K_data), F
+
+    if n_chunks <= 0:
+        raise ValueError("n_chunks must be a positive integer.")
+    n_chunks = min(int(n_chunks), int(n_elems))
+    chunk_size = (n_elems + n_chunks - 1) // n_chunks
+    stats = chunk_pad_stats(n_elems, n_chunks)
+    _maybe_trace_pad(stats, n_chunks=n_chunks, pad_trace=pad_trace)
+    pad = (-n_elems) % chunk_size
+    n_pad = n_elems + pad
+    n_chunks = n_pad // chunk_size
+
+    def _slice_first_dim(x, start, size):
+        start_idx = (start,) + (0,) * (x.ndim - 1)
+        slice_sizes = (size,) + x.shape[1:]
+        return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
+
+    use_chunk_context = bool(
+        dep is None
+        and hasattr(space, "build_form_contexts_from_elem_coords")
+        and hasattr(space, "mesh")
+        and (chunk_build_context or elem_data is None)
+    )
+
+    if use_chunk_context:
+        conn = space.mesh.conn
+        if pad:
+            conn_pad = jnp.concatenate([conn, jnp.repeat(conn[-1:], pad, axis=0)], axis=0)
+        else:
+            conn_pad = conn
+        elem_ids = jnp.arange(n_pad, dtype=INDEX_DTYPE)
+        first_conn = _slice_first_dim(conn_pad, 0, 1)
+        first_coords = space.mesh.coords[first_conn]
+        sample_ctx = space.build_form_contexts_from_elem_coords(
+            first_coords,
+            dep=None,
+            include_x_q=include_x_q,
+            lightweight=lightweight_context,
+            elem_id=_slice_first_dim(elem_ids, 0, 1),
+        )
+        sample_ctx = jax.tree_util.tree_map(lambda x: x[0], sample_ctx)
+    else:
+        if elem_data is None:
+            elem_data = space.build_form_contexts(
+                dep=dep,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+            )
+        if pad:
+            elem_data_pad = jax.tree_util.tree_map(
+                lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
+                elem_data,
+            )
+        else:
+            elem_data_pad = elem_data
+        sample_ctx = jax.tree_util.tree_map(lambda x: x[0], elem_data_pad)
+
+    sample_ke = bilinear_kernel(sample_ctx)
+    sample_fe = linear_kernel(sample_ctx)
+    m = int(sample_ke.shape[0])
+    valid_mask = jnp.arange(n_pad, dtype=INDEX_DTYPE) < n_elems
+    K_data = jnp.zeros((n_pad * m * m,), dtype=sample_ke.dtype)
+    F_data = jnp.zeros((n_pad * m,), dtype=sample_fe.dtype)
+
+    def loop_body(i, carry):
+        K_flat, F_flat = carry
+        start = i * chunk_size
+        if use_chunk_context:
+            conn_chunk = _slice_first_dim(conn_pad, start, chunk_size)
+            elem_coords_chunk = space.mesh.coords[conn_chunk]
+            elem_id_chunk = _slice_first_dim(elem_ids, start, chunk_size)
+            ctx_chunk = space.build_form_contexts_from_elem_coords(
+                elem_coords_chunk,
+                dep=None,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+                elem_id=elem_id_chunk,
+            )
+        else:
+            ctx_chunk = jax.tree_util.tree_map(
+                lambda x: _slice_first_dim(x, start, chunk_size),
+                elem_data_pad,
+            )
+        Ke = jax.vmap(bilinear_kernel)(ctx_chunk)
+        Fe = jax.vmap(linear_kernel)(ctx_chunk)
+        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(Ke.dtype)
+        Ke = Ke * chunk_valid[:, None, None]
+        Fe = Fe * chunk_valid[:, None]
+        K_flat = jax.lax.dynamic_update_slice(K_flat, Ke.reshape(chunk_size * m * m), (start * m * m,))
+        F_flat = jax.lax.dynamic_update_slice(F_flat, Fe.reshape(chunk_size * m), (start * m,))
+        return (K_flat, F_flat)
+
+    K_data, F_data = jax.lax.fori_loop(0, n_chunks, loop_body, (K_data, F_data))
+    K_data = K_data[: n_elems * m * m]
+    F_data = F_data[: n_elems * m]
+    rows = _get_elem_rows(space)
+    F = jax.ops.segment_sum(F_data, rows, space.n_dofs)
+    return FluxSparseMatrix(pat, K_data), F
 
 
 def assemble_functional(space: SpaceLike, form: FormKernel[P], params: P) -> jnp.ndarray:
@@ -1082,16 +1501,25 @@ def assemble_jacobian_values(
     *,
     kernel: ElementJacobianKernel | None = None,
     n_chunks: Optional[int] = None,
-    pad_trace: bool = False,
+    pad_trace: bool | None = None,
+    policy: AssemblyPolicy | None = None,
 ) -> Array:
     """
     Assemble only the numeric values for the Jacobian (pattern-free).
     """
-    ctxs = space.build_form_contexts()
+    n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
+        policy=policy,
+        n_chunks=n_chunks,
+        include_x_q=None,
+        lightweight_context=None,
+        chunk_build_context=None,
+        pad_trace=pad_trace,
+    )
     ker = kernel if kernel is not None else make_element_jacobian_kernel(res_form, params)
 
     u_elems = u[space.elem_dofs]
     if n_chunks is None:
+        ctxs = space.build_form_contexts(include_x_q=include_x_q, lightweight=lightweight_context)
         J_e_all = jax.vmap(ker)(u_elems, ctxs)  # (n_elem, m, m)
         return J_e_all.reshape(-1)
 
@@ -1103,15 +1531,6 @@ def assemble_jacobian_values(
     stats = chunk_pad_stats(n_elems, n_chunks)
     _maybe_trace_pad(stats, n_chunks=n_chunks, pad_trace=pad_trace)
     pad = (-n_elems) % chunk_size
-    if pad:
-        ctxs_pad = jax.tree_util.tree_map(
-            lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
-            ctxs,
-        )
-        u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
-    else:
-        ctxs_pad = ctxs
-        u_elems_pad = u_elems
 
     n_pad = n_elems + pad
     n_chunks = n_pad // chunk_size
@@ -1122,18 +1541,67 @@ def assemble_jacobian_values(
         slice_sizes = (size,) + x.shape[1:]
         return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
 
-    def chunk_fn(i):
+    n_pad = int(n_pad)
+    n_chunks = int(n_chunks)
+    valid_mask = jnp.arange(n_pad, dtype=INDEX_DTYPE) < int(n_elems)
+    if pad:
+        u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
+    else:
+        u_elems_pad = u_elems
+
+    use_chunk_context = bool(
+        chunk_build_context
+        and hasattr(space, "build_form_contexts_from_elem_coords")
+        and hasattr(space, "mesh")
+    )
+    if use_chunk_context:
+        conn = space.mesh.conn
+        if pad:
+            conn_pad = jnp.concatenate([conn, jnp.repeat(conn[-1:], pad, axis=0)], axis=0)
+        else:
+            conn_pad = conn
+        elem_ids = jnp.arange(n_pad, dtype=INDEX_DTYPE)
+    else:
+        ctxs = space.build_form_contexts(include_x_q=include_x_q, lightweight=lightweight_context)
+        if pad:
+            ctxs_pad = jax.tree_util.tree_map(
+                lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
+                ctxs,
+            )
+        else:
+            ctxs_pad = ctxs
+
+    data = jnp.zeros((n_pad * m * m,), dtype=u_elems.dtype)
+
+    def loop_body(i, data_flat):
         start = i * chunk_size
-        ctx_chunk = jax.tree_util.tree_map(
-            lambda x: _slice_first_dim(x, start, chunk_size),
-            ctxs_pad,
-        )
+        if use_chunk_context:
+            conn_chunk = _slice_first_dim(conn_pad, start, chunk_size)
+            elem_coords_chunk = space.mesh.coords[conn_chunk]
+            elem_id_chunk = _slice_first_dim(elem_ids, start, chunk_size)
+            ctx_chunk = space.build_form_contexts_from_elem_coords(
+                elem_coords_chunk,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+                elem_id=elem_id_chunk,
+            )
+        else:
+            ctx_chunk = jax.tree_util.tree_map(
+                lambda x: _slice_first_dim(x, start, chunk_size),
+                ctxs_pad,
+            )
         u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
         J_e = jax.vmap(ker)(u_chunk, ctx_chunk)
-        return J_e.reshape(-1)
+        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(J_e.dtype)
+        J_e = J_e * chunk_valid[:, None, None]
+        return jax.lax.dynamic_update_slice(
+            data_flat,
+            J_e.reshape(chunk_size * m * m),
+            (start * m * m,),
+        )
 
-    data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
-    return data_chunks.reshape(-1)[: n_elems * m * m]
+    data = jax.lax.fori_loop(0, n_chunks, loop_body, data)
+    return data[: n_elems * m * m]
 
 
 def assemble_residual_scatter(
@@ -1145,7 +1613,8 @@ def assemble_residual_scatter(
     kernel: ElementResidualKernel | None = None,
     sparse: bool = False,
     n_chunks: Optional[int] = None,
-    pad_trace: bool = False,
+    pad_trace: bool | None = None,
+    policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
     """
     Assemble residual using jitted element kernel + vmap + scatter_add.
@@ -1155,6 +1624,14 @@ def assemble_residual_scatter(
     are applied in the element kernel (make_element_residual_kernel). Do not multiply
     by w or detJ inside `res_form`.
     """
+    n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
+        policy=policy,
+        n_chunks=n_chunks,
+        include_x_q=None,
+        lightweight_context=None,
+        chunk_build_context=None,
+        pad_trace=pad_trace,
+    )
     elem_dofs = space.elem_dofs
     n_dofs = space.n_dofs
     if jax.core.trace_ctx.is_top_level():
@@ -1162,11 +1639,11 @@ def assemble_residual_scatter(
             raise ValueError("elem_dofs contains index outside n_dofs")
         if np.min(elem_dofs) < 0:
             raise ValueError("elem_dofs contains negative index")
-    ctxs = space.build_form_contexts()
     ker = kernel if kernel is not None else make_element_residual_kernel(res_form, params)
 
     u_elems = u[elem_dofs]
     if n_chunks is None:
+        ctxs = space.build_form_contexts(include_x_q=include_x_q, lightweight=lightweight_context)
         elem_res = jax.vmap(ker)(ctxs, u_elems)  # (n_elem, n_ldofs)
     else:
         n_elems = int(u_elems.shape[0])
@@ -1177,16 +1654,6 @@ def assemble_residual_scatter(
         stats = chunk_pad_stats(n_elems, n_chunks)
         _maybe_trace_pad(stats, n_chunks=n_chunks, pad_trace=pad_trace)
         pad = (-n_elems) % chunk_size
-        if pad:
-            ctxs_pad = jax.tree_util.tree_map(
-                lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
-                ctxs,
-            )
-            u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
-        else:
-            ctxs_pad = ctxs
-            u_elems_pad = u_elems
-
         n_pad = n_elems + pad
         n_chunks = n_pad // chunk_size
 
@@ -1195,18 +1662,68 @@ def assemble_residual_scatter(
             slice_sizes = (size,) + x.shape[1:]
             return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
 
-        def chunk_fn(i):
+        n_pad = int(n_pad)
+        n_chunks = int(n_chunks)
+        valid_mask = jnp.arange(n_pad, dtype=INDEX_DTYPE) < int(n_elems)
+        if pad:
+            u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
+        else:
+            u_elems_pad = u_elems
+
+        use_chunk_context = bool(
+            chunk_build_context
+            and hasattr(space, "build_form_contexts_from_elem_coords")
+            and hasattr(space, "mesh")
+        )
+        if use_chunk_context:
+            conn = space.mesh.conn
+            if pad:
+                conn_pad = jnp.concatenate([conn, jnp.repeat(conn[-1:], pad, axis=0)], axis=0)
+            else:
+                conn_pad = conn
+            elem_ids = jnp.arange(n_pad, dtype=INDEX_DTYPE)
+        else:
+            ctxs = space.build_form_contexts(include_x_q=include_x_q, lightweight=lightweight_context)
+            if pad:
+                ctxs_pad = jax.tree_util.tree_map(
+                    lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
+                    ctxs,
+                )
+            else:
+                ctxs_pad = ctxs
+
+        m = int(space.n_ldofs)
+        data = jnp.zeros((n_pad * m,), dtype=u_elems.dtype)
+
+        def loop_body(i, data_flat):
             start = i * chunk_size
-            ctx_chunk = jax.tree_util.tree_map(
-                lambda x: _slice_first_dim(x, start, chunk_size),
-                ctxs_pad,
-            )
+            if use_chunk_context:
+                conn_chunk = _slice_first_dim(conn_pad, start, chunk_size)
+                elem_coords_chunk = space.mesh.coords[conn_chunk]
+                elem_id_chunk = _slice_first_dim(elem_ids, start, chunk_size)
+                ctx_chunk = space.build_form_contexts_from_elem_coords(
+                    elem_coords_chunk,
+                    include_x_q=include_x_q,
+                    lightweight=lightweight_context,
+                    elem_id=elem_id_chunk,
+                )
+            else:
+                ctx_chunk = jax.tree_util.tree_map(
+                    lambda x: _slice_first_dim(x, start, chunk_size),
+                    ctxs_pad,
+                )
             u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
             res_chunk = jax.vmap(ker)(ctx_chunk, u_chunk)
-            return res_chunk.reshape(-1)
+            chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(res_chunk.dtype)
+            res_chunk = res_chunk * chunk_valid[:, None]
+            return jax.lax.dynamic_update_slice(
+                data_flat,
+                res_chunk.reshape(chunk_size * m),
+                (start * m,),
+            )
 
-        data_chunks = jax.vmap(chunk_fn)(jnp.arange(n_chunks))
-        elem_res = data_chunks.reshape(-1)[: n_elems * int(space.n_ldofs)].reshape(n_elems, -1)
+        data = jax.lax.fori_loop(0, n_chunks, loop_body, data)
+        elem_res = data[: n_elems * m].reshape(n_elems, -1)
     if jax.core.trace_ctx.is_top_level():
         if not bool(jax.block_until_ready(jnp.all(jnp.isfinite(elem_res)))):
             bad = int(jnp.count_nonzero(~jnp.isfinite(elem_res)))
@@ -1239,7 +1756,8 @@ def assemble_jacobian_scatter(
     return_flux_matrix: bool = False,
     pattern: SparsityPattern | None = None,
     n_chunks: Optional[int] = None,
-    pad_trace: bool = False,
+    pad_trace: bool | None = None,
+    policy: AssemblyPolicy | None = None,
 ) -> JacobianReturn:
     """
     Assemble Jacobian using jitted element kernel + vmap + scatter_add.
@@ -1251,7 +1769,7 @@ def assemble_jacobian_scatter(
 
     pat = pattern if pattern is not None else make_sparsity_pattern(space, with_idx=not sparse)
     data = assemble_jacobian_values(
-        space, res_form, u, params, kernel=kernel, n_chunks=n_chunks, pad_trace=pad_trace
+        space, res_form, u, params, kernel=kernel, n_chunks=n_chunks, pad_trace=pad_trace, policy=policy
     )
 
     if sparse:
@@ -1284,14 +1802,23 @@ def assemble_residual(
     kernel: ElementResidualKernel | None = None,
     sparse: bool = False,
     n_chunks: Optional[int] = None,
-    pad_trace: bool = False,
+    pad_trace: bool | None = None,
+    policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
     """
     Assemble the global residual vector (scatter-based).
     If kernel is provided: kernel(ctx, u_elem) -> (n_ldofs,).
     """
     return assemble_residual_scatter(
-        space, form, u, params, kernel=kernel, sparse=sparse, n_chunks=n_chunks, pad_trace=pad_trace
+        space,
+        form,
+        u,
+        params,
+        kernel=kernel,
+        sparse=sparse,
+        n_chunks=n_chunks,
+        pad_trace=pad_trace,
+        policy=policy,
     )
 
 
@@ -1306,7 +1833,8 @@ def assemble_jacobian(
     return_flux_matrix: bool = False,
     pattern: SparsityPattern | None = None,
     n_chunks: Optional[int] = None,
-    pad_trace: bool = False,
+    pad_trace: bool | None = None,
+    policy: AssemblyPolicy | None = None,
 ) -> JacobianReturn:
     """
     Assemble the global Jacobian (scatter-based).
@@ -1323,6 +1851,7 @@ def assemble_jacobian(
         pattern=pattern,
         n_chunks=n_chunks,
         pad_trace=pad_trace,
+        policy=policy,
     )
 
 
@@ -1380,3 +1909,18 @@ def _check_structured_box_connectivity() -> None:
 
 if __name__ == "__main__":
     _check_structured_box_connectivity()
+    n_chunks, pad_trace = _resolve_chunk_policy(
+        policy=policy,
+        n_chunks=n_chunks,
+        pad_trace=pad_trace,
+    )
+    n_chunks, pad_trace = _resolve_chunk_policy(
+        policy=policy,
+        n_chunks=n_chunks,
+        pad_trace=pad_trace,
+    )
+    n_chunks, pad_trace = _resolve_chunk_policy(
+        policy=policy,
+        n_chunks=n_chunks,
+        pad_trace=pad_trace,
+    )

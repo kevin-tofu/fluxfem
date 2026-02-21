@@ -1,7 +1,7 @@
 from __future__ import annotations
 import operator
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol, TYPE_CHECKING, TypeAlias, TypeVar, cast
+from typing import Any, Callable, Literal, Protocol, TYPE_CHECKING, TypeAlias, TypeVar, cast
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -11,6 +11,7 @@ P = TypeVar("P")
 
 if TYPE_CHECKING:
     from .assembly import (
+        AssemblyPolicy,
         ElementBilinearKernel,
         ElementJacobianKernel,
         ElementLinearKernel,
@@ -39,6 +40,7 @@ else:
     MassReturn = Any
     BilinearForm = Any
     LinearForm = Any
+    AssemblyPolicy = Any
     FluxSparseMatrix = Any
     SparsityPattern = Any
 
@@ -49,6 +51,7 @@ KernelCache: TypeAlias = dict[
 ]
 PatternCache: TypeAlias = dict[bool, SparsityPattern]
 PatternLike: TypeAlias = str | SparsityPattern | None
+KernelJitOpt: TypeAlias = bool | Literal["auto"]
 
 _WARNED_UNTAGGED_KERNELS: set[int] = set()
 
@@ -64,6 +67,31 @@ def _warn_untagged_kernel(form) -> None:
         category=UserWarning,
         stacklevel=3,
     )
+
+
+def _resolve_kernel_jit(jit: KernelJitOpt) -> bool:
+    if jit == "auto":
+        # Avoid nested jit when called under an outer traced context.
+        return bool(jax.core.trace_ctx.is_top_level())
+    if isinstance(jit, bool):
+        return jit
+    raise ValueError(f"jit must be bool or 'auto' (got {jit!r})")
+
+
+def _reject_legacy_policy_kwargs(kwargs: dict[str, Any]) -> None:
+    legacy_keys = (
+        "n_chunks",
+        "include_x_q",
+        "lightweight_context",
+        "chunk_build_context",
+        "pad_trace",
+    )
+    bad = [k for k in legacy_keys if k in kwargs]
+    if bad:
+        raise ValueError(
+            "Legacy assembly tuning kwargs are no longer supported. "
+            f"Use AssemblyPolicy instead (got: {', '.join(bad)})."
+        )
 
 from .dtypes import INDEX_DTYPE
 from ..mesh import (
@@ -101,6 +129,8 @@ from .forms import (
     ElementVector,
     FormContext,
     FormFieldLike,
+    PrecomputedScalarFormField,
+    PrecomputedVectorFormField,
     ScalarFormField,
     VectorFormField,
 )
@@ -124,7 +154,13 @@ class FESpaceBase(Protocol):
     @property
     def n_ldofs(self) -> int: ...
 
-    def build_form_contexts(self, dep: jnp.ndarray | None = None) -> FormContext: ...
+    def build_form_contexts(
+        self,
+        dep: jnp.ndarray | None = None,
+        *,
+        include_x_q: bool = True,
+        lightweight: bool = False,
+    ) -> FormContext: ...
 
 
 @dataclass(eq=False)
@@ -191,7 +227,31 @@ class FESpaceClosure:
             self._elem_rows_cache = rows
         return rows
 
-    def build_form_contexts(self, dep: jnp.ndarray | None = None) -> FormContext:
+    def build_form_contexts(
+        self,
+        dep: jnp.ndarray | None = None,
+        *,
+        include_x_q: bool = True,
+        lightweight: bool = False,
+    ) -> FormContext:
+        elem_coords = self.mesh.element_coords()      # (n_elems, n_nodes, 3)
+        return self.build_form_contexts_from_elem_coords(
+            elem_coords,
+            dep=dep,
+            include_x_q=include_x_q,
+            lightweight=lightweight,
+            elem_id=jnp.arange(elem_coords.shape[0], dtype=INDEX_DTYPE),
+        )
+
+    def build_form_contexts_from_elem_coords(
+        self,
+        elem_coords: jnp.ndarray,
+        *,
+        dep: jnp.ndarray | None = None,
+        include_x_q: bool = True,
+        lightweight: bool = False,
+        elem_id: jnp.ndarray | None = None,
+    ) -> FormContext:
         def _tie_in(x, y):
             if x is None:
                 return y
@@ -201,34 +261,62 @@ class FESpaceClosure:
                 return y + jnp.sin(x) * 0
 
         vd = int(self.value_dim)
-        mesh, basis = self.mesh, self.basis
-        elem_coords = mesh.element_coords()      # (n_elems, n_nodes, 3)
+        basis = self.basis
         elem_coords = _tie_in(dep, elem_coords)
 
         N_ref = basis.shape_functions()          # (n_q, n_nodes)
         w_ref = basis.quad_weights               # (n_q,)
-        x_q = jnp.einsum("qa,eai->eqi", N_ref, elem_coords)  # (n_elems, n_q, 3)
+        if include_x_q:
+            x_q = jnp.einsum("qa,eai->eqi", N_ref, elem_coords)  # (n_elems, n_q, 3)
+        else:
+            # Keep shape-compatible placeholder with broadcast semantics
+            # instead of allocating a full dense (n_elems, n_q, 3) zero buffer.
+            x_q0 = jnp.zeros(
+                (1, N_ref.shape[0], elem_coords.shape[2]),
+                dtype=elem_coords.dtype,
+            )
+            x_q = jnp.broadcast_to(
+                x_q0, (elem_coords.shape[0], N_ref.shape[0], elem_coords.shape[2])
+            )
         w = jnp.broadcast_to(
             w_ref[None, :], (elem_coords.shape[0], w_ref.shape[0])
         )
         w = _tie_in(dep, w)
 
-        if vd == 1:
-            def make_field(Xe):
-                return ScalarFormField(N=N_ref, elem_coords=Xe, basis=basis)
-        else:
-            def make_field(Xe):
-                return VectorFormField(
-                    N=N_ref, elem_coords=Xe, basis=basis, value_dim=vd
+        if lightweight:
+            gradN, detJ = jax.vmap(basis.spatial_grads_and_detJ)(elem_coords)
+            if vd == 1:
+                test = PrecomputedScalarFormField(
+                    basis=basis,
+                    _gradN=gradN,
+                    _detJ=detJ,
                 )
+            else:
+                test = PrecomputedVectorFormField(
+                    basis=basis,
+                    value_dim=vd,
+                    _gradN=gradN,
+                    _detJ=detJ,
+                )
+        else:
+            if vd == 1:
+                def make_field(Xe):
+                    return ScalarFormField(N=N_ref, elem_coords=Xe, basis=basis)
+            else:
+                def make_field(Xe):
+                    return VectorFormField(
+                        N=N_ref, elem_coords=Xe, basis=basis, value_dim=vd
+                    )
 
-        test = jax.vmap(make_field)(elem_coords)
+            test = jax.vmap(make_field)(elem_coords)
         # Test/trial share the same field data for single-space bilinear forms.
         trial = test
+        if elem_id is None:
+            elem_id = jnp.arange(elem_coords.shape[0], dtype=INDEX_DTYPE)
 
         return FormContext(
             test=test, trial=trial, x_q=x_q,
-            w=w, elem_id=jnp.arange(elem_coords.shape[0])
+            w=w, elem_id=elem_id
         )
 
     def make_batched_assembler(self, *, dep: jnp.ndarray | None = None, pattern=None):
@@ -260,8 +348,9 @@ class FESpaceClosure:
             block_sizes=block_sizes,
         )
 
-    def _kernel_cache_key(self, kind: str, form, params, *, jit: bool) -> KernelCacheKey | None:
-        if not jit:
+    def _kernel_cache_key(self, kind: str, form, params, *, jit: KernelJitOpt) -> KernelCacheKey | None:
+        jit_resolved = _resolve_kernel_jit(jit)
+        if not jit_resolved:
             return None
         form_key = getattr(form, "__wrapped__", form)
         try:
@@ -270,14 +359,15 @@ class FESpaceClosure:
             return None
         return (kind, id(form_key), params_key, True)
 
-    def _get_cached_kernel(self, kind: str, form, params, *, jit: bool, maker):
+    def _get_cached_kernel(self, kind: str, form, params, *, jit: KernelJitOpt, maker):
+        jit_resolved = _resolve_kernel_jit(jit)
         key = self._kernel_cache_key(kind, form, params, jit=jit)
         if key is None:
-            return maker(form, params, jit=jit)
+            return maker(form, params, jit=jit_resolved)
         cached = self._kernel_cache.get(key)
         if cached is not None:
             return cached
-        kernel = maker(form, params, jit=jit)
+        kernel = maker(form, params, jit=jit_resolved)
         if jax.core.trace_ctx.is_top_level():
             self._kernel_cache[key] = kernel
         return kernel
@@ -288,9 +378,9 @@ class FESpaceClosure:
         params: P | None = None,
         *,
         kind: str | None = None,
-        n_chunks: int | None = None,
+        policy: AssemblyPolicy | None = None,
         dep: jnp.ndarray | None = None,
-        jit: bool = True,
+        jit: KernelJitOpt = "auto",
         pattern: PatternLike = "auto",
         kernel: ElementBilinearKernel | ElementLinearKernel | None = None,
         **kwargs,
@@ -343,6 +433,7 @@ class FESpaceClosure:
                     "Use assemble_surface_linear_form or assemble_surface_bilinear_form."
                 )
 
+        _reject_legacy_policy_kwargs(kwargs)
         if kind == "bilinear":
             if kernel is None:
                 kernel = self._get_cached_kernel(
@@ -361,7 +452,7 @@ class FESpaceClosure:
             return self.assemble_bilinear_form(
                 form_kernel,
                 params,
-                n_chunks=n_chunks,
+                policy=policy,
                 dep=dep,
                 kernel=kernel,
                 pattern=pattern_use,
@@ -380,7 +471,7 @@ class FESpaceClosure:
             return self.assemble_linear_form(
                 form_kernel,
                 params,
-                n_chunks=n_chunks,
+                policy=policy,
                 dep=dep,
                 kernel=kernel,
                 **kwargs,
@@ -393,17 +484,18 @@ class FESpaceClosure:
         form: FormKernel[P],
         params: P,
         *,
-        n_chunks: int | None = None,
+        policy: AssemblyPolicy | None = None,
         dep: jnp.ndarray | None = None,
         kernel: ElementBilinearKernel | None = None,
         **kwargs,
     ) -> FluxSparseMatrix:
         """Assemble bilinear form; kernel(ctx) -> (n_ldofs, n_ldofs) if provided."""
         from .assembly import assemble_bilinear_form
+        _reject_legacy_policy_kwargs(kwargs)
         if "pattern" not in kwargs or kwargs.get("pattern") is None:
             kwargs["pattern"] = self.get_sparsity_pattern(with_idx=True)
         return assemble_bilinear_form(
-            self, form, params, n_chunks=n_chunks, dep=dep, kernel=kernel, **kwargs
+            self, form, params, policy=policy, dep=dep, kernel=kernel, **kwargs
         )
 
     def assemble_linear_form(
@@ -411,15 +503,46 @@ class FESpaceClosure:
         form: FormKernel[P],
         params: P,
         *,
-        n_chunks: int | None = None,
+        policy: AssemblyPolicy | None = None,
         dep: jnp.ndarray | None = None,
         kernel: ElementLinearKernel | None = None,
         **kwargs,
     ) -> LinearReturn:
         """Assemble linear form; kernel(ctx) -> (n_ldofs,) if provided."""
         from .assembly import assemble_linear_form
+        _reject_legacy_policy_kwargs(kwargs)
         return assemble_linear_form(
-            self, form, params, n_chunks=n_chunks, dep=dep, kernel=kernel, **kwargs
+            self, form, params, policy=policy, dep=dep, kernel=kernel, **kwargs
+        )
+
+    def assemble_bilinear_linear_pair(
+        self,
+        bilinear_form: FormKernel[P],
+        bilinear_params: P,
+        linear_form: FormKernel[P],
+        linear_params: P,
+        *,
+        policy: AssemblyPolicy | None = None,
+        dep: jnp.ndarray | None = None,
+        bilinear_kernel: ElementBilinearKernel | None = None,
+        linear_kernel: ElementLinearKernel | None = None,
+        **kwargs,
+    ):
+        from .assembly import assemble_bilinear_linear_pair
+        _reject_legacy_policy_kwargs(kwargs)
+        if "pattern" not in kwargs or kwargs.get("pattern") is None:
+            kwargs["pattern"] = self.get_sparsity_pattern(with_idx=True)
+        return assemble_bilinear_linear_pair(
+            self,
+            bilinear_form,
+            bilinear_params,
+            linear_form,
+            linear_params,
+            policy=policy,
+            dep=dep,
+            bilinear_kernel=bilinear_kernel,
+            linear_kernel=linear_kernel,
+            **kwargs,
         )
 
     def assemble_functional(self, form: FormKernel[P], params: P) -> jnp.ndarray:
@@ -429,11 +552,12 @@ class FESpaceClosure:
     def assemble_mass_matrix(
         self,
         *,
-        n_chunks: int | None = None,
+        policy: AssemblyPolicy | None = None,
         **kwargs,
     ) -> MassReturn:
         from .assembly import assemble_mass_matrix
-        return assemble_mass_matrix(self, n_chunks=n_chunks, **kwargs)
+        _reject_legacy_policy_kwargs(kwargs)
+        return assemble_mass_matrix(self, policy=policy, **kwargs)
 
     def assemble_bilinear_dense(
         self,
@@ -451,11 +575,12 @@ class FESpaceClosure:
         params: P,
         *,
         kernel: ElementResidualKernel | None = None,
+        policy: AssemblyPolicy | None = None,
         **kwargs,
     ) -> LinearReturn:
         """Assemble residual; kernel(ctx, u_elem) -> (n_ldofs,) if provided."""
         from .assembly import assemble_residual
-        return assemble_residual(self, res_form, u, params, kernel=kernel, **kwargs)
+        return assemble_residual(self, res_form, u, params, kernel=kernel, policy=policy, **kwargs)
 
     def assemble_jacobian(
         self,
@@ -464,11 +589,12 @@ class FESpaceClosure:
         params: P,
         *,
         kernel: ElementJacobianKernel | None = None,
+        policy: AssemblyPolicy | None = None,
         **kwargs,
     ) -> JacobianReturn:
         """Assemble Jacobian; kernel(u_elem, ctx) -> (n_ldofs, n_ldofs) if provided."""
         from .assembly import assemble_jacobian
-        return assemble_jacobian(self, res_form, u, params, kernel=kernel, **kwargs)
+        return assemble_jacobian(self, res_form, u, params, kernel=kernel, policy=policy, **kwargs)
 
     def get_sparsity_pattern(self, *, with_idx: bool = True):
         cached = self._pattern_cache.get(with_idx)

@@ -75,7 +75,8 @@ def test_linear_form_chunk_consistency(n_chunks):
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
     F_ref = space.assemble_linear_form(ff.scalar_body_force_form, params=2.0)
-    F_chk = space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, n_chunks=n_chunks)
+    policy = None if n_chunks is None else ff.AssemblyPolicy.chunked(int(n_chunks))
+    F_chk = space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, policy=policy)
     assert np.allclose(np.asarray(F_ref), np.asarray(F_chk))
 
 
@@ -86,7 +87,8 @@ def test_mass_matrix_chunk_consistency(n_chunks):
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
     M_ref = space.assemble_mass_matrix()
-    M_chk = space.assemble_mass_matrix(n_chunks=n_chunks)
+    policy = None if n_chunks is None else ff.AssemblyPolicy.chunked(int(n_chunks))
+    M_chk = space.assemble_mass_matrix(policy=policy)
     assert np.allclose(np.asarray(M_ref.to_dense()), np.asarray(M_chk.to_dense()))
 
 
@@ -97,8 +99,36 @@ def test_bilinear_form_chunk_consistency(n_chunks):
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
     K_ref = space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense()
-    K_chk = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, n_chunks=n_chunks).to_dense()
+    policy = None if n_chunks is None else ff.AssemblyPolicy.chunked(int(n_chunks))
+    K_chk = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, policy=policy).to_dense()
     assert np.allclose(np.asarray(K_ref), np.asarray(K_chk))
+
+
+def test_assembly_policy_chunked_matches_explicit_kwargs():
+    mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(2, include_x_q=False, lightweight_context=True, chunk_build_context=True)
+    K_pol = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, policy=pol).to_dense()
+    K_exp = space.assemble_bilinear_form(
+        ff.diffusion_form,
+        params=1.0,
+        policy=ff.AssemblyPolicy.chunked(
+            2,
+            include_x_q=False,
+            lightweight_context=True,
+            chunk_build_context=True,
+        ),
+    ).to_dense()
+    assert np.allclose(np.asarray(K_pol), np.asarray(K_exp))
+
+
+def test_assembly_policy_chunked_mass_matches_explicit_kwargs():
+    mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(2)
+    M_pol = space.assemble_mass_matrix(policy=pol).to_dense()
+    M_exp = space.assemble_mass_matrix(policy=ff.AssemblyPolicy.chunked(2)).to_dense()
+    assert np.allclose(np.asarray(M_pol), np.asarray(M_exp))
 
 def test_sparse_bilinear_matches_dense():
     """ff.FluxSparseMatrix dense matches manual integration."""
@@ -236,4 +266,3 @@ def test_tag_axis_minmax_facets():
     faces = [set(f) for f in np.asarray(facets).tolist()]
     assert set([0, 2, 4, 6]) in faces
     assert set([1, 3, 5, 7]) in faces
-

@@ -93,12 +93,12 @@ def newton_solve(
     if extra_terms is not None and linear_solver in ("cg", "cg_jax", "cg_custom", "cg_matfree", "cg_jvp"):
         raise ValueError("extra_terms may yield nonsymmetric K; avoid CG-based solvers")
 
-    free_dofs_j = jnp.asarray(free_dofs, dtype=jnp.int32)
+    free_dofs_j = jnp.asarray(free_dofs, dtype=jnp.int64)
     # For block-Jacobi (3x3 per node) we keep node ids of free dofs.
     node_ids = free_dofs // 3
     node_ids_unique, node_ids_inv = np.unique(node_ids, return_inverse=True)
     n_block = len(node_ids_unique)
-    dir_dofs_j = jnp.asarray(dir_dofs, dtype=jnp.int32) if dir_dofs is not None else None
+    dir_dofs_j = jnp.asarray(dir_dofs, dtype=jnp.int64) if dir_dofs is not None else None
     dir_vals_j = jnp.asarray(dir_vals, dtype=jnp.asarray(u0).dtype) if dir_vals is not None else None
 
     # Unknown is free DOFs only
@@ -110,21 +110,21 @@ def newton_solve(
     )
 
     # Build free-DOF subpattern once to avoid scatter/gather in every matvec.
-    free_map = -np.ones(space.n_dofs, dtype=np.int32)
-    free_map[free_dofs] = np.arange(len(free_dofs), dtype=np.int32)
+    free_map = -np.ones(space.n_dofs, dtype=np.int64)
+    free_map[free_dofs] = np.arange(len(free_dofs), dtype=np.int64)
     pat_rows = np.asarray(J_pattern.rows)
     pat_cols = np.asarray(J_pattern.cols)
     mask_free = (free_map[pat_rows] >= 0) & (free_map[pat_cols] >= 0)
-    free_data_idx = jnp.asarray(np.nonzero(mask_free)[0], dtype=jnp.int32)
+    free_data_idx = jnp.asarray(np.nonzero(mask_free)[0], dtype=jnp.int64)
     rows_f = free_map[pat_rows[mask_free]]
     cols_f = free_map[pat_cols[mask_free]]
-    diag_idx_f = np.nonzero(rows_f == cols_f)[0].astype(np.int32)
+    diag_idx_f = np.nonzero(rows_f == cols_f)[0].astype(np.int64)
     J_free_pattern = SparsityPattern(
-        rows=jnp.asarray(rows_f, dtype=jnp.int32),
-        cols=jnp.asarray(cols_f, dtype=jnp.int32),
+        rows=jnp.asarray(rows_f, dtype=jnp.int64),
+        cols=jnp.asarray(cols_f, dtype=jnp.int64),
         n_dofs=int(len(free_dofs)),
         idx=None,
-        diag_idx=jnp.asarray(diag_idx_f, dtype=jnp.int32),
+        diag_idx=jnp.asarray(diag_idx_f, dtype=jnp.int64),
     )
 
     def restrict_free_matrix(J: FluxSparseMatrix) -> FluxSparseMatrix:

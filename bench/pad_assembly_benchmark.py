@@ -269,6 +269,7 @@ def main() -> int:
 
         for mode in modes:
             n_chunks = args.n_chunks if mode == "pad" else None
+            policy = ff.AssemblyPolicy(n_chunks=n_chunks, pad_trace=args.pad_trace)
             mode_label = f"mode={mode} n_chunks={n_chunks}"
             print(f"--- {mode_label}", flush=True)
 
@@ -287,27 +288,24 @@ def main() -> int:
                 lambda: space.assemble(
                     ff.diffusion_form,
                     kappa,
-                    n_chunks=n_chunks,
-                    pad_trace=args.pad_trace,
+                    policy=policy,
                 )
             )
             linear_fn = _jit(
                 lambda: space.assemble(
                     ff.scalar_body_force_form,
                     1.0,
-                    n_chunks=n_chunks,
-                    pad_trace=args.pad_trace,
+                    policy=policy,
                 )
             )
-            mass_fn = _jit(lambda: space.assemble_mass_matrix(n_chunks=n_chunks, pad_trace=args.pad_trace))
+            mass_fn = _jit(lambda: space.assemble_mass_matrix(policy=policy))
             residual_fn = _jit(
                 lambda u=u0: space.assemble_residual(
                     linear_residual,
                     u,
                     kappa,
                     kernel=res_ker,
-                    n_chunks=n_chunks,
-                    pad_trace=args.pad_trace,
+                    policy=policy,
                 )
             )
             jac_fn = _jit(
@@ -316,9 +314,8 @@ def main() -> int:
                     u,
                     kappa,
                     kernel=jac_ker,
-                    n_chunks=n_chunks,
+                    policy=policy,
                     sparse=False,
-                    pad_trace=args.pad_trace,
                 )
             )
 

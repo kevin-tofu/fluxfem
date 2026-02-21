@@ -371,8 +371,8 @@ def condense_dirichlet_fluxsparse_coo(
     cols = np.asarray(A.pattern.cols, dtype=np.int64)
     data = np.asarray(A.data)
 
-    g2l = -np.ones(n_total, dtype=np.int32)
-    g2l[free] = np.arange(free.size, dtype=np.int32)
+    g2l = -np.ones(n_total, dtype=np.int64)
+    g2l[free] = np.arange(free.size, dtype=np.int64)
     r2 = g2l[rows]
     c2 = g2l[cols]
     keep = (r2 >= 0) & (c2 >= 0)
@@ -420,9 +420,9 @@ def restrict_flux_to_free(K: FluxSparseMatrix, free: np.ndarray, *, coalesce: bo
     """
     Restrict a FluxSparseMatrix to free DOFs and return the condensed matrix.
     """
-    free = np.asarray(free, dtype=np.int32)
-    g2l = -np.ones(K.n_dofs, dtype=np.int32)
-    g2l[free] = np.arange(free.size, dtype=np.int32)
+    free = np.asarray(free, dtype=np.int64)
+    g2l = -np.ones(K.n_dofs, dtype=np.int64)
+    g2l[free] = np.arange(free.size, dtype=np.int64)
 
     rows = np.asarray(K.pattern.rows)
     cols = np.asarray(K.pattern.cols)

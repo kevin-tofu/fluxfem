@@ -68,6 +68,7 @@ __all__ = [
     "make_element_linear_kernel",
     "make_element_jacobian_kernel",
     "make_element_kernel",
+    "AssemblyPolicy",
     "element_residual",
     "element_jacobian",
     "make_sparsity_pattern",

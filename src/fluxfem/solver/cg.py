@@ -10,6 +10,10 @@ try:
     from jax.experimental import sparse as jsparse
 except Exception:  # pragma: no cover
     jsparse = None
+try:
+    import scipy.sparse as sp  # type: ignore
+except Exception:  # pragma: no cover
+    sp = None
 
 from .sparse import FluxSparseMatrix
 from dataclasses import dataclass
@@ -26,6 +30,8 @@ def _matvec_builder(A: Any) -> MatVec:
         return lambda x: A @ x
     if isinstance(A, FluxSparseMatrix):
         return A.matvec
+    if sp is not None and sp.issparse(A):
+        return _to_flux_matrix(A).matvec
     if hasattr(A, "matvec"):
         return A.matvec
     if callable(A):
@@ -51,8 +57,8 @@ def _coo_tuple_from_any(A: Any):
     if sp is not None and sp.issparse(A):
         coo = A.tocoo()
         return (
-            jnp.asarray(coo.row, dtype=jnp.int32),
-            jnp.asarray(coo.col, dtype=jnp.int32),
+            jnp.asarray(coo.row, dtype=jnp.int64),
+            jnp.asarray(coo.col, dtype=jnp.int64),
             jnp.asarray(coo.data),
             int(A.shape[0]),
         )

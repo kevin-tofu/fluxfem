@@ -66,11 +66,11 @@ def concat_flux(*mats: "FluxSparseMatrix", n_dofs: int | None = None) -> "FluxSp
         for mat in mats[1:]:
             if int(mat.n_dofs) != n_dofs:
                 raise ValueError("All matrices must share n_dofs for concat_flux.")
-    rows_list = [np.asarray(mat.pattern.rows, dtype=np.int32) for mat in mats]
-    cols_list = [np.asarray(mat.pattern.cols, dtype=np.int32) for mat in mats]
+    rows_list = [np.asarray(mat.pattern.rows, dtype=np.int64) for mat in mats]
+    cols_list = [np.asarray(mat.pattern.cols, dtype=np.int64) for mat in mats]
     data_list = [np.asarray(mat.data) for mat in mats]
-    rows = np.concatenate(rows_list) if rows_list else np.asarray([], dtype=np.int32)
-    cols = np.concatenate(cols_list) if cols_list else np.asarray([], dtype=np.int32)
+    rows = np.concatenate(rows_list) if rows_list else np.asarray([], dtype=np.int64)
+    cols = np.concatenate(cols_list) if cols_list else np.asarray([], dtype=np.int64)
     data = np.concatenate(data_list) if data_list else np.asarray([], dtype=float)
     return FluxSparseMatrix(rows, cols, data, int(n_dofs))
 
@@ -83,16 +83,16 @@ def block_diag_flux(*mats: "FluxSparseMatrix") -> "FluxSparseMatrix":
     data_out = []
     offset = 0
     for mat in mats:
-        rows = np.asarray(mat.pattern.rows, dtype=np.int32)
-        cols = np.asarray(mat.pattern.cols, dtype=np.int32)
+        rows = np.asarray(mat.pattern.rows, dtype=np.int64)
+        cols = np.asarray(mat.pattern.cols, dtype=np.int64)
         data = np.asarray(mat.data)
         if rows.size:
             rows_out.append(rows + offset)
             cols_out.append(cols + offset)
             data_out.append(data)
         offset += int(mat.n_dofs)
-    rows = np.concatenate(rows_out) if rows_out else np.asarray([], dtype=np.int32)
-    cols = np.concatenate(cols_out) if cols_out else np.asarray([], dtype=np.int32)
+    rows = np.concatenate(rows_out) if rows_out else np.asarray([], dtype=np.int64)
+    cols = np.concatenate(cols_out) if cols_out else np.asarray([], dtype=np.int64)
     data = np.concatenate(data_out) if data_out else np.asarray([], dtype=float)
     return FluxSparseMatrix(rows, cols, data, int(offset))
 
@@ -121,11 +121,11 @@ class SparsityPattern:
         children = (
             self.rows,
             self.cols,
-            self.idx if self.idx is not None else jnp.array([], jnp.int32),
-            self.diag_idx if self.diag_idx is not None else jnp.array([], jnp.int32),
-            self.perm if self.perm is not None else jnp.array([], jnp.int32),
-            self.indptr if self.indptr is not None else jnp.array([], jnp.int32),
-            self.indices if self.indices is not None else jnp.array([], jnp.int32),
+            self.idx if self.idx is not None else jnp.array([], jnp.int64),
+            self.diag_idx if self.diag_idx is not None else jnp.array([], jnp.int64),
+            self.perm if self.perm is not None else jnp.array([], jnp.int64),
+            self.indptr if self.indptr is not None else jnp.array([], jnp.int64),
+            self.indices if self.indices is not None else jnp.array([], jnp.int64),
         )
         aux = {
             "n_dofs": self.n_dofs,
@@ -180,12 +180,12 @@ class FluxSparseMatrix:
             values = jnp.asarray(values)
         else:
             # Legacy signature: FluxSparseMatrix(rows, cols, data, n_dofs)
-            r_j = jnp.asarray(rows_or_pattern, dtype=jnp.int32)
-            c_j = jnp.asarray(cols, dtype=jnp.int32)
+            r_j = jnp.asarray(rows_or_pattern, dtype=jnp.int64)
+            c_j = jnp.asarray(cols, dtype=jnp.int64)
             is_tracer = isinstance(rows_or_pattern, jax.core.Tracer) or isinstance(cols, jax.core.Tracer)
             diag_idx_j = None
             if not is_tracer:
-                diag_idx_j = jnp.nonzero(r_j == c_j)[0].astype(jnp.int32)
+                diag_idx_j = jnp.nonzero(r_j == c_j)[0].astype(jnp.int64)
             if n_dofs is None:
                 if is_tracer:
                     raise ValueError("n_dofs must be provided when constructing FluxSparseMatrix under JIT.")
@@ -248,9 +248,9 @@ class FluxSparseMatrix:
             and self.pattern.indices is not None
             and self.pattern.perm is not None
         ):
-            indptr = np.array(self.pattern.indptr, dtype=np.int32, copy=True)
-            indices = np.array(self.pattern.indices, dtype=np.int32, copy=True)
-            data = np.array(self.data, copy=True)[np.asarray(self.pattern.perm, dtype=np.int32)]
+            indptr = np.array(self.pattern.indptr, dtype=np.int64, copy=True)
+            indices = np.array(self.pattern.indices, dtype=np.int64, copy=True)
+            data = np.array(self.data, copy=True)[np.asarray(self.pattern.perm, dtype=np.int64)]
             return sp.csr_matrix((data, indices, indptr), shape=(self.pattern.n_dofs, self.pattern.n_dofs))
         r = np.array(self.pattern.rows, dtype=np.int64, copy=True)
         c = np.array(self.pattern.cols, dtype=np.int64, copy=True)

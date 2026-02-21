@@ -24,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Keep petsc4py aligned with the PETSc build referenced by PETSC_DIR.
-petsc = ["petsc4py (==3.23.6)"]
+petsc = ["petsc4py (==3.24.4)"]
 cpu = ["jax (==0.8.2)", "jaxlib (==0.8.2)"]
 cuda12 = ["jax (==0.8.2)", "jaxlib (==0.8.2)", "jax-cuda12-plugin (==0.8.2)", "jax-cuda12-pjrt (==0.8.2)"]
 
@@ -49,7 +49,7 @@ jax = ">=0.8.2,<0.9.0"
 jaxlib = ">=0.8.2,<0.9.0"
 jax-cuda12-plugin = { version = "==0.8.2", optional = true }
 jax-cuda12-pjrt = { version = "==0.8.2", optional = true }
-petsc4py = { version = "==3.23.6", optional = true }
+petsc4py = { version = "==3.24.4", optional = true }
 pyproject-toml = "^0.1.0"
 pyproject = "^1!0.1.2"
 

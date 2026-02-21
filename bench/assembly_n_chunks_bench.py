@@ -51,6 +51,7 @@ def _block_ready(out):
 
 
 def _build_assemble_fn(space, kind: str, n_chunks: int | None, params: dict):
+    policy = ff.AssemblyPolicy(n_chunks=n_chunks)
     if kind == "bilinear":
         pattern = space.get_sparsity_pattern(with_idx=True)
 
@@ -59,7 +60,7 @@ def _build_assemble_fn(space, kind: str, n_chunks: int | None, params: dict):
                 ff.diffusion_form,
                 params=params["kappa"],
                 pattern=pattern,
-                n_chunks=n_chunks,
+                policy=policy,
             )
 
     elif kind == "linear":
@@ -67,12 +68,12 @@ def _build_assemble_fn(space, kind: str, n_chunks: int | None, params: dict):
             return space.assemble_linear_form(
                 ff.scalar_body_force_form,
                 params=params["load"],
-                n_chunks=n_chunks,
+                policy=policy,
             )
 
     elif kind == "mass":
         def assemble():
-            return space.assemble_mass_matrix(n_chunks=n_chunks)
+            return space.assemble_mass_matrix(policy=policy)
 
     else:
         raise ValueError(f"Unknown kind: {kind}")

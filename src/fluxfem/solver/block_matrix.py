@@ -184,8 +184,8 @@ class FluxBlockMatrix(AbcMapping[FieldKey, Mapping[FieldKey, MatrixLike]]):
                         rows_list.append(r + offsets[name_i])
                         cols_list.append(c + offsets[name_j])
                         data_list.append(d)
-            rows = np.concatenate(rows_list) if rows_list else np.asarray([], dtype=np.int32)
-            cols = np.concatenate(cols_list) if cols_list else np.asarray([], dtype=np.int32)
+            rows = np.concatenate(rows_list) if rows_list else np.asarray([], dtype=np.int64)
+            cols = np.concatenate(cols_list) if cols_list else np.asarray([], dtype=np.int64)
             data = np.concatenate(data_list) if data_list else np.asarray([], dtype=float)
             return FluxSparseMatrix(rows, cols, data, n_total)
 

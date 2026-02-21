@@ -32,6 +32,7 @@ from .basis import (
     make_tet10_basis_pytree,
 )
 from .assembly import (
+    AssemblyPolicy,
     assemble_bilinear_form,
     assemble_linear_form,
     assemble_functional,
@@ -260,6 +261,7 @@ __all__ = [
     "make_tet10_space_pytree",
     "assemble_bilinear_form",
     "assemble_linear_form",
+    "AssemblyPolicy",
     "assemble_functional",
     "assemble_residual",
     "assemble_jacobian",

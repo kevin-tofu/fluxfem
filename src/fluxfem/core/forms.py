@@ -76,6 +76,47 @@ class ScalarFormField:
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(eq=False)
+class PrecomputedScalarFormField:
+    """
+    Scalar FE field with precomputed gradients/Jacobian determinant.
+    Lightweight alternative that avoids storing element coordinates and
+    element-wise duplicated shape-function tables.
+    """
+    basis: Basis3D
+    _gradN: jnp.ndarray         # (n_q, n_nodes, 3)
+    _detJ: jnp.ndarray          # (n_q,)
+
+    @property
+    def N(self):
+        return self.basis.shape_functions()
+
+    @property
+    def gradN(self):
+        return self._gradN
+
+    @property
+    def detJ(self):
+        return self._detJ
+
+    def eval(self, u_elem: jnp.ndarray) -> jnp.ndarray:
+        return jnp.einsum("qa,a->q", self.N, u_elem)
+
+    def grad(self, u_elem: jnp.ndarray) -> jnp.ndarray:
+        return jnp.einsum("qaj,a->qj", self.gradN, u_elem)
+
+    def tree_flatten(self):
+        children = (self._gradN, self._detJ)
+        aux = {"basis": self.basis}
+        return children, aux
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        gradN, detJ = children
+        return cls(aux["basis"], gradN, detJ)
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(eq=False)
 class VectorFormField:
     """Vector-valued FE field evaluated on one element."""
     N: jnp.ndarray
@@ -120,8 +161,56 @@ class VectorFormField:
         return cls(N, elem_coords, aux["basis"], aux["value_dim"], gradN, detJ)
 
 
+@jax.tree_util.register_pytree_node_class
+@dataclass(eq=False)
+class PrecomputedVectorFormField:
+    """
+    Vector FE field with precomputed gradients/Jacobian determinant.
+    Lightweight alternative that avoids storing element coordinates/basis.
+    """
+    basis: Basis3D
+    value_dim: int
+    _gradN: jnp.ndarray
+    _detJ: jnp.ndarray
+
+    @property
+    def N(self):
+        return self.basis.shape_functions()
+
+    @property
+    def gradN(self):
+        return self._gradN
+
+    @property
+    def detJ(self):
+        return self._detJ
+
+    def eval(self, u_elem: jnp.ndarray) -> jnp.ndarray:
+        u_nodes = u_elem.reshape((-1, int(self.value_dim)))
+        return jnp.einsum("qa,ai->qi", self.N, u_nodes)
+
+    def grad(self, u_elem: jnp.ndarray) -> jnp.ndarray:
+        u_nodes = u_elem.reshape((-1, int(self.value_dim)))
+        return jnp.einsum("qaj,ai->qij", self.gradN, u_nodes)
+
+    def tree_flatten(self):
+        children = (self._gradN, self._detJ)
+        aux = {"basis": self.basis, "value_dim": int(self.value_dim)}
+        return children, aux
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        gradN, detJ = children
+        return cls(aux["basis"], aux["value_dim"], gradN, detJ)
+
+
 if TYPE_CHECKING:
-    FormFieldLike: TypeAlias = ScalarFormField | VectorFormField
+    FormFieldLike: TypeAlias = (
+        ScalarFormField
+        | VectorFormField
+        | PrecomputedScalarFormField
+        | PrecomputedVectorFormField
+    )
 else:
     FormFieldLike = object
 
