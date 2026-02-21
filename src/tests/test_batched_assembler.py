@@ -77,9 +77,8 @@ def test_bilinear_kernel_with_chunks_matches_space(n_chunks):
     ker = ff.make_element_bilinear_kernel(ff.diffusion_form, kappa, jit=True)
     batch = space.make_batched_assembler()
     K_kernel = batch.assemble_bilinear_with_kernel(ker)
-    K_space = space.assemble_bilinear_form(
-        ff.diffusion_form, kappa, n_chunks=n_chunks
-    )
+    policy = None if n_chunks is None else ff.AssemblyPolicy.chunked(n_chunks=n_chunks)
+    K_space = space.assemble_bilinear_form(ff.diffusion_form, kappa, policy=policy)
     assert np.allclose(
         np.asarray(K_kernel.to_dense()), np.asarray(K_space.to_dense())
     )

@@ -166,7 +166,6 @@ def fluxfem_cases(args, backend: str):
             int(args.n_chunks),
             include_x_q=False,
             lightweight_context=True,
-            chunk_build_context=True,
         )
         # Reuse jitted per-element kernels across warmup/repeat calls.
         bilinear_kernel = make_element_bilinear_kernel(diffusion_form, 1.0, jit=True)

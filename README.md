@@ -285,13 +285,8 @@ or
 poetry add fluxfem --extras "petsc" --extras "cuda12"
 ```
 
-Note: newer `petsc4py` expects PETSc builds that include the `PetscRegressor`
-API. If your PETSc build does not have it, `petsc4py` will fail to compile. In
-that case, rebuild PETSc with regressor support or pin `petsc4py` to a version
-compatible with your PETSc build.
-
-Important: you must match the `petsc4py` version to the PETSc version you have
-installed. The current FluxFEM extra pins `petsc4py==3.23.6` (see
+Note: you must match the `petsc4py` version to the PETSc version you have
+installed. The current FluxFEM extra pins `petsc4py==3.24.4` (see
 `[project.optional-dependencies]`), so make sure your PETSc install is
 compatible with that `petsc4py` release, or override it to match your PETSc
 build.

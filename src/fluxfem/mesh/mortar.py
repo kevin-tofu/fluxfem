@@ -977,6 +977,161 @@ def _global_dof_indices(nodes: np.ndarray, value_dim: int, offset: int) -> np.nd
     return offset + idx
 
 
+def _facet_local_dofs(
+    facet_id: int,
+    *,
+    n_facets: int,
+    value_dim: int,
+    facet_dofs: np.ndarray | None,
+) -> np.ndarray:
+    """
+    Return local (field-relative) DOF indices for a facet-wise space.
+
+    - When ``facet_dofs`` is provided, it must be shape ``(n_facets, n_ldofs_facet)``.
+    - Otherwise, a default contiguous layout is used:
+      ``facet_id * value_dim + [0..value_dim-1]``.
+    """
+    if facet_dofs is not None:
+        arr = np.asarray(facet_dofs, dtype=int)
+        if arr.ndim != 2:
+            raise ValueError("facet_dofs must be a 2D array (n_facets, n_ldofs_facet).")
+        if arr.shape[0] != int(n_facets):
+            raise ValueError(
+                f"facet_dofs first dimension mismatch: got {arr.shape[0]}, expected {int(n_facets)}."
+            )
+        return arr[int(facet_id)]
+    start = int(facet_id) * int(value_dim)
+    return start + np.arange(int(value_dim), dtype=int)
+
+
+def _field_n_dofs(
+    *,
+    n_nodes: int,
+    n_facets: int,
+    value_dim: int,
+    space_mode: str,
+    facet_dofs: np.ndarray | None,
+) -> int:
+    if space_mode == "p0":
+        if facet_dofs is not None:
+            arr = np.asarray(facet_dofs, dtype=int)
+            if arr.size == 0:
+                return 0
+            if np.any(arr < 0):
+                raise ValueError("facet_dofs must be non-negative.")
+            return int(arr.max()) + 1
+        return int(n_facets) * int(value_dim)
+    return int(n_nodes) * int(value_dim)
+
+
+def _build_side_field_data(
+    *,
+    x_q: np.ndarray,
+    facet_id: int,
+    facet_nodes: np.ndarray,
+    coords: np.ndarray,
+    value_dim: int,
+    n_facets: int,
+    dof_source: str,
+    grad_source: str,
+    space_mode: str,
+    use_elem: bool,
+    elem_nodes: np.ndarray | None,
+    elem_coords: np.ndarray | None,
+    facet_dofs: np.ndarray | None,
+    tol: float,
+    volume_dof_error: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+    gradN = None
+    local = None
+    if grad_source == "surface":
+        gradN = np.array(
+            [_surface_gradN(pt, facet_nodes, coords, tol=tol) for pt in x_q],
+            dtype=float,
+        )
+    if use_elem and grad_source == "volume":
+        assert elem_nodes is not None
+        assert elem_coords is not None
+        local = _local_indices(elem_nodes, facet_nodes)
+        gradN = _tet_gradN_at_points(x_q, elem_coords, local=local, tol=tol)
+
+    if space_mode == "p0":
+        dofs_local = _facet_local_dofs(
+            int(facet_id),
+            n_facets=n_facets,
+            value_dim=value_dim,
+            facet_dofs=facet_dofs,
+        )
+        N = np.ones((x_q.shape[0], int(dofs_local.shape[0])), dtype=float)
+        gradN = np.zeros((x_q.shape[0], int(dofs_local.shape[0]), 3), dtype=float)
+        return N, gradN, dofs_local, facet_nodes, local
+
+    if dof_source == "volume":
+        if not use_elem or elem_nodes is None or elem_coords is None:
+            raise ValueError(volume_dof_error)
+        N = _volume_shape_values_at_points(x_q, elem_coords, tol=tol)
+        if grad_source == "volume":
+            gradN = _tet_gradN_at_points(x_q, elem_coords, tol=tol)
+        dofs_local = _global_dof_indices(elem_nodes, value_dim, 0)
+        return N, gradN, dofs_local, elem_nodes, local
+
+    N = np.array([_facet_shape_values(pt, facet_nodes, coords, tol=tol) for pt in x_q], dtype=float)
+    dofs_local = _global_dof_indices(facet_nodes, value_dim, 0)
+    return N, gradN, dofs_local, facet_nodes, local
+
+
+def _resolve_facet_element_context(
+    *,
+    use_elem: bool,
+    facet_id: int,
+    facet_to_elem: np.ndarray | None,
+    elem_conn: np.ndarray | None,
+    coords: np.ndarray,
+    invalid_map_error: str,
+    unsupported_error: str,
+) -> tuple[int, np.ndarray | None, np.ndarray | None]:
+    if not use_elem:
+        return -1, None, None
+    assert facet_to_elem is not None
+    assert elem_conn is not None
+    elem_id = int(facet_to_elem[int(facet_id)])
+    if elem_id < 0:
+        raise ValueError(invalid_map_error)
+    elem_nodes = np.asarray(elem_conn[elem_id], dtype=int)
+    elem_coords = coords[elem_nodes]
+    if elem_coords.shape[0] not in {4, 8, 10, 20, 27}:
+        raise NotImplementedError(unsupported_error)
+    return elem_id, elem_nodes, elem_coords
+
+
+def _resolve_contact_normal(
+    *,
+    facet_id_a: int,
+    facet_id_b: int,
+    normals_a: np.ndarray | None,
+    normals_b: np.ndarray | None,
+    normal_source: str,
+    normal_sign: float,
+    tol: float,
+) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+    na = normals_a[int(facet_id_a)] if normals_a is not None else None
+    nb = normals_b[int(facet_id_b)] if normals_b is not None else None
+    if normal_source == "a":
+        normal = na
+    elif normal_source == "b":
+        normal = nb
+    else:
+        if na is not None and nb is not None:
+            avg = na + nb
+            norm = np.linalg.norm(avg)
+            normal = avg / norm if norm > tol else na
+        else:
+            normal = na if na is not None else nb
+    if normal is not None:
+        normal = normal_sign * normal
+    return normal, na, nb
+
+
 def map_surface_facets_to_tet_elements(surface: SurfaceMesh, tet_conn: np.ndarray) -> np.ndarray:
     """
     Map surface triangle facets to parent tet elements by node matching (tet4/tet10).
@@ -2169,6 +2324,10 @@ def assemble_mixed_surface_residual(
     normal_sign: float = 1.0,
     grad_source: str = "volume",
     dof_source: str = "surface",
+    space_mode_a: str = "nodal",
+    space_mode_b: str = "nodal",
+    facet_dofs_a: np.ndarray | None = None,
+    facet_dofs_b: np.ndarray | None = None,
     quad_order: int = 0,
     tol: float = 1e-8,
 ) -> np.ndarray:
@@ -2177,15 +2336,31 @@ def assemble_mixed_surface_residual(
 
     normal_source can be "master", "slave", "a", "b", or "avg"; use master_field
     to pick which field acts as the master when normal_source is "master"/"slave".
-    dof_source="volume" assembles into element nodes (requires elem_conn_* mappings).
+    dof_source="volume" assembles nodal fields into element nodes (requires elem_conn_* mappings).
+    space_mode_* supports:
+    - "nodal": existing nodal FE space behavior.
+    - "p0": facet-wise constant space (one block of value_dim DOFs per facet, or
+      custom mapping via facet_dofs_*).
     """
     from ..core.forms import FieldPair
     coords_a = np.asarray(surface_a.coords, dtype=float)
     coords_b = np.asarray(surface_b.coords, dtype=float)
     facets_a = np.asarray(surface_a.conn, dtype=int)
     facets_b = np.asarray(surface_b.conn, dtype=int)
-    n_a = int(coords_a.shape[0] * value_dim_a)
-    n_b = int(coords_b.shape[0] * value_dim_b)
+    n_a = _field_n_dofs(
+        n_nodes=int(coords_a.shape[0]),
+        n_facets=int(facets_a.shape[0]),
+        value_dim=int(value_dim_a),
+        space_mode=space_mode_a,
+        facet_dofs=facet_dofs_a,
+    )
+    n_b = _field_n_dofs(
+        n_nodes=int(coords_b.shape[0]),
+        n_facets=int(facets_b.shape[0]),
+        value_dim=int(value_dim_b),
+        space_mode=space_mode_b,
+        facet_dofs=facet_dofs_b,
+    )
     if offset_b is None:
         offset_b = offset_a + n_a
     n_total = int(offset_b + n_b)
@@ -2233,6 +2408,12 @@ def assemble_mixed_surface_residual(
         raise ValueError("grad_source must be 'volume' or 'surface'")
     if dof_source not in {"surface", "volume"}:
         raise ValueError("dof_source must be 'surface' or 'volume'")
+    if space_mode_a not in {"nodal", "p0"}:
+        raise ValueError("space_mode_a must be 'nodal' or 'p0'")
+    if space_mode_b not in {"nodal", "p0"}:
+        raise ValueError("space_mode_b must be 'nodal' or 'p0'")
+    use_p0_a = space_mode_a == "p0"
+    use_p0_b = space_mode_b == "p0"
     if dof_source == "volume" and grad_source == "surface":
         raise ValueError("dof_source 'volume' requires grad_source 'volume'")
     global _DEBUG_SURFACE_SOURCE_ONCE
@@ -2270,7 +2451,7 @@ def assemble_mixed_surface_residual(
         normal_source = "b" if (master_field is None or master_field == field_a) else "a"
 
     mortar_mode = os.getenv("FLUXFEM_MORTAR_MODE", "supermesh").lower()
-    if mortar_mode == "projection":
+    if mortar_mode == "projection" and not (use_p0_a or use_p0_b):
         batches, fallback = _projection_surface_batches(
             source_facets_a,
             source_facets_b,
@@ -2383,33 +2564,24 @@ def assemble_mixed_surface_residual(
         Na = None
         Nb = None
 
-        elem_id_a = -1
-        elem_nodes_a = None
-        elem_coords_a = None
-        if use_elem_a:
-            assert elem_conn_a is not None
-            assert facet_to_elem_a is not None
-            elem_id_a = int(facet_to_elem_a[int(fa)])
-            if elem_id_a < 0:
-                raise ValueError("facet_to_elem_a has invalid mapping")
-            elem_nodes_a = np.asarray(elem_conn_a[elem_id_a], dtype=int)
-            elem_coords_a = coords_a[elem_nodes_a]
-            if elem_coords_a.shape[0] not in {4, 8, 10, 20, 27}:
-                raise NotImplementedError("surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only")
-
-        elem_id_b = -1
-        elem_nodes_b = None
-        elem_coords_b = None
-        if use_elem_b:
-            assert elem_conn_b is not None
-            assert facet_to_elem_b is not None
-            elem_id_b = int(facet_to_elem_b[int(fb)])
-            if elem_id_b < 0:
-                raise ValueError("facet_to_elem_b has invalid mapping")
-            elem_nodes_b = np.asarray(elem_conn_b[elem_id_b], dtype=int)
-            elem_coords_b = coords_b[elem_nodes_b]
-            if elem_coords_b.shape[0] not in {4, 8, 10, 20, 27}:
-                raise NotImplementedError("surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only")
+        elem_id_a, elem_nodes_a, elem_coords_a = _resolve_facet_element_context(
+            use_elem=use_elem_a,
+            facet_id=int(fa),
+            facet_to_elem=facet_to_elem_a,
+            elem_conn=elem_conn_a,
+            coords=coords_a,
+            invalid_map_error="facet_to_elem_a has invalid mapping",
+            unsupported_error="surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only",
+        )
+        elem_id_b, elem_nodes_b, elem_coords_b = _resolve_facet_element_context(
+            use_elem=use_elem_b,
+            facet_id=int(fb),
+            facet_to_elem=facet_to_elem_b,
+            elem_conn=elem_conn_b,
+            coords=coords_b,
+            invalid_map_error="facet_to_elem_b has invalid mapping",
+            unsupported_error="surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only",
+        )
         if proj_diag:
             _proj_diag_set_context(
                 fa=int(fa),
@@ -2420,62 +2592,53 @@ def assemble_mixed_surface_residual(
                 elem_b=elem_id_b,
             )
 
-        if grad_source == "surface":
-            gradNa = np.array(
-                [_surface_gradN(pt, facet_a, coords_a, tol=tol) for pt in x_q],
-                dtype=float,
-            )
-            gradNb = np.array(
-                [_surface_gradN(pt, facet_b, coords_b, tol=tol) for pt in x_q],
-                dtype=float,
-            )
-        if use_elem_a and grad_source == "volume":
-            assert elem_nodes_a is not None
-            assert elem_coords_a is not None
-            local = _local_indices(elem_nodes_a, facet_a)
-            gradNa = _tet_gradN_at_points(x_q, elem_coords_a, local=local, tol=tol)
+        Na, gradNa, dofs_local_a, nodes_a, _ = _build_side_field_data(
+            x_q=x_q,
+            facet_id=int(fa),
+            facet_nodes=facet_a,
+            coords=coords_a,
+            value_dim=value_dim_a,
+            n_facets=facets_a.shape[0],
+            dof_source=dof_source,
+            grad_source=grad_source,
+            space_mode=space_mode_a,
+            use_elem=use_elem_a,
+            elem_nodes=elem_nodes_a,
+            elem_coords=elem_coords_a,
+            facet_dofs=facet_dofs_a,
+            tol=tol,
+            volume_dof_error="dof_source 'volume' requires elem_conn_a and facet_to_elem_a",
+        )
+        Nb, gradNb, dofs_local_b, nodes_b, _ = _build_side_field_data(
+            x_q=x_q,
+            facet_id=int(fb),
+            facet_nodes=facet_b,
+            coords=coords_b,
+            value_dim=value_dim_b,
+            n_facets=facets_b.shape[0],
+            dof_source=dof_source,
+            grad_source=grad_source,
+            space_mode=space_mode_b,
+            use_elem=use_elem_b,
+            elem_nodes=elem_nodes_b,
+            elem_coords=elem_coords_b,
+            facet_dofs=facet_dofs_b,
+            tol=tol,
+            volume_dof_error="dof_source 'volume' requires elem_conn_b and facet_to_elem_b",
+        )
 
-        if use_elem_b and grad_source == "volume":
-            assert elem_nodes_b is not None
-            assert elem_coords_b is not None
-            local = _local_indices(elem_nodes_b, facet_b)
-            gradNb = _tet_gradN_at_points(x_q, elem_coords_b, local=local, tol=tol)
-
-        if dof_source == "volume":
-            if not use_elem_a or elem_nodes_a is None or elem_coords_a is None:
-                raise ValueError("dof_source 'volume' requires elem_conn_a and facet_to_elem_a")
-            if not use_elem_b or elem_nodes_b is None or elem_coords_b is None:
-                raise ValueError("dof_source 'volume' requires elem_conn_b and facet_to_elem_b")
-            nodes_a = elem_nodes_a
-            nodes_b = elem_nodes_b
-            Na = _volume_shape_values_at_points(x_q, elem_coords_a, tol=tol)
-            Nb = _volume_shape_values_at_points(x_q, elem_coords_b, tol=tol)
-            if grad_source == "volume":
-                gradNa = _tet_gradN_at_points(x_q, elem_coords_a, tol=tol)
-                gradNb = _tet_gradN_at_points(x_q, elem_coords_b, tol=tol)
-        else:
-            Na = np.array([_facet_shape_values(pt, facet_a, coords_a, tol=tol) for pt in x_q], dtype=float)
-            Nb = np.array([_facet_shape_values(pt, facet_b, coords_b, tol=tol) for pt in x_q], dtype=float)
-
-        normal = None
-        na = normals_a[int(fa)] if normals_a is not None else None
-        nb = normals_b[int(fb)] if normals_b is not None else None
-        if normal_source == "a":
-            normal = na
-        elif normal_source == "b":
-            normal = nb
-        else:
-            if na is not None and nb is not None:
-                avg = na + nb
-                norm = np.linalg.norm(avg)
-                normal = avg / norm if norm > tol else na
-            else:
-                normal = na if na is not None else nb
-        if normal is not None:
-            normal = normal_sign * normal
+        normal, na, nb = _resolve_contact_normal(
+            facet_id_a=int(fa),
+            facet_id_b=int(fb),
+            normals_a=normals_a,
+            normals_b=normals_b,
+            normal_source=normal_source,
+            normal_sign=normal_sign,
+            tol=tol,
+        )
         if diag_force:
-            dofs_a = _global_dof_indices(nodes_a, value_dim_a, int(offset_a))
-            dofs_b = _global_dof_indices(nodes_b, value_dim_b, int(offset_b))
+            dofs_a = int(offset_a) + np.asarray(dofs_local_a, dtype=int)
+            dofs_b = int(offset_b) + np.asarray(dofs_local_b, dtype=int)
             _diag_contact_projection(
                 fa=int(fa),
                 fb=int(fb),
@@ -2531,13 +2694,13 @@ def assemble_mixed_surface_residual(
         )
 
         u_elem = {
-            field_a: _gather_u_local(u_a, nodes_a, value_dim_a),
-            field_b: _gather_u_local(u_b, nodes_b, value_dim_b),
+            field_a: np.asarray(u_a, dtype=float)[np.asarray(dofs_local_a, dtype=int)],
+            field_b: np.asarray(u_b, dtype=float)[np.asarray(dofs_local_b, dtype=int)],
         }
         fe_q = res_form(ctx, u_elem, params)
-        for name, facet, value_dim, offset in (
-            (field_a, nodes_a, value_dim_a, offset_a),
-            (field_b, nodes_b, value_dim_b, offset_b),
+        for name, dofs_local, offset in (
+            (field_a, dofs_local_a, offset_a),
+            (field_b, dofs_local_b, offset_b),
         ):
             fe_field = fe_q[name]
             if fe_field.ndim != 2 or fe_field.shape[0] != ctx.x_q.shape[0]:
@@ -2547,7 +2710,7 @@ def assemble_mixed_surface_residual(
             else:
                 wJ = ctx.w * ctx.detJ
                 fe = np.einsum("qi,q->i", np.asarray(fe_field), wJ)
-            dofs = _global_dof_indices(facet, value_dim, int(offset))
+            dofs = int(offset) + np.asarray(dofs_local, dtype=int)
             R[dofs] += fe
     if proj_diag:
         _proj_diag_report()
@@ -2582,6 +2745,10 @@ def assemble_mixed_surface_jacobian(
     normal_sign: float = 1.0,
     grad_source: str = "volume",
     dof_source: str = "surface",
+    space_mode_a: str = "nodal",
+    space_mode_b: str = "nodal",
+    facet_dofs_a: np.ndarray | None = None,
+    facet_dofs_b: np.ndarray | None = None,
     quad_order: int = 0,
     tol: float = 1e-8,
     sparse: bool = False,
@@ -2596,7 +2763,11 @@ def assemble_mixed_surface_jacobian(
 
     normal_source can be "master", "slave", "a", "b", or "avg"; use master_field
     to pick which field acts as the master when normal_source is "master"/"slave".
-    dof_source="volume" assembles into element nodes (requires elem_conn_* mappings).
+    dof_source="volume" assembles nodal fields into element nodes (requires elem_conn_* mappings).
+    space_mode_* supports:
+    - "nodal": existing nodal FE space behavior.
+    - "p0": facet-wise constant space (one block of value_dim DOFs per facet, or
+      custom mapping via facet_dofs_*).
     """
     source_facets_a = list(source_facets_a)
     source_facets_b = list(source_facets_b)
@@ -2619,8 +2790,20 @@ def assemble_mixed_surface_jacobian(
     coords_b = np.asarray(surface_b.coords, dtype=float)
     facets_a = np.asarray(surface_a.conn, dtype=int)
     facets_b = np.asarray(surface_b.conn, dtype=int)
-    n_a = int(coords_a.shape[0] * value_dim_a)
-    n_b = int(coords_b.shape[0] * value_dim_b)
+    n_a = _field_n_dofs(
+        n_nodes=int(coords_a.shape[0]),
+        n_facets=int(facets_a.shape[0]),
+        value_dim=int(value_dim_a),
+        space_mode=space_mode_a,
+        facet_dofs=facet_dofs_a,
+    )
+    n_b = _field_n_dofs(
+        n_nodes=int(coords_b.shape[0]),
+        n_facets=int(facets_b.shape[0]),
+        value_dim=int(value_dim_b),
+        space_mode=space_mode_b,
+        facet_dofs=facet_dofs_b,
+    )
     if offset_b is None:
         offset_b = offset_a + n_a
     n_total = int(offset_b + n_b)
@@ -2682,6 +2865,12 @@ def assemble_mixed_surface_jacobian(
         raise ValueError("grad_source must be 'volume' or 'surface'")
     if dof_source not in {"surface", "volume"}:
         raise ValueError("dof_source must be 'surface' or 'volume'")
+    if space_mode_a not in {"nodal", "p0"}:
+        raise ValueError("space_mode_a must be 'nodal' or 'p0'")
+    if space_mode_b not in {"nodal", "p0"}:
+        raise ValueError("space_mode_b must be 'nodal' or 'p0'")
+    use_p0_a = space_mode_a == "p0"
+    use_p0_b = space_mode_b == "p0"
     if dof_source == "volume" and grad_source == "surface":
         raise ValueError("dof_source 'volume' requires grad_source 'volume'")
     global _DEBUG_SURFACE_SOURCE_ONCE
@@ -2731,7 +2920,7 @@ def assemble_mixed_surface_jacobian(
 
     mortar_mode = os.getenv("FLUXFEM_MORTAR_MODE", "supermesh").lower()
     _mortar_dbg(f"[mortar] mode={mortar_mode}")
-    if mortar_mode == "projection":
+    if mortar_mode == "projection" and not (use_p0_a or use_p0_b):
         batches, fallback = _projection_surface_batches(
             source_facets_a,
             source_facets_b,
@@ -2870,6 +3059,8 @@ def assemble_mixed_surface_jacobian(
         and grad_source == "volume"
         and use_elem_a
         and use_elem_b
+        and not use_p0_a
+        and not use_p0_b
         and not proj_diag
         and not diag_force
     ):
@@ -3281,35 +3472,26 @@ def assemble_mixed_surface_jacobian(
         Na = None
         Nb = None
 
-        elem_id_a = -1
-        elem_nodes_a = None
-        elem_coords_a = None
+        elem_id_a, elem_nodes_a, elem_coords_a = _resolve_facet_element_context(
+            use_elem=use_elem_a,
+            facet_id=int(fa),
+            facet_to_elem=facet_to_elem_a,
+            elem_conn=elem_conn_a,
+            coords=coords_a,
+            invalid_map_error="facet_to_elem_a has invalid mapping",
+            unsupported_error="surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only",
+        )
+        elem_id_b, elem_nodes_b, elem_coords_b = _resolve_facet_element_context(
+            use_elem=use_elem_b,
+            facet_id=int(fb),
+            facet_to_elem=facet_to_elem_b,
+            elem_conn=elem_conn_b,
+            coords=coords_b,
+            invalid_map_error="facet_to_elem_b has invalid mapping",
+            unsupported_error="surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only",
+        )
         local_a = None
-        if use_elem_a:
-            assert elem_conn_a is not None
-            assert facet_to_elem_a is not None
-            elem_id_a = int(facet_to_elem_a[int(fa)])
-            if elem_id_a < 0:
-                raise ValueError("facet_to_elem_a has invalid mapping")
-            elem_nodes_a = np.asarray(elem_conn_a[elem_id_a], dtype=int)
-            elem_coords_a = coords_a[elem_nodes_a]
-            if elem_coords_a.shape[0] not in {4, 8, 10, 20, 27}:
-                raise NotImplementedError("surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only")
-
-        elem_id_b = -1
-        elem_nodes_b = None
-        elem_coords_b = None
         local_b = None
-        if use_elem_b:
-            assert elem_conn_b is not None
-            assert facet_to_elem_b is not None
-            elem_id_b = int(facet_to_elem_b[int(fb)])
-            if elem_id_b < 0:
-                raise ValueError("facet_to_elem_b has invalid mapping")
-            elem_nodes_b = np.asarray(elem_conn_b[elem_id_b], dtype=int)
-            elem_coords_b = coords_b[elem_nodes_b]
-            if elem_coords_b.shape[0] not in {4, 8, 10, 20, 27}:
-                raise NotImplementedError("surface sym_grad is implemented for tet4/tet10/hex8/hex20/hex27 only")
         if proj_diag:
             _proj_diag_set_context(
                 fa=int(fa),
@@ -3321,42 +3503,40 @@ def assemble_mixed_surface_jacobian(
             )
 
         t_basis = time.perf_counter()
-        if grad_source == "surface":
-            gradNa = np.array(
-                [_surface_gradN(pt, facet_a, coords_a, tol=tol) for pt in x_q],
-                dtype=float,
-            )
-            gradNb = np.array(
-                [_surface_gradN(pt, facet_b, coords_b, tol=tol) for pt in x_q],
-                dtype=float,
-            )
-        if use_elem_a and grad_source == "volume":
-            assert elem_nodes_a is not None
-            assert elem_coords_a is not None
-            local_a = _local_indices(elem_nodes_a, facet_a)
-            gradNa = _tet_gradN_at_points(x_q, elem_coords_a, local=local_a, tol=tol)
-
-        if use_elem_b and grad_source == "volume":
-            assert elem_nodes_b is not None
-            assert elem_coords_b is not None
-            local_b = _local_indices(elem_nodes_b, facet_b)
-            gradNb = _tet_gradN_at_points(x_q, elem_coords_b, local=local_b, tol=tol)
-
-        if dof_source == "volume":
-            if not use_elem_a or elem_nodes_a is None or elem_coords_a is None:
-                raise ValueError("dof_source 'volume' requires elem_conn_a and facet_to_elem_a")
-            if not use_elem_b or elem_nodes_b is None or elem_coords_b is None:
-                raise ValueError("dof_source 'volume' requires elem_conn_b and facet_to_elem_b")
-            nodes_a = elem_nodes_a
-            nodes_b = elem_nodes_b
-            Na = _volume_shape_values_at_points(x_q, elem_coords_a, tol=tol)
-            Nb = _volume_shape_values_at_points(x_q, elem_coords_b, tol=tol)
-            if grad_source == "volume":
-                gradNa = _tet_gradN_at_points(x_q, elem_coords_a, tol=tol)
-                gradNb = _tet_gradN_at_points(x_q, elem_coords_b, tol=tol)
-        else:
-            Na = np.array([_facet_shape_values(pt, facet_a, coords_a, tol=tol) for pt in x_q], dtype=float)
-            Nb = np.array([_facet_shape_values(pt, facet_b, coords_b, tol=tol) for pt in x_q], dtype=float)
+        Na, gradNa, dofs_local_a, nodes_a, local_a = _build_side_field_data(
+            x_q=x_q,
+            facet_id=int(fa),
+            facet_nodes=facet_a,
+            coords=coords_a,
+            value_dim=value_dim_a,
+            n_facets=facets_a.shape[0],
+            dof_source=dof_source,
+            grad_source=grad_source,
+            space_mode=space_mode_a,
+            use_elem=use_elem_a,
+            elem_nodes=elem_nodes_a,
+            elem_coords=elem_coords_a,
+            facet_dofs=facet_dofs_a,
+            tol=tol,
+            volume_dof_error="dof_source 'volume' requires elem_conn_a and facet_to_elem_a",
+        )
+        Nb, gradNb, dofs_local_b, nodes_b, local_b = _build_side_field_data(
+            x_q=x_q,
+            facet_id=int(fb),
+            facet_nodes=facet_b,
+            coords=coords_b,
+            value_dim=value_dim_b,
+            n_facets=facets_b.shape[0],
+            dof_source=dof_source,
+            grad_source=grad_source,
+            space_mode=space_mode_b,
+            use_elem=use_elem_b,
+            elem_nodes=elem_nodes_b,
+            elem_coords=elem_coords_b,
+            facet_dofs=facet_dofs_b,
+            tol=tol,
+            volume_dof_error="dof_source 'volume' requires elem_conn_b and facet_to_elem_b",
+        )
         if guard and (not np.isfinite(Na).all() or not np.isfinite(Nb).all()):
             if log_tri:
                 _trace(f"[CONTACT] tri {it} N non-finite; skip")
@@ -3401,8 +3581,8 @@ def assemble_mixed_surface_jacobian(
 
         global _DEBUG_CONTACT_N_ONCE
         if diag_n and not _DEBUG_CONTACT_N_ONCE:
-            dofs_a = _global_dof_indices(nodes_a, value_dim_a, int(offset_a))
-            dofs_b = _global_dof_indices(nodes_b, value_dim_b, int(offset_b))
+            dofs_a = int(offset_a) + np.asarray(dofs_local_a, dtype=int)
+            dofs_b = int(offset_b) + np.asarray(dofs_local_b, dtype=int)
             samples = min(3, Na.shape[0])
             print("[fluxfem][diag][contact-n] first facet q-points")
             print(f"  nodes_a={nodes_a.tolist()} nodes_b={nodes_b.tolist()}")
@@ -3457,8 +3637,8 @@ def assemble_mixed_surface_jacobian(
         )
 
         u_elem = {
-            field_a: _gather_u_local(u_a, nodes_a, value_dim_a),
-            field_b: _gather_u_local(u_b, nodes_b, value_dim_b),
+            field_a: np.asarray(u_a, dtype=float)[np.asarray(dofs_local_a, dtype=int)],
+            field_b: np.asarray(u_b, dtype=float)[np.asarray(dofs_local_b, dtype=int)],
         }
         u_local = np.concatenate([u_elem[field_a], u_elem[field_b]], axis=0)
         sizes = (u_elem[field_a].shape[0], u_elem[field_b].shape[0])
@@ -3560,8 +3740,8 @@ def assemble_mixed_surface_jacobian(
             _trace_time(f"[CONTACT] tri {it} jac_done", t_jac)
         _tri_check("jac_done")
 
-        dofs_a = _global_dof_indices(nodes_a, value_dim_a, int(offset_a))
-        dofs_b = _global_dof_indices(nodes_b, value_dim_b, int(offset_b))
+        dofs_a = int(offset_a) + np.asarray(dofs_local_a, dtype=int)
+        dofs_b = int(offset_b) + np.asarray(dofs_local_b, dtype=int)
         if diag_force:
             _diag_contact_projection(
                 fa=int(fa),

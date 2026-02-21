@@ -79,6 +79,67 @@ def test_mixed_surface_penalty_matches_mortar():
     assert np.allclose(J[n_a:, n_a:], _coo_to_dense(M_bb, (n_b, n_b)), atol=1e-6)
 
 
+def test_mixed_surface_supports_p0_multiplier():
+    coords, surf_a, surf_b = _two_square_surfaces()
+    sm = ff.build_surface_supermesh(surf_a, surf_b, tol=1e-8)
+
+    def res_a(v, u, _p):
+        u_b = ff.unknown_ref("b")
+        return (v * (u.val - u_b.val)) * h_wf.ds()
+
+    def res_b(v, u, _p):
+        return (v * u.val) * h_wf.ds()
+
+    res_form = ff.compile_mixed_surface_residual({"a": res_a, "b": res_b})
+    u_a = jnp.zeros((surf_a.n_nodes,))
+    u_b = jnp.zeros((surf_b.n_facets,))  # P0: one dof per slave facet
+
+    R = ff.assemble_mixed_surface_residual(
+        sm.coords,
+        sm.conn,
+        sm.source_facets_a,
+        sm.source_facets_b,
+        surf_a,
+        surf_b,
+        res_form,
+        u_a,
+        u_b,
+        params={},
+        space_mode_a="nodal",
+        space_mode_b="p0",
+        dof_source="surface",
+        grad_source="surface",
+        quad_order=1,
+        tol=1e-8,
+    )
+    J = ff.assemble_mixed_surface_jacobian(
+        sm.coords,
+        sm.conn,
+        sm.source_facets_a,
+        sm.source_facets_b,
+        surf_a,
+        surf_b,
+        res_form,
+        u_a,
+        u_b,
+        params={},
+        space_mode_a="nodal",
+        space_mode_b="p0",
+        dof_source="surface",
+        grad_source="surface",
+        sparse=False,
+        quad_order=1,
+        tol=1e-8,
+    )
+
+    R = np.asarray(R)
+    J = np.asarray(J)
+    n_total = surf_a.n_nodes + surf_b.n_facets
+    assert R.shape == (n_total,)
+    assert J.shape == (n_total, n_total)
+    assert np.count_nonzero(np.abs(J)) > 0
+
+
 def _coo_to_dense(mat, shape):
     out = np.zeros(shape, dtype=float)
     for r, c, v in zip(mat.rows, mat.cols, mat.data):
