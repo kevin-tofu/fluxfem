@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>MixedForm and Block Utilities &#8212; FluxFEM 0.2.1 documentation</title>
+    <title>MixedForm and Block Utilities &#8212; FluxFEM 0.2.3 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=3ca669d2"></script>
+    <script src="_static/documentation_options.js?v=b557875f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
@@ -112,7 +112,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.1 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.3 documentation</p>
   
 </a></div>
     
@@ -439,17 +439,17 @@ coupled Jacobian and RHS, including the off-diagonal coupling between <code clas
 </section>
 <section id="block-utilities-minimal">
 <h2>Block utilities (minimal)<a class="headerlink" href="#block-utilities-minimal" title="Link to this heading">#</a></h2>
-<p>Build a named block dictionary (for use with <cite>MixedFESpace.build_block_system</cite>):</p>
+<p>Build a lazy block matrix (for manual assembly or inspection):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="kn">import</span> <span class="n">solver</span> <span class="k">as</span> <span class="n">ff_solver</span>
 
-<span class="n">diag</span> <span class="o">=</span> <span class="n">ff_solver</span><span class="o">.</span><span class="n">block_diag</span><span class="p">(</span><span class="n">a</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">b</span><span class="o">=</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+<span class="n">diag</span> <span class="o">=</span> <span class="n">ff_solver</span><span class="o">.</span><span class="n">block_diag</span><span class="p">(</span><span class="n">order</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">),</span> <span class="n">a</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">b</span><span class="o">=</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
 <span class="n">blocks</span> <span class="o">=</span> <span class="n">ff_solver</span><span class="o">.</span><span class="n">make_block_matrix</span><span class="p">(</span>
     <span class="n">diag</span><span class="o">=</span><span class="n">diag</span><span class="p">,</span>
-    <span class="n">sizes</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;a&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">},</span>
 <span class="p">)</span>
 
 <span class="c1"># blocks[&quot;a&quot;][&quot;a&quot;], blocks[&quot;a&quot;][&quot;b&quot;], blocks[&quot;b&quot;][&quot;a&quot;], blocks[&quot;b&quot;][&quot;b&quot;]</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">blocks</span><span class="o">.</span><span class="n">assemble</span><span class="p">()</span>
 </pre></div>
 </div>
 </section>
@@ -461,9 +461,8 @@ insert <cite>K12</cite> and (optionally) its transpose:</p>
     <span class="p">(</span><span class="s2">&quot;u&quot;</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">):</span> <span class="n">K_up</span><span class="p">,</span>
 <span class="p">}</span>
 <span class="n">blocks</span> <span class="o">=</span> <span class="n">ff_solver</span><span class="o">.</span><span class="n">make_block_matrix</span><span class="p">(</span>
-    <span class="n">diag</span><span class="o">=</span><span class="n">ff_solver</span><span class="o">.</span><span class="n">block_diag</span><span class="p">(</span><span class="n">u</span><span class="o">=</span><span class="n">K_uu</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="n">K_pp</span><span class="p">),</span>
+    <span class="n">diag</span><span class="o">=</span><span class="n">ff_solver</span><span class="o">.</span><span class="n">block_diag</span><span class="p">(</span><span class="n">order</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;u&quot;</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">),</span> <span class="n">u</span><span class="o">=</span><span class="n">K_uu</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="n">K_pp</span><span class="p">),</span>
     <span class="n">rel</span><span class="o">=</span><span class="n">rel</span><span class="p">,</span>
-    <span class="n">sizes</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">K_uu</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="n">K_pp</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]},</span>
     <span class="n">symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
     <span class="n">transpose_rule</span><span class="o">=</span><span class="s2">&quot;T&quot;</span><span class="p">,</span>
 <span class="p">)</span>

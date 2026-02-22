@@ -230,10 +230,12 @@ In the tests, this matches the tensor-based reference traction form:
 
 .. code-block:: python
 
+   import fluxfem.helpers_ts as h_ts
+
    surface_form = ff.LinearForm.surface(lambda v, t: wf.dot(v, t) * wf.ds())
 
    def traction_form(ctx: ff.SurfaceFormContext, t):
-       return ff.dot(ctx.v, t)
+       return h_ts.dot(ctx.v, t)
 
 Both assemblies match.
 

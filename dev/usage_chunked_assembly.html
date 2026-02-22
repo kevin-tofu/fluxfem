@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Chunked Assembly &#8212; FluxFEM 0.2.1 documentation</title>
+    <title>Chunked Assembly &#8212; FluxFEM 0.2.3 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=3ca669d2"></script>
+    <script src="_static/documentation_options.js?v=b557875f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'usage_chunked_assembly';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.1 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.3 documentation</p>
   
 </a></div>
     
@@ -406,17 +406,20 @@ chunk layout, which helps tune <code class="docutils literal notranslate"><span 
 </section>
 <section id="how-to-use-n-chunks">
 <h2><a class="toc-backref" href="#id2" role="doc-backlink">How to use <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code></a><a class="headerlink" href="#how-to-use-n-chunks" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code> argument is supported by the functional APIs
-<code class="docutils literal notranslate"><span class="pre">fluxfem.core.assemble_bilinear_form</span></code>, <code class="docutils literal notranslate"><span class="pre">assemble_linear_form</span></code>,
-<code class="docutils literal notranslate"><span class="pre">assemble_residual</span></code>, <code class="docutils literal notranslate"><span class="pre">assemble_jacobian</span></code>, and the <code class="docutils literal notranslate"><span class="pre">space.assemble_*</span></code>/
-<code class="docutils literal notranslate"><span class="pre">space.assemble</span></code> helpers. Pass a positive integer to request chunking:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span>
-    <span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span>
-    <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<p>Chunking is configured via <code class="docutils literal notranslate"><span class="pre">AssemblyPolicy</span></code>. This policy is accepted by both
+functional APIs (<code class="docutils literal notranslate"><span class="pre">fluxfem.core.assemble_*</span></code>) and <code class="docutils literal notranslate"><span class="pre">space.assemble*</span></code> helpers.
+Set <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code> to a positive integer:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">policy</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">AssemblyPolicy</span><span class="o">.</span><span class="n">chunked</span><span class="p">(</span>
     <span class="n">n_chunks</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
     <span class="n">pad_trace</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">policy</span><span class="p">)</span>
 </pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">space.assemble(...,</span> <span class="pre">n_chunks=...,</span> <span class="pre">pad_trace=...)</span></code> style kwargs are no
+longer supported. Pass tuning options through <code class="docutils literal notranslate"><span class="pre">AssemblyPolicy</span></code>.</p>
 </div>
 <p>FluxFEM automatically chooses <code class="docutils literal notranslate"><span class="pre">chunk_size</span> <span class="pre">=</span> <span class="pre">ceil(n_elems</span> <span class="pre">/</span> <span class="pre">n_chunks)</span></code>
 and rounds up the padded element data to the nearest multiple of that size.
@@ -429,8 +432,8 @@ final sparse matrix because the final data vector is sliced back to
 <ul class="simple">
 <li><p><strong>Pick powers of two when possible;</strong> they keep <code class="docutils literal notranslate"><span class="pre">chunk_size</span></code> regular and mesh
 partitions predictable.</p></li>
-<li><p><strong>Keep ``n_chunks`` ≤ ``n_elems``;</strong> the helper raises if you pass a larger
-value.</p></li>
+<li><p><strong>Set ``n_chunks`` based on mesh size;</strong> values larger than <code class="docutils literal notranslate"><span class="pre">n_elems</span></code> are
+automatically clamped to <code class="docutils literal notranslate"><span class="pre">n_elems</span></code>.</p></li>
 <li><p><strong>Combine with ``pad_trace=True`` when tuning.</strong> The trace output reports how
 many elements were padded so you can balance between padding overhead and
 JIT stability.</p></li>

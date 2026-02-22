@@ -42,6 +42,7 @@ Block matrices
 
 .. autofunction:: fluxfem.solver.block_diag
 .. autofunction:: fluxfem.solver.make_block_matrix
+.. autoclass:: fluxfem.solver.FluxBlockMatrix
 
 Nonlinear
 ---------
