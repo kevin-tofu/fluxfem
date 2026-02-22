@@ -69,6 +69,18 @@ def parse_args():
         default=3,
         help="Repeat assembly timing per mesh size (JIT reuse).",
     )
+    p.add_argument(
+        "--include-skfem",
+        action="store_true",
+        default=True,
+        help="Include scikit-fem baseline in compare mode (default: enabled).",
+    )
+    p.add_argument(
+        "--no-include-skfem",
+        dest="include_skfem",
+        action="store_false",
+        help="Disable scikit-fem baseline in compare mode.",
+    )
     return p.parse_args()
 
 
@@ -417,7 +429,7 @@ def main():
         gpu_json = Path(_make_backend_path(args.json, "gpu"))
         cpu = json.loads(cpu_json.read_text()) if cpu_json.exists() else {}
         gpu = json.loads(gpu_json.read_text()) if gpu_json.exists() else {}
-        sk = skfem_cases(args)
+        sk = skfem_cases(args) if args.include_skfem else None
 
         out_json = Path(args.json)
         out_json.parent.mkdir(parents=True, exist_ok=True)

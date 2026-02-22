@@ -155,6 +155,7 @@ def _integrate_q_bilinear(integrand: Array, wJ: Array, *, includes_measure: bool
 
 
 def _integrate_q_scalar(integrand: Array, wJ: Array, *, includes_measure: bool) -> Array:
+    """Integrate scalar quadrature values with optional embedded measure."""
     if includes_measure:
         return jnp.einsum("q->", integrand)
     return jnp.einsum("q,q->", integrand, wJ)
@@ -329,10 +330,11 @@ def _accumulate_chunk_vector_data(
     chunk_size: int,
     n_pad: int,
     m: int,
-    dtype: Any,
+    dtype: jnp.dtype | np.dtype | type,
     valid_mask: Array,
     chunk_values_fn: Callable[[int], Array],
 ) -> Array:
+    """Accumulate per-chunk vector blocks into a flat padded element-data buffer."""
     data = jnp.zeros((n_pad * m,), dtype=dtype)
 
     def loop_body(i, data_flat):
@@ -355,11 +357,12 @@ def _accumulate_chunk_vector_scatter(
     chunk_size: int,
     m: int,
     n_dofs: int,
-    dtype: Any,
+    dtype: jnp.dtype | np.dtype | type,
     valid_mask: Array,
     elem_dofs_pad: Array,
     chunk_values_fn: Callable[[int], Array],
 ) -> Array:
+    """Accumulate per-chunk vectors directly into global DOF space via scatter_add."""
     sdn = jax.lax.ScatterDimensionNumbers(
         update_window_dims=(),
         inserted_window_dims=(0,),
@@ -385,10 +388,11 @@ def _accumulate_chunk_matrix_data(
     chunk_size: int,
     n_pad: int,
     m: int,
-    dtype: Any,
+    dtype: jnp.dtype | np.dtype | type,
     valid_mask: Array,
     chunk_values_fn: Callable[[int], Array],
 ) -> Array:
+    """Accumulate per-chunk matrix blocks into a flat padded element-data buffer."""
     data = jnp.zeros((n_pad * m * m,), dtype=dtype)
 
     def loop_body(i, data_flat):
@@ -412,12 +416,13 @@ def _accumulate_chunk_matrix_and_vector_scatter(
     n_pad: int,
     m: int,
     n_dofs: int,
-    matrix_dtype: Any,
-    vector_dtype: Any,
+    matrix_dtype: jnp.dtype | np.dtype | type,
+    vector_dtype: jnp.dtype | np.dtype | type,
     valid_mask: Array,
     elem_dofs_pad: Array,
     chunk_values_fn: Callable[[int], tuple[Array, Array]],
 ) -> tuple[Array, Array]:
+    """Single-pass chunk accumulation for matrix data buffer + global RHS scatter."""
     K_data = jnp.zeros((n_pad * m * m,), dtype=matrix_dtype)
     sdn = jax.lax.ScatterDimensionNumbers(
         update_window_dims=(),
