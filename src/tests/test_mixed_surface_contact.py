@@ -140,6 +140,54 @@ def test_mixed_surface_supports_p0_multiplier():
     assert np.count_nonzero(np.abs(J)) > 0
 
 
+def test_mixed_surface_projection_supermesh_parity(monkeypatch):
+    coords, surf_a, surf_b = _two_square_surfaces()
+    sm = ff.build_surface_supermesh(surf_a, surf_b, tol=1e-8)
+
+    def res_a(v, u, _p):
+        u_b = ff.unknown_ref("b")
+        return (v * (u.val - u_b.val)) * h_wf.ds()
+
+    def res_b(v, u, _p):
+        u_a = ff.unknown_ref("a")
+        return (v * (u.val - u_a.val)) * h_wf.ds()
+
+    res_form = ff.compile_mixed_surface_residual({"a": res_a, "b": res_b})
+    rng = np.random.default_rng(1)
+    u_a = jnp.asarray(rng.standard_normal(surf_a.n_nodes))
+    u_b = jnp.asarray(rng.standard_normal(surf_b.n_nodes))
+
+    common = dict(
+        supermesh_coords=sm.coords,
+        supermesh_conn=sm.conn,
+        source_facets_a=sm.source_facets_a,
+        source_facets_b=sm.source_facets_b,
+        surface_a=surf_a,
+        surface_b=surf_b,
+        res_form=res_form,
+        u_a=u_a,
+        u_b=u_b,
+        params={},
+        space_mode_a="nodal",
+        space_mode_b="nodal",
+        dof_source="surface",
+        grad_source="surface",
+        quad_order=1,
+        tol=1e-8,
+    )
+
+    monkeypatch.setenv("FLUXFEM_MORTAR_MODE", "supermesh")
+    r_super = np.asarray(ff.assemble_mixed_surface_residual(**common))
+    j_super = np.asarray(ff.assemble_mixed_surface_jacobian(**common, sparse=False))
+
+    monkeypatch.setenv("FLUXFEM_MORTAR_MODE", "projection")
+    r_proj = np.asarray(ff.assemble_mixed_surface_residual(**common))
+    j_proj = np.asarray(ff.assemble_mixed_surface_jacobian(**common, sparse=False))
+
+    assert np.allclose(r_super, r_proj, atol=1e-6)
+    assert np.allclose(j_super, j_proj, atol=1e-6)
+
+
 def _coo_to_dense(mat, shape):
     out = np.zeros(shape, dtype=float)
     for r, c, v in zip(mat.rows, mat.cols, mat.data):

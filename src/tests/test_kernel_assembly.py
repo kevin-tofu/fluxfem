@@ -53,7 +53,7 @@ def test_linear_kernel_matches_form(n_chunks):
 @pytest.mark.parametrize("n_chunks", [None, 2])
 def test_residual_kernel_matches_form(n_chunks):
     space = _make_space()
-    u = jnp.arange(space.n_dofs, dtype=jnp.float64)
+    u = jnp.arange(space.n_dofs, dtype=jnp.float32)
     policy = None if n_chunks is None else ff.AssemblyPolicy.chunked(int(n_chunks))
 
     def simple_residual(ctx, u_elem, _params):
@@ -72,7 +72,7 @@ def test_residual_kernel_matches_form(n_chunks):
 @pytest.mark.parametrize("n_chunks", [None, 2])
 def test_jacobian_kernel_matches_form(n_chunks):
     space = _make_space()
-    u = jnp.arange(space.n_dofs, dtype=jnp.float64)
+    u = jnp.arange(space.n_dofs, dtype=jnp.float32)
     policy = None if n_chunks is None else ff.AssemblyPolicy.chunked(int(n_chunks))
 
     def simple_residual(ctx, u_elem, _params):

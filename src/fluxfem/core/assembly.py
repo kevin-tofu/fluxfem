@@ -154,6 +154,12 @@ def _integrate_q_bilinear(integrand: Array, wJ: Array, *, includes_measure: bool
     return jnp.einsum("qab,q->ab", integrand, wJ)
 
 
+def _integrate_q_scalar(integrand: Array, wJ: Array, *, includes_measure: bool) -> Array:
+    if includes_measure:
+        return jnp.einsum("q->", integrand)
+    return jnp.einsum("q,q->", integrand, wJ)
+
+
 def _integrate_q_tree(integrand: Any, wJ: Array, *, includes_measure: bool) -> Any:
     if includes_measure:
         return jax.tree_util.tree_map(lambda x: jnp.einsum("qa->a", x), integrand)
@@ -315,6 +321,130 @@ def _chunk_context_from_source(
         lambda x: _slice_first_dim(x, start, chunk_size),
         ctxs_pad,
     )
+
+
+def _accumulate_chunk_vector_data(
+    *,
+    n_chunks: int,
+    chunk_size: int,
+    n_pad: int,
+    m: int,
+    dtype: Any,
+    valid_mask: Array,
+    chunk_values_fn: Callable[[int], Array],
+) -> Array:
+    data = jnp.zeros((n_pad * m,), dtype=dtype)
+
+    def loop_body(i, data_flat):
+        start = i * chunk_size
+        vec_chunk = chunk_values_fn(start)
+        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(vec_chunk.dtype)
+        vec_chunk = vec_chunk * chunk_valid[:, None]
+        return jax.lax.dynamic_update_slice(
+            data_flat,
+            vec_chunk.reshape(chunk_size * m),
+            (start * m,),
+        )
+
+    return jax.lax.fori_loop(0, n_chunks, loop_body, data)
+
+
+def _accumulate_chunk_vector_scatter(
+    *,
+    n_chunks: int,
+    chunk_size: int,
+    m: int,
+    n_dofs: int,
+    dtype: Any,
+    valid_mask: Array,
+    elem_dofs_pad: Array,
+    chunk_values_fn: Callable[[int], Array],
+) -> Array:
+    sdn = jax.lax.ScatterDimensionNumbers(
+        update_window_dims=(),
+        inserted_window_dims=(0,),
+        scatter_dims_to_operand_dims=(0,),
+    )
+    F0 = jnp.zeros((n_dofs,), dtype=dtype)
+
+    def loop_body(i, F_acc):
+        start = i * chunk_size
+        vec_chunk = chunk_values_fn(start)
+        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(vec_chunk.dtype)
+        vec_chunk = vec_chunk * chunk_valid[:, None]
+        data_chunk = vec_chunk.reshape(chunk_size * m)
+        rows_chunk = _slice_first_dim(elem_dofs_pad, start, chunk_size).reshape(-1)
+        return jax.lax.scatter_add(F_acc, rows_chunk[:, None], data_chunk, sdn)
+
+    return jax.lax.fori_loop(0, n_chunks, loop_body, F0)
+
+
+def _accumulate_chunk_matrix_data(
+    *,
+    n_chunks: int,
+    chunk_size: int,
+    n_pad: int,
+    m: int,
+    dtype: Any,
+    valid_mask: Array,
+    chunk_values_fn: Callable[[int], Array],
+) -> Array:
+    data = jnp.zeros((n_pad * m * m,), dtype=dtype)
+
+    def loop_body(i, data_flat):
+        start = i * chunk_size
+        mat_chunk = chunk_values_fn(start)
+        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(mat_chunk.dtype)
+        mat_chunk = mat_chunk * chunk_valid[:, None, None]
+        return jax.lax.dynamic_update_slice(
+            data_flat,
+            mat_chunk.reshape(chunk_size * m * m),
+            (start * m * m,),
+        )
+
+    return jax.lax.fori_loop(0, n_chunks, loop_body, data)
+
+
+def _accumulate_chunk_matrix_and_vector_scatter(
+    *,
+    n_chunks: int,
+    chunk_size: int,
+    n_pad: int,
+    m: int,
+    n_dofs: int,
+    matrix_dtype: Any,
+    vector_dtype: Any,
+    valid_mask: Array,
+    elem_dofs_pad: Array,
+    chunk_values_fn: Callable[[int], tuple[Array, Array]],
+) -> tuple[Array, Array]:
+    K_data = jnp.zeros((n_pad * m * m,), dtype=matrix_dtype)
+    sdn = jax.lax.ScatterDimensionNumbers(
+        update_window_dims=(),
+        inserted_window_dims=(0,),
+        scatter_dims_to_operand_dims=(0,),
+    )
+    F0 = jnp.zeros((n_dofs,), dtype=vector_dtype)
+
+    def loop_body(i, carry):
+        K_flat, F_acc = carry
+        start = i * chunk_size
+        mat_chunk, vec_chunk = chunk_values_fn(start)
+        chunk_valid_mat = _slice_first_dim(valid_mask, start, chunk_size).astype(mat_chunk.dtype)
+        mat_chunk = mat_chunk * chunk_valid_mat[:, None, None]
+        chunk_valid_vec = _slice_first_dim(valid_mask, start, chunk_size).astype(vec_chunk.dtype)
+        vec_chunk = vec_chunk * chunk_valid_vec[:, None]
+        K_flat = jax.lax.dynamic_update_slice(
+            K_flat,
+            mat_chunk.reshape(chunk_size * m * m),
+            (start * m * m,),
+        )
+        data_chunk = vec_chunk.reshape(chunk_size * m)
+        rows_chunk = _slice_first_dim(elem_dofs_pad, start, chunk_size).reshape(-1)
+        F_acc = jax.lax.scatter_add(F_acc, rows_chunk[:, None], data_chunk, sdn)
+        return (K_flat, F_acc)
+
+    return jax.lax.fori_loop(0, n_chunks, loop_body, (K_data, F0))
 
 
 class BatchedAssembler:
@@ -536,7 +666,7 @@ class BatchedAssembler:
                 return FluxSparseMatrix(rows, cols, data, n_dofs=self.n_dofs)
             return rows, cols, data, self.n_dofs
         rows, cols = self._rows_cols()
-        idx = (rows.astype(jnp.int64) * int(self.n_dofs) + cols.astype(jnp.int64)).astype(INDEX_DTYPE)
+        idx = (rows.astype(INDEX_DTYPE) * int(self.n_dofs) + cols.astype(INDEX_DTYPE)).astype(INDEX_DTYPE)
         n_entries = self.n_dofs * self.n_dofs
         sdn = jax.lax.ScatterDimensionNumbers(
             update_window_dims=(),
@@ -724,10 +854,8 @@ def assemble_bilinear_form(
     sample_ke = kernel(sample_ctx)
     if m is None:
         m = int(sample_ke.shape[0])
-    data = jnp.zeros((n_pad * m * m,), dtype=sample_ke.dtype)
 
-    def loop_body(i, data_flat):
-        start = i * chunk_size
+    def chunk_values_fn(start: int) -> Array:
         ctx_chunk = _chunk_context_from_source(
             space,
             start=start,
@@ -739,13 +867,17 @@ def assemble_bilinear_form(
             include_x_q=include_x_q,
             lightweight_context=lightweight_context,
         )
-        Ke = jax.vmap(kernel)(ctx_chunk)  # (chunk, m, m)
-        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(Ke.dtype)
-        Ke = Ke * chunk_valid[:, None, None]
-        ke_flat = Ke.reshape(chunk_size * m * m)
-        return jax.lax.dynamic_update_slice(data_flat, ke_flat, (start * m * m,))
+        return jax.vmap(kernel)(ctx_chunk)
 
-    data = jax.lax.fori_loop(0, n_chunks, loop_body, data)
+    data = _accumulate_chunk_matrix_data(
+        n_chunks=n_chunks,
+        chunk_size=chunk_size,
+        n_pad=n_pad,
+        m=m,
+        dtype=sample_ke.dtype,
+        valid_mask=valid_mask,
+        chunk_values_fn=chunk_values_fn,
+    )
     data = data[: n_elems * m * m]
     return FluxSparseMatrix(pat, data)
 
@@ -763,6 +895,7 @@ def assemble_mass_matrix(
     Supports scalar and vector spaces. If lumped=True, rows are summed to diagonal.
     """
     from ..solver import FluxSparseMatrix  # local import to avoid circular
+    n_ldofs = int(space.n_ldofs)
     n_chunks, _include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
         policy=policy,
         n_chunks=n_chunks,
@@ -782,66 +915,60 @@ def assemble_mass_matrix(
         M_e_all = jax.vmap(per_element)(ctxs)  # (n_elems, n_ldofs, n_ldofs)
         data = M_e_all.reshape(-1)
     else:
-        n_elems = space.elem_dofs.shape[0]
+        n_elems = int(space.elem_dofs.shape[0])
         n_chunks, chunk_size, pad, n_pad, valid_mask = _prepare_chunk_iteration(
-            n_elems=int(n_elems),
+            n_elems=n_elems,
             n_chunks=n_chunks,
             pad_trace=pad_trace,
         )
-
-        use_chunk_context = bool(
-            chunk_build_context
-            and hasattr(space, "build_form_contexts_from_elem_coords")
-            and hasattr(space, "mesh")
+        use_chunk_context = bool(chunk_build_context)
+        use_chunk_context, conn_pad, elem_ids, ctxs_pad = _prepare_chunk_context_source(
+            space,
+            n_pad=n_pad,
+            pad=pad,
+            dep=None,
+            include_x_q=False,
+            lightweight_context=lightweight_context,
+            chunk_build_context=use_chunk_context,
         )
+        first_ctx_b = _chunk_context_from_source(
+            space,
+            start=0,
+            chunk_size=1,
+            use_chunk_context=use_chunk_context,
+            conn_pad=conn_pad,
+            elem_ids=elem_ids,
+            ctxs_pad=ctxs_pad,
+            include_x_q=False,
+            lightweight_context=lightweight_context,
+        )
+        sample_me = jax.vmap(per_element)(first_ctx_b)[0]
+        m = int(sample_me.shape[0])
 
-        if use_chunk_context:
-            conn = space.mesh.conn
-            if pad:
-                conn_pad = jnp.concatenate([conn, jnp.repeat(conn[-1:], pad, axis=0)], axis=0)
-            else:
-                conn_pad = conn
-            elem_ids = jnp.arange(int(n_pad), dtype=INDEX_DTYPE)
-        else:
-            ctxs = space.build_form_contexts(include_x_q=False, lightweight=lightweight_context)
-            if pad:
-                ctxs_pad = jax.tree_util.tree_map(
-                    lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
-                    ctxs,
-                )
-            else:
-                ctxs_pad = ctxs
-
-        data = jnp.zeros((n_pad * space.n_ldofs * space.n_ldofs,), dtype=space.mesh.coords.dtype)
-
-        def loop_body(i, data_flat):
-            start = i * chunk_size
-            if use_chunk_context:
-                conn_chunk = _slice_first_dim(conn_pad, start, chunk_size)
-                elem_coords_chunk = space.mesh.coords[conn_chunk]
-                elem_id_chunk = _slice_first_dim(elem_ids, start, chunk_size)
-                ctx_chunk = space.build_form_contexts_from_elem_coords(
-                    elem_coords_chunk,
-                    include_x_q=False,
-                    lightweight=lightweight_context,
-                    elem_id=elem_id_chunk,
-                )
-            else:
-                ctx_chunk = jax.tree_util.tree_map(
-                    lambda x: _slice_first_dim(x, start, chunk_size),
-                    ctxs_pad,
-                )
-            Me = jax.vmap(per_element)(ctx_chunk)
-            chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(Me.dtype)
-            Me = Me * chunk_valid[:, None, None]
-            return jax.lax.dynamic_update_slice(
-                data_flat,
-                Me.reshape(chunk_size * space.n_ldofs * space.n_ldofs),
-                (start * space.n_ldofs * space.n_ldofs,),
+        def chunk_values_fn(start: int) -> Array:
+            ctx_chunk = _chunk_context_from_source(
+                space,
+                start=start,
+                chunk_size=chunk_size,
+                use_chunk_context=use_chunk_context,
+                conn_pad=conn_pad,
+                elem_ids=elem_ids,
+                ctxs_pad=ctxs_pad,
+                include_x_q=False,
+                lightweight_context=lightweight_context,
             )
+            return jax.vmap(per_element)(ctx_chunk)
 
-        data = jax.lax.fori_loop(0, n_chunks, loop_body, data)
-        data = data[: n_elems * space.n_ldofs * space.n_ldofs]
+        data = _accumulate_chunk_matrix_data(
+            n_chunks=n_chunks,
+            chunk_size=chunk_size,
+            n_pad=n_pad,
+            m=m,
+            dtype=sample_me.dtype,
+            valid_mask=valid_mask,
+            chunk_values_fn=chunk_values_fn,
+        )
+        data = data[: n_elems * m * m]
 
     elem_dofs = space.elem_dofs
     pat = _get_pattern(space, with_idx=False)
@@ -954,10 +1081,7 @@ def assemble_linear_form(
 
         sample_fe = per_element(sample_ctx)
         if sparse:
-            data = jnp.zeros((n_pad * m,), dtype=sample_fe.dtype)
-
-            def loop_body(i, data_flat):
-                start = i * chunk_size
+            def chunk_values_fn(start: int) -> Array:
                 ctx_chunk = _chunk_context_from_source(
                     space,
                     start=start,
@@ -969,28 +1093,24 @@ def assemble_linear_form(
                     include_x_q=include_x_q,
                     lightweight_context=lightweight_context,
                 )
-                Fe = jax.vmap(per_element)(ctx_chunk)  # (chunk, m)
-                chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(Fe.dtype)
-                Fe = Fe * chunk_valid[:, None]
-                fe_flat = Fe.reshape(chunk_size * m)
-                return jax.lax.dynamic_update_slice(data_flat, fe_flat, (start * m,))
+                return jax.vmap(per_element)(ctx_chunk)
 
-            data = jax.lax.fori_loop(0, n_chunks, loop_body, data)
+            data = _accumulate_chunk_vector_data(
+                n_chunks=n_chunks,
+                chunk_size=chunk_size,
+                n_pad=n_pad,
+                m=m,
+                dtype=sample_fe.dtype,
+                valid_mask=valid_mask,
+                chunk_values_fn=chunk_values_fn,
+            )
             data = data[: n_elems * m]
         else:
             if pad:
                 elem_dofs_pad = jnp.concatenate([elem_dofs, jnp.repeat(elem_dofs[-1:], pad, axis=0)], axis=0)
             else:
                 elem_dofs_pad = elem_dofs
-            sdn = jax.lax.ScatterDimensionNumbers(
-                update_window_dims=(),
-                inserted_window_dims=(0,),
-                scatter_dims_to_operand_dims=(0,),
-            )
-            F0 = jnp.zeros((n_dofs,), dtype=sample_fe.dtype)
-
-            def loop_body_sum(i, F_acc):
-                start = i * chunk_size
+            def chunk_values_fn(start: int) -> Array:
                 ctx_chunk = _chunk_context_from_source(
                     space,
                     start=start,
@@ -1002,14 +1122,18 @@ def assemble_linear_form(
                     include_x_q=include_x_q,
                     lightweight_context=lightweight_context,
                 )
-                Fe = jax.vmap(per_element)(ctx_chunk)  # (chunk, m)
-                chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(Fe.dtype)
-                Fe = Fe * chunk_valid[:, None]
-                fe_flat = Fe.reshape(chunk_size * m)
-                rows_chunk = _slice_first_dim(elem_dofs_pad, start, chunk_size).reshape(-1)
-                return jax.lax.scatter_add(F_acc, rows_chunk[:, None], fe_flat, sdn)
+                return jax.vmap(per_element)(ctx_chunk)
 
-            return jax.lax.fori_loop(0, n_chunks, loop_body_sum, F0)
+            return _accumulate_chunk_vector_scatter(
+                n_chunks=n_chunks,
+                chunk_size=chunk_size,
+                m=m,
+                n_dofs=n_dofs,
+                dtype=sample_fe.dtype,
+                valid_mask=valid_mask,
+                elem_dofs_pad=elem_dofs_pad,
+                chunk_values_fn=chunk_values_fn,
+            )
 
     rows = _get_elem_rows(space)
 
@@ -1118,12 +1242,12 @@ def assemble_bilinear_linear_pair(
     sample_ke = bilinear_kernel(sample_ctx)
     sample_fe = linear_kernel(sample_ctx)
     m = int(sample_ke.shape[0])
-    K_data = jnp.zeros((n_pad * m * m,), dtype=sample_ke.dtype)
-    F_data = jnp.zeros((n_pad * m,), dtype=sample_fe.dtype)
+    if pad:
+        elem_dofs_pad = jnp.concatenate([space.elem_dofs, jnp.repeat(space.elem_dofs[-1:], pad, axis=0)], axis=0)
+    else:
+        elem_dofs_pad = space.elem_dofs
 
-    def loop_body(i, carry):
-        K_flat, F_flat = carry
-        start = i * chunk_size
+    def chunk_values_fn(start: int) -> tuple[Array, Array]:
         ctx_chunk = _chunk_context_from_source(
             space,
             start=start,
@@ -1135,20 +1259,21 @@ def assemble_bilinear_linear_pair(
             include_x_q=include_x_q,
             lightweight_context=lightweight_context,
         )
-        Ke = jax.vmap(bilinear_kernel)(ctx_chunk)
-        Fe = jax.vmap(linear_kernel)(ctx_chunk)
-        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(Ke.dtype)
-        Ke = Ke * chunk_valid[:, None, None]
-        Fe = Fe * chunk_valid[:, None]
-        K_flat = jax.lax.dynamic_update_slice(K_flat, Ke.reshape(chunk_size * m * m), (start * m * m,))
-        F_flat = jax.lax.dynamic_update_slice(F_flat, Fe.reshape(chunk_size * m), (start * m,))
-        return (K_flat, F_flat)
+        return jax.vmap(bilinear_kernel)(ctx_chunk), jax.vmap(linear_kernel)(ctx_chunk)
 
-    K_data, F_data = jax.lax.fori_loop(0, n_chunks, loop_body, (K_data, F_data))
+    K_data, F = _accumulate_chunk_matrix_and_vector_scatter(
+        n_chunks=n_chunks,
+        chunk_size=chunk_size,
+        n_pad=n_pad,
+        m=m,
+        n_dofs=space.n_dofs,
+        matrix_dtype=sample_ke.dtype,
+        vector_dtype=sample_fe.dtype,
+        valid_mask=valid_mask,
+        elem_dofs_pad=elem_dofs_pad,
+        chunk_values_fn=chunk_values_fn,
+    )
     K_data = K_data[: n_elems * m * m]
-    F_data = F_data[: n_elems * m]
-    rows = _get_elem_rows(space)
-    F = jax.ops.segment_sum(F_data, rows, space.n_dofs)
     return FluxSparseMatrix(pat, K_data), F
 
 
@@ -1165,10 +1290,12 @@ def assemble_functional(space: SpaceLike, form: FormKernel[P], params: P) -> jnp
         integrand = form(ctx, params)
         if integrand.ndim == 2 and integrand.shape[1] == 1:
             integrand = integrand[:, 0]
-        if includes_measure:
-            return jnp.sum(integrand)
         wJ = ctx.w * ctx.test.detJ
-        return jnp.sum(integrand * wJ)
+        return _integrate_q_scalar(
+            integrand,
+            wJ,
+            includes_measure=bool(includes_measure),
+        )
 
     vals = jax.vmap(per_element)(elem_data)
     return jnp.sum(vals)
@@ -1540,7 +1667,7 @@ def make_sparsity_pattern(space: SpaceLike, *, with_idx: bool = True) -> Sparsit
     rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1).astype(INDEX_DTYPE)
     cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1).astype(INDEX_DTYPE)
 
-    key = rows.astype(jnp.int64) * jnp.int64(n_dofs) + cols.astype(jnp.int64)
+    key = rows.astype(INDEX_DTYPE) * jnp.asarray(n_dofs, dtype=INDEX_DTYPE) + cols.astype(INDEX_DTYPE)
     order = jnp.argsort(key).astype(INDEX_DTYPE)
     rows_sorted = rows[order]
     cols_sorted = cols[order]
@@ -1550,7 +1677,7 @@ def make_sparsity_pattern(space: SpaceLike, *, with_idx: bool = True) -> Sparsit
     perm = order
 
     if with_idx:
-        idx = (rows.astype(jnp.int64) * jnp.int64(n_dofs) + cols.astype(jnp.int64)).astype(INDEX_DTYPE)
+        idx = (rows.astype(INDEX_DTYPE) * jnp.asarray(n_dofs, dtype=INDEX_DTYPE) + cols.astype(INDEX_DTYPE)).astype(INDEX_DTYPE)
         return SparsityPattern(
             rows=rows,
             cols=cols,
@@ -1636,10 +1763,7 @@ def assemble_jacobian_values(
     )
     sample_J = jax.vmap(ker)(first_u, first_ctx)[0]
 
-    data = jnp.zeros((n_pad * m * m,), dtype=sample_J.dtype)
-
-    def loop_body(i, data_flat):
-        start = i * chunk_size
+    def chunk_values_fn(start: int) -> Array:
         ctx_chunk = _chunk_context_from_source(
             space,
             start=start,
@@ -1652,16 +1776,17 @@ def assemble_jacobian_values(
             lightweight_context=lightweight_context,
         )
         u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
-        J_e = jax.vmap(ker)(u_chunk, ctx_chunk)
-        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(J_e.dtype)
-        J_e = J_e * chunk_valid[:, None, None]
-        return jax.lax.dynamic_update_slice(
-            data_flat,
-            J_e.reshape(chunk_size * m * m),
-            (start * m * m,),
-        )
+        return jax.vmap(ker)(u_chunk, ctx_chunk)
 
-    data = jax.lax.fori_loop(0, n_chunks, loop_body, data)
+    data = _accumulate_chunk_matrix_data(
+        n_chunks=n_chunks,
+        chunk_size=chunk_size,
+        n_pad=n_pad,
+        m=m,
+        dtype=sample_J.dtype,
+        valid_mask=valid_mask,
+        chunk_values_fn=chunk_values_fn,
+    )
     return data[: n_elems * m * m]
 
 
@@ -1731,10 +1856,20 @@ def assemble_residual_scatter(
 
         m = int(space.n_ldofs)
         if sparse:
-            data = jnp.zeros((n_pad * m,), dtype=u_elems.dtype)
+            first_ctx = _chunk_context_from_source(
+                space,
+                start=0,
+                chunk_size=1,
+                use_chunk_context=use_chunk_context,
+                conn_pad=conn_pad,
+                elem_ids=elem_ids,
+                ctxs_pad=ctxs_pad,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+            )
+            sample_res = jax.vmap(ker)(first_ctx, _slice_first_dim(u_elems_pad, 0, 1))[0]
 
-            def loop_body(i, data_flat):
-                start = i * chunk_size
+            def chunk_values_fn(start: int) -> Array:
                 ctx_chunk = _chunk_context_from_source(
                     space,
                     start=start,
@@ -1747,31 +1882,37 @@ def assemble_residual_scatter(
                     lightweight_context=lightweight_context,
                 )
                 u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
-                res_chunk = jax.vmap(ker)(ctx_chunk, u_chunk)
-                chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(res_chunk.dtype)
-                res_chunk = res_chunk * chunk_valid[:, None]
-                return jax.lax.dynamic_update_slice(
-                    data_flat,
-                    res_chunk.reshape(chunk_size * m),
-                    (start * m,),
-                )
+                return jax.vmap(ker)(ctx_chunk, u_chunk)
 
-            data = jax.lax.fori_loop(0, n_chunks, loop_body, data)
+            data = _accumulate_chunk_vector_data(
+                n_chunks=n_chunks,
+                chunk_size=chunk_size,
+                n_pad=n_pad,
+                m=m,
+                dtype=sample_res.dtype,
+                valid_mask=valid_mask,
+                chunk_values_fn=chunk_values_fn,
+            )
             data = data[: n_elems * m]
         else:
             if pad:
                 elem_dofs_pad = jnp.concatenate([elem_dofs, jnp.repeat(elem_dofs[-1:], pad, axis=0)], axis=0)
             else:
                 elem_dofs_pad = elem_dofs
-            sdn = jax.lax.ScatterDimensionNumbers(
-                update_window_dims=(),
-                inserted_window_dims=(0,),
-                scatter_dims_to_operand_dims=(0,),
+            first_ctx = _chunk_context_from_source(
+                space,
+                start=0,
+                chunk_size=1,
+                use_chunk_context=use_chunk_context,
+                conn_pad=conn_pad,
+                elem_ids=elem_ids,
+                ctxs_pad=ctxs_pad,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
             )
-            F0 = jnp.zeros((n_dofs,), dtype=u_elems.dtype)
+            sample_res = jax.vmap(ker)(first_ctx, _slice_first_dim(u_elems_pad, 0, 1))[0]
 
-            def loop_body_sum(i, F_acc):
-                start = i * chunk_size
+            def chunk_values_fn(start: int) -> Array:
                 ctx_chunk = _chunk_context_from_source(
                     space,
                     start=start,
@@ -1784,14 +1925,18 @@ def assemble_residual_scatter(
                     lightweight_context=lightweight_context,
                 )
                 u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
-                res_chunk = jax.vmap(ker)(ctx_chunk, u_chunk)
-                chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(res_chunk.dtype)
-                res_chunk = res_chunk * chunk_valid[:, None]
-                data_chunk = res_chunk.reshape(chunk_size * m)
-                rows_chunk = _slice_first_dim(elem_dofs_pad, start, chunk_size).reshape(-1)
-                return jax.lax.scatter_add(F_acc, rows_chunk[:, None], data_chunk, sdn)
+                return jax.vmap(ker)(ctx_chunk, u_chunk)
 
-            F = jax.lax.fori_loop(0, n_chunks, loop_body_sum, F0)
+            F = _accumulate_chunk_vector_scatter(
+                n_chunks=n_chunks,
+                chunk_size=chunk_size,
+                m=m,
+                n_dofs=n_dofs,
+                dtype=sample_res.dtype,
+                valid_mask=valid_mask,
+                elem_dofs_pad=elem_dofs_pad,
+                chunk_values_fn=chunk_values_fn,
+            )
             if jax.core.trace_ctx.is_top_level():
                 if not bool(jax.block_until_ready(jnp.all(jnp.isfinite(F)))):
                     bad = int(jnp.count_nonzero(~jnp.isfinite(F)))
@@ -1856,7 +2001,7 @@ def assemble_jacobian_scatter(
 
     idx = pat.idx
     if idx is None:
-        idx = (pat.rows.astype(jnp.int64) * int(pat.n_dofs) + pat.cols.astype(jnp.int64)).astype(INDEX_DTYPE)
+        idx = (pat.rows.astype(INDEX_DTYPE) * int(pat.n_dofs) + pat.cols.astype(INDEX_DTYPE)).astype(INDEX_DTYPE)
 
     n_entries = pat.n_dofs * pat.n_dofs
     sdn = jax.lax.ScatterDimensionNumbers(

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 else:
     ArrayLike: TypeAlias = np.ndarray
 COOTuple: TypeAlias = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int]
+INDEX_DTYPE = jnp.int64 if jax.config.read("jax_enable_x64") else jnp.int32
 
 
 def coalesce_coo(
@@ -121,11 +122,11 @@ class SparsityPattern:
         children = (
             self.rows,
             self.cols,
-            self.idx if self.idx is not None else jnp.array([], jnp.int64),
-            self.diag_idx if self.diag_idx is not None else jnp.array([], jnp.int64),
-            self.perm if self.perm is not None else jnp.array([], jnp.int64),
-            self.indptr if self.indptr is not None else jnp.array([], jnp.int64),
-            self.indices if self.indices is not None else jnp.array([], jnp.int64),
+            self.idx if self.idx is not None else jnp.array([], INDEX_DTYPE),
+            self.diag_idx if self.diag_idx is not None else jnp.array([], INDEX_DTYPE),
+            self.perm if self.perm is not None else jnp.array([], INDEX_DTYPE),
+            self.indptr if self.indptr is not None else jnp.array([], INDEX_DTYPE),
+            self.indices if self.indices is not None else jnp.array([], INDEX_DTYPE),
         )
         aux = {
             "n_dofs": self.n_dofs,
@@ -180,12 +181,12 @@ class FluxSparseMatrix:
             values = jnp.asarray(values)
         else:
             # Legacy signature: FluxSparseMatrix(rows, cols, data, n_dofs)
-            r_j = jnp.asarray(rows_or_pattern, dtype=jnp.int64)
-            c_j = jnp.asarray(cols, dtype=jnp.int64)
+            r_j = jnp.asarray(rows_or_pattern, dtype=INDEX_DTYPE)
+            c_j = jnp.asarray(cols, dtype=INDEX_DTYPE)
             is_tracer = isinstance(rows_or_pattern, jax.core.Tracer) or isinstance(cols, jax.core.Tracer)
             diag_idx_j = None
             if not is_tracer:
-                diag_idx_j = jnp.nonzero(r_j == c_j)[0].astype(jnp.int64)
+                diag_idx_j = jnp.nonzero(r_j == c_j)[0].astype(INDEX_DTYPE)
             if n_dofs is None:
                 if is_tracer:
                     raise ValueError("n_dofs must be provided when constructing FluxSparseMatrix under JIT.")

@@ -204,7 +204,7 @@ def assemble_mixed_jacobian_scatter(
 
     idx = pat.idx
     if idx is None:
-        idx = (pat.rows.astype(jnp.int64) * int(pat.n_dofs) + pat.cols.astype(jnp.int64)).astype(INDEX_DTYPE)
+        idx = (pat.rows.astype(INDEX_DTYPE) * int(pat.n_dofs) + pat.cols.astype(INDEX_DTYPE)).astype(INDEX_DTYPE)
 
     n_entries = pat.n_dofs * pat.n_dofs
     sdn = jax.lax.ScatterDimensionNumbers(

@@ -52,7 +52,7 @@ def test_mask_zeros_out_tail(n_active):
 
 def test_residual_jacobian_with_kernel_matches_space():
     space = _make_space()
-    u = jnp.arange(space.n_dofs, dtype=jnp.float64)
+    u = jnp.arange(space.n_dofs, dtype=jnp.float32)
 
     def simple_residual(ctx, u_elem, _params):
         return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))

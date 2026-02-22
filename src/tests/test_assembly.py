@@ -104,6 +104,53 @@ def test_bilinear_form_chunk_consistency(n_chunks):
     assert np.allclose(np.asarray(K_ref), np.asarray(K_chk))
 
 
+def test_chunk_parity_none_vs_8_across_core_assembly_paths():
+    """n_chunks=None and n_chunks=8 should match across core assembly entry points."""
+    mesh = ff.StructuredHexBox(nx=9, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(8)
+
+    K_ref = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense())
+    K_chk = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0, policy=pol).to_dense())
+    assert np.allclose(K_ref, K_chk)
+
+    F_ref = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0))
+    F_chk = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, policy=pol))
+    assert np.allclose(F_ref, F_chk)
+
+    M_ref = np.asarray(space.assemble_mass_matrix().to_dense())
+    M_chk = np.asarray(space.assemble_mass_matrix(policy=pol).to_dense())
+    assert np.allclose(M_ref, M_chk)
+
+    A_ref, b_ref = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+    )
+    A_chk, b_chk = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+        policy=pol,
+    )
+    assert np.allclose(np.asarray(A_ref.to_dense()), np.asarray(A_chk.to_dense()))
+    assert np.allclose(np.asarray(b_ref), np.asarray(b_chk))
+
+    def simple_residual(ctx, u_elem, params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+    R_ref = np.asarray(space.assemble_residual(simple_residual, u, params=None))
+    R_chk = np.asarray(space.assemble_residual(simple_residual, u, params=None, policy=pol))
+    assert np.allclose(R_ref, R_chk)
+
+    J_ref = np.asarray(space.assemble_jacobian(simple_residual, u, params=None, sparse=False))
+    J_chk = np.asarray(space.assemble_jacobian(simple_residual, u, params=None, sparse=False, policy=pol))
+    assert np.allclose(J_ref, J_chk)
+
+
 def test_assembly_policy_chunked_matches_explicit_kwargs():
     mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
@@ -228,7 +275,7 @@ def test_structured_hex_box_connectivity():
             [0, 1, 4, 3, 6, 7, 10, 9],   # element at i=0
             [1, 2, 5, 4, 7, 8, 11, 10],  # element at i=1
         ],
-        dtype=jnp.int64,
+        dtype=mesh.conn.dtype,
     )
     assert jnp.array_equal(mesh.conn, expected_conn), f"conn mismatch:\n{mesh.conn}"
 
