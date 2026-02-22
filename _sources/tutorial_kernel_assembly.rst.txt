@@ -109,5 +109,5 @@ Notes
 
 - The kernel controls JIT compilation. If shapes are stable, the compiled code
   is reused across calls.
-- You can combine this with chunked assembly (`n_chunks`) to stabilize
-  compilation when the last chunk is smaller.
+- You can combine this with chunked assembly (``policy=ff.AssemblyPolicy.chunked(...)``)
+  to stabilize compilation when the last chunk is smaller.

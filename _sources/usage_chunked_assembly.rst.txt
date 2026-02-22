@@ -26,19 +26,22 @@ Why chunked assembly?
 How to use ``n_chunks``
 -----------------------
 
-The ``n_chunks`` argument is supported by the functional APIs
-``fluxfem.core.assemble_bilinear_form``, ``assemble_linear_form``,
-``assemble_residual``, ``assemble_jacobian``, and the ``space.assemble_*``/
-``space.assemble`` helpers. Pass a positive integer to request chunking:
+Chunking is configured via ``AssemblyPolicy``. This policy is accepted by both
+functional APIs (``fluxfem.core.assemble_*``) and ``space.assemble*`` helpers.
+Set ``n_chunks`` to a positive integer:
 
 .. code-block:: python
 
-   K = space.assemble(
-       ff.diffusion_form,
-       params=1.0,
+   policy = ff.AssemblyPolicy.chunked(
        n_chunks=16,
        pad_trace=True,
    )
+   K = space.assemble(ff.diffusion_form, params=1.0, policy=policy)
+
+.. note::
+
+   ``space.assemble(..., n_chunks=..., pad_trace=...)`` style kwargs are no
+   longer supported. Pass tuning options through ``AssemblyPolicy``.
 
 FluxFEM automatically chooses ``chunk_size = ceil(n_elems / n_chunks)``
 and rounds up the padded element data to the nearest multiple of that size.
@@ -51,8 +54,8 @@ Best practices
 
 - **Pick powers of two when possible;** they keep ``chunk_size`` regular and mesh
   partitions predictable.
-- **Keep ``n_chunks`` ≤ ``n_elems``;** the helper raises if you pass a larger
-  value.
+- **Set ``n_chunks`` based on mesh size;** values larger than ``n_elems`` are
+  automatically clamped to ``n_elems``.
 - **Combine with ``pad_trace=True`` when tuning.** The trace output reports how
   many elements were padded so you can balance between padding overhead and
   JIT stability.
