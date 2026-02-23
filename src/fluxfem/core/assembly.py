@@ -195,325 +195,24 @@ def _get_elem_rows(space: SpaceLike) -> Array:
     return space.elem_dofs.reshape(-1)
 
 
-def chunk_pad_stats(n_elems: int, n_chunks: Optional[int]) -> dict[str, int | float | None]:
-    """
-    Compute padding overhead for chunked assembly.
-    Returns dict with chunk_size, pad, n_pad, and pad_ratio.
-    """
-    n_elems = int(n_elems)
-    if n_chunks is None or n_elems <= 0:
-        return {"chunk_size": None, "pad": 0, "n_pad": n_elems, "pad_ratio": 0.0}
-    n_chunks = min(int(n_chunks), n_elems)
-    chunk_size = (n_elems + n_chunks - 1) // n_chunks
-    pad = (-n_elems) % chunk_size
-    n_pad = n_elems + pad
-    pad_ratio = float(pad) / float(n_elems) if n_elems else 0.0
-    return {"chunk_size": int(chunk_size), "pad": int(pad), "n_pad": int(n_pad), "pad_ratio": pad_ratio}
-
-
-def _maybe_trace_pad(
-    stats: dict[str, int | float | None], *, n_chunks: Optional[int], pad_trace: bool
-) -> None:
-    if not pad_trace or not jax.core.trace_ctx.is_top_level():
-        return
-    if n_chunks is None:
-        return
-    print(
-        "[pad]",
-        f"n_chunks={int(n_chunks)}",
-        f"chunk_size={stats['chunk_size']}",
-        f"pad={stats['pad']}",
-        f"pad_ratio={stats['pad_ratio']:.4f}",
-        flush=True,
-    )
-
-
-def _slice_first_dim(x: Array, start: int, size: int) -> Array:
-    start_idx = (start,) + (0,) * (x.ndim - 1)
-    slice_sizes = (size,) + x.shape[1:]
-    return jax.lax.dynamic_slice(x, start_idx, slice_sizes)
-
-
-def _prepare_chunk_iteration(
-    *,
-    n_elems: int,
-    n_chunks: int | None,
-    pad_trace: bool,
-) -> tuple[int, int, int, int, Array]:
-    if n_chunks is None or n_chunks <= 0:
-        raise ValueError("n_chunks must be a positive integer.")
-    n_chunks_eff = min(int(n_chunks), int(n_elems))
-    chunk_size = (int(n_elems) + n_chunks_eff - 1) // n_chunks_eff
-    stats = chunk_pad_stats(n_elems, n_chunks_eff)
-    _maybe_trace_pad(stats, n_chunks=n_chunks_eff, pad_trace=pad_trace)
-    pad = (-int(n_elems)) % chunk_size
-    n_pad = int(n_elems) + pad
-    n_chunks_eff = n_pad // chunk_size
-    valid_mask = jnp.arange(int(n_pad), dtype=INDEX_DTYPE) < int(n_elems)
-    return int(n_chunks_eff), int(chunk_size), int(pad), int(n_pad), valid_mask
-
-
-def _prepare_chunk_context_source(
-    space: "SpaceLike",
-    *,
-    n_pad: int,
-    pad: int,
-    dep: jnp.ndarray | None,
-    include_x_q: bool | None,
-    lightweight_context: bool | None,
-    chunk_build_context: bool,
-    elem_data: FormContext | None = None,
-) -> tuple[bool, Array | None, Array | None, FormContext | None]:
-    use_chunk_context = bool(
-        chunk_build_context
-        and hasattr(space, "build_form_contexts_from_elem_coords")
-        and hasattr(space, "mesh")
-    )
-    if use_chunk_context:
-        conn = space.mesh.conn
-        if pad:
-            conn_pad = jnp.concatenate([conn, jnp.repeat(conn[-1:], pad, axis=0)], axis=0)
-        else:
-            conn_pad = conn
-        elem_ids = jnp.arange(int(n_pad), dtype=INDEX_DTYPE)
-        return True, conn_pad, elem_ids, None
-
-    ctxs = elem_data if elem_data is not None else space.build_form_contexts(
-        dep=dep,
-        include_x_q=include_x_q,
-        lightweight=lightweight_context,
-    )
-    if pad:
-        ctxs_pad = jax.tree_util.tree_map(
-            lambda x: jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)], axis=0),
-            ctxs,
-        )
-    else:
-        ctxs_pad = ctxs
-    return False, None, None, ctxs_pad
-
-
-def _chunk_context_from_source(
-    space: "SpaceLike",
-    *,
-    start: int,
-    chunk_size: int,
-    use_chunk_context: bool,
-    conn_pad: Array | None,
-    elem_ids: Array | None,
-    ctxs_pad: FormContext | None,
-    include_x_q: bool | None,
-    lightweight_context: bool | None,
-) -> FormContext:
-    if use_chunk_context:
-        assert conn_pad is not None
-        assert elem_ids is not None
-        conn_chunk = _slice_first_dim(conn_pad, start, chunk_size)
-        elem_coords_chunk = space.mesh.coords[conn_chunk]
-        elem_id_chunk = _slice_first_dim(elem_ids, start, chunk_size)
-        return space.build_form_contexts_from_elem_coords(
-            elem_coords_chunk,
-            include_x_q=include_x_q,
-            lightweight=lightweight_context,
-            elem_id=elem_id_chunk,
-        )
-    assert ctxs_pad is not None
-    return jax.tree_util.tree_map(
-        lambda x: _slice_first_dim(x, start, chunk_size),
-        ctxs_pad,
-    )
-
-
-def _accumulate_chunk_vector_data(
-    *,
-    n_chunks: int,
-    chunk_size: int,
-    n_pad: int,
-    m: int,
-    dtype: jnp.dtype | np.dtype | type,
-    valid_mask: Array,
-    chunk_values_fn: Callable[[int], Array],
-) -> Array:
-    """Accumulate per-chunk vector blocks into a flat padded element-data buffer."""
-    data = jnp.zeros((n_pad * m,), dtype=dtype)
-
-    def loop_body(i, data_flat):
-        start = i * chunk_size
-        vec_chunk = chunk_values_fn(start)
-        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(vec_chunk.dtype)
-        vec_chunk = vec_chunk * chunk_valid[:, None]
-        return jax.lax.dynamic_update_slice(
-            data_flat,
-            vec_chunk.reshape(chunk_size * m),
-            (start * m,),
-        )
-
-    return jax.lax.fori_loop(0, n_chunks, loop_body, data)
-
-
-def _accumulate_chunk_vector_scatter(
-    *,
-    n_chunks: int,
-    chunk_size: int,
-    m: int,
-    n_dofs: int,
-    dtype: jnp.dtype | np.dtype | type,
-    valid_mask: Array,
-    elem_dofs_pad: Array,
-    chunk_values_fn: Callable[[int], Array],
-) -> Array:
-    """Accumulate per-chunk vectors directly into global DOF space via scatter_add."""
-    sdn = jax.lax.ScatterDimensionNumbers(
-        update_window_dims=(),
-        inserted_window_dims=(0,),
-        scatter_dims_to_operand_dims=(0,),
-    )
-    F0 = jnp.zeros((n_dofs,), dtype=dtype)
-
-    def loop_body(i, F_acc):
-        start = i * chunk_size
-        vec_chunk = chunk_values_fn(start)
-        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(vec_chunk.dtype)
-        vec_chunk = vec_chunk * chunk_valid[:, None]
-        data_chunk = vec_chunk.reshape(chunk_size * m)
-        rows_chunk = _slice_first_dim(elem_dofs_pad, start, chunk_size).reshape(-1)
-        return jax.lax.scatter_add(F_acc, rows_chunk[:, None], data_chunk, sdn)
-
-    return jax.lax.fori_loop(0, n_chunks, loop_body, F0)
-
-
-def _accumulate_chunk_vector_segment(
-    *,
-    n_chunks: int,
-    chunk_size: int,
-    m: int,
-    n_dofs: int,
-    dtype: jnp.dtype | np.dtype | type,
-    valid_mask: Array,
-    elem_dofs_pad: Array,
-    chunk_values_fn: Callable[[int], Array],
-) -> Array:
-    """Accumulate per-chunk vectors into global DOF space via per-chunk segment_sum."""
-    F0 = jnp.zeros((n_dofs,), dtype=dtype)
-
-    def loop_body(i, F_acc):
-        start = i * chunk_size
-        vec_chunk = chunk_values_fn(start)
-        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(vec_chunk.dtype)
-        vec_chunk = vec_chunk * chunk_valid[:, None]
-        data_chunk = vec_chunk.reshape(chunk_size * m)
-        rows_chunk = _slice_first_dim(elem_dofs_pad, start, chunk_size).reshape(-1)
-        return F_acc + jax.ops.segment_sum(data_chunk, rows_chunk, n_dofs)
-
-    return jax.lax.fori_loop(0, n_chunks, loop_body, F0)
-
-
-def _accumulate_chunk_matrix_data(
-    *,
-    n_chunks: int,
-    chunk_size: int,
-    n_pad: int,
-    m: int,
-    dtype: jnp.dtype | np.dtype | type,
-    valid_mask: Array,
-    chunk_values_fn: Callable[[int], Array],
-) -> Array:
-    """Accumulate per-chunk matrix blocks into a flat padded element-data buffer."""
-    data = jnp.zeros((n_pad * m * m,), dtype=dtype)
-
-    def loop_body(i, data_flat):
-        start = i * chunk_size
-        mat_chunk = chunk_values_fn(start)
-        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(mat_chunk.dtype)
-        mat_chunk = mat_chunk * chunk_valid[:, None, None]
-        return jax.lax.dynamic_update_slice(
-            data_flat,
-            mat_chunk.reshape(chunk_size * m * m),
-            (start * m * m,),
-        )
-
-    return jax.lax.fori_loop(0, n_chunks, loop_body, data)
-
-
-def _accumulate_chunk_matrix_and_vector_scatter(
-    *,
-    n_chunks: int,
-    chunk_size: int,
-    n_pad: int,
-    m: int,
-    n_dofs: int,
-    matrix_dtype: jnp.dtype | np.dtype | type,
-    vector_dtype: jnp.dtype | np.dtype | type,
-    valid_mask: Array,
-    elem_dofs_pad: Array,
-    chunk_values_fn: Callable[[int], tuple[Array, Array]],
-) -> tuple[Array, Array]:
-    """Single-pass chunk accumulation for matrix data buffer + global RHS scatter."""
-    K_data = jnp.zeros((n_pad * m * m,), dtype=matrix_dtype)
-    sdn = jax.lax.ScatterDimensionNumbers(
-        update_window_dims=(),
-        inserted_window_dims=(0,),
-        scatter_dims_to_operand_dims=(0,),
-    )
-    F0 = jnp.zeros((n_dofs,), dtype=vector_dtype)
-
-    def loop_body(i, carry):
-        K_flat, F_acc = carry
-        start = i * chunk_size
-        mat_chunk, vec_chunk = chunk_values_fn(start)
-        chunk_valid_mat = _slice_first_dim(valid_mask, start, chunk_size).astype(mat_chunk.dtype)
-        mat_chunk = mat_chunk * chunk_valid_mat[:, None, None]
-        chunk_valid_vec = _slice_first_dim(valid_mask, start, chunk_size).astype(vec_chunk.dtype)
-        vec_chunk = vec_chunk * chunk_valid_vec[:, None]
-        K_flat = jax.lax.dynamic_update_slice(
-            K_flat,
-            mat_chunk.reshape(chunk_size * m * m),
-            (start * m * m,),
-        )
-        data_chunk = vec_chunk.reshape(chunk_size * m)
-        rows_chunk = _slice_first_dim(elem_dofs_pad, start, chunk_size).reshape(-1)
-        F_acc = jax.lax.scatter_add(F_acc, rows_chunk[:, None], data_chunk, sdn)
-        return (K_flat, F_acc)
-
-    return jax.lax.fori_loop(0, n_chunks, loop_body, (K_data, F0))
-
-
-def _accumulate_chunk_matrix_and_vector_segment(
-    *,
-    n_chunks: int,
-    chunk_size: int,
-    n_pad: int,
-    m: int,
-    n_dofs: int,
-    matrix_dtype: jnp.dtype | np.dtype | type,
-    vector_dtype: jnp.dtype | np.dtype | type,
-    valid_mask: Array,
-    elem_dofs_pad: Array,
-    chunk_values_fn: Callable[[int], tuple[Array, Array]],
-) -> tuple[Array, Array]:
-    """Chunk accumulation with matrix buffering + per-chunk segment_sum for vector."""
-    K_data = jnp.zeros((n_pad * m * m,), dtype=matrix_dtype)
-    F_acc = jnp.zeros((n_dofs,), dtype=vector_dtype)
-
-    def loop_body(i, carry):
-        K_flat, F = carry
-        start = i * chunk_size
-        mat_chunk, vec_chunk = chunk_values_fn(start)
-        chunk_valid_mat = _slice_first_dim(valid_mask, start, chunk_size).astype(mat_chunk.dtype)
-        chunk_valid_vec = _slice_first_dim(valid_mask, start, chunk_size).astype(vec_chunk.dtype)
-        mat_chunk = mat_chunk * chunk_valid_mat[:, None, None]
-        vec_chunk = vec_chunk * chunk_valid_vec[:, None]
-        K_flat = jax.lax.dynamic_update_slice(
-            K_flat,
-            mat_chunk.reshape(chunk_size * m * m),
-            (start * m * m,),
-        )
-        data_chunk = vec_chunk.reshape(chunk_size * m)
-        rows_chunk = _slice_first_dim(elem_dofs_pad, start, chunk_size).reshape(-1)
-        F = F + jax.ops.segment_sum(data_chunk, rows_chunk, n_dofs)
-        return (K_flat, F)
-
-    return jax.lax.fori_loop(0, n_chunks, loop_body, (K_data, F_acc))
+from .assembly_chunk_utils import (
+    _chunk_context_from_source,
+    _maybe_trace_pad,
+    _prepare_chunk_context_source,
+    _prepare_chunk_iteration,
+    _slice_first_dim,
+    chunk_pad_stats,
+)
+from .assembly_matrix import (
+    accumulate_chunk_matrix_and_vector_scatter as _accumulate_chunk_matrix_and_vector_scatter,
+    accumulate_chunk_matrix_and_vector_segment as _accumulate_chunk_matrix_and_vector_segment,
+    accumulate_chunk_matrix_data as _accumulate_chunk_matrix_data,
+)
+from .assembly_vector import (
+    accumulate_chunk_vector_data as _accumulate_chunk_vector_data,
+    accumulate_chunk_vector_scatter as _accumulate_chunk_vector_scatter,
+    accumulate_chunk_vector_segment as _accumulate_chunk_vector_segment,
+)
 
 
 class BatchedAssembler:
@@ -1366,44 +1065,8 @@ def assemble_jacobian_global(
     u: jnp.ndarray,
     params: P,
 ) -> JacobianReturn:
-    """
-    Assemble Jacobian (dR/du) from element residual res_form.
-    res_form(ctx, u_elem, params) -> (n_q, n_ldofs)
-    """
-    elem_dofs = space.elem_dofs
-    n_dofs = space.n_dofs
-    n_ldofs = space.n_ldofs
-
-    elem_data = space.build_form_contexts()
-
-    def fe_fun(u_elem, ctx: FormContext, elem_id):
-        ctx_with_id = FormContext(ctx.test, ctx.trial, ctx.x_q, ctx.w, elem_id)
-        integrand = res_form(ctx_with_id, u_elem, params)  # (n_q, m)
-        wJ = ctx.w * ctx.test.detJ
-        fe = _integrate_q_linear(
-            integrand,
-            wJ,
-            includes_measure=bool(getattr(res_form, "_includes_measure", False)),
-        )  # (m,)
-        return fe
-
-    jac_fun = jax.jacrev(fe_fun, argnums=0)
-
-    u_elems = u[elem_dofs]  # (n_elems, n_ldofs)
-    elem_ids = jnp.arange(elem_dofs.shape[0], dtype=INDEX_DTYPE)
-    J_e_all = jax.vmap(jac_fun)(u_elems, elem_data, elem_ids)  # (n_elems, m, m)
-
-    pat = _get_pattern(space, with_idx=False)
-    if pat is None:
-        rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
-        cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1)
-    else:
-        rows = pat.rows
-        cols = pat.cols
-    data = J_e_all.reshape(-1)
-
-    from ..solver import FluxSparseMatrix  # local import to avoid circular
-    return FluxSparseMatrix(rows, cols, data, n_dofs)
+    from .assembly_jacobian import assemble_jacobian_global as _impl
+    return _impl(space, res_form, u, params)
 
 
 def assemble_jacobian_elementwise(
@@ -1412,41 +1075,8 @@ def assemble_jacobian_elementwise(
     u: jnp.ndarray,
     params: P,
 ) -> JacobianReturn:
-    """
-    Assemble Jacobian with element kernels via vmap + scatter_add.
-    Recompiles if n_dofs changes, but independent of element count.
-    """
-    from ..solver import FluxSparseMatrix  # local import to avoid circular
-
-    elem_dofs = space.elem_dofs
-    n_dofs = space.n_dofs
-    n_ldofs = space.n_ldofs
-
-    ctxs = space.build_form_contexts()
-
-    def fe_fun(u_elem, ctx: FormContext):
-        integrand = res_form(ctx, u_elem, params)
-        wJ = ctx.w * ctx.test.detJ
-        return _integrate_q_linear(
-            integrand,
-            wJ,
-            includes_measure=bool(getattr(res_form, "_includes_measure", False)),
-        )
-
-    jac_fun = jax.jacrev(fe_fun, argnums=0)
-    u_elems = u[elem_dofs]
-    J_e_all = jax.vmap(jac_fun)(u_elems, ctxs)  # (n_elems, m, m)
-
-    pat = _get_pattern(space, with_idx=False)
-    if pat is None:
-        rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
-        cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1)
-    else:
-        rows = pat.rows
-        cols = pat.cols
-    data = J_e_all.reshape(-1)
-
-    return FluxSparseMatrix(rows, cols, data, n_dofs)
+    from .assembly_jacobian import assemble_jacobian_elementwise as _impl
+    return _impl(space, res_form, u, params)
 
 
 def assemble_residual_global(
@@ -1457,39 +1087,8 @@ def assemble_residual_global(
     *,
     sparse: bool = False
 ) -> LinearReturn:
-    """
-    Assemble residual vector that depends on u.
-    form(ctx, u_elem, params) -> (n_q, n_ldofs)
-    """
-    elem_dofs = space.elem_dofs
-    n_dofs = space.n_dofs
-    n_ldofs = space.n_ldofs
-
-    elem_data = space.build_form_contexts()
-
-    def per_element(ctx: FormContext, conn: jnp.ndarray, elem_id: jnp.ndarray):
-        u_elem = u[conn]
-        ctx_with_id = FormContext(ctx.test, ctx.trial, ctx.x_q, ctx.w, elem_id)
-        integrand = form(ctx_with_id, u_elem, params)  # (n_q, m)
-        wJ = ctx.w * ctx.test.detJ
-        fe = _integrate_q_linear(
-            integrand,
-            wJ,
-            includes_measure=bool(getattr(form, "_includes_measure", False)),
-        )
-        return fe
-
-    elem_ids = jnp.arange(elem_dofs.shape[0], dtype=INDEX_DTYPE)
-    F_e_all = jax.vmap(per_element)(elem_data, elem_dofs, elem_ids)  # (n_elems, m)
-
-    rows = _get_elem_rows(space)
-    data = F_e_all.reshape(-1)
-
-    if sparse:
-        return rows, data, n_dofs
-
-    F = jax.ops.segment_sum(data, rows, n_dofs)
-    return F
+    from .assembly_residual import assemble_residual_global as _impl
+    return _impl(space, form, u, params, sparse=sparse)
 
 
 def assemble_residual_elementwise(
@@ -1500,39 +1099,8 @@ def assemble_residual_elementwise(
     *,
     sparse: bool = False,
 ) -> LinearReturn:
-    """
-    Assemble residual using element kernels via vmap + scatter_add.
-    Recompiles if n_dofs changes, but independent of element count.
-    """
-    elem_dofs = space.elem_dofs
-    n_dofs = space.n_dofs
-    ctxs = space.build_form_contexts()
-
-    def per_element(ctx: FormContext, u_elem: jnp.ndarray):
-        integrand = res_form(ctx, u_elem, params)
-        wJ = ctx.w * ctx.test.detJ
-        return _integrate_q_linear(
-            integrand,
-            wJ,
-            includes_measure=bool(getattr(res_form, "_includes_measure", False)),
-        )
-
-    u_elems = u[elem_dofs]
-    F_e_all = jax.vmap(per_element)(ctxs, u_elems)  # (n_elems, m)
-    rows = _get_elem_rows(space)
-    data = F_e_all.reshape(-1)
-
-    if sparse:
-        return rows, data, n_dofs
-
-    sdn = jax.lax.ScatterDimensionNumbers(
-        update_window_dims=(),
-        inserted_window_dims=(0,),
-        scatter_dims_to_operand_dims=(0,),
-    )
-    F = jnp.zeros(n_dofs, dtype=data.dtype)
-    F = jax.lax.scatter_add(F, rows[:, None], data, sdn)
-    return F
+    from .assembly_residual import assemble_residual_elementwise as _impl
+    return _impl(space, res_form, u, params, sparse=sparse)
 
 
 # Backward compatibility aliases (prefer assemble_*_elementwise).
@@ -1543,102 +1111,43 @@ assemble_residual_elementwise_xla = assemble_residual_elementwise
 def make_element_bilinear_kernel(
     form: FormKernel[P], params: P, *, jit: bool = True
 ) -> ElementBilinearKernel:
-    """Element kernel: (ctx) -> Ke."""
-
-    def per_element(ctx: FormContext):
-        integrand = form(ctx, params)
-        wJ = ctx.w * ctx.test.detJ
-        return _integrate_q_bilinear(
-            integrand,
-            wJ,
-            includes_measure=bool(getattr(form, "_includes_measure", False)),
-        )
-
-    return jax.jit(per_element) if jit else per_element
+    from .assembly_kernels import make_element_bilinear_kernel as _impl
+    return _impl(form, params, jit=jit)
 
 
 def make_element_linear_kernel(
     form: FormKernel[P], params: P, *, jit: bool = True
 ) -> ElementLinearKernel:
-    """Element kernel: (ctx) -> fe."""
-
-    def per_element(ctx: FormContext):
-        integrand = form(ctx, params)
-        wJ = ctx.w * ctx.test.detJ
-        return _integrate_q_linear(
-            integrand,
-            wJ,
-            includes_measure=bool(getattr(form, "_includes_measure", False)),
-        )
-
-    return jax.jit(per_element) if jit else per_element
+    from .assembly_kernels import make_element_linear_kernel as _impl
+    return _impl(form, params, jit=jit)
 
 
 def make_element_residual_kernel(
     res_form: ResidualForm[P], params: P
 ) -> ElementResidualKernel:
-    """Jitted element residual kernel: (ctx, u_elem) -> fe."""
-
-    def per_element(ctx: FormContext, u_elem: jnp.ndarray):
-        integrand = res_form(ctx, u_elem, params)
-        wJ = ctx.w * ctx.test.detJ
-        return _integrate_q_linear(
-            integrand,
-            wJ,
-            includes_measure=bool(getattr(res_form, "_includes_measure", False)),
-        )
-
-    return jax.jit(per_element)
+    from .assembly_kernels import make_element_residual_kernel as _impl
+    return _impl(res_form, params)
 
 
 def make_element_jacobian_kernel(
     res_form: ResidualForm[P], params: P
 ) -> ElementJacobianKernel:
-    """Jitted element Jacobian kernel: (ctx, u_elem) -> Ke."""
-
-    def fe_fun(u_elem, ctx: FormContext):
-        integrand = res_form(ctx, u_elem, params)
-        wJ = ctx.w * ctx.test.detJ
-        return _integrate_q_linear(
-            integrand,
-            wJ,
-            includes_measure=bool(getattr(res_form, "_includes_measure", False)),
-        )
-
-    return jax.jit(jax.jacrev(fe_fun, argnums=0))
+    from .assembly_kernels import make_element_jacobian_kernel as _impl
+    return _impl(res_form, params)
 
 
 def element_residual(
     res_form: ResidualFormLike[P], ctx: FormContext, u_elem: ResidualInput, params: P
 ) -> ResidualValue:
-    """
-    Element residual vector r_e(u_e) = sum_q w_q * detJ_q * res_form(ctx, u_e, params).
-    Returns shape (n_ldofs,).
-    """
-    integrand = res_form(ctx, u_elem, params)  # (n_q, n_ldofs) or pytree
-    includes_measure = getattr(res_form, "_includes_measure", False)
-    if isinstance(integrand, jnp.ndarray):
-        wJ = ctx.w * ctx.test.detJ             # (n_q,)
-        return _integrate_q_linear(integrand, wJ, includes_measure=bool(includes_measure))
-    if hasattr(ctx, "fields") and ctx.fields is not None:
-        return _integrate_q_named_fields(cast(Mapping[str, Array], integrand), ctx, includes_measure)
-    return _integrate_q_tree(
-        integrand,
-        ctx.w * ctx.test.detJ,
-        includes_measure=bool(includes_measure),
-    )
+    from .assembly_kernels import element_residual as _impl
+    return _impl(res_form, ctx, u_elem, params)
 
 
 def element_jacobian(
     res_form: ResidualFormLike[P], ctx: FormContext, u_elem: ResidualInput, params: P
 ) -> ResidualValue:
-    """
-    Element Jacobian K_e = d r_e / d u_e (AD via jacfwd), shape (n_ldofs, n_ldofs).
-    """
-    def _r_elem(u_local):
-        return element_residual(res_form, ctx, u_local, params)
-
-    return jax.jacfwd(_r_elem)(u_elem)
+    from .assembly_kernels import element_jacobian as _impl
+    return _impl(res_form, ctx, u_elem, params)
 
 
 def make_element_kernel(
@@ -1648,85 +1157,13 @@ def make_element_kernel(
     kind: Literal["bilinear", "linear", "residual", "jacobian"],
     jit: bool = True,
 ) -> ElementKernel:
-    """
-    Unified entry point for element kernels.
-
-    kind:
-      - "bilinear": kernel(ctx) -> (n_ldofs, n_ldofs)
-      - "linear": kernel(ctx) -> (n_ldofs,)
-      - "residual": kernel(ctx, u_elem) -> (n_ldofs,)
-      - "jacobian": kernel(u_elem, ctx) -> (n_ldofs, n_ldofs)
-    """
-    kind = cast(Literal["bilinear", "linear", "residual", "jacobian"], kind.lower())
-    if kind == "bilinear":
-        form_bilinear = cast(FormKernel[P], form)
-        return make_element_bilinear_kernel(form_bilinear, params, jit=jit)
-    if kind == "linear":
-        form_linear = cast(FormKernel[P], form)
-        def per_element(ctx: FormContext):
-            integrand = form_linear(ctx, params)
-            wJ = ctx.w * ctx.test.detJ
-            return _integrate_q_linear(
-                integrand,
-                wJ,
-                includes_measure=bool(getattr(form_linear, "_includes_measure", False)),
-            )
-
-        return jax.jit(per_element) if jit else per_element
-    if kind == "residual":
-        form_residual = cast(ResidualForm[P], form)
-        return make_element_residual_kernel(form_residual, params)
-    if kind == "jacobian":
-        form_residual = cast(ResidualForm[P], form)
-        return make_element_jacobian_kernel(form_residual, params)
-    raise ValueError(f"Unknown kernel kind: {kind}")
+    from .assembly_kernels import make_element_kernel as _impl
+    return _impl(form, params, kind=kind, jit=jit)
 
 
 def make_sparsity_pattern(space: SpaceLike, *, with_idx: bool = True) -> SparsityPattern:
-    """
-    Build a SparsityPattern (rows/cols[/idx]) that is independent of the solution.
-    NOTE: rows/cols ordering matches assemble_jacobian_values(...).reshape(-1)
-    so that pattern and data are aligned 1:1. If you change the flattening/
-    compression strategy, keep this ordering contract in sync.
-    """
-    from ..solver import SparsityPattern  # local import to avoid circular
-
-    elem_dofs = jnp.asarray(space.elem_dofs, dtype=INDEX_DTYPE)
-    n_dofs = int(space.n_dofs)
-    n_ldofs = int(space.n_ldofs)
-
-    rows = jnp.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1).astype(INDEX_DTYPE)
-    cols = jnp.tile(elem_dofs, (1, n_ldofs)).reshape(-1).astype(INDEX_DTYPE)
-
-    key = rows.astype(INDEX_DTYPE) * jnp.asarray(n_dofs, dtype=INDEX_DTYPE) + cols.astype(INDEX_DTYPE)
-    order = jnp.argsort(key).astype(INDEX_DTYPE)
-    rows_sorted = rows[order]
-    cols_sorted = cols[order]
-    counts = jnp.bincount(rows_sorted, length=n_dofs).astype(INDEX_DTYPE)
-    indptr_j = jnp.concatenate([jnp.array([0], dtype=INDEX_DTYPE), jnp.cumsum(counts)])
-    indices_j = cols_sorted.astype(INDEX_DTYPE)
-    perm = order
-
-    if with_idx:
-        idx = (rows.astype(INDEX_DTYPE) * jnp.asarray(n_dofs, dtype=INDEX_DTYPE) + cols.astype(INDEX_DTYPE)).astype(INDEX_DTYPE)
-        return SparsityPattern(
-            rows=rows,
-            cols=cols,
-            n_dofs=n_dofs,
-            idx=idx,
-            perm=perm,
-            indptr=indptr_j,
-            indices=indices_j,
-        )
-    return SparsityPattern(
-        rows=rows,
-        cols=cols,
-        n_dofs=n_dofs,
-        idx=None,
-        perm=perm,
-        indptr=indptr_j,
-        indices=indices_j,
-    )
+    from .assembly_pattern import make_sparsity_pattern as _impl
+    return _impl(space, with_idx=with_idx)
 
 
 def assemble_jacobian_values(
@@ -1740,92 +1177,17 @@ def assemble_jacobian_values(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> Array:
-    """
-    Assemble only the numeric values for the Jacobian (pattern-free).
-    """
-    include_x_q_req: bool | None = None if policy is not None else False
-    n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
+    from .assembly_jacobian import assemble_jacobian_values as _impl
+    return _impl(
+        space,
+        res_form,
+        u,
+        params,
+        kernel=kernel,
+        n_chunks=n_chunks,
+        pad_trace=pad_trace,
         policy=policy,
-        n_chunks=n_chunks,
-        include_x_q=include_x_q_req,
-        lightweight_context=None,
-        chunk_build_context=None,
-        pad_trace=pad_trace,
     )
-    ker = kernel if kernel is not None else make_element_jacobian_kernel(res_form, params)
-    vmapped_kernel = jax.vmap(ker)
-
-    u_elems = u[space.elem_dofs]
-    if n_chunks is None:
-        def _eval(include_x_q_eff: bool) -> Array:
-            ctxs = space.build_form_contexts(include_x_q=include_x_q_eff, lightweight=lightweight_context)
-            return vmapped_kernel(u_elems, ctxs)
-
-        try:
-            J_e_all = _eval(include_x_q)  # (n_elem, m, m)
-        except Exception:
-            if include_x_q:
-                raise
-            J_e_all = _eval(True)
-        return J_e_all.reshape(-1)
-
-    n_elems = int(u_elems.shape[0])
-    n_chunks, chunk_size, pad, n_pad, valid_mask = _prepare_chunk_iteration(
-        n_elems=int(n_elems),
-        n_chunks=n_chunks,
-        pad_trace=pad_trace,
-    )
-    m = int(space.n_ldofs)
-    if pad:
-        u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
-    else:
-        u_elems_pad = u_elems
-    def _init_chunk(include_x_q_eff: bool) -> tuple[Array, Callable[[int], Array]]:
-        use_chunk_context, conn_pad, elem_ids, ctxs_pad = _prepare_chunk_context_source(
-            space,
-            n_pad=int(n_pad),
-            pad=int(pad),
-            dep=None,
-            include_x_q=include_x_q_eff,
-            lightweight_context=lightweight_context,
-            chunk_build_context=chunk_build_context,
-        )
-        def chunk_values_fn(start: int) -> Array:
-            ctx_chunk = _chunk_context_from_source(
-                space,
-                start=start,
-                chunk_size=chunk_size,
-                use_chunk_context=use_chunk_context,
-                conn_pad=conn_pad,
-                elem_ids=elem_ids,
-                ctxs_pad=ctxs_pad,
-                include_x_q=include_x_q_eff,
-                lightweight_context=lightweight_context,
-            )
-            u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
-            return vmapped_kernel(u_chunk, ctx_chunk)
-
-        # Keep sample and loop batch shapes aligned to avoid extra recompiles.
-        sample_J = chunk_values_fn(0)[0]
-        return sample_J, chunk_values_fn
-
-    try:
-        sample_J, chunk_values_fn = _init_chunk(include_x_q)
-    except Exception:
-        if include_x_q:
-            raise
-        sample_J, chunk_values_fn = _init_chunk(True)
-
-    data = _accumulate_chunk_matrix_data(
-        n_chunks=n_chunks,
-        chunk_size=chunk_size,
-        n_pad=n_pad,
-        m=m,
-        dtype=sample_J.dtype,
-        valid_mask=valid_mask,
-        chunk_values_fn=chunk_values_fn,
-    )
-    return data[: n_elems * m * m]
 
 
 def assemble_residual_scatter(
@@ -1841,183 +1203,19 @@ def assemble_residual_scatter(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
-    """
-    Assemble residual using jitted element kernel + vmap + scatter_add.
-    Avoids Python loops; good for JIT stability.
-
-    Note: `res_form` should return the integrand only; quadrature weights and detJ
-    are applied in the element kernel (make_element_residual_kernel). Do not multiply
-    by w or detJ inside `res_form`.
-    """
-    n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
-        policy=policy,
+    from .assembly_residual import assemble_residual_scatter as _impl
+    return _impl(
+        space,
+        res_form,
+        u,
+        params,
+        kernel=kernel,
+        sparse=sparse,
+        vector_accumulation=vector_accumulation,
         n_chunks=n_chunks,
-        include_x_q=None,
-        lightweight_context=None,
-        chunk_build_context=None,
         pad_trace=pad_trace,
+        policy=policy,
     )
-    if vector_accumulation not in ("segment", "scatter"):
-        raise ValueError(
-            f"vector_accumulation must be 'segment' or 'scatter' (got {vector_accumulation!r})"
-        )
-    elem_dofs = space.elem_dofs
-    n_dofs = space.n_dofs
-    if jax.core.trace_ctx.is_top_level():
-        if np.max(elem_dofs) >= n_dofs:
-            raise ValueError("elem_dofs contains index outside n_dofs")
-        if np.min(elem_dofs) < 0:
-            raise ValueError("elem_dofs contains negative index")
-    ker = kernel if kernel is not None else make_element_residual_kernel(res_form, params)
-
-    u_elems = u[elem_dofs]
-    if n_chunks is None:
-        ctxs = space.build_form_contexts(include_x_q=include_x_q, lightweight=lightweight_context)
-        elem_res = jax.vmap(ker)(ctxs, u_elems)  # (n_elem, n_ldofs)
-        data = elem_res.reshape(-1)
-    else:
-        n_elems = int(u_elems.shape[0])
-        n_chunks, chunk_size, pad, n_pad, valid_mask = _prepare_chunk_iteration(
-            n_elems=int(n_elems),
-            n_chunks=n_chunks,
-            pad_trace=pad_trace,
-        )
-        if pad:
-            u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
-        else:
-            u_elems_pad = u_elems
-
-        use_chunk_context, conn_pad, elem_ids, ctxs_pad = _prepare_chunk_context_source(
-            space,
-            n_pad=int(n_pad),
-            pad=int(pad),
-            dep=None,
-            include_x_q=include_x_q,
-            lightweight_context=lightweight_context,
-            chunk_build_context=chunk_build_context,
-        )
-
-        m = int(space.n_ldofs)
-        if sparse:
-            first_ctx = _chunk_context_from_source(
-                space,
-                start=0,
-                chunk_size=1,
-                use_chunk_context=use_chunk_context,
-                conn_pad=conn_pad,
-                elem_ids=elem_ids,
-                ctxs_pad=ctxs_pad,
-                include_x_q=include_x_q,
-                lightweight_context=lightweight_context,
-            )
-            sample_res = jax.vmap(ker)(first_ctx, _slice_first_dim(u_elems_pad, 0, 1))[0]
-
-            def chunk_values_fn(start: int) -> Array:
-                ctx_chunk = _chunk_context_from_source(
-                    space,
-                    start=start,
-                    chunk_size=chunk_size,
-                    use_chunk_context=use_chunk_context,
-                    conn_pad=conn_pad,
-                    elem_ids=elem_ids,
-                    ctxs_pad=ctxs_pad,
-                    include_x_q=include_x_q,
-                    lightweight_context=lightweight_context,
-                )
-                u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
-                return jax.vmap(ker)(ctx_chunk, u_chunk)
-
-            data = _accumulate_chunk_vector_data(
-                n_chunks=n_chunks,
-                chunk_size=chunk_size,
-                n_pad=n_pad,
-                m=m,
-                dtype=sample_res.dtype,
-                valid_mask=valid_mask,
-                chunk_values_fn=chunk_values_fn,
-            )
-            data = data[: n_elems * m]
-        else:
-            if pad:
-                elem_dofs_pad = jnp.concatenate([elem_dofs, jnp.repeat(elem_dofs[-1:], pad, axis=0)], axis=0)
-            else:
-                elem_dofs_pad = elem_dofs
-            first_ctx = _chunk_context_from_source(
-                space,
-                start=0,
-                chunk_size=1,
-                use_chunk_context=use_chunk_context,
-                conn_pad=conn_pad,
-                elem_ids=elem_ids,
-                ctxs_pad=ctxs_pad,
-                include_x_q=include_x_q,
-                lightweight_context=lightweight_context,
-            )
-            sample_res = jax.vmap(ker)(first_ctx, _slice_first_dim(u_elems_pad, 0, 1))[0]
-
-            def chunk_values_fn(start: int) -> Array:
-                ctx_chunk = _chunk_context_from_source(
-                    space,
-                    start=start,
-                    chunk_size=chunk_size,
-                    use_chunk_context=use_chunk_context,
-                    conn_pad=conn_pad,
-                    elem_ids=elem_ids,
-                    ctxs_pad=ctxs_pad,
-                    include_x_q=include_x_q,
-                    lightweight_context=lightweight_context,
-                )
-                u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
-                return jax.vmap(ker)(ctx_chunk, u_chunk)
-
-            if vector_accumulation == "scatter":
-                F = _accumulate_chunk_vector_scatter(
-                    n_chunks=n_chunks,
-                    chunk_size=chunk_size,
-                    m=m,
-                    n_dofs=n_dofs,
-                    dtype=sample_res.dtype,
-                    valid_mask=valid_mask,
-                    elem_dofs_pad=elem_dofs_pad,
-                    chunk_values_fn=chunk_values_fn,
-                )
-            else:
-                F = _accumulate_chunk_vector_segment(
-                    n_chunks=n_chunks,
-                    chunk_size=chunk_size,
-                    m=m,
-                    n_dofs=n_dofs,
-                    dtype=sample_res.dtype,
-                    valid_mask=valid_mask,
-                    elem_dofs_pad=elem_dofs_pad,
-                    chunk_values_fn=chunk_values_fn,
-                )
-            if jax.core.trace_ctx.is_top_level():
-                if not bool(jax.block_until_ready(jnp.all(jnp.isfinite(F)))):
-                    bad = int(jnp.count_nonzero(~jnp.isfinite(F)))
-                    raise RuntimeError(f"[assemble_residual_scatter] residual vector nonfinite: {bad}")
-            return F
-    if jax.core.trace_ctx.is_top_level():
-        if not bool(jax.block_until_ready(jnp.all(jnp.isfinite(data)))):
-            bad = int(jnp.count_nonzero(~jnp.isfinite(data)))
-            raise RuntimeError(f"[assemble_residual_scatter] residual data nonfinite: {bad}")
-
-    rows = _get_elem_rows(space)
-
-    if sparse:
-        return rows, data, n_dofs
-
-    if vector_accumulation == "scatter":
-        sdn = jax.lax.ScatterDimensionNumbers(
-            update_window_dims=(),
-            inserted_window_dims=(0,),
-            scatter_dims_to_operand_dims=(0,),
-        )
-        F = jnp.zeros((n_dofs,), dtype=data.dtype)
-        F = jax.lax.scatter_add(F, rows[:, None], data, sdn)
-        return F
-    F = jax.ops.segment_sum(data, rows, n_dofs)
-    return F
 
 
 def assemble_jacobian_scatter(
@@ -2032,24 +1230,18 @@ def assemble_jacobian_scatter(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> JacobianReturn:
-    """
-    Assemble Jacobian using jitted element kernel + vmap + scatter_add.
-    If a SparsityPattern is provided, rows/cols are reused without regeneration.
-    CONTRACT: The returned `data` ordering matches `pattern.rows/cols` exactly.
-    Any change to pattern generation or data flattening must preserve this.
-    """
-    from ..solver import FluxSparseMatrix  # local import to avoid circular
-    if pattern is not None:
-        pat = pattern
-    else:
-        pat = _get_pattern(space, with_idx=True)
-        if pat is None:
-            pat = make_sparsity_pattern(space, with_idx=True)
-    data = assemble_jacobian_values(
-        space, res_form, u, params, kernel=kernel, n_chunks=n_chunks, pad_trace=pad_trace, policy=policy
+    from .assembly_jacobian import assemble_jacobian_scatter as _impl
+    return _impl(
+        space,
+        res_form,
+        u,
+        params,
+        kernel=kernel,
+        pattern=pattern,
+        n_chunks=n_chunks,
+        pad_trace=pad_trace,
+        policy=policy,
     )
-
-    return FluxSparseMatrix(pat, data)
 
 
 # Alias scatter-based assembly as the default public API
@@ -2066,11 +1258,8 @@ def assemble_residual(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
-    """
-    Assemble the global residual vector (scatter-based).
-    If kernel is provided: kernel(ctx, u_elem) -> (n_ldofs,).
-    """
-    return assemble_residual_scatter(
+    from .assembly_residual import assemble_residual as _impl
+    return _impl(
         space,
         form,
         u,
@@ -2096,11 +1285,8 @@ def assemble_jacobian(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> JacobianReturn:
-    """
-    Assemble the global Jacobian (scatter-based).
-    If kernel is provided: kernel(u_elem, ctx) -> (n_ldofs, n_ldofs).
-    """
-    return assemble_jacobian_scatter(
+    from .assembly_jacobian import assemble_jacobian as _impl
+    return _impl(
         space,
         res_form,
         u,
@@ -2167,18 +1353,3 @@ def _check_structured_box_connectivity() -> None:
 
 if __name__ == "__main__":
     _check_structured_box_connectivity()
-    n_chunks, pad_trace = _resolve_chunk_policy(
-        policy=policy,
-        n_chunks=n_chunks,
-        pad_trace=pad_trace,
-    )
-    n_chunks, pad_trace = _resolve_chunk_policy(
-        policy=policy,
-        n_chunks=n_chunks,
-        pad_trace=pad_trace,
-    )
-    n_chunks, pad_trace = _resolve_chunk_policy(
-        policy=policy,
-        n_chunks=n_chunks,
-        pad_trace=pad_trace,
-    )
