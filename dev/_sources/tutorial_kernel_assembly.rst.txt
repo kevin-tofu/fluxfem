@@ -61,7 +61,8 @@ You can also use the unified entry point for all kernel kinds:
 
    # jacobian: kernel(u_elem, ctx) -> (n_ldofs, n_ldofs)
    ker_J = ff.make_element_kernel(res_form, params, kind="jacobian")
-   J = space.assemble_jacobian(res_form, u, params, kernel=ker_J, sparse=False)
+   J = space.assemble_jacobian(res_form, u, params, kernel=ker_J)
+   J_dense = J.to_dense()
 
 
 Using compiled DSL forms
@@ -101,7 +102,8 @@ Residual kernels take ``(ctx, u_elem)``, while Jacobian kernels take
    ker_J = ff.make_element_jacobian_kernel(simple_residual, params=None)
 
    R = space.assemble_residual(simple_residual, u, params=None, kernel=ker_R)
-   J = space.assemble_jacobian(simple_residual, u, params=None, kernel=ker_J, sparse=False)
+   J = space.assemble_jacobian(simple_residual, u, params=None, kernel=ker_J)
+   J_dense = J.to_dense()
 
 
 Notes

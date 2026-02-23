@@ -35,7 +35,7 @@ Define a mixed space, write per-field residuals, and solve in a single system:
 
    u0 = np.zeros(mixed.n_dofs)
    problem = ff.MixedProblem(mixed, residuals, params=params)
-   K = problem.assemble_jacobian(u0, return_flux_matrix=True)
+   K = problem.assemble_jacobian(u0)
    R0 = problem.assemble_residual(u0)
    b = -R0
    sol, _ = ff.LinearSolver(method="spsolve").solve(
