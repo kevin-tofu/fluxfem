@@ -506,13 +506,21 @@ class FESpaceClosure:
         policy: AssemblyPolicy | None = None,
         dep: jnp.ndarray | None = None,
         kernel: ElementLinearKernel | None = None,
+        vector_accumulation: Literal["segment", "scatter"] = "scatter",
         **kwargs,
     ) -> LinearReturn:
         """Assemble linear form; kernel(ctx) -> (n_ldofs,) if provided."""
         from .assembly import assemble_linear_form
         _reject_legacy_policy_kwargs(kwargs)
         return assemble_linear_form(
-            self, form, params, policy=policy, dep=dep, kernel=kernel, **kwargs
+            self,
+            form,
+            params,
+            policy=policy,
+            dep=dep,
+            kernel=kernel,
+            vector_accumulation=vector_accumulation,
+            **kwargs,
         )
 
     def assemble_bilinear_linear_pair(
@@ -526,6 +534,7 @@ class FESpaceClosure:
         dep: jnp.ndarray | None = None,
         bilinear_kernel: ElementBilinearKernel | None = None,
         linear_kernel: ElementLinearKernel | None = None,
+        vector_accumulation: Literal["segment", "scatter"] = "segment",
         **kwargs,
     ):
         from .assembly import assemble_bilinear_linear_pair
@@ -542,6 +551,7 @@ class FESpaceClosure:
             dep=dep,
             bilinear_kernel=bilinear_kernel,
             linear_kernel=linear_kernel,
+            vector_accumulation=vector_accumulation,
             **kwargs,
         )
 
@@ -563,10 +573,9 @@ class FESpaceClosure:
         self,
         kernel: FormKernel[P],
         params: P,
-        **kwargs,
     ) -> BilinearReturn:
         from .assembly import assemble_bilinear_dense
-        return assemble_bilinear_dense(self, kernel, params, **kwargs)
+        return assemble_bilinear_dense(self, kernel, params)
 
     def assemble_residual(
         self,
@@ -576,11 +585,21 @@ class FESpaceClosure:
         *,
         kernel: ElementResidualKernel | None = None,
         policy: AssemblyPolicy | None = None,
+        vector_accumulation: Literal["segment", "scatter"] = "scatter",
         **kwargs,
     ) -> LinearReturn:
         """Assemble residual; kernel(ctx, u_elem) -> (n_ldofs,) if provided."""
         from .assembly import assemble_residual
-        return assemble_residual(self, res_form, u, params, kernel=kernel, policy=policy, **kwargs)
+        return assemble_residual(
+            self,
+            res_form,
+            u,
+            params,
+            kernel=kernel,
+            policy=policy,
+            vector_accumulation=vector_accumulation,
+            **kwargs,
+        )
 
     def assemble_jacobian(
         self,
@@ -594,7 +613,22 @@ class FESpaceClosure:
     ) -> JacobianReturn:
         """Assemble Jacobian; kernel(u_elem, ctx) -> (n_ldofs, n_ldofs) if provided."""
         from .assembly import assemble_jacobian
-        return assemble_jacobian(self, res_form, u, params, kernel=kernel, policy=policy, **kwargs)
+        _reject_legacy_policy_kwargs(kwargs)
+        for removed in ("sparse", "return_flux_matrix", "matrix_accumulation"):
+            if removed in kwargs:
+                raise ValueError(
+                    f"{removed} is no longer supported for assemble_jacobian; "
+                    "assemble_jacobian now returns FluxSparseMatrix (use .to_dense() when needed)."
+                )
+        return assemble_jacobian(
+            self,
+            res_form,
+            u,
+            params,
+            kernel=kernel,
+            policy=policy,
+            **kwargs,
+        )
 
     def get_sparsity_pattern(self, *, with_idx: bool = True):
         cached = self._pattern_cache.get(with_idx)

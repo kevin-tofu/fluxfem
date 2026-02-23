@@ -35,9 +35,6 @@ def make_jitted_jacobian(
     space: FESpace,
     res_form: ResidualForm[P],
     params: P,
-    *,
-    sparse: bool = False,
-    return_flux_matrix: bool = False,
 ) -> Callable[[jax.Array], JacobianReturn]:
     """
     Create a jitted Jacobian assembler: u -> J(u).
@@ -53,8 +50,6 @@ def make_jitted_jacobian(
             res_form,
             u,
             params_jax,
-            sparse=sparse,
-            return_flux_matrix=return_flux_matrix,
         )
 
     return jacobian

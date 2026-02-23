@@ -44,12 +44,8 @@ def test_weakform_nonlinear_jacobian_matches_tensor():
     rng = np.random.default_rng(1)
     u = jnp.asarray(rng.standard_normal(space.n_dofs))
 
-    J_tensor = space.assemble_jacobian(
-        tensor_residual, u, params=None, sparse=False
-    )
-    J_wf = space.assemble_jacobian(
-        wf_residual.get_compiled(), u, params=None, sparse=False
-    )
+    J_tensor = space.assemble_jacobian(tensor_residual, u, params=None).to_dense()
+    J_wf = space.assemble_jacobian(wf_residual.get_compiled(), u, params=None).to_dense()
 
     assert np.allclose(np.asarray(J_tensor), np.asarray(J_wf))
 

@@ -146,9 +146,104 @@ def test_chunk_parity_none_vs_8_across_core_assembly_paths():
     R_chk = np.asarray(space.assemble_residual(simple_residual, u, params=None, policy=pol))
     assert np.allclose(R_ref, R_chk)
 
-    J_ref = np.asarray(space.assemble_jacobian(simple_residual, u, params=None, sparse=False))
-    J_chk = np.asarray(space.assemble_jacobian(simple_residual, u, params=None, sparse=False, policy=pol))
+    J_ref = np.asarray(space.assemble_jacobian(simple_residual, u, params=None).to_dense())
+    J_chk = np.asarray(space.assemble_jacobian(simple_residual, u, params=None, policy=pol).to_dense())
     assert np.allclose(J_ref, J_chk)
+
+
+@pytest.mark.parametrize("n_chunks", [2, 8])
+def test_bilinear_linear_pair_vector_accumulation_equivalence(n_chunks):
+    mesh = ff.StructuredHexBox(nx=9, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(int(n_chunks))
+
+    a_seg, b_seg = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+        policy=pol,
+        vector_accumulation="segment",
+    )
+    a_sca, b_sca = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+        policy=pol,
+        vector_accumulation="scatter",
+    )
+
+    assert np.allclose(np.asarray(a_seg.to_dense()), np.asarray(a_sca.to_dense()))
+    assert np.allclose(np.asarray(b_seg), np.asarray(b_sca))
+
+
+@pytest.mark.parametrize("n_chunks", [2, 8])
+def test_linear_form_vector_accumulation_equivalence(n_chunks):
+    mesh = ff.StructuredHexBox(nx=9, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(int(n_chunks))
+
+    f_seg = space.assemble_linear_form(
+        ff.scalar_body_force_form,
+        2.0,
+        policy=pol,
+        vector_accumulation="segment",
+    )
+    f_sca = space.assemble_linear_form(
+        ff.scalar_body_force_form,
+        2.0,
+        policy=pol,
+        vector_accumulation="scatter",
+    )
+    assert np.allclose(np.asarray(f_seg), np.asarray(f_sca))
+
+
+@pytest.mark.parametrize("n_chunks", [2, 8])
+def test_residual_vector_accumulation_equivalence(n_chunks):
+    mesh = ff.StructuredHexBox(nx=9, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(int(n_chunks))
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+
+    def simple_residual(ctx, u_elem, _params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    r_seg = space.assemble_residual(
+        simple_residual,
+        u,
+        params=None,
+        policy=pol,
+        vector_accumulation="segment",
+    )
+    r_sca = space.assemble_residual(
+        simple_residual,
+        u,
+        params=None,
+        policy=pol,
+        vector_accumulation="scatter",
+    )
+    assert np.allclose(np.asarray(r_seg), np.asarray(r_sca))
+
+
+@pytest.mark.parametrize("n_chunks", [2, 8])
+def test_jacobian_returns_flux_sparse_matrix(n_chunks):
+    mesh = ff.StructuredHexBox(nx=7, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(int(n_chunks))
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+
+    def simple_residual(ctx, u_elem, _params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    j_mat = space.assemble_jacobian(
+        simple_residual,
+        u,
+        params=None,
+        policy=pol,
+    )
+    assert isinstance(j_mat, ff.FluxSparseMatrix)
+    assert np.asarray(j_mat.to_dense()).shape == (space.n_dofs, space.n_dofs)
 
 
 def test_assembly_policy_chunked_matches_explicit_kwargs():
@@ -239,10 +334,10 @@ def test_jacobian_assemble_reuses_pattern():
 
     u = jnp.zeros(space.n_dofs)
     K_pattern = space.assemble_jacobian(
-        simple_residual, u, params=None, pattern=pattern, sparse=False
+        simple_residual, u, params=None, pattern=pattern
     )
     K_default = space.assemble_jacobian(
-        simple_residual, u, params=None, sparse=False
+        simple_residual, u, params=None
     )
     # K_pattern = assemble_jacobian_scatter(
     #     space, simple_residual, u, params=None, pattern=pattern, sparse=False
@@ -250,15 +345,14 @@ def test_jacobian_assemble_reuses_pattern():
     # K_default = assemble_jacobian_scatter(
     #     space, simple_residual, u, params=None, sparse=False
     # )
-    np.testing.assert_allclose(np.asarray(K_pattern), np.asarray(K_default))
+    np.testing.assert_allclose(np.asarray(K_pattern.to_dense()), np.asarray(K_default.to_dense()))
 
     A_sparse = space.assemble_jacobian(
-        simple_residual, u, params=None,
-        pattern=pattern, sparse=True, return_flux_matrix=True
+        simple_residual, u, params=None, pattern=pattern
     )
     vec = np.ones(space.n_dofs, dtype=np.float32)
     np.testing.assert_allclose(
-        np.asarray(A_sparse.matvec(vec)), np.asarray(K_default) @ vec
+        np.asarray(A_sparse.matvec(vec)), np.asarray(K_default.to_dense()) @ vec
     )
 
 

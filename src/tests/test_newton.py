@@ -44,7 +44,7 @@ def test_jacobian_matches_linear_diffusion():
         r_int = params * jnp.einsum("qai,qi->qa", ctx.test.gradN, grad_u)  # (q,n_nodes)
         return r_int
 
-    J_dense = space.assemble_jacobian(linear_res, u0, kappa, sparse=False)
+    J_dense = space.assemble_jacobian(linear_res, u0, kappa).to_dense()
     K = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=kappa).to_dense())
 
     # residual is +K u, so Jacobian should be +K

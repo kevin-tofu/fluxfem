@@ -65,8 +65,8 @@ def test_residual_jacobian_with_kernel_matches_space():
     R_default = space.assemble_residual(simple_residual, u, params=None)
     assert np.allclose(np.asarray(R_kernel), np.asarray(R_default))
 
-    J_kernel = batch.assemble_jacobian_with_kernel(ker_j, u, sparse=False)
-    J_default = space.assemble_jacobian(simple_residual, u, params=None, sparse=False)
+    J_kernel = batch.assemble_jacobian_with_kernel(ker_j, u).to_dense()
+    J_default = space.assemble_jacobian(simple_residual, u, params=None).to_dense()
     assert np.allclose(np.asarray(J_kernel), np.asarray(J_default))
 
 

@@ -35,9 +35,9 @@ def test_mixed_two_body_coupling_blocks():
 
     u_zero = jnp.zeros(space.n_dofs)
     M = space.assemble_jacobian(
-        ff.ResidualForm.volume(res_mass).get_compiled(), u_zero, params, sparse=False
+        ff.ResidualForm.volume(res_mass).get_compiled(), u_zero, params
     )
-    M = np.asarray(M)
+    M = np.asarray(M.to_dense())
 
     a_slice = mixed.field_slices["a"]
     b_slice = mixed.field_slices["b"]

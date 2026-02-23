@@ -382,6 +382,32 @@ def _accumulate_chunk_vector_scatter(
     return jax.lax.fori_loop(0, n_chunks, loop_body, F0)
 
 
+def _accumulate_chunk_vector_segment(
+    *,
+    n_chunks: int,
+    chunk_size: int,
+    m: int,
+    n_dofs: int,
+    dtype: jnp.dtype | np.dtype | type,
+    valid_mask: Array,
+    elem_dofs_pad: Array,
+    chunk_values_fn: Callable[[int], Array],
+) -> Array:
+    """Accumulate per-chunk vectors into global DOF space via per-chunk segment_sum."""
+    F0 = jnp.zeros((n_dofs,), dtype=dtype)
+
+    def loop_body(i, F_acc):
+        start = i * chunk_size
+        vec_chunk = chunk_values_fn(start)
+        chunk_valid = _slice_first_dim(valid_mask, start, chunk_size).astype(vec_chunk.dtype)
+        vec_chunk = vec_chunk * chunk_valid[:, None]
+        data_chunk = vec_chunk.reshape(chunk_size * m)
+        rows_chunk = _slice_first_dim(elem_dofs_pad, start, chunk_size).reshape(-1)
+        return F_acc + jax.ops.segment_sum(data_chunk, rows_chunk, n_dofs)
+
+    return jax.lax.fori_loop(0, n_chunks, loop_body, F0)
+
+
 def _accumulate_chunk_matrix_data(
     *,
     n_chunks: int,
@@ -450,6 +476,44 @@ def _accumulate_chunk_matrix_and_vector_scatter(
         return (K_flat, F_acc)
 
     return jax.lax.fori_loop(0, n_chunks, loop_body, (K_data, F0))
+
+
+def _accumulate_chunk_matrix_and_vector_segment(
+    *,
+    n_chunks: int,
+    chunk_size: int,
+    n_pad: int,
+    m: int,
+    n_dofs: int,
+    matrix_dtype: jnp.dtype | np.dtype | type,
+    vector_dtype: jnp.dtype | np.dtype | type,
+    valid_mask: Array,
+    elem_dofs_pad: Array,
+    chunk_values_fn: Callable[[int], tuple[Array, Array]],
+) -> tuple[Array, Array]:
+    """Chunk accumulation with matrix buffering + per-chunk segment_sum for vector."""
+    K_data = jnp.zeros((n_pad * m * m,), dtype=matrix_dtype)
+    F_acc = jnp.zeros((n_dofs,), dtype=vector_dtype)
+
+    def loop_body(i, carry):
+        K_flat, F = carry
+        start = i * chunk_size
+        mat_chunk, vec_chunk = chunk_values_fn(start)
+        chunk_valid_mat = _slice_first_dim(valid_mask, start, chunk_size).astype(mat_chunk.dtype)
+        chunk_valid_vec = _slice_first_dim(valid_mask, start, chunk_size).astype(vec_chunk.dtype)
+        mat_chunk = mat_chunk * chunk_valid_mat[:, None, None]
+        vec_chunk = vec_chunk * chunk_valid_vec[:, None]
+        K_flat = jax.lax.dynamic_update_slice(
+            K_flat,
+            mat_chunk.reshape(chunk_size * m * m),
+            (start * m * m,),
+        )
+        data_chunk = vec_chunk.reshape(chunk_size * m)
+        rows_chunk = _slice_first_dim(elem_dofs_pad, start, chunk_size).reshape(-1)
+        F = F + jax.ops.segment_sum(data_chunk, rows_chunk, n_dofs)
+        return (K_flat, F)
+
+    return jax.lax.fori_loop(0, n_chunks, loop_body, (K_data, F_acc))
 
 
 class BatchedAssembler:
@@ -648,9 +712,7 @@ class BatchedAssembler:
         u: Array,
         *,
         mask: Array | None = None,
-        sparse: bool = True,
-        return_flux_matrix: bool = False,
-    ) -> JacobianReturn:
+    ) -> FluxSparseMatrix:
         """
         kernel(u_elem, ctx) -> (n_ldofs, n_ldofs)
         """
@@ -661,26 +723,10 @@ class BatchedAssembler:
         if mask is not None:
             J_e = J_e * jnp.asarray(mask)[:, None, None]
         data = J_e.reshape(-1)
-        if sparse:
-            if self.pattern is not None:
-                if return_flux_matrix:
-                    return FluxSparseMatrix(self.pattern, data)
-                return self.pattern.rows, self.pattern.cols, data, self.n_dofs
-            rows, cols = self._rows_cols()
-            if return_flux_matrix:
-                return FluxSparseMatrix(rows, cols, data, n_dofs=self.n_dofs)
-            return rows, cols, data, self.n_dofs
+        if self.pattern is not None:
+            return FluxSparseMatrix(self.pattern, data)
         rows, cols = self._rows_cols()
-        idx = (rows.astype(INDEX_DTYPE) * int(self.n_dofs) + cols.astype(INDEX_DTYPE)).astype(INDEX_DTYPE)
-        n_entries = self.n_dofs * self.n_dofs
-        sdn = jax.lax.ScatterDimensionNumbers(
-            update_window_dims=(),
-            inserted_window_dims=(0,),
-            scatter_dims_to_operand_dims=(0,),
-        )
-        K_flat = jnp.zeros(n_entries, dtype=data.dtype)
-        K_flat = jax.lax.scatter_add(K_flat, idx[:, None], data, sdn)
-        return K_flat.reshape(self.n_dofs, self.n_dofs)
+        return FluxSparseMatrix(rows, cols, data, n_dofs=self.n_dofs)
 
     def assemble_jacobian(
         self,
@@ -690,17 +736,13 @@ class BatchedAssembler:
         *,
         mask: Array | None = None,
         kernel: ElementJacobianKernel | None = None,
-        sparse: bool = True,
-        return_flux_matrix: bool = False,
-    ) -> JacobianReturn:
+    ) -> FluxSparseMatrix:
         if kernel is None:
             kernel = make_element_jacobian_kernel(res_form, params)
         return self.assemble_jacobian_with_kernel(
             kernel,
             u,
             mask=mask,
-            sparse=sparse,
-            return_flux_matrix=return_flux_matrix,
         )
 
 class SpaceLike(FESpaceBase, Protocol):
@@ -711,9 +753,6 @@ def assemble_bilinear_dense(
     space: SpaceLike,
     kernel: FormKernel[P],
     params: P,
-    *,
-    sparse: bool = False,
-    return_flux_matrix: bool = False,
 ) -> BilinearReturn:
     """
     Similar to scikit-fem's asm(biform, basis).
@@ -744,20 +783,8 @@ def assemble_bilinear_dense(
         cols = pat.cols
     data = K_e_all.reshape(-1)
 
-    # Flatten indices for segment_sum via (row * n_dofs + col)
-    idx = rows * n_dofs + cols  # (n_entries,)
-
-    if sparse:
-        if return_flux_matrix:
-            from ..solver import FluxSparseMatrix  # local import to avoid circular
-            return FluxSparseMatrix(rows, cols, data, n_dofs)
-        return rows, cols, data, n_dofs
-
-    n_entries = n_dofs * n_dofs
-    out = jnp.zeros((n_entries,), dtype=data.dtype)
-    out = out.at[idx].add(data)
-    K = out.reshape(n_dofs, n_dofs)
-    return K
+    from ..solver import FluxSparseMatrix  # local import to avoid circular
+    return FluxSparseMatrix(rows, cols, data, n_dofs).to_dense()
 
 
 def assemble_bilinear_form(
@@ -1000,6 +1027,7 @@ def assemble_linear_form(
     *,
     kernel: ElementLinearKernel | None = None,
     sparse: bool = False,
+    vector_accumulation: Literal["segment", "scatter"] = "scatter",
     n_chunks: Optional[int] = None,
     dep: jnp.ndarray | None = None,
     elem_data: FormContext | None = None,
@@ -1024,6 +1052,10 @@ def assemble_linear_form(
         chunk_build_context=chunk_build_context,
         pad_trace=pad_trace,
     )
+    if vector_accumulation not in ("segment", "scatter"):
+        raise ValueError(
+            f"vector_accumulation must be 'segment' or 'scatter' (got {vector_accumulation!r})"
+        )
 
     includes_measure = getattr(form, "_includes_measure", False)
 
@@ -1129,7 +1161,18 @@ def assemble_linear_form(
                 )
                 return jax.vmap(per_element)(ctx_chunk)
 
-            return _accumulate_chunk_vector_scatter(
+            if vector_accumulation == "scatter":
+                return _accumulate_chunk_vector_scatter(
+                    n_chunks=n_chunks,
+                    chunk_size=chunk_size,
+                    m=m,
+                    n_dofs=n_dofs,
+                    dtype=sample_fe.dtype,
+                    valid_mask=valid_mask,
+                    elem_dofs_pad=elem_dofs_pad,
+                    chunk_values_fn=chunk_values_fn,
+                )
+            return _accumulate_chunk_vector_segment(
                 n_chunks=n_chunks,
                 chunk_size=chunk_size,
                 m=m,
@@ -1165,6 +1208,7 @@ def assemble_bilinear_linear_pair(
     chunk_build_context: bool | None = None,
     bilinear_kernel: ElementBilinearKernel | None = None,
     linear_kernel: ElementLinearKernel | None = None,
+    vector_accumulation: Literal["segment", "scatter"] = "segment",
     jit: bool = True,
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
@@ -1191,6 +1235,10 @@ def assemble_bilinear_linear_pair(
         bilinear_kernel = make_element_bilinear_kernel(bilinear_form, bilinear_params, jit=jit)
     if linear_kernel is None:
         linear_kernel = make_element_linear_kernel(linear_form, linear_params, jit=jit)
+    if vector_accumulation not in ("segment", "scatter"):
+        raise ValueError(
+            f"vector_accumulation must be 'segment' or 'scatter' (got {vector_accumulation!r})"
+        )
 
     n_elems = int(space.elem_dofs.shape[0])
     n_ldofs = int(space.n_ldofs)
@@ -1266,18 +1314,32 @@ def assemble_bilinear_linear_pair(
         )
         return jax.vmap(bilinear_kernel)(ctx_chunk), jax.vmap(linear_kernel)(ctx_chunk)
 
-    K_data, F = _accumulate_chunk_matrix_and_vector_scatter(
-        n_chunks=n_chunks,
-        chunk_size=chunk_size,
-        n_pad=n_pad,
-        m=m,
-        n_dofs=space.n_dofs,
-        matrix_dtype=sample_ke.dtype,
-        vector_dtype=sample_fe.dtype,
-        valid_mask=valid_mask,
-        elem_dofs_pad=elem_dofs_pad,
-        chunk_values_fn=chunk_values_fn,
-    )
+    if vector_accumulation == "scatter":
+        K_data, F = _accumulate_chunk_matrix_and_vector_scatter(
+            n_chunks=n_chunks,
+            chunk_size=chunk_size,
+            n_pad=n_pad,
+            m=m,
+            n_dofs=space.n_dofs,
+            matrix_dtype=sample_ke.dtype,
+            vector_dtype=sample_fe.dtype,
+            valid_mask=valid_mask,
+            elem_dofs_pad=elem_dofs_pad,
+            chunk_values_fn=chunk_values_fn,
+        )
+    else:
+        K_data, F = _accumulate_chunk_matrix_and_vector_segment(
+            n_chunks=n_chunks,
+            chunk_size=chunk_size,
+            n_pad=n_pad,
+            m=m,
+            n_dofs=space.n_dofs,
+            matrix_dtype=sample_ke.dtype,
+            vector_dtype=sample_fe.dtype,
+            valid_mask=valid_mask,
+            elem_dofs_pad=elem_dofs_pad,
+            chunk_values_fn=chunk_values_fn,
+        )
     K_data = K_data[: n_elems * m * m]
     return FluxSparseMatrix(pat, K_data), F
 
@@ -1311,9 +1373,6 @@ def assemble_jacobian_global(
     res_form: ResidualForm[P],
     u: jnp.ndarray,
     params: P,
-    *,
-    sparse: bool = False,
-    return_flux_matrix: bool = False,
 ) -> JacobianReturn:
     """
     Assemble Jacobian (dR/du) from element residual res_form.
@@ -1351,16 +1410,8 @@ def assemble_jacobian_global(
         cols = pat.cols
     data = J_e_all.reshape(-1)
 
-    if sparse:
-        if return_flux_matrix:
-            from ..solver import FluxSparseMatrix  # local import to avoid circular
-            return FluxSparseMatrix(rows, cols, data, n_dofs)
-        return rows, cols, data, n_dofs
-
-    n_entries = n_dofs * n_dofs
-    idx = rows * n_dofs + cols
-    K_flat = jax.ops.segment_sum(data, idx, n_entries)
-    return K_flat.reshape(n_dofs, n_dofs)
+    from ..solver import FluxSparseMatrix  # local import to avoid circular
+    return FluxSparseMatrix(rows, cols, data, n_dofs)
 
 
 def assemble_jacobian_elementwise(
@@ -1368,9 +1419,6 @@ def assemble_jacobian_elementwise(
     res_form: ResidualForm[P],
     u: jnp.ndarray,
     params: P,
-    *,
-    sparse: bool = False,
-    return_flux_matrix: bool = False,
 ) -> JacobianReturn:
     """
     Assemble Jacobian with element kernels via vmap + scatter_add.
@@ -1406,21 +1454,7 @@ def assemble_jacobian_elementwise(
         cols = pat.cols
     data = J_e_all.reshape(-1)
 
-    if sparse:
-        if return_flux_matrix:
-            return FluxSparseMatrix(rows, cols, data, n_dofs)
-        return rows, cols, data, n_dofs
-
-    n_entries = n_dofs * n_dofs
-    idx = rows * n_dofs + cols
-    sdn = jax.lax.ScatterDimensionNumbers(
-        update_window_dims=(),
-        inserted_window_dims=(0,),
-        scatter_dims_to_operand_dims=(0,),
-    )
-    K_flat = jnp.zeros(n_entries, dtype=data.dtype)
-    K_flat = jax.lax.scatter_add(K_flat, idx[:, None], data, sdn)
-    return K_flat.reshape(n_dofs, n_dofs)
+    return FluxSparseMatrix(rows, cols, data, n_dofs)
 
 
 def assemble_residual_global(
@@ -1803,6 +1837,7 @@ def assemble_residual_scatter(
     *,
     kernel: ElementResidualKernel | None = None,
     sparse: bool = False,
+    vector_accumulation: Literal["segment", "scatter"] = "scatter",
     n_chunks: Optional[int] = None,
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
@@ -1823,6 +1858,10 @@ def assemble_residual_scatter(
         chunk_build_context=None,
         pad_trace=pad_trace,
     )
+    if vector_accumulation not in ("segment", "scatter"):
+        raise ValueError(
+            f"vector_accumulation must be 'segment' or 'scatter' (got {vector_accumulation!r})"
+        )
     elem_dofs = space.elem_dofs
     n_dofs = space.n_dofs
     if jax.core.trace_ctx.is_top_level():
@@ -1932,16 +1971,28 @@ def assemble_residual_scatter(
                 u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
                 return jax.vmap(ker)(ctx_chunk, u_chunk)
 
-            F = _accumulate_chunk_vector_scatter(
-                n_chunks=n_chunks,
-                chunk_size=chunk_size,
-                m=m,
-                n_dofs=n_dofs,
-                dtype=sample_res.dtype,
-                valid_mask=valid_mask,
-                elem_dofs_pad=elem_dofs_pad,
-                chunk_values_fn=chunk_values_fn,
-            )
+            if vector_accumulation == "scatter":
+                F = _accumulate_chunk_vector_scatter(
+                    n_chunks=n_chunks,
+                    chunk_size=chunk_size,
+                    m=m,
+                    n_dofs=n_dofs,
+                    dtype=sample_res.dtype,
+                    valid_mask=valid_mask,
+                    elem_dofs_pad=elem_dofs_pad,
+                    chunk_values_fn=chunk_values_fn,
+                )
+            else:
+                F = _accumulate_chunk_vector_segment(
+                    n_chunks=n_chunks,
+                    chunk_size=chunk_size,
+                    m=m,
+                    n_dofs=n_dofs,
+                    dtype=sample_res.dtype,
+                    valid_mask=valid_mask,
+                    elem_dofs_pad=elem_dofs_pad,
+                    chunk_values_fn=chunk_values_fn,
+                )
             if jax.core.trace_ctx.is_top_level():
                 if not bool(jax.block_until_ready(jnp.all(jnp.isfinite(F)))):
                     bad = int(jnp.count_nonzero(~jnp.isfinite(F)))
@@ -1957,13 +2008,16 @@ def assemble_residual_scatter(
     if sparse:
         return rows, data, n_dofs
 
-    sdn = jax.lax.ScatterDimensionNumbers(
-        update_window_dims=(),
-        inserted_window_dims=(0,),
-        scatter_dims_to_operand_dims=(0,),
-    )
-    F = jnp.zeros((n_dofs,), dtype=data.dtype)
-    F = jax.lax.scatter_add(F, rows[:, None], data, sdn)
+    if vector_accumulation == "scatter":
+        sdn = jax.lax.ScatterDimensionNumbers(
+            update_window_dims=(),
+            inserted_window_dims=(0,),
+            scatter_dims_to_operand_dims=(0,),
+        )
+        F = jnp.zeros((n_dofs,), dtype=data.dtype)
+        F = jax.lax.scatter_add(F, rows[:, None], data, sdn)
+        return F
+    F = jax.ops.segment_sum(data, rows, n_dofs)
     return F
 
 
@@ -1974,8 +2028,6 @@ def assemble_jacobian_scatter(
     params: P,
     *,
     kernel: ElementJacobianKernel | None = None,
-    sparse: bool = False,
-    return_flux_matrix: bool = False,
     pattern: SparsityPattern | None = None,
     n_chunks: Optional[int] = None,
     pad_trace: bool | None = None,
@@ -1988,35 +2040,17 @@ def assemble_jacobian_scatter(
     Any change to pattern generation or data flattening must preserve this.
     """
     from ..solver import FluxSparseMatrix  # local import to avoid circular
-
     if pattern is not None:
         pat = pattern
     else:
-        pat = _get_pattern(space, with_idx=not sparse)
+        pat = _get_pattern(space, with_idx=True)
         if pat is None:
-            pat = make_sparsity_pattern(space, with_idx=not sparse)
+            pat = make_sparsity_pattern(space, with_idx=True)
     data = assemble_jacobian_values(
         space, res_form, u, params, kernel=kernel, n_chunks=n_chunks, pad_trace=pad_trace, policy=policy
     )
 
-    if sparse:
-        if return_flux_matrix:
-            return FluxSparseMatrix(pat, data)
-        return pat.rows, pat.cols, data, pat.n_dofs
-
-    idx = pat.idx
-    if idx is None:
-        idx = (pat.rows.astype(INDEX_DTYPE) * int(pat.n_dofs) + pat.cols.astype(INDEX_DTYPE)).astype(INDEX_DTYPE)
-
-    n_entries = pat.n_dofs * pat.n_dofs
-    sdn = jax.lax.ScatterDimensionNumbers(
-        update_window_dims=(),
-        inserted_window_dims=(0,),
-        scatter_dims_to_operand_dims=(0,),
-    )
-    K_flat = jnp.zeros(n_entries, dtype=data.dtype)
-    K_flat = jax.lax.scatter_add(K_flat, idx[:, None], data, sdn)
-    return K_flat.reshape(pat.n_dofs, pat.n_dofs)
+    return FluxSparseMatrix(pat, data)
 
 
 # Alias scatter-based assembly as the default public API
@@ -2028,6 +2062,7 @@ def assemble_residual(
     *,
     kernel: ElementResidualKernel | None = None,
     sparse: bool = False,
+    vector_accumulation: Literal["segment", "scatter"] = "scatter",
     n_chunks: Optional[int] = None,
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
@@ -2043,6 +2078,7 @@ def assemble_residual(
         params,
         kernel=kernel,
         sparse=sparse,
+        vector_accumulation=vector_accumulation,
         n_chunks=n_chunks,
         pad_trace=pad_trace,
         policy=policy,
@@ -2056,8 +2092,6 @@ def assemble_jacobian(
     params: P,
     *,
     kernel: ElementJacobianKernel | None = None,
-    sparse: bool = True,
-    return_flux_matrix: bool = False,
     pattern: SparsityPattern | None = None,
     n_chunks: Optional[int] = None,
     pad_trace: bool | None = None,
@@ -2073,8 +2107,6 @@ def assemble_jacobian(
         u,
         params,
         kernel=kernel,
-        sparse=sparse,
-        return_flux_matrix=return_flux_matrix,
         pattern=pattern,
         n_chunks=n_chunks,
         pad_trace=pad_trace,

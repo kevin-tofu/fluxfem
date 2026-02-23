@@ -221,8 +221,6 @@ def newton_solve(
             u_full_vec,
             params,
             kernel=jac_kernel,
-            sparse=True,
-            return_flux_matrix=True,
             pattern=J_pattern,
         )
         extra_out = _call_extra(u_full_vec)

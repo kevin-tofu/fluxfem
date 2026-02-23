@@ -80,12 +80,12 @@ def test_jacobian_kernel_matches_form(n_chunks):
 
     ker = ff.make_element_jacobian_kernel(simple_residual, params=None)
     J_kernel = space.assemble_jacobian(
-        simple_residual, u, params=None, kernel=ker, policy=policy, sparse=False
+        simple_residual, u, params=None, kernel=ker, policy=policy
     )
     J_default = space.assemble_jacobian(
-        simple_residual, u, params=None, policy=policy, sparse=False
+        simple_residual, u, params=None, policy=policy
     )
-    assert np.allclose(np.asarray(J_kernel), np.asarray(J_default))
+    assert np.allclose(np.asarray(J_kernel.to_dense()), np.asarray(J_default.to_dense()))
 
 
 def test_bilinear_kernel_with_compiled_dsl():
@@ -119,12 +119,12 @@ def test_neo_hookean_kernel_matches_default():
     assert np.allclose(np.asarray(R_kernel), np.asarray(R_default), atol=1e-6)
 
     J_kernel = space.assemble_jacobian(
-        ff.neo_hookean_residual_form, u0, params, kernel=jac_ker, sparse=False
+        ff.neo_hookean_residual_form, u0, params, kernel=jac_ker
     )
     J_default = space.assemble_jacobian(
-        ff.neo_hookean_residual_form, u0, params, sparse=False
+        ff.neo_hookean_residual_form, u0, params
     )
-    assert np.allclose(np.asarray(J_kernel), np.asarray(J_default), atol=1e-6)
+    assert np.allclose(np.asarray(J_kernel.to_dense()), np.asarray(J_default.to_dense()), atol=1e-6)
 
 
 def test_make_element_kernel_dispatch():
