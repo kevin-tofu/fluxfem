@@ -50,6 +50,7 @@ KernelCache: TypeAlias = dict[
     ElementBilinearKernel | ElementLinearKernel | ElementResidualKernel | ElementJacobianKernel,
 ]
 PatternCache: TypeAlias = dict[bool, SparsityPattern]
+ContextCacheKey: TypeAlias = tuple[bool, bool]
 PatternLike: TypeAlias = str | SparsityPattern | None
 KernelJitOpt: TypeAlias = bool | Literal["auto"]
 
@@ -186,6 +187,7 @@ class FESpaceClosure:
     data: SpaceData | None = None
     _pattern_cache: PatternCache = field(default_factory=dict, repr=False)
     _kernel_cache: KernelCache = field(default_factory=dict, repr=False)
+    _form_context_cache: dict[ContextCacheKey, FormContext] = field(default_factory=dict, repr=False)
     _elem_rows_cache: jnp.ndarray | None = field(default=None, repr=False)
 
     def __post_init__(self):
@@ -234,14 +236,25 @@ class FESpaceClosure:
         include_x_q: bool = True,
         lightweight: bool = False,
     ) -> FormContext:
+        if dep is None:
+            key = (bool(include_x_q), bool(lightweight))
+            cached = self._form_context_cache.get(key)
+            if cached is not None:
+                return cached
         elem_coords = self.mesh.element_coords()      # (n_elems, n_nodes, 3)
-        return self.build_form_contexts_from_elem_coords(
+        ctx = self.build_form_contexts_from_elem_coords(
             elem_coords,
             dep=dep,
             include_x_q=include_x_q,
             lightweight=lightweight,
             elem_id=jnp.arange(elem_coords.shape[0], dtype=INDEX_DTYPE),
         )
+        if dep is None and jax.core.trace_ctx.is_top_level():
+            # Cache only invariant (dep=None) contexts; cap entries to avoid unbounded growth.
+            if len(self._form_context_cache) >= 4:
+                self._form_context_cache.pop(next(iter(self._form_context_cache)))
+            self._form_context_cache[(bool(include_x_q), bool(lightweight))] = ctx
+        return ctx
 
     def build_form_contexts_from_elem_coords(
         self,

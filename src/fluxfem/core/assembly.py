@@ -48,7 +48,7 @@ class AssemblyPolicy:
     """
 
     n_chunks: int | None = None
-    include_x_q: bool = True
+    include_x_q: bool = False
     lightweight_context: bool = True
     chunk_build_context: bool = False
     pad_trace: bool = False
@@ -811,10 +811,13 @@ def assemble_bilinear_form(
     If kernel is provided: kernel(ctx) -> (n_ldofs, n_ldofs).
     """
     from ..solver import FluxSparseMatrix
+    include_x_q_req = include_x_q
+    if include_x_q_req is None and policy is None:
+        include_x_q_req = False
     n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
         policy=policy,
         n_chunks=n_chunks,
-        include_x_q=include_x_q,
+        include_x_q=include_x_q_req,
         lightweight_context=lightweight_context,
         chunk_build_context=chunk_build_context,
         pad_trace=pad_trace,
@@ -830,15 +833,26 @@ def assemble_bilinear_form(
 
     if kernel is None:
         kernel = make_element_bilinear_kernel(form, params, jit=jit)
+    vmapped_kernel = jax.vmap(kernel)
 
     if n_chunks is None or (jax.core.trace_ctx.is_top_level() and not chunk_build_context):
-        if elem_data is None:
-            elem_data = space.build_form_contexts(
-                dep=dep,
-                include_x_q=include_x_q,
-                lightweight=lightweight_context,
-            )
-        K_e_all = jax.vmap(kernel)(elem_data)  # (n_elems, m, m)
+        if elem_data is not None:
+            K_e_all = vmapped_kernel(elem_data)  # (n_elems, m, m)
+        else:
+            def _eval(include_x_q_eff: bool) -> Array:
+                ctx = space.build_form_contexts(
+                    dep=dep,
+                    include_x_q=include_x_q_eff,
+                    lightweight=lightweight_context,
+                )
+                return vmapped_kernel(ctx)
+
+            try:
+                K_e_all = _eval(include_x_q)
+            except Exception:
+                if include_x_q:
+                    raise
+                K_e_all = _eval(True)
         data = K_e_all.reshape(-1)
         return FluxSparseMatrix(pat, data)
 
@@ -856,50 +870,46 @@ def assemble_bilinear_form(
 
     # In chunked mode, default to chunk-local context generation to avoid
     # allocating all-element contexts at once.
-    use_chunk_context = bool(
-        dep is None
-        and (chunk_build_context or elem_data is None)
-    )
-    use_chunk_context, conn_pad, elem_ids, elem_data_pad = _prepare_chunk_context_source(
-        space,
-        n_pad=int(n_pad),
-        pad=int(pad),
-        dep=dep,
-        include_x_q=include_x_q,
-        lightweight_context=lightweight_context,
-        chunk_build_context=use_chunk_context,
-        elem_data=elem_data,
-    )
-    sample_ctx_b = _chunk_context_from_source(
-        space,
-        start=0,
-        chunk_size=1,
-        use_chunk_context=use_chunk_context,
-        conn_pad=conn_pad,
-        elem_ids=elem_ids,
-        ctxs_pad=elem_data_pad,
-        include_x_q=include_x_q,
-        lightweight_context=lightweight_context,
-    )
-    sample_ctx = jax.tree_util.tree_map(lambda x: x[0], sample_ctx_b)
+    use_chunk_context = bool(dep is None and chunk_build_context)
 
-    sample_ke = kernel(sample_ctx)
+    def _init_chunk(include_x_q_eff: bool) -> tuple[Array, bool, Array | None, Array | None, FormContext | None, Callable[[int], Array]]:
+        use_ctx, conn_pad, elem_ids, elem_data_pad = _prepare_chunk_context_source(
+            space,
+            n_pad=int(n_pad),
+            pad=int(pad),
+            dep=dep,
+            include_x_q=include_x_q_eff,
+            lightweight_context=lightweight_context,
+            chunk_build_context=use_chunk_context,
+            elem_data=elem_data,
+        )
+        def chunk_values_fn(start: int) -> Array:
+            ctx_chunk = _chunk_context_from_source(
+                space,
+                start=start,
+                chunk_size=chunk_size,
+                use_chunk_context=use_ctx,
+                conn_pad=conn_pad,
+                elem_ids=elem_ids,
+                ctxs_pad=elem_data_pad,
+                include_x_q=include_x_q_eff,
+                lightweight_context=lightweight_context,
+            )
+            return vmapped_kernel(ctx_chunk)
+
+        # Keep sample and loop batch shapes aligned to avoid extra recompiles.
+        sample_ke = chunk_values_fn(0)[0]
+        return sample_ke, use_ctx, conn_pad, elem_ids, elem_data_pad, chunk_values_fn
+
+    try:
+        sample_ke, use_chunk_context, conn_pad, elem_ids, elem_data_pad, chunk_values_fn = _init_chunk(include_x_q)
+    except Exception:
+        if include_x_q:
+            raise
+        sample_ke, use_chunk_context, conn_pad, elem_ids, elem_data_pad, chunk_values_fn = _init_chunk(True)
+
     if m is None:
         m = int(sample_ke.shape[0])
-
-    def chunk_values_fn(start: int) -> Array:
-        ctx_chunk = _chunk_context_from_source(
-            space,
-            start=start,
-            chunk_size=chunk_size,
-            use_chunk_context=use_chunk_context,
-            conn_pad=conn_pad,
-            elem_ids=elem_ids,
-            ctxs_pad=elem_data_pad,
-            include_x_q=include_x_q,
-            lightweight_context=lightweight_context,
-        )
-        return jax.vmap(kernel)(ctx_chunk)
 
     data = _accumulate_chunk_matrix_data(
         n_chunks=n_chunks,
@@ -1089,10 +1099,7 @@ def assemble_linear_form(
             pad_trace=pad_trace,
         )
 
-        use_chunk_context = bool(
-            dep is None
-            and (chunk_build_context or elem_data is None)
-        )
+        use_chunk_context = bool(dep is None and chunk_build_context)
         use_chunk_context, conn_pad, elem_ids, elem_data_pad = _prepare_chunk_context_source(
             space,
             n_pad=int(n_pad),
@@ -1265,10 +1272,7 @@ def assemble_bilinear_linear_pair(
         pad_trace=pad_trace,
     )
 
-    use_chunk_context = bool(
-        dep is None
-        and (chunk_build_context or elem_data is None)
-    )
+    use_chunk_context = bool(dep is None and chunk_build_context)
     use_chunk_context, conn_pad, elem_ids, elem_data_pad = _prepare_chunk_context_source(
         space,
         n_pad=int(n_pad),
@@ -1279,27 +1283,6 @@ def assemble_bilinear_linear_pair(
         chunk_build_context=use_chunk_context,
         elem_data=elem_data,
     )
-    sample_ctx_b = _chunk_context_from_source(
-        space,
-        start=0,
-        chunk_size=1,
-        use_chunk_context=use_chunk_context,
-        conn_pad=conn_pad,
-        elem_ids=elem_ids,
-        ctxs_pad=elem_data_pad,
-        include_x_q=include_x_q,
-        lightweight_context=lightweight_context,
-    )
-    sample_ctx = jax.tree_util.tree_map(lambda x: x[0], sample_ctx_b)
-
-    sample_ke = bilinear_kernel(sample_ctx)
-    sample_fe = linear_kernel(sample_ctx)
-    m = int(sample_ke.shape[0])
-    if pad:
-        elem_dofs_pad = jnp.concatenate([space.elem_dofs, jnp.repeat(space.elem_dofs[-1:], pad, axis=0)], axis=0)
-    else:
-        elem_dofs_pad = space.elem_dofs
-
     def chunk_values_fn(start: int) -> tuple[Array, Array]:
         ctx_chunk = _chunk_context_from_source(
             space,
@@ -1313,6 +1296,15 @@ def assemble_bilinear_linear_pair(
             lightweight_context=lightweight_context,
         )
         return jax.vmap(bilinear_kernel)(ctx_chunk), jax.vmap(linear_kernel)(ctx_chunk)
+
+    sample_ke, sample_fe = chunk_values_fn(0)
+    sample_ke = sample_ke[0]
+    sample_fe = sample_fe[0]
+    m = int(sample_ke.shape[0])
+    if pad:
+        elem_dofs_pad = jnp.concatenate([space.elem_dofs, jnp.repeat(space.elem_dofs[-1:], pad, axis=0)], axis=0)
+    else:
+        elem_dofs_pad = space.elem_dofs
 
     if vector_accumulation == "scatter":
         K_data, F = _accumulate_chunk_matrix_and_vector_scatter(
@@ -1751,20 +1743,30 @@ def assemble_jacobian_values(
     """
     Assemble only the numeric values for the Jacobian (pattern-free).
     """
+    include_x_q_req: bool | None = None if policy is not None else False
     n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
         policy=policy,
         n_chunks=n_chunks,
-        include_x_q=None,
+        include_x_q=include_x_q_req,
         lightweight_context=None,
         chunk_build_context=None,
         pad_trace=pad_trace,
     )
     ker = kernel if kernel is not None else make_element_jacobian_kernel(res_form, params)
+    vmapped_kernel = jax.vmap(ker)
 
     u_elems = u[space.elem_dofs]
     if n_chunks is None:
-        ctxs = space.build_form_contexts(include_x_q=include_x_q, lightweight=lightweight_context)
-        J_e_all = jax.vmap(ker)(u_elems, ctxs)  # (n_elem, m, m)
+        def _eval(include_x_q_eff: bool) -> Array:
+            ctxs = space.build_form_contexts(include_x_q=include_x_q_eff, lightweight=lightweight_context)
+            return vmapped_kernel(u_elems, ctxs)
+
+        try:
+            J_e_all = _eval(include_x_q)  # (n_elem, m, m)
+        except Exception:
+            if include_x_q:
+                raise
+            J_e_all = _eval(True)
         return J_e_all.reshape(-1)
 
     n_elems = int(u_elems.shape[0])
@@ -1778,44 +1780,41 @@ def assemble_jacobian_values(
         u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)
     else:
         u_elems_pad = u_elems
-    first_u = _slice_first_dim(u_elems_pad, 0, 1)
-
-    use_chunk_context, conn_pad, elem_ids, ctxs_pad = _prepare_chunk_context_source(
-        space,
-        n_pad=int(n_pad),
-        pad=int(pad),
-        dep=None,
-        include_x_q=include_x_q,
-        lightweight_context=lightweight_context,
-        chunk_build_context=chunk_build_context,
-    )
-    first_ctx = _chunk_context_from_source(
-        space,
-        start=0,
-        chunk_size=1,
-        use_chunk_context=use_chunk_context,
-        conn_pad=conn_pad,
-        elem_ids=elem_ids,
-        ctxs_pad=ctxs_pad,
-        include_x_q=include_x_q,
-        lightweight_context=lightweight_context,
-    )
-    sample_J = jax.vmap(ker)(first_u, first_ctx)[0]
-
-    def chunk_values_fn(start: int) -> Array:
-        ctx_chunk = _chunk_context_from_source(
+    def _init_chunk(include_x_q_eff: bool) -> tuple[Array, Callable[[int], Array]]:
+        use_chunk_context, conn_pad, elem_ids, ctxs_pad = _prepare_chunk_context_source(
             space,
-            start=start,
-            chunk_size=chunk_size,
-            use_chunk_context=use_chunk_context,
-            conn_pad=conn_pad,
-            elem_ids=elem_ids,
-            ctxs_pad=ctxs_pad,
-            include_x_q=include_x_q,
+            n_pad=int(n_pad),
+            pad=int(pad),
+            dep=None,
+            include_x_q=include_x_q_eff,
             lightweight_context=lightweight_context,
+            chunk_build_context=chunk_build_context,
         )
-        u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
-        return jax.vmap(ker)(u_chunk, ctx_chunk)
+        def chunk_values_fn(start: int) -> Array:
+            ctx_chunk = _chunk_context_from_source(
+                space,
+                start=start,
+                chunk_size=chunk_size,
+                use_chunk_context=use_chunk_context,
+                conn_pad=conn_pad,
+                elem_ids=elem_ids,
+                ctxs_pad=ctxs_pad,
+                include_x_q=include_x_q_eff,
+                lightweight_context=lightweight_context,
+            )
+            u_chunk = _slice_first_dim(u_elems_pad, start, chunk_size)
+            return vmapped_kernel(u_chunk, ctx_chunk)
+
+        # Keep sample and loop batch shapes aligned to avoid extra recompiles.
+        sample_J = chunk_values_fn(0)[0]
+        return sample_J, chunk_values_fn
+
+    try:
+        sample_J, chunk_values_fn = _init_chunk(include_x_q)
+    except Exception:
+        if include_x_q:
+            raise
+        sample_J, chunk_values_fn = _init_chunk(True)
 
     data = _accumulate_chunk_matrix_data(
         n_chunks=n_chunks,

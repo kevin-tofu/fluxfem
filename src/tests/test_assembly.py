@@ -246,6 +246,57 @@ def test_jacobian_returns_flux_sparse_matrix(n_chunks):
     assert np.asarray(j_mat.to_dense()).shape == (space.n_dofs, space.n_dofs)
 
 
+def test_chunked_include_x_q_true_matches_non_chunked():
+    mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol_ref = ff.AssemblyPolicy(include_x_q=True, lightweight_context=True)
+    pol = ff.AssemblyPolicy.chunked(4, include_x_q=True, lightweight_context=True)
+
+    def x_dependent_diffusion(ctx, _params):
+        weight_q = 1.0 + 0.1 * ctx.x_q[:, 0]
+        gradN = ctx.test.gradN
+        return jnp.einsum("q,qia,qja->qij", weight_q, gradN, gradN)
+
+    K_ref = np.asarray(
+        space.assemble_bilinear_form(
+            x_dependent_diffusion,
+            params=None,
+            policy=pol_ref,
+        ).to_dense()
+    )
+    K_chk = np.asarray(
+        space.assemble_bilinear_form(
+            x_dependent_diffusion,
+            params=None,
+            policy=pol,
+        ).to_dense()
+    )
+    assert np.allclose(K_ref, K_chk)
+
+    def x_dependent_residual(ctx, u_elem, _params):
+        w = 1.0 + 0.1 * ctx.x_q[:, 0]
+        return jnp.einsum("q,qa->qa", w, jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0])))
+
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+    J_ref = np.asarray(
+        space.assemble_jacobian(
+            x_dependent_residual,
+            u,
+            params=None,
+            policy=pol_ref,
+        ).to_dense()
+    )
+    J_chk = np.asarray(
+        space.assemble_jacobian(
+            x_dependent_residual,
+            u,
+            params=None,
+            policy=pol,
+        ).to_dense()
+    )
+    assert np.allclose(J_ref, J_chk)
+
+
 def test_assembly_policy_chunked_matches_explicit_kwargs():
     mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
@@ -271,6 +322,19 @@ def test_assembly_policy_chunked_mass_matches_explicit_kwargs():
     M_pol = space.assemble_mass_matrix(policy=pol).to_dense()
     M_exp = space.assemble_mass_matrix(policy=ff.AssemblyPolicy.chunked(2)).to_dense()
     assert np.allclose(np.asarray(M_pol), np.asarray(M_exp))
+
+
+def test_build_form_contexts_cache_dep_none_reuse():
+    mesh = ff.StructuredHexBox(nx=3, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    c0 = space.build_form_contexts(include_x_q=False, lightweight=True)
+    c1 = space.build_form_contexts(include_x_q=False, lightweight=True)
+    c2 = space.build_form_contexts(include_x_q=True, lightweight=True)
+
+    assert c0 is c1
+    assert c0 is not c2
+
 
 def test_sparse_bilinear_matches_dense():
     """ff.FluxSparseMatrix dense matches manual integration."""
