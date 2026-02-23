@@ -5,7 +5,6 @@ from typing import Mapping
 import jax
 import jax.numpy as jnp
 
-from .dtypes import INDEX_DTYPE
 from .assembly import element_residual, make_sparsity_pattern, chunk_pad_stats, _maybe_trace_pad
 
 
@@ -183,8 +182,6 @@ def assemble_mixed_jacobian_scatter(
     params,
     *,
     kernel=None,
-    sparse: bool = True,
-    return_flux_matrix: bool = False,
     pattern=None,
     n_chunks: int | None = None,
     pad_trace: bool = False,
@@ -192,29 +189,11 @@ def assemble_mixed_jacobian_scatter(
     """Assemble mixed Jacobian using jitted element kernels + scatter_add."""
     from ..solver import FluxSparseMatrix  # local import to avoid circular
 
-    pat = pattern if pattern is not None else make_sparsity_pattern(space, with_idx=not sparse)
+    pat = pattern if pattern is not None else make_sparsity_pattern(space, with_idx=True)
     data = assemble_mixed_jacobian_values(
         space, res_form, u, params, kernel=kernel, n_chunks=n_chunks, pad_trace=pad_trace
     )
-
-    if sparse:
-        if return_flux_matrix:
-            return FluxSparseMatrix(pat, data)
-        return pat.rows, pat.cols, data, pat.n_dofs
-
-    idx = pat.idx
-    if idx is None:
-        idx = (pat.rows.astype(INDEX_DTYPE) * int(pat.n_dofs) + pat.cols.astype(INDEX_DTYPE)).astype(INDEX_DTYPE)
-
-    n_entries = pat.n_dofs * pat.n_dofs
-    sdn = jax.lax.ScatterDimensionNumbers(
-        update_window_dims=(),
-        inserted_window_dims=(0,),
-        scatter_dims_to_operand_dims=(0,),
-    )
-    K_flat = jnp.zeros(n_entries, dtype=data.dtype)
-    K_flat = jax.lax.scatter_add(K_flat, idx[:, None], data, sdn)
-    return K_flat.reshape(pat.n_dofs, pat.n_dofs)
+    return FluxSparseMatrix(pat, data)
 
 
 def assemble_mixed_residual(
@@ -232,8 +211,6 @@ def assemble_mixed_jacobian(
     u,
     params,
     *,
-    sparse: bool = True,
-    return_flux_matrix: bool = False,
     pattern=None,
     n_chunks: int | None = None,
     pad_trace: bool = False,
@@ -244,8 +221,6 @@ def assemble_mixed_jacobian(
         res_form,
         u,
         params,
-        sparse=sparse,
-        return_flux_matrix=return_flux_matrix,
         pattern=pattern,
         n_chunks=n_chunks,
         pad_trace=pad_trace,

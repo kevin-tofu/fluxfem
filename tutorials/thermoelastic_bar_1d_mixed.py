@@ -130,7 +130,7 @@ def main():
     pattern = mixed.get_sparsity_pattern(with_idx=True)
     u0 = jnp.zeros(mixed.n_dofs)
     problem = ff.MixedProblem(mixed, residuals, params=params, pattern=pattern)
-    K = problem.assemble_jacobian(u0, return_flux_matrix=True)
+    K = problem.assemble_jacobian(u0)
     R0 = problem.assemble_residual(u0)
     b = -R0
 

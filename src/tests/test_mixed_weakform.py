@@ -57,16 +57,16 @@ def test_mixed_jacobian_consistency():
     u_vec = jnp.asarray(rng.standard_normal(mixed.n_dofs))
 
     residuals = _mixed_residuals()
-    J_dict = assemble_mixed_jacobian_wf(mixed, residuals, u_vec, params, sparse=False)
+    J_dict = assemble_mixed_jacobian_wf(mixed, residuals, u_vec, params)
     J_form = assemble_mixed_jacobian_wf(
-        mixed, MixedResidualForm(residuals), u_vec, params, sparse=False
+        mixed, MixedResidualForm(residuals), u_vec, params
     )
     J_compiled = assemble_mixed_jacobian_wf(
-        mixed, ff.MixedWeakForm(residuals=residuals), u_vec, params, sparse=False
+        mixed, ff.MixedWeakForm(residuals=residuals), u_vec, params
     )
 
-    assert np.allclose(np.asarray(J_dict), np.asarray(J_form), atol=1e-6)
-    assert np.allclose(np.asarray(J_dict), np.asarray(J_compiled), atol=1e-6)
+    assert np.allclose(np.asarray(J_dict.to_dense()), np.asarray(J_form.to_dense()), atol=1e-6)
+    assert np.allclose(np.asarray(J_dict.to_dense()), np.asarray(J_compiled.to_dense()), atol=1e-6)
 
 
 def test_mixed_residual_matches_single_field():

@@ -194,7 +194,7 @@ def main() -> int:
         )
         jac_pad_fn = _jit(
             lambda mask, u=u0: batch.assemble_jacobian_with_kernel(
-                jac_ker, u, mask=mask, sparse=False
+                jac_ker, u, mask=mask
             )
         )
 
@@ -220,7 +220,7 @@ def main() -> int:
         def _make_nopad_jacobian(n_active: int):
             assembler = batch.slice(n_active)
             return _jit(
-                lambda u=u0: assembler.assemble_jacobian_with_kernel(jac_ker, u, sparse=False)
+                lambda u=u0: assembler.assemble_jacobian_with_kernel(jac_ker, u)
             )
 
         if not args.skip_mixed:
@@ -315,7 +315,6 @@ def main() -> int:
                     kappa,
                     kernel=jac_ker,
                     policy=policy,
-                    sparse=False,
                 )
             )
 
@@ -334,7 +333,7 @@ def main() -> int:
                     pad_trace=args.pad_trace,
                 )
                 mixed_res_fn = _jit(lambda u=mixed_u: mixed_problem.assemble_residual(u))
-                mixed_jac_fn = _jit(lambda u=mixed_u: mixed_problem.assemble_jacobian(u, sparse=False))
+                mixed_jac_fn = _jit(lambda u=mixed_u: mixed_problem.assemble_jacobian(u))
                 _bench_case("mixed_residual", mixed_res_fn, warmup=args.warmup, repeat=args.repeat)
                 _bench_case("mixed_jacobian", mixed_jac_fn, warmup=args.warmup, repeat=args.repeat)
 

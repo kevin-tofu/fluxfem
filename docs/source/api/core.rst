@@ -78,7 +78,7 @@ Example (MixedProblem)
    problem = ff.MixedProblem(mixed, residuals, params=params, pattern=pattern)
 
    u0 = jnp.zeros(mixed.n_dofs)
-   K = problem.assemble_jacobian(u0, return_flux_matrix=True)
+   K = problem.assemble_jacobian(u0)
    R = problem.assemble_residual(u0)
 
 Example (MixedBlockSystem)

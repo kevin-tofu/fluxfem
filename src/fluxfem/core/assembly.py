@@ -31,7 +31,7 @@ else:
 
 SparseCOO: TypeAlias = tuple[Array, Array, Array, int]
 LinearCOO: TypeAlias = tuple[Array, Array, int]
-JacobianReturn: TypeAlias = Union[Array, FluxSparseMatrix, SparseCOO]
+JacobianReturn: TypeAlias = FluxSparseMatrix
 BilinearReturn: TypeAlias = Union[Array, FluxSparseMatrix, SparseCOO]
 LinearReturn: TypeAlias = Union[Array, LinearCOO]
 MassReturn: TypeAlias = Union[FluxSparseMatrix, Array]

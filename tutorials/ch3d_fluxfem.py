@@ -86,7 +86,7 @@ def run_ch_3d():
         params = {"kappa": kappa, "dt": dt, "c_old_elems": c_old_elems}
 
         u0 = jnp.zeros(mixed.n_dofs)
-        K = mixed.assemble_jacobian(ch_residual, u0, params, pattern=pattern, return_flux_matrix=True)
+        K = mixed.assemble_jacobian(ch_residual, u0, params, pattern=pattern)
         R0 = mixed.assemble_residual(ch_residual, u0, params)
         b = -R0
 

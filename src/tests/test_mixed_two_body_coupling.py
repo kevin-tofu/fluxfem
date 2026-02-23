@@ -27,7 +27,7 @@ def test_mixed_two_body_coupling_blocks():
     u_vec = jnp.asarray(rng.standard_normal(mixed.n_dofs))
 
     J_mixed = assemble_mixed_jacobian_wf(
-        mixed, {"a": res_a, "b": res_b}, u_vec, params, sparse=False
+        mixed, {"a": res_a, "b": res_b}, u_vec, params
     )
 
     def res_mass(v, u, _p):
@@ -41,7 +41,7 @@ def test_mixed_two_body_coupling_blocks():
 
     a_slice = mixed.field_slices["a"]
     b_slice = mixed.field_slices["b"]
-    J = np.asarray(J_mixed)
+    J = np.asarray(J_mixed.to_dense())
 
     assert np.allclose(J[a_slice, a_slice], M, atol=1e-6)
     assert np.allclose(J[a_slice, b_slice], params.kappa * M, atol=1e-6)

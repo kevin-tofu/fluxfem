@@ -161,6 +161,12 @@ class MixedFESpace:
         **kwargs,
     ) -> "JacobianReturn":
         from .mixed_assembly import assemble_mixed_jacobian
+        for removed in ("sparse", "return_flux_matrix", "matrix_accumulation"):
+            if removed in kwargs:
+                raise ValueError(
+                    f"{removed} is no longer supported for assemble_jacobian; "
+                    "assemble_jacobian now returns FluxSparseMatrix (use .to_dense() when needed)."
+                )
         return assemble_mixed_jacobian(self, res_form, u, params, **kwargs)
 
     def make_dirichlet(self, *, merge: str = "check_equal", **fields):
