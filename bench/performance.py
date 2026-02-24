@@ -92,6 +92,14 @@ def mesh_sizes(min_k: int, max_k: int):
     return sizes
 
 
+def mesh_cases(min_k: int, max_k: int):
+    cases = []
+    for k in range(min_k, max_k + 1):
+        n = int(2 ** (k / 3))
+        cases.append((k, n))
+    return cases
+
+
 def run_fluxfem_backend(args, backend: str):
     env = os.environ.copy()
     env["JAX_PLATFORM_NAME"] = backend
@@ -99,6 +107,8 @@ def run_fluxfem_backend(args, backend: str):
         sys.executable,
         os.path.abspath(__file__),
         "--single-backend",
+        "--backends",
+        backend,
         "--min-k",
         str(args.min_k),
         "--max-k",
@@ -108,7 +118,14 @@ def run_fluxfem_backend(args, backend: str):
         "--json",
         _make_backend_path(args.json, backend),
     ]
-    subprocess.run(cmd, env=env, check=True)
+    proc = subprocess.run(cmd, env=env, check=False)
+    if proc.returncode != 0:
+        print(
+            f"[bench] backend '{backend}' exited with code {proc.returncode}; continuing with available partial results.",
+            file=sys.stderr,
+            flush=True,
+        )
+    return int(proc.returncode)
 
 
 def _make_backend_path(path: str, backend: str):
@@ -134,6 +151,17 @@ def _rss_bytes() -> int:
         return 0
 
 
+def _write_backend_json(path: str | Path, backend: str, results: list[dict], no_solve: bool):
+    out_json = Path(path)
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_json.write_text(
+        json.dumps(
+            {"backend": backend, "results": results, "no_solve": no_solve},
+            indent=2,
+        )
+    )
+
+
 def fluxfem_cases(args, backend: str):
     import jax
     jax.config.update("jax_enable_x64", True)
@@ -151,12 +179,24 @@ def fluxfem_cases(args, backend: str):
     )
 
     results = []
-    for n in mesh_sizes(args.min_k, args.max_k):
-        timer = SectionTimer()
-        rss0 = _rss_bytes()
-        rss_peak = rss0
-        phase_peak: dict[str, int] = {}
-        phase_delta: dict[str, int] = {}
+    for k, n in mesh_cases(args.min_k, args.max_k):
+        try:
+            _run_one = True
+            timer = SectionTimer()
+            rss0 = _rss_bytes()
+            rss_peak = rss0
+            phase_peak: dict[str, int] = {}
+            phase_delta: dict[str, int] = {}
+            print(f"[fluxfem:{backend}] k={k} N={n} start", flush=True)
+        except Exception as exc:
+            print(
+                f"[fluxfem:{backend}] k={k} N={n} setup failed: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            _run_one = False
+        if not _run_one:
+            continue
 
         def _mark_phase(name: str, start_rss: int):
             nonlocal rss_peak
@@ -170,90 +210,109 @@ def fluxfem_cases(args, backend: str):
             if delta > prev_delta:
                 phase_delta[name] = delta
 
-        mesh = StructuredTetTensorBox(nx=n, ny=n, nz=n, lx=1.0, ly=1.0, lz=1.0).build()
-        space = make_tet_space(mesh, dim=1, intorder=args.intorder)
-        bc = DirichletBC.from_bbox(mesh, components="x", tol=1e-8)
-        _mark_phase("setup", rss0)
-        policy = AssemblyPolicy.chunked(
-            int(args.n_chunks),
-            include_x_q=False,
-            lightweight_context=True,
-        )
-        # Reuse jitted per-element kernels across warmup/repeat calls.
-        bilinear_kernel = make_element_bilinear_kernel(diffusion_form, 1.0, jit=True)
-        linear_kernel = make_element_linear_kernel(scalar_body_force_form, 1.0, jit=True)
-
-        def assemble_KF():
-            return space.assemble_bilinear_linear_pair(
-                diffusion_form,
-                1.0,
-                scalar_body_force_form,
-                1.0,
-                policy=policy,
-                bilinear_kernel=bilinear_kernel,
-                linear_kernel=linear_kernel,
+        try:
+            mesh = StructuredTetTensorBox(nx=n, ny=n, nz=n, lx=1.0, ly=1.0, lz=1.0).build()
+            space = make_tet_space(mesh, dim=1, intorder=args.intorder)
+            print(f"[fluxfem:{backend}] k={k} N={n} dofs={space.n_dofs}", flush=True)
+            bc = DirichletBC.from_bbox(mesh, components="x", tol=1e-8)
+            _mark_phase("setup", rss0)
+            policy = AssemblyPolicy.chunked(
+                int(args.n_chunks),
+                include_x_q=False,
+                lightweight_context=True,
             )
+            # Reuse jitted per-element kernels across warmup/repeat calls.
+            bilinear_kernel = make_element_bilinear_kernel(diffusion_form, 1.0, jit=True)
+            linear_kernel = make_element_linear_kernel(scalar_body_force_form, 1.0, jit=True)
 
-        def assemble_K():
-            K, _ = assemble_KF()
-            return K
+            def assemble_KF():
+                return space.assemble_bilinear_linear_pair(
+                    diffusion_form,
+                    1.0,
+                    scalar_body_force_form,
+                    1.0,
+                    policy=policy,
+                    bilinear_kernel=bilinear_kernel,
+                    linear_kernel=linear_kernel,
+                )
 
-        def _block_ready(K, F):
-            jax.block_until_ready(K.data)
-            jax.block_until_ready(F)
+            def assemble_K():
+                K, _ = assemble_KF()
+                return K
 
-        with timer.section("total"):
-            K0, F0 = assemble_KF()
-            _block_ready(K0, F0)
-        total_time = timer.last("total")
-        _mark_phase("assemble", rss0)
-
-        assemble_times = []
-        for _ in range(max(1, args.repeat)):
-            with timer.section("assemble"):
-                K = assemble_K()
+            def _block_ready(K, F):
                 jax.block_until_ready(K.data)
-            assemble_times.append(timer.last("assemble"))
-        assemble_time = float(np.mean(assemble_times))
-        jit_compile_time = max(total_time - assemble_time, 0.0)
+                jax.block_until_ready(F)
 
-        if args.no_solve:
-            solve_time = float("nan")
-            _mark_phase("condense", rss0)
-        else:
-            rss_before_condense = _rss_bytes()
-            system = bc.condense_system(K0, F0)
-            K_ff, F_free, free, dir_vals = system.K, system.F, system.free_dofs, system.dir_vals
-            _mark_phase("condense", rss_before_condense)
-            if K_ff.shape[0] > 1e5:
+            with timer.section("total"):
+                K0, F0 = assemble_KF()
+                _block_ready(K0, F0)
+            total_time = timer.last("total")
+            _mark_phase("assemble", rss0)
+
+            assemble_times = []
+            for _ in range(max(1, args.repeat)):
+                with timer.section("assemble"):
+                    K = assemble_K()
+                    jax.block_until_ready(K.data)
+                assemble_times.append(timer.last("assemble"))
+            assemble_time = float(np.mean(assemble_times))
+            jit_compile_time = max(total_time - assemble_time, 0.0)
+
+            if args.no_solve:
                 solve_time = float("nan")
+                _mark_phase("condense", rss0)
             else:
-                solve_fn = lambda: sla.spsolve(K_ff, F_free)
-                with timer.section("solve"):
-                    solve_fn()
-                solve_time = timer.last("solve")
-            _mark_phase("solve", rss_before_condense)
+                rss_before_condense = _rss_bytes()
+                system = bc.condense_system(K0, F0)
+                K_ff, F_free, free, dir_vals = system.K, system.F, system.free_dofs, system.dir_vals
+                _mark_phase("condense", rss_before_condense)
+                if K_ff.shape[0] > 1e5:
+                    solve_time = float("nan")
+                else:
+                    solve_fn = lambda: sla.spsolve(K_ff, F_free)
+                    with timer.section("solve"):
+                        solve_fn()
+                    solve_time = timer.last("solve")
+                _mark_phase("solve", rss_before_condense)
 
-        results.append(
-            {
-                "n": n,
-                "dofs": int(space.n_dofs),
-                "jit_compile_s": float(jit_compile_time),
-                "assembly_s": float(assemble_time),
-                "total_s": float(total_time),
-                "solve_s": float(solve_time),
-                "rss_mb": float(rss_peak / (1024.0 * 1024.0)),
-                "rss_delta_mb": float(max(rss_peak - rss0, 0) / (1024.0 * 1024.0)),
-                "rss_phase_mb": {
-                    key: float(val / (1024.0 * 1024.0))
-                    for key, val in sorted(phase_peak.items())
-                },
-                "rss_phase_delta_mb": {
-                    key: float(val / (1024.0 * 1024.0))
-                    for key, val in sorted(phase_delta.items())
-                },
-            }
-        )
+            results.append(
+                {
+                    "k": int(k),
+                    "n": n,
+                    "dofs": int(space.n_dofs),
+                    "jit_compile_s": float(jit_compile_time),
+                    "assembly_s": float(assemble_time),
+                    "total_s": float(total_time),
+                    "solve_s": float(solve_time),
+                    "rss_mb": float(rss_peak / (1024.0 * 1024.0)),
+                    "rss_delta_mb": float(max(rss_peak - rss0, 0) / (1024.0 * 1024.0)),
+                    "rss_phase_mb": {
+                        key: float(val / (1024.0 * 1024.0))
+                        for key, val in sorted(phase_peak.items())
+                    },
+                    "rss_phase_delta_mb": {
+                        key: float(val / (1024.0 * 1024.0))
+                        for key, val in sorted(phase_delta.items())
+                    },
+                }
+            )
+            if args.single_backend:
+                _write_backend_json(args.json, backend, results, args.no_solve)
+            print(
+                (
+                    f"[fluxfem:{backend}] k={k} N={n} done "
+                    f"(assembly={assemble_time:.3f}s, solve={solve_time:.3f}s, rss={rss_peak / (1024.0 * 1024.0):.1f}MB)"
+                ),
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                f"[fluxfem:{backend}] k={k} N={n} failed: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            continue
 
     return results
 
@@ -270,40 +329,51 @@ def skfem_cases(args):
         return MeshTet.init_tensor(*(3 * (nodes,)))
 
     results = []
-    for n in mesh_sizes(args.min_k, args.max_k):
-        timer = SectionTimer()
-        rss0 = _rss_bytes()
-        rss_peak = rss0
-        mesh = _make_skfem_tet_mesh(n)
-        basis = Basis(mesh, ElementTetP1(), intorder=args.intorder)
+    for k, n in mesh_cases(args.min_k, args.max_k):
+        try:
+            timer = SectionTimer()
+            rss0 = _rss_bytes()
+            rss_peak = rss0
+            print(f"[scikit-fem] k={k} N={n} start", flush=True)
+            mesh = _make_skfem_tet_mesh(n)
+            basis = Basis(mesh, ElementTetP1(), intorder=args.intorder)
+            print(f"[scikit-fem] k={k} N={n} dofs={basis.N}", flush=True)
 
-        def assemble():
-            return laplace.assemble(basis), unit_load.assemble(basis)
+            def assemble():
+                return laplace.assemble(basis), unit_load.assemble(basis)
 
-        with timer.section("assemble"):
-            A, b = assemble()
-        assemble_time = timer.last("assemble")
-        rss_peak = max(rss_peak, _rss_bytes())
-        D = mesh.boundary_nodes()
+            with timer.section("assemble"):
+                A, b = assemble()
+            assemble_time = timer.last("assemble")
+            rss_peak = max(rss_peak, _rss_bytes())
+            D = mesh.boundary_nodes()
 
-        if args.no_solve or A.shape[0] > 1e5:
-            solve_time = float("nan")
-        else:
-            with timer.section("solve"):
-                solve(*condense(A, b, D=D))
-            solve_time = timer.last("solve")
+            if args.no_solve or A.shape[0] > 1e5:
+                solve_time = float("nan")
+            else:
+                with timer.section("solve"):
+                    solve(*condense(A, b, D=D))
+                solve_time = timer.last("solve")
 
-        results.append(
-            {
-                "n": n,
-                "dofs": int(basis.N),
-                "assembly_s": float(assemble_time),
-                "total_s": float(assemble_time),
-                "solve_s": float(solve_time),
-                "rss_mb": float(rss_peak / (1024.0 * 1024.0)),
-                "rss_delta_mb": float(max(rss_peak - rss0, 0) / (1024.0 * 1024.0)),
-            }
-        )
+            results.append(
+                {
+                    "k": int(k),
+                    "n": n,
+                    "dofs": int(basis.N),
+                    "assembly_s": float(assemble_time),
+                    "total_s": float(assemble_time),
+                    "solve_s": float(solve_time),
+                    "rss_mb": float(rss_peak / (1024.0 * 1024.0)),
+                    "rss_delta_mb": float(max(rss_peak - rss0, 0) / (1024.0 * 1024.0)),
+                }
+            )
+            print(
+                f"[scikit-fem] k={k} N={n} done (assembly={assemble_time:.3f}s, solve={solve_time:.3f}s, rss={rss_peak / (1024.0 * 1024.0):.1f}MB)",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"[scikit-fem] k={k} N={n} failed: {exc}", file=sys.stderr, flush=True)
+            continue
     return results
 
 
@@ -422,8 +492,9 @@ def main():
     args = parse_args()
     backends = [b.strip() for b in args.backends.split(",") if b.strip()]
     if (len(backends) > 1 or (backends and backends[0] != "cpu")) and not args.single_backend:
+        backend_exit_codes: dict[str, int] = {}
         for backend in backends:
-            run_fluxfem_backend(args, backend)
+            backend_exit_codes[backend] = run_fluxfem_backend(args, backend)
 
         cpu_json = Path(_make_backend_path(args.json, "cpu"))
         gpu_json = Path(_make_backend_path(args.json, "gpu"))
@@ -433,30 +504,32 @@ def main():
 
         out_json = Path(args.json)
         out_json.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"cpu": cpu, "gpu": gpu, "skfem": sk, "no_solve": args.no_solve}
+        payload = {
+            "cpu": cpu,
+            "gpu": gpu,
+            "skfem": sk,
+            "no_solve": args.no_solve,
+            "backend_exit_codes": backend_exit_codes,
+        }
         out_json.write_text(json.dumps(payload, indent=2))
 
         if args.plot:
-            plot_compare(
-                cpu=cpu,
-                gpu=gpu,
-                sk=sk,
-                out_plot=Path(args.plot),
-                out_plot_solve=Path(args.plot_solve) if args.plot_solve else None,
-                no_solve=args.no_solve,
-            )
+            try:
+                plot_compare(
+                    cpu=cpu,
+                    gpu=gpu,
+                    sk=sk,
+                    out_plot=Path(args.plot),
+                    out_plot_solve=Path(args.plot_solve) if args.plot_solve else None,
+                    no_solve=args.no_solve,
+                )
+            except Exception as exc:
+                print(f"[bench] plot generation failed: {exc}", file=sys.stderr, flush=True)
         return
 
     backend = backends[0] if backends else "cpu"
     results = fluxfem_cases(args, backend=backend)
-    out_json = Path(args.json)
-    out_json.parent.mkdir(parents=True, exist_ok=True)
-    out_json.write_text(
-        json.dumps(
-            {"backend": backend, "results": results, "no_solve": args.no_solve},
-            indent=2
-        )
-    )
+    _write_backend_json(args.json, backend, results, args.no_solve)
 
 
 if __name__ == "__main__":
