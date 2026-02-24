@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>MixedForm and Block Utilities &#8212; FluxFEM 0.2.3 documentation</title>
+    <title>MixedForm and Block Utilities &#8212; FluxFEM 0.2.4 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=b557875f"></script>
+    <script src="_static/documentation_options.js?v=5d74c6ef"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
@@ -112,7 +112,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.3 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.4 documentation</p>
   
 </a></div>
     
@@ -411,7 +411,7 @@
 
 <span class="n">u0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">mixed</span><span class="o">.</span><span class="n">n_dofs</span><span class="p">)</span>
 <span class="n">problem</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MixedProblem</span><span class="p">(</span><span class="n">mixed</span><span class="p">,</span> <span class="n">residuals</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">)</span>
-<span class="n">K</span> <span class="o">=</span> <span class="n">problem</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">u0</span><span class="p">,</span> <span class="n">return_flux_matrix</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">problem</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">u0</span><span class="p">)</span>
 <span class="n">R0</span> <span class="o">=</span> <span class="n">problem</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">u0</span><span class="p">)</span>
 <span class="n">b</span> <span class="o">=</span> <span class="o">-</span><span class="n">R0</span>
 <span class="n">sol</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearSolver</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="s2">&quot;spsolve&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>

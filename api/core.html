@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Core &#8212; FluxFEM 0.2.3 documentation</title>
+    <title>Core &#8212; FluxFEM 0.2.4 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=b557875f"></script>
+    <script src="../_static/documentation_options.js?v=5d74c6ef"></script>
     <script src="../_static/doctools.js?v=9bcbadda"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'api/core';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.3 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.4 documentation</p>
   
 </a></div>
     
@@ -401,7 +401,7 @@ per-element FormContext objects (test/trial fields plus quadrature data).</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="fluxfem.core.FESpacePytree">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">FESpacePytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh:</span> <span class="pre">BaseMesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basis:</span> <span class="pre">Basis3D</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">elem_dofs:</span> <span class="pre">jnp.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value_dim:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_n_dofs:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_n_ldofs:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data:</span> <span class="pre">SpaceData</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_pattern_cache:</span> <span class="pre">PatternCache</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_kernel_cache:</span> <span class="pre">KernelCache</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_elem_rows_cache:</span> <span class="pre">jnp.ndarray</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.FESpacePytree" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">FESpacePytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh:</span> <span class="pre">BaseMesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basis:</span> <span class="pre">Basis3D</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">elem_dofs:</span> <span class="pre">jnp.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value_dim:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_n_dofs:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_n_ldofs:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data:</span> <span class="pre">SpaceData</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_pattern_cache:</span> <span class="pre">PatternCache</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_kernel_cache:</span> <span class="pre">KernelCache</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_form_context_cache:</span> <span class="pre">dict[ContextCacheKey</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">FormContext]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_elem_rows_cache:</span> <span class="pre">jnp.ndarray</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.FESpacePytree" title="Link to this definition">#</a></dt>
 <dd><p>FESpaceClosure with JAX pytree support.</p>
 <p>Use this when a space must be carried through JAX transformations (jit/vmap),
 or stored inside other pytrees. Only mesh, basis, and elem_dofs are treated
@@ -582,7 +582,7 @@ explicit <code class="docutils literal notranslate"><span class="pre">dim</span>
 <span class="n">problem</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MixedProblem</span><span class="p">(</span><span class="n">mixed</span><span class="p">,</span> <span class="n">residuals</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">pattern</span><span class="o">=</span><span class="n">pattern</span><span class="p">)</span>
 
 <span class="n">u0</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">mixed</span><span class="o">.</span><span class="n">n_dofs</span><span class="p">)</span>
-<span class="n">K</span> <span class="o">=</span> <span class="n">problem</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">u0</span><span class="p">,</span> <span class="n">return_flux_matrix</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">problem</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">u0</span><span class="p">)</span>
 <span class="n">R</span> <span class="o">=</span> <span class="n">problem</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">u0</span><span class="p">)</span>
 </pre></div>
 </div>
@@ -608,11 +608,7 @@ explicit <code class="docutils literal notranslate"><span class="pre">dim</span>
 <dl class="py function">
 <dt class="sig sig-object py" id="fluxfem.core.make_sparsity_pattern">
 <span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">make_sparsity_pattern</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">SpaceLike</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_idx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="headerlink" href="#fluxfem.core.make_sparsity_pattern" title="Link to this definition">#</a></dt>
-<dd><p>Build a SparsityPattern (rows/cols[/idx]) that is independent of the solution.
-NOTE: rows/cols ordering matches assemble_jacobian_values(…).reshape(-1)
-so that pattern and data are aligned 1:1. If you change the flattening/
-compression strategy, keep this ordering contract in sync.</p>
-</dd></dl>
+<dd></dd></dl>
 
 </section>
 </section>

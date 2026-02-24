@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Kernel-based Assembly (JIT-Friendly) &#8212; FluxFEM 0.2.3 documentation</title>
+    <title>Kernel-based Assembly (JIT-Friendly) &#8212; FluxFEM 0.2.4 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=b557875f"></script>
+    <script src="_static/documentation_options.js?v=5d74c6ef"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial_kernel_assembly';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.3 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.4 documentation</p>
   
 </a></div>
     
@@ -433,7 +433,8 @@ FluxFEM emits a one-time warning; prefer tagging with <code class="docutils lite
 
 <span class="c1"># jacobian: kernel(u_elem, ctx) -&gt; (n_ldofs, n_ldofs)</span>
 <span class="n">ker_J</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_kernel</span><span class="p">(</span><span class="n">res_form</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;jacobian&quot;</span><span class="p">)</span>
-<span class="n">J</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">res_form</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_J</span><span class="p">,</span> <span class="n">sparse</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">J</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">res_form</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_J</span><span class="p">)</span>
+<span class="n">J_dense</span> <span class="o">=</span> <span class="n">J</span><span class="o">.</span><span class="n">to_dense</span><span class="p">()</span>
 </pre></div>
 </div>
 </section>
@@ -467,7 +468,8 @@ the compiled form (<code class="docutils literal notranslate"><span class="pre">
 <span class="n">ker_J</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_element_jacobian_kernel</span><span class="p">(</span><span class="n">simple_residual</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
 
 <span class="n">R</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">simple_residual</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_R</span><span class="p">)</span>
-<span class="n">J</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">simple_residual</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_J</span><span class="p">,</span> <span class="n">sparse</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">J</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">simple_residual</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kernel</span><span class="o">=</span><span class="n">ker_J</span><span class="p">)</span>
+<span class="n">J_dense</span> <span class="o">=</span> <span class="n">J</span><span class="o">.</span><span class="n">to_dense</span><span class="p">()</span>
 </pre></div>
 </div>
 </section>
