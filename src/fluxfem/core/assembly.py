@@ -753,10 +753,13 @@ def assemble_linear_form(
     elem_dofs = space.elem_dofs
     n_dofs = space.n_dofs
     n_ldofs = space.n_ldofs
+    include_x_q_req = include_x_q
+    if include_x_q_req is None and policy is None:
+        include_x_q_req = bool(getattr(form, "_ff_requires_x_q", False))
     n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
         policy=policy,
         n_chunks=n_chunks,
-        include_x_q=include_x_q,
+        include_x_q=include_x_q_req,
         lightweight_context=lightweight_context,
         chunk_build_context=chunk_build_context,
         pad_trace=pad_trace,
@@ -1322,6 +1325,7 @@ def make_scalar_body_force_form(body_force: Callable[[Array], Array]) -> FormKer
         return f_q[..., None] * ctx.test.N
     _form._ff_kind = "linear"  # type: ignore[attr-defined]
     _form._ff_domain = "volume"  # type: ignore[attr-defined]
+    _form._ff_requires_x_q = True  # type: ignore[attr-defined]
     return _form
 
 

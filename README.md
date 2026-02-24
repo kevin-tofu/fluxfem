@@ -296,3 +296,18 @@ versions are not covered by CI and may require manual JAX installation.
 
 ## Acknowledgements
 I acknowledge the open-source software, libraries, and communities that made this work possible.
+
+
+## Citation
+Reference to cite if you use LlamaIndex in a paper:
+
+```
+@software{Watanabe_FluxFEM_2026,
+author = {Watanabe, Kohei},
+doi = {10.5281/zenodo.18734689},
+month = {2},
+title = {{FluxFEM}},
+url = {https://github.com/kevin-tofu/fluxfem},
+year = {2026}
+}
+```
