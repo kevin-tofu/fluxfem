@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 from fluxfem.core.weakform import einsum as wf_einsum
-from fluxfem.mesh import mortar as mortar_mod
+from fluxfem.mesh import contact_interface as contact_interface_mod
 from fluxfem.solver.bc import facet_normals
 from tutorials._contact_compare_utils import (
     build_fluxfem_contact_space,
@@ -21,23 +21,23 @@ def _facet_area(nodes: np.ndarray, coords_local: np.ndarray) -> float:
     n = int(len(nodes))
     if n == 3:
         pts = coords_local[nodes]
-        return mortar_mod.tri_area(pts[0], pts[1], pts[2])
+        return contact_interface_mod.tri_area(pts[0], pts[1], pts[2])
     if n == 4:
         pts = coords_local[nodes]
-        return mortar_mod.tri_area(pts[0], pts[1], pts[2]) + mortar_mod.tri_area(pts[0], pts[2], pts[3])
+        return contact_interface_mod.tri_area(pts[0], pts[1], pts[2]) + contact_interface_mod.tri_area(pts[0], pts[2], pts[3])
     if n == 8:
         corner = nodes[:4]
         pts = coords_local[corner]
-        return mortar_mod.tri_area(pts[0], pts[1], pts[2]) + mortar_mod.tri_area(pts[0], pts[2], pts[3])
+        return contact_interface_mod.tri_area(pts[0], pts[1], pts[2]) + contact_interface_mod.tri_area(pts[0], pts[2], pts[3])
     if n == 9:
         corner = nodes[[0, 2, 8, 6]]
         pts = coords_local[corner]
-        return mortar_mod.tri_area(pts[0], pts[1], pts[2]) + mortar_mod.tri_area(pts[0], pts[2], pts[3])
+        return contact_interface_mod.tri_area(pts[0], pts[1], pts[2]) + contact_interface_mod.tri_area(pts[0], pts[2], pts[3])
     pts = coords_local[nodes]
     area = 0.0
     p0 = pts[0]
     for i in range(1, len(pts) - 1):
-        area += mortar_mod.tri_area(p0, pts[i], pts[i + 1])
+        area += contact_interface_mod.tri_area(p0, pts[i], pts[i + 1])
     return float(area)
 
 
@@ -56,7 +56,7 @@ def _diag_contact_surface(elem: str, quad_order: int, *, verbose: bool) -> None:
     if quad_order > 5:
         quad_order = 5
 
-    quad_pts, quad_w = mortar_mod.tri_quadrature(quad_order)
+    quad_pts, quad_w = contact_interface_mod.tri_quadrature(quad_order)
     coords_a, facets_a, normals_a = _surface_arrays(surf_a)
     coords_b, facets_b, normals_b = _surface_arrays(surf_b)
 
@@ -79,7 +79,7 @@ def _diag_contact_surface(elem: str, quad_order: int, *, verbose: bool) -> None:
     nsum_bad = 0
     for tri_id, (tri, fa, fb) in enumerate(zip(sm.conn, sm.source_facets_a, sm.source_facets_b)):
         a, b, c = sm.coords[tri]
-        area = mortar_mod.tri_area(a, b, c)
+        area = contact_interface_mod.tri_area(a, b, c)
         area_ref = max(float(facet_area_a[int(fa)]), float(facet_area_b[int(fb)]))
         eps_area = area_scale * area_ref if area_ref > 0.0 else area_scale
         if area <= eps_area:
@@ -113,8 +113,8 @@ def _diag_contact_surface(elem: str, quad_order: int, *, verbose: bool) -> None:
         x_q = np.array([a + r * (b - a) + s * (c - a) for r, s in quad_pts], dtype=float)
         facet_a = facets_a[int(fa)]
         facet_b = facets_b[int(fb)]
-        Na = np.array([mortar_mod.facet_shape_values(pt, facet_a, coords_a, tol=1e-8) for pt in x_q], dtype=float)
-        Nb = np.array([mortar_mod.facet_shape_values(pt, facet_b, coords_b, tol=1e-8) for pt in x_q], dtype=float)
+        Na = np.array([contact_interface_mod.facet_shape_values(pt, facet_a, coords_a, tol=1e-8) for pt in x_q], dtype=float)
+        Nb = np.array([contact_interface_mod.facet_shape_values(pt, facet_b, coords_b, tol=1e-8) for pt in x_q], dtype=float)
         wJ = quad_w * detJ
         if verbose and (np.max(np.abs(Na.sum(axis=1) - 1.0)) > 1e-10 or np.max(np.abs(Nb.sum(axis=1) - 1.0)) > 1e-10):
             nsum_bad += 1
@@ -156,7 +156,7 @@ def _hex27_param_data():
     quad_nodes = np.array([0, 1, 2, 3], dtype=int)
 
     def _quad_local(point: np.ndarray) -> tuple[float, float]:
-        _values, xi, eta = mortar_mod.quad_shape_and_local(point, quad_nodes, corner_coords, tol=1e-10)
+        _values, xi, eta = contact_interface_mod.quad_shape_and_local(point, quad_nodes, corner_coords, tol=1e-10)
         return float(xi), float(eta)
 
     flux_xi_eta = [(_quad_local(pt), int(node)) for pt, node in zip(facet_coords, facet_nodes)]
@@ -305,7 +305,7 @@ def _diag_hex27_shape_compare(*, verbose: bool) -> None:
         return np.array(vals, dtype=float)
 
     def _flux_quadN(xi: float, eta: float) -> np.ndarray:
-        return mortar_mod.quad9_shape_values(xi, eta)
+        return contact_interface_mod.quad9_shape_values(xi, eta)
 
     def _basis_to_dofloc_map() -> list[int]:
         mapping = []
@@ -537,14 +537,14 @@ def _diag_hex27_quad_compare(quad_order: int) -> None:
     if quad_order > 5:
         quad_order = 5
 
-    quad_pts, quad_w = mortar_mod.tri_quadrature(quad_order)
+    quad_pts, quad_w = contact_interface_mod.tri_quadrature(quad_order)
     q_flux = []
     w_flux = []
     for tri, fa in zip(sm.conn, sm.source_facets_a):
         if int(fa) != 0:
             continue
         a, b, c = sm.coords[tri]
-        area = mortar_mod.tri_area(a, b, c)
+        area = contact_interface_mod.tri_area(a, b, c)
         if area <= 1e-12:
             continue
         detJ = 2.0 * area
@@ -616,11 +616,11 @@ def _diag_hex27_volumeN_compare(quad_order: int) -> None:
         return
     if quad_order > 5:
         quad_order = 5
-    quad_pts, _quad_w = mortar_mod.tri_quadrature(quad_order)
+    quad_pts, _quad_w = contact_interface_mod.tri_quadrature(quad_order)
     tri = sm.conn[0]
     a, b, c = sm.coords[tri]
     x_q = np.array([a + r * (b - a) + s * (c - a) for r, s in quad_pts], dtype=float)
-    Na_flux = mortar_mod.volume_shape_values_at_points(x_q, elem_coords, tol=1e-10)
+    Na_flux = contact_interface_mod.volume_shape_values_at_points(x_q, elem_coords, tol=1e-10)
 
     xs = np.linspace(0.0, 1.0, 2)
     ys = np.linspace(0.0, 1.0, 2)
@@ -672,7 +672,7 @@ def _diag_hex27_sigma(*, verbose: bool) -> None:
     bounds_max = mesh_sf.p.max(axis=1)
 
     def _grad_ff(point: np.ndarray) -> np.ndarray:
-        gradN = mortar_mod.hex27_gradN(point, elem_coords, tol=1e-12)
+        gradN = contact_interface_mod.hex27_gradN(point, elem_coords, tol=1e-12)
         return u_nodes.T @ gradN
 
     interp_fns = []
@@ -751,7 +751,7 @@ def _diag_hex27_sigma(*, verbose: bool) -> None:
 
     # gradN consistency checks at a representative point
     check_pt = np.array([0.3, 0.2, 0.4], dtype=float)
-    gradN = mortar_mod.hex27_gradN(check_pt, elem_coords, tol=1e-12)
+    gradN = contact_interface_mod.hex27_gradN(check_pt, elem_coords, tol=1e-12)
     sum_grad = np.sum(gradN, axis=0)
     max_sum_grad = float(np.max(np.abs(sum_grad)))
     moment = elem_coords.T @ gradN

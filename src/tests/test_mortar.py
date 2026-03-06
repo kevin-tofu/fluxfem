@@ -36,7 +36,7 @@ def test_mortar_overlap_area_matches():
     surf_b = ff.SurfaceMesh.from_facets(coords, facets_b)
     sm = ff.build_surface_supermesh(surf_a, surf_b, tol=1e-8)
 
-    M_aa, M_ab = ff.assemble_mortar_matrices(
+    M_aa, M_ab = ff.assemble_contact_coupling_matrices(
         sm.coords, sm.conn, sm.source_facets_a, sm.source_facets_b, surf_a, surf_b
     )
 
@@ -60,7 +60,7 @@ def test_mortar_full_overlap_area():
     surf_b = ff.SurfaceMesh.from_facets(coords, facets)
     sm = ff.build_surface_supermesh(surf_a, surf_b, tol=1e-8)
 
-    M_aa, M_ab = ff.assemble_mortar_matrices(
+    M_aa, M_ab = ff.assemble_contact_coupling_matrices(
         sm.coords, sm.conn, sm.source_facets_a, sm.source_facets_b, surf_a, surf_b
     )
 
@@ -93,7 +93,7 @@ def test_mortar_quad_shape_values_centroid():
     supermesh_conn = np.array([[0, 1, 2]], dtype=int)
     source_facets = np.array([0], dtype=int)
 
-    M_aa, M_ab = ff.assemble_mortar_matrices(
+    M_aa, M_ab = ff.assemble_contact_coupling_matrices(
         supermesh_coords,
         supermesh_conn,
         source_facets,
@@ -149,7 +149,7 @@ def test_mortar_tri6_shape_values_centroid():
     supermesh_conn = np.array([[0, 1, 2]], dtype=int)
     source_facets = np.array([0], dtype=int)
 
-    M_aa, M_ab = ff.assemble_mortar_matrices(
+    M_aa, M_ab = ff.assemble_contact_coupling_matrices(
         supermesh_coords,
         supermesh_conn,
         source_facets,
@@ -210,7 +210,7 @@ def test_mortar_quad8_shape_values_centroid():
     supermesh_conn = np.array([[0, 1, 2]], dtype=int)
     source_facets = np.array([0], dtype=int)
 
-    M_aa, M_ab = ff.assemble_mortar_matrices(
+    M_aa, M_ab = ff.assemble_contact_coupling_matrices(
         supermesh_coords,
         supermesh_conn,
         source_facets,

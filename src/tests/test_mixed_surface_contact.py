@@ -28,7 +28,7 @@ def _two_square_surfaces():
 
 
 def _assemble_surface_jacobian(contact, res_form, u_a, u_b):
-    return ff.assemble_mixed_surface_jacobian(
+    return ff.assemble_contact_interface_jacobian(
         contact.supermesh_coords,
         contact.supermesh_conn,
         contact.source_facets_master,
@@ -67,9 +67,9 @@ def test_mixed_surface_penalty_matches_mortar():
     J = np.asarray(J)
 
     # Mortar matrices provide an independent assembly path for the same coupling.
-    M_aa, M_ab = contact_ab.assemble_mortar_matrices()
+    M_aa, M_ab = contact_ab.assemble_contact_coupling_matrices()
     contact_ba = ff.ContactSurfaceSpace.from_surfaces(surf_b, surf_a, tol=1e-8)
-    M_bb, M_ba = contact_ba.assemble_mortar_matrices()
+    M_bb, M_ba = contact_ba.assemble_contact_coupling_matrices()
 
     n_a = surf_a.n_nodes
     n_b = surf_b.n_nodes
@@ -94,7 +94,7 @@ def test_mixed_surface_supports_p0_multiplier():
     u_a = jnp.zeros((surf_a.n_nodes,))
     u_b = jnp.zeros((surf_b.n_facets,))  # P0: one dof per slave facet
 
-    R = ff.assemble_mixed_surface_residual(
+    R = ff.assemble_contact_interface_residual(
         sm.coords,
         sm.conn,
         sm.source_facets_a,
@@ -112,7 +112,7 @@ def test_mixed_surface_supports_p0_multiplier():
         quad_order=1,
         tol=1e-8,
     )
-    J = ff.assemble_mixed_surface_jacobian(
+    J = ff.assemble_contact_interface_jacobian(
         sm.coords,
         sm.conn,
         sm.source_facets_a,
@@ -176,13 +176,13 @@ def test_mixed_surface_projection_supermesh_parity(monkeypatch):
         tol=1e-8,
     )
 
-    monkeypatch.setenv("FLUXFEM_MORTAR_MODE", "supermesh")
-    r_super = np.asarray(ff.assemble_mixed_surface_residual(**common))
-    j_super = np.asarray(ff.assemble_mixed_surface_jacobian(**common, sparse=False))
+    monkeypatch.setenv("FLUXFEM_CONTACT_INTERFACE_MODE", "supermesh")
+    r_super = np.asarray(ff.assemble_contact_interface_residual(**common))
+    j_super = np.asarray(ff.assemble_contact_interface_jacobian(**common, sparse=False))
 
-    monkeypatch.setenv("FLUXFEM_MORTAR_MODE", "projection")
-    r_proj = np.asarray(ff.assemble_mixed_surface_residual(**common))
-    j_proj = np.asarray(ff.assemble_mixed_surface_jacobian(**common, sparse=False))
+    monkeypatch.setenv("FLUXFEM_CONTACT_INTERFACE_MODE", "projection")
+    r_proj = np.asarray(ff.assemble_contact_interface_residual(**common))
+    j_proj = np.asarray(ff.assemble_contact_interface_jacobian(**common, sparse=False))
 
     assert np.allclose(r_super, r_proj, atol=1e-6)
     assert np.allclose(j_super, j_proj, atol=1e-6)

@@ -528,7 +528,7 @@ class BaseMeshClosure:
         """
         surface = self.surface_from_facets(facets)
         conn = np.asarray(self.conn, dtype=int)
-        from .mortar import map_surface_facets_to_tet_elements, map_surface_facets_to_hex_elements
+        from .contact_interface import map_surface_facets_to_tet_elements, map_surface_facets_to_hex_elements
         if conn.shape[1] in {4, 10}:
             facet_map = map_surface_facets_to_tet_elements(surface, conn)
         elif conn.shape[1] in {8, 20, 27}:
