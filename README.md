@@ -231,9 +231,49 @@ K = blocks.assemble()
 ```
 
 FluxFEM also provides high-level contact utilities:
-- `OneToManyContactSurfaceSpace.from_meshes(...)` with facet selectors
-- `assemble_contact_coupling_matrices(...)` for mortar-style coupling operators
-- `assemble_contact_kkt(...)` (default `FluxSparse`) and `solve_contact_kkt(...)`
+
+```python
+# Minimal one-to-many contact setup
+contact = ff.OneToManyContactSurfaceSpace.from_meshes(
+    master_mesh=mesh_master,
+    slave_meshes=[mesh_slave],
+    master_space=space_master,      # optional
+    slave_spaces=[space_slave],     # optional
+    master_facet_selector=select_master,
+    slave_facet_selectors=[select_slave],
+)
+
+# 1) Assemble mortar operators (B, Kuu, ...)
+ops = ff.assemble_contact_operators(
+    contact,
+    method="mortar",
+    rho=1.0,
+    multiplier_space="p0",
+    backend="numpy",
+)
+
+# 2) Build KKT from coupling matrices and solve
+K = ff.assemble_contact_kkt(
+    ops.coupling_aa,
+    ops.coupling_ab,
+    rho=1.0,
+    multiplier_space="p0",
+    facet_conn_master=ops.facet_conn_master,
+    format="fluxsparse",
+)
+rhs = np.zeros(K.n_dofs)
+du = ff.solve_contact_kkt(K, rhs)
+
+# 3) Nitsche path: user weak form -> residual/jacobian operators
+ops_nitsche = ff.assemble_contact_operators(
+    contact,
+    method="nitsche",
+    res_form=contact_residual_form,
+    u={"master": u_master, "slaves": [u_slave]},
+    params=params,
+    backend="jax",
+)
+```
 
 
 ## Documentation

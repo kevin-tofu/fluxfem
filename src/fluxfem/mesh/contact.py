@@ -34,6 +34,22 @@ SurfaceHatFn: TypeAlias = Callable[[np.ndarray], npt.ArrayLike]
 _CONTACT_SETUP_CACHE: dict[tuple, "ContactSurfaceSpace"] = {}
 
 
+@dataclass(frozen=True)
+class ContactOperators:
+    """Container for assembled contact operators."""
+
+    method: str
+    coupling_aa: Any | None = None
+    coupling_ab: Any | None = None
+    B_a: Any | None = None
+    B_b: Any | None = None
+    B: Any | None = None
+    Kuu: Any | None = None
+    residual: Any | None = None
+    jacobian: Any | None = None
+    facet_conn_master: np.ndarray | None = None
+
+
 def assemble_contact_interface_residual(*args, **kwargs):
     """Assemble residual on a contact interface supermesh."""
     return _assemble_contact_interface_residual(*args, **kwargs)
@@ -187,6 +203,106 @@ def _kkt_coo_from_coupling(
         data = np.zeros((0,), dtype=float)
     n_total = int(n_u + n_l)
     return rows, cols, data, n_total
+
+
+def assemble_contact_operators(
+    contact,
+    *,
+    method: str = "mortar",
+    rho: float = 0.0,
+    multiplier_space: str = "nodal",
+    backend: str = "numpy",
+    res_form: MixedSurfaceResidualForm | None = None,
+    u: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+    params: "WeakParams" | None = None,
+    normal_source: str = "master",
+    sparse: bool = False,
+    batch_jac: bool | None = None,
+) -> ContactOperators:
+    """
+    Assemble contact operators, separating operator build from KKT solve assembly.
+
+    - method='mortar': assemble coupling operators and dense B/Kuu blocks.
+    - method='nitsche': assemble residual and Jacobian from a user weak form.
+    """
+    if method not in {"mortar", "nitsche"}:
+        raise ValueError("method must be 'mortar' or 'nitsche'")
+    if backend not in {"numpy", "jax"}:
+        raise ValueError("backend must be 'numpy' or 'jax'")
+
+    if method == "mortar":
+        if not hasattr(contact, "assemble_contact_coupling_matrices"):
+            raise TypeError("contact must provide assemble_contact_coupling_matrices() for method='mortar'.")
+        coupling_aa, coupling_ab = contact.assemble_contact_coupling_matrices()
+
+        facet_conn_master = None
+        if hasattr(contact, "surface_master"):
+            facet_conn_master = np.asarray(contact.surface_master.conn, dtype=int)
+        elif hasattr(contact, "contacts") and len(getattr(contact, "contacts")) > 0:
+            first = contact.contacts[0]
+            if hasattr(first, "surface_master"):
+                facet_conn_master = np.asarray(first.surface_master.conn, dtype=int)
+
+        M_aa = _coo_to_dense(
+            coupling_aa.rows, coupling_aa.cols, coupling_aa.data, coupling_aa.shape, backend=backend
+        )
+        M_ab = _coo_to_dense(
+            coupling_ab.rows, coupling_ab.cols, coupling_ab.data, coupling_ab.shape, backend=backend
+        )
+
+        if backend == "jax":
+            import jax.numpy as jnp
+
+            xp = jnp
+        else:
+            xp = np
+
+        if multiplier_space == "nodal":
+            B_a = M_aa
+            B_b = M_ab
+        elif multiplier_space == "p0":
+            if facet_conn_master is None:
+                raise ValueError("facet_conn_master is required when multiplier_space='p0'.")
+            n_master_nodes = int(coupling_aa.shape[0])
+            S_np = _p0_reduction_matrix_from_facets(facet_conn_master, n_master_nodes)
+            S = xp.asarray(S_np)
+            B_a = S @ M_aa
+            B_b = S @ M_ab
+        else:
+            raise ValueError("multiplier_space must be 'nodal' or 'p0'")
+
+        B = xp.concatenate([B_a, -B_b], axis=1)
+        Kuu = xp.asarray(rho) * (B.T @ B)
+        return ContactOperators(
+            method="mortar",
+            coupling_aa=coupling_aa,
+            coupling_ab=coupling_ab,
+            B_a=B_a,
+            B_b=B_b,
+            B=B,
+            Kuu=Kuu,
+            facet_conn_master=facet_conn_master,
+        )
+
+    if res_form is None or u is None or params is None:
+        raise ValueError("method='nitsche' requires res_form, u, and params.")
+    if not hasattr(contact, "assemble_residual") or not hasattr(contact, "assemble_jacobian"):
+        raise TypeError("contact must provide assemble_residual() and assemble_jacobian() for method='nitsche'.")
+    residual = contact.assemble_residual(res_form, u, params, normal_source=normal_source)
+    jacobian = contact.assemble_jacobian(
+        res_form,
+        u,
+        params,
+        normal_source=normal_source,
+        sparse=sparse,
+        backend=backend,
+        batch_jac=batch_jac,
+    )
+    return ContactOperators(
+        method="nitsche",
+        residual=residual,
+        jacobian=jacobian,
+    )
 
 
 def assemble_contact_kkt(
@@ -1025,6 +1141,34 @@ class ContactSurfaceSpace:
             return_blocks=return_blocks,
         )
 
+    def assemble_contact_operators(
+        self,
+        *,
+        method: str = "mortar",
+        rho: float = 0.0,
+        multiplier_space: str = "nodal",
+        backend: str = "numpy",
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+    ) -> ContactOperators:
+        return assemble_contact_operators(
+            self,
+            method=method,
+            rho=rho,
+            multiplier_space=multiplier_space,
+            backend=backend,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+
     def assemble_residual(
         self,
         res_form: MixedSurfaceResidualForm,
@@ -1775,6 +1919,34 @@ class OneToManyContactSurfaceSpace:
             return_blocks=return_blocks,
         )
 
+    def assemble_contact_operators(
+        self,
+        *,
+        method: str = "mortar",
+        rho: float = 0.0,
+        multiplier_space: str = "nodal",
+        backend: str = "numpy",
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+    ) -> ContactOperators:
+        return assemble_contact_operators(
+            self,
+            method=method,
+            rho=rho,
+            multiplier_space=multiplier_space,
+            backend=backend,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+
 
 __all__ = [
     "ContactSide",
@@ -1782,6 +1954,8 @@ __all__ = [
     "OneSidedContactSurfaceSpace",
     "ContactSurfaceSpace",
     "OneToManyContactSurfaceSpace",
+    "ContactOperators",
+    "assemble_contact_operators",
     "assemble_contact_interface_residual",
     "assemble_contact_interface_jacobian",
     "assemble_contact_coupling_matrices",

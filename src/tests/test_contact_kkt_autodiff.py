@@ -63,6 +63,43 @@ def test_contact_kkt_matches_module_and_class_api():
     assert np.allclose(K_a, K_bcoo_dense, atol=1e-12)
 
 
+def test_contact_operators_mortar_matches_kkt_blocks():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+
+    ops = ff.assemble_contact_operators(
+        contact,
+        method="mortar",
+        rho=3.0,
+        multiplier_space="p0",
+        backend="numpy",
+    )
+    K_dense, B_a_ref, B_b_ref = contact.assemble_contact_kkt(
+        rho=3.0,
+        multiplier_space="p0",
+        backend="numpy",
+        format="dense",
+        return_blocks=True,
+    )
+
+    assert np.allclose(np.asarray(ops.B_a), np.asarray(B_a_ref), atol=1e-12)
+    assert np.allclose(np.asarray(ops.B_b), np.asarray(B_b_ref), atol=1e-12)
+    assert np.allclose(np.asarray(ops.B), np.concatenate([np.asarray(B_a_ref), -np.asarray(B_b_ref)], axis=1), atol=1e-12)
+
+    n_u = int(np.asarray(ops.B).shape[1])
+    assert np.allclose(np.asarray(ops.Kuu), np.asarray(K_dense)[:n_u, :n_u], atol=1e-12)
+
+
 def test_contact_kkt_augmented_lagrangian_grad_rho_matches_fd():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(
