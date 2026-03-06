@@ -269,10 +269,20 @@ ops_nitsche = ff.assemble_contact_operators(
     contact,
     method="nitsche",
     res_form=contact_residual_form,
-    u={"master": u_master, "slaves": [u_slave]},
+    u={"a": u_master, "b": u_slave},
     params=params,
     backend="jax",
 )
+
+# 4) Unified coupled API (Nitsche)
+builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+builder.register_blocks([
+    ("master", space_master, {"value_dim": 1}),
+    ("slave", space_slave, {"value_dim": 1}),
+])
+builder.add_contact(ops_nitsche, master="master", slave="slave", method="nitsche", value_dim=1)
+system = builder.build()
+u = system.solve(dirichlet_dofs=dir_dofs, dirichlet_vals=0.0, format="csr")
 ```
 
 
@@ -285,6 +295,7 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 - `tutorials/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
 - `tutorials/neo_hookean_cantilever.py` (nonlinear hyperelasticity)
 - `tutorials/thermoelastic_bar_1d.py` / `tutorials/thermoelastic_bar_1d_mixed.py` (thermoelastic coupling)
+- `tutorials/contact_supported_box_by_pillars.py` (large box supported by multiple small boxes via Nitsche contact + Dirichlet supports)
 - `tutorials/petsc_shell_poisson_demo.py` (PETSc shell solver integration; see also `tutorials/petsc_shell_poisson_pmat_demo.py`)
 
 ## Setup

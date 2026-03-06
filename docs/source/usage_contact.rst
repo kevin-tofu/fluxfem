@@ -147,3 +147,52 @@ Notes
 - For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.
 - ``multiplier_space="p0"`` gives facet-wise constant multipliers (common for mortar-like constraints).
 - ``assemble_contact_kkt`` does not take a weak form directly; pass operators (from coupling matrices / ``assemble_contact_operators``).
+
+CoupledSystemBuilder (Nitsche)
+------------------------------
+
+To avoid manual offset/node bookkeeping, use ``CoupledSystemBuilder``:
+
+.. code-block:: python
+
+   builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+   builder.register_blocks([
+       ("top", top_space, {"value_dim": 1}),
+       ("support", support_space, {"value_dim": 1}),
+   ])
+   builder.add_contact(ops_nitsche, master="top", slave="support", method="nitsche", value_dim=1)
+   system = builder.build()
+   u = system.solve(dirichlet_dofs=dir_dofs, dirichlet_vals=0.0, format="csr")
+
+``register_field`` is also auto-offset by default:
+
+.. code-block:: python
+
+   builder.register_field("u", n_dofs=nu, value_dim=1)   # offset=0
+   builder.register_field("v", n_dofs=nv, value_dim=1)   # offset=nu
+
+Mortar with Builder
+-------------------
+
+``assemble_contact_operators(method="mortar")`` and builder are consistent:
+assemble operators first, then pass them to ``add_contact`` (or ``add_contact_mortar``).
+
+.. code-block:: python
+
+   ops_mortar = ff.assemble_contact_operators(
+       contact,
+       method="mortar",
+       rho=1.0,
+       multiplier_space="p0",
+       backend="numpy",
+   )
+   builder.add_contact(
+       ops_mortar,
+       master="top",
+       slave="support",
+       method="mortar",
+       value_dim=1,
+   )
+
+When ``ops_mortar`` comes from ``assemble_contact_operators(method="mortar")``,
+``rho`` and ``multiplier_space`` are inherited automatically. Override only when needed.

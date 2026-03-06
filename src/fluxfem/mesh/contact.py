@@ -48,6 +48,8 @@ class ContactOperators:
     residual: Any | None = None
     jacobian: Any | None = None
     facet_conn_master: np.ndarray | None = None
+    rho: float | None = None
+    multiplier_space: str | None = None
 
 
 def assemble_contact_interface_residual(*args, **kwargs):
@@ -282,6 +284,8 @@ def assemble_contact_operators(
             B=B,
             Kuu=Kuu,
             facet_conn_master=facet_conn_master,
+            rho=float(rho),
+            multiplier_space=str(multiplier_space),
         )
 
     if res_form is None or u is None or params is None:

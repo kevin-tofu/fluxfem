@@ -42,6 +42,7 @@ from .solve_runner import (
 from .solver import LinearSolver, NonlinearSolver
 from .petsc import petsc_solve, petsc_shell_solve, petsc_is_available
 from .dynamics import NewmarkResult, newmark_solve_linear
+from .coupled_system import CoupledSystem, CoupledSystemBuilder
 
 __all__ = [
     "SparsityPattern",
@@ -92,4 +93,6 @@ __all__ = [
     "petsc_solve",
     "petsc_shell_solve",
     "petsc_is_available",
+    "CoupledSystem",
+    "CoupledSystemBuilder",
 ]

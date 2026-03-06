@@ -180,6 +180,8 @@ __all__ = [
     "build_block_system",
     "split_block_matrix",
     "BlockSystem",
+    "CoupledSystem",
+    "CoupledSystemBuilder",
     "LinearSolver",
     "NonlinearSolver",
     "NewmarkResult",
