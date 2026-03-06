@@ -384,9 +384,86 @@
 <h1>Top-level API<a class="headerlink" href="#top-level-api" title="Link to this heading">#</a></h1>
 <section id="core">
 <h2>Core<a class="headerlink" href="#core" title="Link to this heading">#</a></h2>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fluxfem.FESpace">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">FESpace</span></span><a class="headerlink" href="#fluxfem.FESpace" title="Link to this definition">#</a></dt>
+<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">FESpaceClosure</span></code></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">FormContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">test</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FormFieldLike</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trial</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FormFieldLike</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_q</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jnp.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jnp.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">elem_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jnp.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span></dt>
+<dd><p>Bundle test/trial fields and quadrature data for element assembly.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">LinearForm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span></dt>
+<dd><p>Linear form wrapper with volume/surface backends.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">BilinearForm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span></dt>
+<dd><p>Bilinear form wrapper with volume/surface backends.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">ResidualForm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em><span class="sig-paren">)</span></dt>
+<dd><p>Residual form wrapper (volume only for now).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.make_hex_space">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">make_hex_space</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="mesh.html#fluxfem.mesh.HexMesh" title="fluxfem.mesh.hex.HexMesh"><span class="pre">HexMesh</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">FESpaceClosure</span></span></span><a class="headerlink" href="#fluxfem.make_hex_space" title="Link to this definition">#</a></dt>
+<dd><p>Create a trilinear hex space (8-node elements).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.make_tet_space">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">make_tet_space</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="mesh.html#fluxfem.mesh.TetMesh" title="fluxfem.mesh.tet.TetMesh"><span class="pre">TetMesh</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">FESpaceClosure</span></span></span><a class="headerlink" href="#fluxfem.make_tet_space" title="Link to this definition">#</a></dt>
+<dd><p>Create a linear or quadratic tet space based on mesh nodes.</p>
+</dd></dl>
+
 </section>
 <section id="physics">
 <h2>Physics<a class="headerlink" href="#physics" title="Link to this heading">#</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.lame_parameters">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">lame_parameters</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">E</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nu</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.lame_parameters" title="Link to this definition">#</a></dt>
+<dd><p>Return Lamé parameters (lambda, mu) from Young’s modulus and Poisson ratio.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.isotropic_3d_D">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">isotropic_3d_D</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">E</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nu</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.isotropic_3d_D" title="Link to this definition">#</a></dt>
+<dd><p>Return 3D isotropic linear elasticity constitutive matrix in Voigt form.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.linear_elasticity_form">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">linear_elasticity_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">D</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.linear_elasticity_form" title="Link to this definition">#</a></dt>
+<dd><p>Linear-elasticity bilinear form in Voigt notation.</p>
+<p>Returns the per-quadrature integrand for Bv^T D Bu, where B is the
+symmetric-gradient operator for the test/trial fields.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.diffusion_form">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">diffusion_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kappa</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.diffusion_form" title="Link to this definition">#</a></dt>
+<dd><p>Scalar diffusion bilinear form: kappa * grad_v · grad_u.</p>
+<p>Returns the per-quadrature integrand for a standard Laplacian term.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.neo_hookean_residual_form">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.</span></span><span class="sig-name descname"><span class="pre">neo_hookean_residual_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u_elem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.numpy.ndarray</span></span></span><a class="headerlink" href="#fluxfem.neo_hookean_residual_form" title="Link to this definition">#</a></dt>
+<dd><p>Compressible Neo-Hookean residual (Total Lagrangian, PK2).
+params: dict-like with keys “mu”, “lam” or tuple (mu, lam)
+returns: (n_q, n_ldofs)</p>
+</dd></dl>
+
 </section>
 <section id="solvers">
 <h2>Solvers<a class="headerlink" href="#solvers" title="Link to this heading">#</a></h2>
@@ -440,8 +517,20 @@
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core">Core</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#physics">Physics</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core">Core</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.FESpace"><code class="docutils literal notranslate"><span class="pre">FESpace</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.make_hex_space"><code class="docutils literal notranslate"><span class="pre">make_hex_space()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.make_tet_space"><code class="docutils literal notranslate"><span class="pre">make_tet_space()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#physics">Physics</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.lame_parameters"><code class="docutils literal notranslate"><span class="pre">lame_parameters()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.isotropic_3d_D"><code class="docutils literal notranslate"><span class="pre">isotropic_3d_D()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.linear_elasticity_form"><code class="docutils literal notranslate"><span class="pre">linear_elasticity_form()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.diffusion_form"><code class="docutils literal notranslate"><span class="pre">diffusion_form()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.neo_hookean_residual_form"><code class="docutils literal notranslate"><span class="pre">neo_hookean_residual_form()</span></code></a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#solvers">Solvers</a></li>
 </ul>
   </nav></div>
