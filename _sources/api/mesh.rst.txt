@@ -46,7 +46,9 @@ Contact
 .. autoclass:: fluxfem.mesh.ContactSurfaceSpace
 .. autoclass:: fluxfem.mesh.OneToManyContactSurfaceSpace
 .. autoclass:: fluxfem.mesh.OneSidedContactSurfaceSpace
+.. autoclass:: fluxfem.mesh.ContactOperators
 
+.. autofunction:: fluxfem.mesh.assemble_contact_operators
 .. autofunction:: fluxfem.mesh.assemble_contact_interface_residual
 .. autofunction:: fluxfem.mesh.assemble_contact_interface_jacobian
 .. autofunction:: fluxfem.mesh.assemble_contact_coupling_matrices

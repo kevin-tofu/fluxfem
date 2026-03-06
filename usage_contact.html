@@ -426,8 +426,32 @@ You do not need to manually pass surface coordinates/connectivity.</p>
 </pre></div>
 </div>
 </section>
-<section id="contact-coupling-matrices-mortar-path">
-<h2>Contact Coupling Matrices (Mortar Path)<a class="headerlink" href="#contact-coupling-matrices-mortar-path" title="Link to this heading">#</a></h2>
+<section id="contact-operators-api-recommended">
+<h2>Contact Operators API (Recommended)<a class="headerlink" href="#contact-operators-api-recommended" title="Link to this heading">#</a></h2>
+<p>Use <code class="docutils literal notranslate"><span class="pre">assemble_contact_operators</span></code> to separate operator assembly from solving.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Mortar path: returns coupling/B/Kuu operators</span>
+<span class="n">ops</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_operators</span><span class="p">(</span>
+    <span class="n">contact</span><span class="p">,</span>
+    <span class="n">method</span><span class="o">=</span><span class="s2">&quot;mortar&quot;</span><span class="p">,</span>
+    <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
+    <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>   <span class="c1"># or &quot;nodal&quot;</span>
+    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Nitsche path: returns residual/jacobian from your weak form</span>
+<span class="n">ops_nitsche</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_operators</span><span class="p">(</span>
+    <span class="n">contact</span><span class="p">,</span>
+    <span class="n">method</span><span class="o">=</span><span class="s2">&quot;nitsche&quot;</span><span class="p">,</span>
+    <span class="n">res_form</span><span class="o">=</span><span class="n">res_form</span><span class="p">,</span>
+    <span class="n">u</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;master&quot;</span><span class="p">:</span> <span class="n">u_master</span><span class="p">,</span> <span class="s2">&quot;slaves&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">u_s1</span><span class="p">,</span> <span class="n">u_s2</span><span class="p">]},</span>
+    <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span>
+    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="contact-coupling-matrices-mortar">
+<h2>Contact Coupling Matrices (Mortar)<a class="headerlink" href="#contact-coupling-matrices-mortar" title="Link to this heading">#</a></h2>
 <p>Coupling matrices for constraints are available from:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">M_aa</span><span class="p">,</span> <span class="n">M_ab</span> <span class="o">=</span> <span class="n">contact</span><span class="o">.</span><span class="n">assemble_contact_coupling_matrices</span><span class="p">()</span>
 </pre></div>
@@ -435,10 +459,14 @@ You do not need to manually pass surface coordinates/connectivity.</p>
 </section>
 <section id="kkt-assembly-fluxsparse-and-bcoo">
 <h2>KKT Assembly, FluxSparse, and BCOO<a class="headerlink" href="#kkt-assembly-fluxsparse-and-bcoo" title="Link to this heading">#</a></h2>
-<p>The default KKT output is <code class="docutils literal notranslate"><span class="pre">FluxSparseMatrix</span></code>.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">KKT_flux</span> <span class="o">=</span> <span class="n">contact</span><span class="o">.</span><span class="n">assemble_contact_kkt</span><span class="p">(</span>
+<p>Assemble KKT from coupling matrices (or from <code class="docutils literal notranslate"><span class="pre">ops.coupling_*</span></code>).
+The default output is <code class="docutils literal notranslate"><span class="pre">FluxSparseMatrix</span></code>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">KKT_flux</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_kkt</span><span class="p">(</span>
+    <span class="n">ops</span><span class="o">.</span><span class="n">coupling_aa</span><span class="p">,</span>
+    <span class="n">ops</span><span class="o">.</span><span class="n">coupling_ab</span><span class="p">,</span>
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
-    <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>   <span class="c1"># or &quot;nodal&quot;</span>
+    <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>
+    <span class="n">facet_conn_master</span><span class="o">=</span><span class="n">ops</span><span class="o">.</span><span class="n">facet_conn_master</span><span class="p">,</span>
     <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">,</span>
 <span class="p">)</span>
 
@@ -446,16 +474,22 @@ You do not need to manually pass surface coordinates/connectivity.</p>
 </pre></div>
 </div>
 <p>You can also request formats explicitly:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">KKT_dense</span> <span class="o">=</span> <span class="n">contact</span><span class="o">.</span><span class="n">assemble_contact_kkt</span><span class="p">(</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">KKT_dense</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_kkt</span><span class="p">(</span>
+    <span class="n">ops</span><span class="o">.</span><span class="n">coupling_aa</span><span class="p">,</span>
+    <span class="n">ops</span><span class="o">.</span><span class="n">coupling_ab</span><span class="p">,</span>
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
     <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>
+    <span class="n">facet_conn_master</span><span class="o">=</span><span class="n">ops</span><span class="o">.</span><span class="n">facet_conn_master</span><span class="p">,</span>
     <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
     <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;dense&quot;</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="n">KKT_bcoo_direct</span> <span class="o">=</span> <span class="n">contact</span><span class="o">.</span><span class="n">assemble_contact_kkt</span><span class="p">(</span>
+<span class="n">KKT_bcoo_direct</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_kkt</span><span class="p">(</span>
+    <span class="n">ops</span><span class="o">.</span><span class="n">coupling_aa</span><span class="p">,</span>
+    <span class="n">ops</span><span class="o">.</span><span class="n">coupling_ab</span><span class="p">,</span>
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
     <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>
+    <span class="n">facet_conn_master</span><span class="o">=</span><span class="n">ops</span><span class="o">.</span><span class="n">facet_conn_master</span><span class="p">,</span>
     <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
     <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;bcoo&quot;</span><span class="p">,</span>
 <span class="p">)</span>
@@ -466,7 +500,7 @@ You do not need to manually pass surface coordinates/connectivity.</p>
 <h2>KKT Solve<a class="headerlink" href="#kkt-solve" title="Link to this heading">#</a></h2>
 <p>Solve with <code class="docutils literal notranslate"><span class="pre">solve_contact_kkt</span></code>. For JAX, use <code class="docutils literal notranslate"><span class="pre">backend=&quot;jax&quot;</span></code>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">rhs</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.2</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">KKT_dense</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
-<span class="n">u</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">solve_contact_kkt</span><span class="p">(</span><span class="n">KKT_dense</span><span class="p">,</span> <span class="n">rhs</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span> <span class="n">diagonal_shift</span><span class="o">=</span><span class="mf">1e-2</span><span class="p">)</span>
+<span class="n">sol</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">solve_contact_kkt</span><span class="p">(</span><span class="n">KKT_dense</span><span class="p">,</span> <span class="n">rhs</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span> <span class="n">diagonal_shift</span><span class="o">=</span><span class="mf">1e-2</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -476,6 +510,7 @@ You do not need to manually pass surface coordinates/connectivity.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">master_facet_selector</span></code> and <code class="docutils literal notranslate"><span class="pre">slave_facet_selectors</span></code> are recommended for robust workflows.</p></li>
 <li><p>For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">multiplier_space=&quot;p0&quot;</span></code> gives facet-wise constant multipliers (common for mortar-like constraints).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">assemble_contact_kkt</span></code> does not take a weak form directly; pass operators (from coupling matrices / <code class="docutils literal notranslate"><span class="pre">assemble_contact_operators</span></code>).</p></li>
 </ul>
 </section>
 </section>
@@ -529,7 +564,8 @@ You do not need to manually pass surface coordinates/connectivity.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-to-many-contact-from-meshes">One-To-Many Contact From Meshes</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#nitsche-style-jacobian-assembly">Nitsche-Style Jacobian Assembly</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contact-coupling-matrices-mortar-path">Contact Coupling Matrices (Mortar Path)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contact-operators-api-recommended">Contact Operators API (Recommended)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contact-coupling-matrices-mortar">Contact Coupling Matrices (Mortar)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#kkt-assembly-fluxsparse-and-bcoo">KKT Assembly, FluxSparse, and BCOO</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#kkt-solve">KKT Solve</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notes">Notes</a></li>

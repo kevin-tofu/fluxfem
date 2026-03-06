@@ -52,8 +52,34 @@ After building contact space, call ``assemble_bilinear`` with your weak form.
 
    K = contact.assemble_bilinear(bilin, u, [u, u], params, sparse=False)
 
-Contact Coupling Matrices (Mortar Path)
----------------------------------------
+Contact Operators API (Recommended)
+-----------------------------------
+
+Use ``assemble_contact_operators`` to separate operator assembly from solving.
+
+.. code-block:: python
+
+   # Mortar path: returns coupling/B/Kuu operators
+   ops = ff.assemble_contact_operators(
+       contact,
+       method="mortar",
+       rho=5.0,
+       multiplier_space="p0",   # or "nodal"
+       backend="numpy",
+   )
+
+   # Nitsche path: returns residual/jacobian from your weak form
+   ops_nitsche = ff.assemble_contact_operators(
+       contact,
+       method="nitsche",
+       res_form=res_form,
+       u={"master": u_master, "slaves": [u_s1, u_s2]},
+       params=params,
+       backend="jax",
+   )
+
+Contact Coupling Matrices (Mortar)
+----------------------------------
 
 Coupling matrices for constraints are available from:
 
@@ -64,13 +90,17 @@ Coupling matrices for constraints are available from:
 KKT Assembly, FluxSparse, and BCOO
 ----------------------------------
 
-The default KKT output is ``FluxSparseMatrix``.
+Assemble KKT from coupling matrices (or from ``ops.coupling_*``).  
+The default output is ``FluxSparseMatrix``.
 
 .. code-block:: python
 
-   KKT_flux = contact.assemble_contact_kkt(
+   KKT_flux = ff.assemble_contact_kkt(
+       ops.coupling_aa,
+       ops.coupling_ab,
        rho=5.0,
-       multiplier_space="p0",   # or "nodal"
+       multiplier_space="p0",
+       facet_conn_master=ops.facet_conn_master,
        backend="numpy",
    )
 
@@ -80,16 +110,22 @@ You can also request formats explicitly:
 
 .. code-block:: python
 
-   KKT_dense = contact.assemble_contact_kkt(
+   KKT_dense = ff.assemble_contact_kkt(
+       ops.coupling_aa,
+       ops.coupling_ab,
        rho=5.0,
        multiplier_space="p0",
+       facet_conn_master=ops.facet_conn_master,
        backend="jax",
        format="dense",
    )
 
-   KKT_bcoo_direct = contact.assemble_contact_kkt(
+   KKT_bcoo_direct = ff.assemble_contact_kkt(
+       ops.coupling_aa,
+       ops.coupling_ab,
        rho=5.0,
        multiplier_space="p0",
+       facet_conn_master=ops.facet_conn_master,
        backend="jax",
        format="bcoo",
    )
@@ -102,7 +138,7 @@ Solve with ``solve_contact_kkt``. For JAX, use ``backend="jax"``.
 .. code-block:: python
 
    rhs = jnp.linspace(0.2, 1.0, int(KKT_dense.shape[0]))
-   u = ff.solve_contact_kkt(KKT_dense, rhs, backend="jax", diagonal_shift=1e-2)
+   sol = ff.solve_contact_kkt(KKT_dense, rhs, backend="jax", diagonal_shift=1e-2)
 
 Notes
 -----
@@ -110,3 +146,4 @@ Notes
 - ``master_facet_selector`` and ``slave_facet_selectors`` are recommended for robust workflows.
 - For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.
 - ``multiplier_space="p0"`` gives facet-wise constant multipliers (common for mortar-like constraints).
+- ``assemble_contact_kkt`` does not take a weak form directly; pass operators (from coupling matrices / ``assemble_contact_operators``).
