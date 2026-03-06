@@ -50,11 +50,12 @@ If you need a specific CUDA wheel, you can install JAX inside the Poetry env:
 PETSc (optional)
 ----------------
 
-PETSc-based solvers are available via `petsc4py` (pinned to 3.23.6 to match
-PETSC_DIR in this repo):
+Optional PETSc-based solvers are available via `petsc4py`.
+Enable with the `petsc` extra:
 
 .. code-block:: bash
 
+   pip install "fluxfem[petsc]"
    poetry add fluxfem --extras "petsc"
 
 If you build or link against a custom PETSc installation, set `PETSC_DIR`
@@ -65,8 +66,9 @@ If you build or link against a custom PETSc installation, set `PETSC_DIR`
    export PETSC_DIR=/path/to/petsc
    export PETSC_ARCH=arch-linux-c-opt  # optional
 
-Note: newer `petsc4py` expects PETSc builds that include the `PetscRegressor`
-API. If your PETSc build does not have it, `petsc4py` will fail to compile.
+Note: match the `petsc4py` version to your PETSc installation.
+FluxFEM currently pins `petsc4py==3.24.4` in extras, so use a compatible PETSc
+build or override the version to fit your environment.
 
 GPU note: this repo currently tests CUDA via the `cuda12` extra only. Other
 CUDA versions are not covered by CI and may require manual JAX installation.

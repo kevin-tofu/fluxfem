@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Installation &#8212; FluxFEM 0.2.4 documentation</title>
+    <title>Installation &#8212; FluxFEM 0.2.5 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=5d74c6ef"></script>
+    <script src="_static/documentation_options.js?v=f434b289"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'installation';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.4 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.5 documentation</p>
   
 </a></div>
     
@@ -415,9 +415,10 @@ poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="o">
 </section>
 <section id="petsc-optional">
 <h2>PETSc (optional)<a class="headerlink" href="#petsc-optional" title="Link to this heading">#</a></h2>
-<p>PETSc-based solvers are available via <cite>petsc4py</cite> (pinned to 3.23.6 to match
-PETSC_DIR in this repo):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="w"> </span>--extras<span class="w"> </span><span class="s2">&quot;petsc&quot;</span>
+<p>Optional PETSc-based solvers are available via <cite>petsc4py</cite>.
+Enable with the <cite>petsc</cite> extra:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;fluxfem[petsc]&quot;</span>
+poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="w"> </span>--extras<span class="w"> </span><span class="s2">&quot;petsc&quot;</span>
 </pre></div>
 </div>
 <p>If you build or link against a custom PETSc installation, set <cite>PETSC_DIR</cite>
@@ -426,8 +427,9 @@ PETSC_DIR in this repo):</p>
 <span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_ARCH</span><span class="o">=</span>arch-linux-c-opt<span class="w">  </span><span class="c1"># optional</span>
 </pre></div>
 </div>
-<p>Note: newer <cite>petsc4py</cite> expects PETSc builds that include the <cite>PetscRegressor</cite>
-API. If your PETSc build does not have it, <cite>petsc4py</cite> will fail to compile.</p>
+<p>Note: match the <cite>petsc4py</cite> version to your PETSc installation.
+FluxFEM currently pins <cite>petsc4py==3.24.4</cite> in extras, so use a compatible PETSc
+build or override the version to fit your environment.</p>
 <p>GPU note: this repo currently tests CUDA via the <cite>cuda12</cite> extra only. Other
 CUDA versions are not covered by CI and may require manual JAX installation.</p>
 </section>
