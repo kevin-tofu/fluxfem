@@ -1719,17 +1719,27 @@ class LinearForm:
 
 
 class BilinearForm:
-    """Bilinear form wrapper (volume only for now)."""
+    """Bilinear form wrapper with volume/surface backends."""
 
-    def __init__(self, fn):
+    def __init__(self, fn, *, kind: str):
         self.fn = fn
+        self.kind = kind
 
     @classmethod
     def volume(cls, fn):
-        return cls(fn)
+        return cls(fn, kind="volume")
 
-    def get_compiled(self):
-        return compile_bilinear(self.fn)
+    @classmethod
+    def surface(cls, fn):
+        return cls(fn, kind="surface")
+
+    def get_compiled(self, *, ctx_kind: str | None = None):
+        kind = self.kind if ctx_kind is None else ctx_kind
+        if kind == "volume":
+            return compile_bilinear(self.fn)
+        if kind == "surface":
+            return compile_surface_bilinear(self.fn)
+        raise ValueError(f"Unknown bilinear form kind: {kind}")
 
 
 class ResidualForm:

@@ -33,6 +33,7 @@ where variational forms are treated as first-class, differentiable programs.
 - Two assembly approaches: tensor-based (scikit-fem–style) assembly and weak-form-based assembly.
 - Handles both linear and nonlinear analyses with AD in JAX.
 - Optional PETSc/PETSc-shell solvers via `petsc4py` for scalable linear solves (add `fluxfem[petsc]`).
+- Contact interface support for Nitsche and mortar-style coupling, including one-to-many contact spaces (`OneToManyContactSurfaceSpace.from_meshes`) and KKT assembly utilities (`assemble_contact_coupling_matrices`, `assemble_contact_kkt`, `solve_contact_kkt`).
 
 ## Usage 
 
@@ -229,7 +230,10 @@ blocks = ff_solver.make_block_matrix(
 K = blocks.assemble()
 ```
 
-FluxFEM also provides contact utilities like `ContactSurfaceSpace` to build constraint contributions.
+FluxFEM also provides high-level contact utilities:
+- `OneToManyContactSurfaceSpace.from_meshes(...)` with facet selectors
+- `assemble_contact_coupling_matrices(...)` for mortar-style coupling operators
+- `assemble_contact_kkt(...)` (default `FluxSparse`) and `solve_contact_kkt(...)`
 
 
 ## Documentation

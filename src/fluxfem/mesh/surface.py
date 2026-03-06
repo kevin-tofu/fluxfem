@@ -156,6 +156,33 @@ class SurfaceMesh(BaseMesh):
         n_total_nodes = int(mesh.n_nodes)
         return self.assemble_linear_form(form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
+    def assemble_bilinear_form_on_space(
+        self,
+        space,
+        form,
+        params,
+        *,
+        pattern=None,
+        return_flux_matrix: bool = True,
+    ):
+        """
+        Assemble surface bilinear form using global size inferred from a volume space.
+        """
+        from ..solver.bc import assemble_surface_bilinear_form
+        dim = int(getattr(space, "value_dim", 1))
+        n_total_nodes = int(getattr(space, "mesh", self).n_nodes)
+        if pattern is None and hasattr(space, "get_sparsity_pattern"):
+            pattern = space.get_sparsity_pattern(with_idx=True)
+        return assemble_surface_bilinear_form(
+            self,
+            form,
+            params,
+            dim=dim,
+            n_total_nodes=n_total_nodes,
+            pattern=pattern,
+            return_flux_matrix=return_flux_matrix,
+        )
+
 
 @dataclass(frozen=True)
 class SurfaceWithElemConn:
@@ -297,6 +324,33 @@ class SurfaceMeshPytree(BaseMeshPytree):
         mesh = cast(BaseMesh, getattr(space, "mesh", self))
         n_total_nodes = int(mesh.n_nodes)
         return self.assemble_linear_form(form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
+
+    def assemble_bilinear_form_on_space(
+        self,
+        space,
+        form,
+        params,
+        *,
+        pattern=None,
+        return_flux_matrix: bool = True,
+    ):
+        """
+        Assemble surface bilinear form using global size inferred from a volume space.
+        """
+        from ..solver.bc import assemble_surface_bilinear_form
+        dim = int(getattr(space, "value_dim", 1))
+        n_total_nodes = int(getattr(space, "mesh", self).n_nodes)
+        if pattern is None and hasattr(space, "get_sparsity_pattern"):
+            pattern = space.get_sparsity_pattern(with_idx=True)
+        return assemble_surface_bilinear_form(
+            self,
+            form,
+            params,
+            dim=dim,
+            n_total_nodes=n_total_nodes,
+            pattern=pattern,
+            return_flux_matrix=return_flux_matrix,
+        )
 
     def assemble_traction(
         self,
