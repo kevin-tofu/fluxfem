@@ -38,3 +38,20 @@ Predicates
 .. autofunction:: fluxfem.mesh.plane_predicate
 .. autofunction:: fluxfem.mesh.axis_plane_predicate
 .. autofunction:: fluxfem.mesh.slab_predicate
+
+Contact
+-------
+
+.. autoclass:: fluxfem.mesh.ContactSide
+.. autoclass:: fluxfem.mesh.ContactSurfaceSpace
+.. autoclass:: fluxfem.mesh.OneToManyContactSurfaceSpace
+.. autoclass:: fluxfem.mesh.OneSidedContactSurfaceSpace
+
+.. autofunction:: fluxfem.mesh.assemble_contact_interface_residual
+.. autofunction:: fluxfem.mesh.assemble_contact_interface_jacobian
+.. autofunction:: fluxfem.mesh.assemble_contact_coupling_matrices
+.. autofunction:: fluxfem.mesh.assemble_contact_kkt
+.. autofunction:: fluxfem.mesh.solve_contact_kkt
+
+.. autofunction:: fluxfem.mesh.facet_gap_values
+.. autofunction:: fluxfem.mesh.active_contact_facets
