@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Contact Interface Usage &#8212; FluxFEM 0.2.6 documentation</title>
+    <title>Contact Interface Usage &#8212; FluxFEM 0.2.7 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=d4852862"></script>
+    <script src="_static/documentation_options.js?v=7dc55c04"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'usage_contact';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.6 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.7 documentation</p>
   
 </a></div>
     
@@ -419,8 +419,8 @@ You do not need to manually pass surface coordinates/connectivity.</p>
 </pre></div>
 </div>
 </section>
-<section id="nitsche-style-jacobian-assembly">
-<h2>Nitsche-Style Jacobian Assembly<a class="headerlink" href="#nitsche-style-jacobian-assembly" title="Link to this heading">#</a></h2>
+<section id="penalty-style-jacobian-assembly">
+<h2>Penalty-Style Jacobian Assembly<a class="headerlink" href="#penalty-style-jacobian-assembly" title="Link to this heading">#</a></h2>
 <p>After building contact space, call <code class="docutils literal notranslate"><span class="pre">assemble_bilinear</span></code> with your weak form.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">K</span> <span class="o">=</span> <span class="n">contact</span><span class="o">.</span><span class="n">assemble_bilinear</span><span class="p">(</span><span class="n">bilin</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="p">[</span><span class="n">u</span><span class="p">,</span> <span class="n">u</span><span class="p">],</span> <span class="n">params</span><span class="p">,</span> <span class="n">sparse</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </pre></div>
@@ -428,30 +428,38 @@ You do not need to manually pass surface coordinates/connectivity.</p>
 </section>
 <section id="contact-operators-api-recommended">
 <h2>Contact Operators API (Recommended)<a class="headerlink" href="#contact-operators-api-recommended" title="Link to this heading">#</a></h2>
-<p>Use <code class="docutils literal notranslate"><span class="pre">assemble_contact_operators</span></code> to separate operator assembly from solving.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Mortar path: returns coupling/B/Kuu operators</span>
-<span class="n">ops</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_operators</span><span class="p">(</span>
+<p>Use explicit APIs by family:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">law</span></code>: physical contact model.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">formulation</span></code>: multiplier-family vs penalty-family intent.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">assemble_contact_constraint_operators</span></code>: coupling/B/Kuu.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">assemble_contact_penalty_operators</span></code>: residual/jacobian from weak form.</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Constraint path: returns coupling/B/Kuu operators</span>
+<span class="n">ops</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactOperators</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_constraint_operators</span><span class="p">(</span>
     <span class="n">contact</span><span class="p">,</span>
-    <span class="n">method</span><span class="o">=</span><span class="s2">&quot;mortar&quot;</span><span class="p">,</span>
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
     <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>   <span class="c1"># or &quot;nodal&quot;</span>
     <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">,</span>
+    <span class="c1"># Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.</span>
+    <span class="n">weak_form</span><span class="o">=</span><span class="n">res_form</span><span class="p">,</span>
+    <span class="n">state</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;master&quot;</span><span class="p">:</span> <span class="n">u_master</span><span class="p">,</span> <span class="s2">&quot;slaves&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">u_s1</span><span class="p">,</span> <span class="n">u_s2</span><span class="p">]},</span>
+    <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="c1"># Nitsche path: returns residual/jacobian from your weak form</span>
-<span class="n">ops_nitsche</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_operators</span><span class="p">(</span>
+<span class="c1"># Penalty-family path: returns residual/jacobian from your weak form</span>
+<span class="n">ops_nitsche</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactOperators</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_penalty_operators</span><span class="p">(</span>
     <span class="n">contact</span><span class="p">,</span>
-    <span class="n">method</span><span class="o">=</span><span class="s2">&quot;nitsche&quot;</span><span class="p">,</span>
-    <span class="n">res_form</span><span class="o">=</span><span class="n">res_form</span><span class="p">,</span>
-    <span class="n">u</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;master&quot;</span><span class="p">:</span> <span class="n">u_master</span><span class="p">,</span> <span class="s2">&quot;slaves&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">u_s1</span><span class="p">,</span> <span class="n">u_s2</span><span class="p">]},</span>
+    <span class="n">weak_form</span><span class="o">=</span><span class="n">res_form</span><span class="p">,</span>
+    <span class="n">state</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;master&quot;</span><span class="p">:</span> <span class="n">u_master</span><span class="p">,</span> <span class="s2">&quot;slaves&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">u_s1</span><span class="p">,</span> <span class="n">u_s2</span><span class="p">]},</span>
     <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span>
     <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 </div>
 </section>
-<section id="contact-coupling-matrices-mortar">
-<h2>Contact Coupling Matrices (Mortar)<a class="headerlink" href="#contact-coupling-matrices-mortar" title="Link to this heading">#</a></h2>
+<section id="contact-coupling-matrices-constraint">
+<h2>Contact Coupling Matrices (Constraint)<a class="headerlink" href="#contact-coupling-matrices-constraint" title="Link to this heading">#</a></h2>
 <p>Coupling matrices for constraints are available from:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">M_aa</span><span class="p">,</span> <span class="n">M_ab</span> <span class="o">=</span> <span class="n">contact</span><span class="o">.</span><span class="n">assemble_contact_coupling_matrices</span><span class="p">()</span>
 </pre></div>
@@ -509,9 +517,58 @@ The default output is <code class="docutils literal notranslate"><span class="pr
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">master_facet_selector</span></code> and <code class="docutils literal notranslate"><span class="pre">slave_facet_selectors</span></code> are recommended for robust workflows.</p></li>
 <li><p>For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">multiplier_space=&quot;p0&quot;</span></code> gives facet-wise constant multipliers (common for mortar-like constraints).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">assemble_contact_kkt</span></code> does not take a weak form directly; pass operators (from coupling matrices / <code class="docutils literal notranslate"><span class="pre">assemble_contact_operators</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">multiplier_space=&quot;p0&quot;</span></code> gives facet-wise constant multipliers (common for constraint-family coupling).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">assemble_contact_kkt</span></code> is a low-level API. In most cases, prefer <code class="docutils literal notranslate"><span class="pre">CoupledSystemBuilder.add_contact(...)</span></code>.</p></li>
 </ul>
+</section>
+<section id="coupledsystembuilder-penalty">
+<h2>CoupledSystemBuilder (Penalty)<a class="headerlink" href="#coupledsystembuilder-penalty" title="Link to this heading">#</a></h2>
+<p>To avoid manual offset/node bookkeeping, use <code class="docutils literal notranslate"><span class="pre">CoupledSystemBuilder</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">builder</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">CoupledSystemBuilder</span><span class="o">.</span><span class="n">from_structural</span><span class="p">(</span><span class="n">K_u</span><span class="p">,</span> <span class="n">F_u</span><span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">register_blocks</span><span class="p">([</span>
+    <span class="p">(</span><span class="s2">&quot;top&quot;</span><span class="p">,</span> <span class="n">top_space</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;value_dim&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">}),</span>
+    <span class="p">(</span><span class="s2">&quot;support&quot;</span><span class="p">,</span> <span class="n">support_space</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;value_dim&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">}),</span>
+<span class="p">])</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">add_contact</span><span class="p">(</span><span class="n">ops_nitsche</span><span class="p">,</span> <span class="n">master</span><span class="o">=</span><span class="s2">&quot;top&quot;</span><span class="p">,</span> <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support&quot;</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">system</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
+<span class="n">u</span> <span class="o">=</span> <span class="n">system</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">dirichlet_dofs</span><span class="o">=</span><span class="n">dir_dofs</span><span class="p">,</span> <span class="n">dirichlet_vals</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;csr&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">register_field</span></code> is also auto-offset by default:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">builder</span><span class="o">.</span><span class="n">register_field</span><span class="p">(</span><span class="s2">&quot;u&quot;</span><span class="p">,</span> <span class="n">n_dofs</span><span class="o">=</span><span class="n">nu</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>   <span class="c1"># offset=0</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">register_field</span><span class="p">(</span><span class="s2">&quot;v&quot;</span><span class="p">,</span> <span class="n">n_dofs</span><span class="o">=</span><span class="n">nv</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>   <span class="c1"># offset=nu</span>
+</pre></div>
+</div>
+</section>
+<section id="constraint-with-builder">
+<h2>Constraint with Builder<a class="headerlink" href="#constraint-with-builder" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">assemble_contact_constraint_operators(...)</span></code> and builder are consistent:
+assemble operators first, then pass them to <code class="docutils literal notranslate"><span class="pre">add_contact</span></code> (or <code class="docutils literal notranslate"><span class="pre">add_contact_mortar</span></code>).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ops_mortar</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_constraint_operators</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">add_contact</span><span class="p">(</span><span class="n">ops_mortar</span><span class="p">,</span> <span class="n">master</span><span class="o">=</span><span class="s2">&quot;top&quot;</span><span class="p">,</span> <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support&quot;</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>When <code class="docutils literal notranslate"><span class="pre">ops_mortar</span></code> comes from <code class="docutils literal notranslate"><span class="pre">assemble_contact_constraint_operators(...)</span></code>,
+<code class="docutils literal notranslate"><span class="pre">rho</span></code> and <code class="docutils literal notranslate"><span class="pre">multiplier_space</span></code> are inherited automatically. Override only when needed.</p>
+</section>
+<section id="embedding-map-with-unmapped-report">
+<h2>Embedding Map (With Unmapped Report)<a class="headerlink" href="#embedding-map-with-unmapped-report" title="Link to this heading">#</a></h2>
+<p>For mesh-to-mesh tied constraints, you can request unmapped slave node IDs:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">emb</span><span class="p">,</span> <span class="n">unmapped</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">build_barycentric_embedding_map_from_meshes</span><span class="p">(</span>
+    <span class="n">master_mesh</span><span class="p">,</span>
+    <span class="n">slave_mesh</span><span class="p">,</span>
+    <span class="n">slave_facet_selector</span><span class="o">=</span><span class="k">lambda</span> <span class="n">m</span><span class="p">:</span> <span class="n">m</span><span class="o">.</span><span class="n">facets_on_plane</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mf">0.0</span><span class="p">),</span>
+    <span class="n">allow_unmapped</span><span class="o">=</span><span class="s2">&quot;skip&quot;</span><span class="p">,</span>           <span class="c1"># &quot;error&quot; | &quot;skip&quot;</span>
+    <span class="n">return_unmapped_ids</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;unmapped slave node ids:&quot;</span><span class="p">,</span> <span class="n">unmapped</span><span class="p">)</span>
+
+<span class="n">builder</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">CoupledSystemBuilder</span><span class="o">.</span><span class="n">from_structural</span><span class="p">(</span><span class="n">K_u</span><span class="p">,</span> <span class="n">F_u</span><span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">register_field</span><span class="p">(</span><span class="s2">&quot;master&quot;</span><span class="p">,</span> <span class="n">n_dofs</span><span class="o">=</span><span class="n">n_master</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">register_field</span><span class="p">(</span><span class="s2">&quot;slave&quot;</span><span class="p">,</span> <span class="n">n_dofs</span><span class="o">=</span><span class="n">n_slave</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">add_embedding_constraint</span><span class="p">(</span><span class="n">emb</span><span class="p">,</span> <span class="n">master</span><span class="o">=</span><span class="s2">&quot;master&quot;</span><span class="p">,</span> <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;slave&quot;</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
 </section>
 </section>
 
@@ -563,12 +620,15 @@ The default output is <code class="docutils literal notranslate"><span class="pr
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-to-many-contact-from-meshes">One-To-Many Contact From Meshes</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#nitsche-style-jacobian-assembly">Nitsche-Style Jacobian Assembly</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#penalty-style-jacobian-assembly">Penalty-Style Jacobian Assembly</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contact-operators-api-recommended">Contact Operators API (Recommended)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contact-coupling-matrices-mortar">Contact Coupling Matrices (Mortar)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contact-coupling-matrices-constraint">Contact Coupling Matrices (Constraint)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#kkt-assembly-fluxsparse-and-bcoo">KKT Assembly, FluxSparse, and BCOO</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#kkt-solve">KKT Solve</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notes">Notes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#coupledsystembuilder-penalty">CoupledSystemBuilder (Penalty)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#constraint-with-builder">Constraint with Builder</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#embedding-map-with-unmapped-report">Embedding Map (With Unmapped Report)</a></li>
 </ul>
   </nav></div>
 
