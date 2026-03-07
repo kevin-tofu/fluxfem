@@ -43,7 +43,7 @@ You do not need to manually pass surface coordinates/connectivity.
    u = jnp.zeros(n)
    K = contact.assemble_bilinear(bilin, u, [u, u], params)
 
-Nitsche-Style Jacobian Assembly
+Penalty-Style Jacobian Assembly
 -------------------------------
 
 After building contact space, call ``assemble_bilinear`` with your weak form.
@@ -52,8 +52,41 @@ After building contact space, call ``assemble_bilinear`` with your weak form.
 
    K = contact.assemble_bilinear(bilin, u, [u, u], params, sparse=False)
 
-Contact Coupling Matrices (Mortar Path)
----------------------------------------
+Contact Operators API (Recommended)
+-----------------------------------
+
+Use explicit APIs by family:
+
+- ``law``: physical contact model.
+- ``formulation``: multiplier-family vs penalty-family intent.
+- ``assemble_contact_constraint_operators``: coupling/B/Kuu.
+- ``assemble_contact_penalty_operators``: residual/jacobian from weak form.
+
+.. code-block:: python
+
+   # Constraint path: returns coupling/B/Kuu operators
+   ops: ff.ContactOperators = ff.assemble_contact_constraint_operators(
+       contact,
+       rho=5.0,
+       multiplier_space="p0",   # or "nodal"
+       backend="numpy",
+       # Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.
+       weak_form=res_form,
+       state={"master": u_master, "slaves": [u_s1, u_s2]},
+       params=params,
+   )
+
+   # Penalty-family path: returns residual/jacobian from your weak form
+   ops_nitsche: ff.ContactOperators = ff.assemble_contact_penalty_operators(
+       contact,
+       weak_form=res_form,
+       state={"master": u_master, "slaves": [u_s1, u_s2]},
+       params=params,
+       backend="jax",
+   )
+
+Contact Coupling Matrices (Constraint)
+--------------------------------------
 
 Coupling matrices for constraints are available from:
 
@@ -64,13 +97,17 @@ Coupling matrices for constraints are available from:
 KKT Assembly, FluxSparse, and BCOO
 ----------------------------------
 
-The default KKT output is ``FluxSparseMatrix``.
+Assemble KKT from coupling matrices (or from ``ops.coupling_*``).  
+The default output is ``FluxSparseMatrix``.
 
 .. code-block:: python
 
-   KKT_flux = contact.assemble_contact_kkt(
+   KKT_flux = ff.assemble_contact_kkt(
+       ops.coupling_aa,
+       ops.coupling_ab,
        rho=5.0,
-       multiplier_space="p0",   # or "nodal"
+       multiplier_space="p0",
+       facet_conn_master=ops.facet_conn_master,
        backend="numpy",
    )
 
@@ -80,16 +117,22 @@ You can also request formats explicitly:
 
 .. code-block:: python
 
-   KKT_dense = contact.assemble_contact_kkt(
+   KKT_dense = ff.assemble_contact_kkt(
+       ops.coupling_aa,
+       ops.coupling_ab,
        rho=5.0,
        multiplier_space="p0",
+       facet_conn_master=ops.facet_conn_master,
        backend="jax",
        format="dense",
    )
 
-   KKT_bcoo_direct = contact.assemble_contact_kkt(
+   KKT_bcoo_direct = ff.assemble_contact_kkt(
+       ops.coupling_aa,
+       ops.coupling_ab,
        rho=5.0,
        multiplier_space="p0",
+       facet_conn_master=ops.facet_conn_master,
        backend="jax",
        format="bcoo",
    )
@@ -102,11 +145,70 @@ Solve with ``solve_contact_kkt``. For JAX, use ``backend="jax"``.
 .. code-block:: python
 
    rhs = jnp.linspace(0.2, 1.0, int(KKT_dense.shape[0]))
-   u = ff.solve_contact_kkt(KKT_dense, rhs, backend="jax", diagonal_shift=1e-2)
+   sol = ff.solve_contact_kkt(KKT_dense, rhs, backend="jax", diagonal_shift=1e-2)
 
 Notes
 -----
 
 - ``master_facet_selector`` and ``slave_facet_selectors`` are recommended for robust workflows.
 - For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.
-- ``multiplier_space="p0"`` gives facet-wise constant multipliers (common for mortar-like constraints).
+- ``multiplier_space="p0"`` gives facet-wise constant multipliers (common for constraint-family coupling).
+- ``assemble_contact_kkt`` is a low-level API. In most cases, prefer ``CoupledSystemBuilder.add_contact(...)``.
+
+CoupledSystemBuilder (Penalty)
+------------------------------
+
+To avoid manual offset/node bookkeeping, use ``CoupledSystemBuilder``:
+
+.. code-block:: python
+
+   builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+   builder.register_blocks([
+       ("top", top_space, {"value_dim": 1}),
+       ("support", support_space, {"value_dim": 1}),
+   ])
+   builder.add_contact(ops_nitsche, master="top", slave="support", value_dim=1)
+   system = builder.build()
+   u = system.solve(dirichlet_dofs=dir_dofs, dirichlet_vals=0.0, format="csr")
+
+``register_field`` is also auto-offset by default:
+
+.. code-block:: python
+
+   builder.register_field("u", n_dofs=nu, value_dim=1)   # offset=0
+   builder.register_field("v", n_dofs=nv, value_dim=1)   # offset=nu
+
+Constraint with Builder
+-----------------------
+
+``assemble_contact_constraint_operators(...)`` and builder are consistent:
+assemble operators first, then pass them to ``add_contact`` (or ``add_contact_mortar``).
+
+.. code-block:: python
+
+   ops_mortar = ff.assemble_contact_constraint_operators(contact, rho=1.0, multiplier_space="p0", backend="numpy")
+   builder.add_contact(ops_mortar, master="top", slave="support", value_dim=1)
+
+When ``ops_mortar`` comes from ``assemble_contact_constraint_operators(...)``,
+``rho`` and ``multiplier_space`` are inherited automatically. Override only when needed.
+
+Embedding Map (With Unmapped Report)
+------------------------------------
+
+For mesh-to-mesh tied constraints, you can request unmapped slave node IDs:
+
+.. code-block:: python
+
+   emb, unmapped = ff.build_barycentric_embedding_map_from_meshes(
+       master_mesh,
+       slave_mesh,
+       slave_facet_selector=lambda m: m.facets_on_plane(axis=2, value=0.0),
+       allow_unmapped="skip",           # "error" | "skip"
+       return_unmapped_ids=True,
+   )
+   print("unmapped slave node ids:", unmapped)
+
+   builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+   builder.register_field("master", n_dofs=n_master, value_dim=1)
+   builder.register_field("slave", n_dofs=n_slave, value_dim=1)
+   builder.add_embedding_constraint(emb, master="master", slave="slave", value_dim=1)
