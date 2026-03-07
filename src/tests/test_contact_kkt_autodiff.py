@@ -165,6 +165,7 @@ def test_contact_penalty_operators_from_inputs():
         state={"a": np.array([0.0]), "b": np.array([0.0])},
         params=object(),
     )
+    assert isinstance(ops, ff.ContactOperators)
     assert ops.enforcement == "nitsche"
     assert ops.formulation == "penalty_consistent"
 
@@ -221,9 +222,94 @@ def test_contact_constraint_operators_keep_law_formulation_metadata():
         formulation="augmented_lagrangian",
         rho=1.0,
     )
+    assert isinstance(ops, ff.ContactOperators)
     assert ops.enforcement == "mortar"
     assert ops.formulation == "augmented_lagrangian"
     assert ops.law == "coulomb_like"
+
+
+def test_contact_constraint_operators_accept_penalty_style_inputs_for_api_symmetry():
+    class _ContactStub:
+        def assemble_contact_coupling_matrices(self):
+            coupling_aa = ff.ContactCouplingMatrix(
+                rows=np.array([0], dtype=int),
+                cols=np.array([0], dtype=int),
+                data=np.array([1.0], dtype=float),
+                shape=(1, 1),
+            )
+            coupling_ab = ff.ContactCouplingMatrix(
+                rows=np.array([0], dtype=int),
+                cols=np.array([0], dtype=int),
+                data=np.array([1.0], dtype=float),
+                shape=(1, 1),
+            )
+            return coupling_aa, coupling_ab
+
+        def assemble_residual(self, res_form, u, params, *, normal_source="master"):
+            _ = (res_form, u, params, normal_source)
+            return np.array([0.3, -0.3], dtype=float)
+
+        def assemble_jacobian(
+            self,
+            res_form,
+            u,
+            params,
+            *,
+            normal_source="master",
+            sparse=False,
+            backend="numpy",
+            batch_jac=None,
+        ):
+            _ = (res_form, u, params, normal_source, sparse, backend, batch_jac)
+            return np.array([[2.0, -2.0], [-2.0, 2.0]], dtype=float)
+
+    def _dummy_res_form(ctx, u, p):
+        _ = (ctx, u, p)
+        return {"a": np.array([0.0]), "b": np.array([0.0])}
+
+    contact = _ContactStub()
+    ops_base = ff.assemble_contact_constraint_operators(contact, rho=1.0)
+    ops_with_alias_inputs = ff.assemble_contact_constraint_operators(
+        contact,
+        rho=1.0,
+        weak_form=_dummy_res_form,
+        state={"a": np.array([0.0]), "b": np.array([0.0])},
+        params=object(),
+    )
+
+    assert np.allclose(np.asarray(ops_base.B), np.asarray(ops_with_alias_inputs.B), atol=1e-12)
+    assert np.allclose(np.asarray(ops_base.Kuu), np.asarray(ops_with_alias_inputs.Kuu), atol=1e-12)
+    assert np.allclose(np.asarray(ops_with_alias_inputs.residual), np.array([0.3, -0.3]), atol=1e-12)
+    assert np.allclose(
+        np.asarray(ops_with_alias_inputs.jacobian),
+        np.array([[2.0, -2.0], [-2.0, 2.0]], dtype=float),
+        atol=1e-12,
+    )
+
+
+def test_contact_constraint_operators_reject_partial_eval_inputs():
+    class _ContactStub:
+        def assemble_contact_coupling_matrices(self):
+            coupling_aa = ff.ContactCouplingMatrix(
+                rows=np.array([0], dtype=int),
+                cols=np.array([0], dtype=int),
+                data=np.array([1.0], dtype=float),
+                shape=(1, 1),
+            )
+            coupling_ab = ff.ContactCouplingMatrix(
+                rows=np.array([0], dtype=int),
+                cols=np.array([0], dtype=int),
+                data=np.array([1.0], dtype=float),
+                shape=(1, 1),
+            )
+            return coupling_aa, coupling_ab
+
+    def _dummy_res_form(ctx, u, p):
+        _ = (ctx, u, p)
+        return {"a": np.array([0.0]), "b": np.array([0.0])}
+
+    with pytest.raises(ValueError, match="must be provided together"):
+        ff.assemble_contact_constraint_operators(_ContactStub(), weak_form=_dummy_res_form)
 
 
 def test_contact_constraint_operators_reject_penalty_formulation():
@@ -241,6 +327,133 @@ def test_contact_constraint_operators_reject_penalty_formulation():
     )
     with pytest.raises(ValueError, match="Constraint operators are multiplier-family only"):
         ff.assemble_contact_constraint_operators(contact, formulation="penalty")
+
+
+def test_contact_constraint_eval_grad_state_matches_fd():
+    class _ContactStub:
+        def assemble_contact_coupling_matrices(self):
+            coupling_aa = ff.ContactCouplingMatrix(
+                rows=np.array([0], dtype=int),
+                cols=np.array([0], dtype=int),
+                data=np.array([1.0], dtype=float),
+                shape=(1, 1),
+            )
+            coupling_ab = ff.ContactCouplingMatrix(
+                rows=np.array([0], dtype=int),
+                cols=np.array([0], dtype=int),
+                data=np.array([1.0], dtype=float),
+                shape=(1, 1),
+            )
+            return coupling_aa, coupling_ab
+
+        def assemble_residual(self, res_form, u, params, *, normal_source="master"):
+            _ = (res_form, normal_source)
+            ua = u["a"][0]
+            ub = u["b"][0]
+            return jnp.asarray([params["alpha"] * (ua - ub), params["alpha"] * (ub - ua)])
+
+        def assemble_jacobian(
+            self,
+            res_form,
+            u,
+            params,
+            *,
+            normal_source="master",
+            sparse=False,
+            backend="numpy",
+            batch_jac=None,
+        ):
+            _ = (res_form, normal_source, sparse, backend, batch_jac)
+            scale = params["alpha"] * (1.0 + u["a"][0])
+            return jnp.asarray([[scale, -scale], [-scale, scale]])
+
+    def _dummy_res_form(ctx, u, p):
+        _ = (ctx, u, p)
+        return {"a": jnp.asarray([0.0]), "b": jnp.asarray([0.0])}
+
+    contact = _ContactStub()
+    params = {"alpha": jnp.asarray(2.0)}
+
+    def objective(s):
+        ops = ff.assemble_contact_constraint_operators(
+            contact,
+            rho=1.5,
+            backend="jax",
+            weak_form=_dummy_res_form,
+            state={"a": jnp.asarray([s]), "b": jnp.asarray([0.5])},
+            params=params,
+        )
+        r = jnp.asarray(ops.residual)
+        j = jnp.asarray(ops.jacobian)
+        return 0.5 * jnp.dot(r, r) + 0.25 * jnp.sum(j * j)
+
+    s0 = jnp.asarray(0.3)
+    g_ad = float(jax.grad(objective)(s0))
+    eps = 1e-4
+    g_fd = (float(objective(s0 + eps)) - float(objective(s0 - eps))) / (2.0 * eps)
+    rel = abs(g_ad - g_fd) / max(1.0, abs(g_fd))
+    assert rel < 5e-3
+
+
+def test_contact_constraint_eval_grad_rho_matches_fd():
+    class _ContactStub:
+        def assemble_contact_coupling_matrices(self):
+            coupling_aa = ff.ContactCouplingMatrix(
+                rows=np.array([0], dtype=int),
+                cols=np.array([0], dtype=int),
+                data=np.array([1.0], dtype=float),
+                shape=(1, 1),
+            )
+            coupling_ab = ff.ContactCouplingMatrix(
+                rows=np.array([0], dtype=int),
+                cols=np.array([0], dtype=int),
+                data=np.array([1.0], dtype=float),
+                shape=(1, 1),
+            )
+            return coupling_aa, coupling_ab
+
+        def assemble_residual(self, res_form, u, params, *, normal_source="master"):
+            _ = (res_form, u, params, normal_source)
+            return jnp.asarray([0.1, -0.1])
+
+        def assemble_jacobian(
+            self,
+            res_form,
+            u,
+            params,
+            *,
+            normal_source="master",
+            sparse=False,
+            backend="numpy",
+            batch_jac=None,
+        ):
+            _ = (res_form, u, params, normal_source, sparse, backend, batch_jac)
+            return jnp.asarray([[1.0, -1.0], [-1.0, 1.0]])
+
+    def _dummy_res_form(ctx, u, p):
+        _ = (ctx, u, p)
+        return {"a": jnp.asarray([0.0]), "b": jnp.asarray([0.0])}
+
+    contact = _ContactStub()
+
+    def objective(rho):
+        ops = ff.assemble_contact_constraint_operators(
+            contact,
+            rho=rho,
+            backend="jax",
+            weak_form=_dummy_res_form,
+            state={"a": jnp.asarray([0.2]), "b": jnp.asarray([0.4])},
+            params={"alpha": jnp.asarray(1.0)},
+        )
+        kuu = jnp.asarray(ops.Kuu)
+        return 0.5 * jnp.sum(kuu * kuu)
+
+    rho0 = jnp.asarray(2.0)
+    g_ad = float(jax.grad(objective)(rho0))
+    eps = 1e-4
+    g_fd = (float(objective(rho0 + eps)) - float(objective(rho0 - eps))) / (2.0 * eps)
+    rel = abs(g_ad - g_fd) / max(1.0, abs(g_fd))
+    assert rel < 5e-3
 
 
 def test_contact_kkt_augmented_lagrangian_grad_rho_matches_fd():
@@ -322,3 +535,153 @@ def test_solve_contact_kkt_implicit_grad_rho_matches_fd():
     g_ref = float(jax.grad(objective_ref)(rho0))
     rel = abs(g_custom - g_ref) / max(1.0, abs(g_ref))
     assert rel < 2e-4
+
+
+def test_solve_contact_kkt_implicit_grad_rhs_matches_ref():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    K = contact.assemble_contact_kkt(
+        rho=jnp.array(2.0),
+        multiplier_space="p0",
+        backend="jax",
+        format="dense",
+    )
+
+    def objective(rhs):
+        u = ff.solve_contact_kkt(K, rhs, backend="jax", diagonal_shift=1e-2)
+        return 0.5 * jnp.dot(u, u)
+
+    def objective_ref(rhs):
+        A = K + 1e-2 * jnp.eye(K.shape[0], dtype=K.dtype)
+        u = jnp.linalg.solve(A, rhs)
+        return 0.5 * jnp.dot(u, u)
+
+    rhs0 = jnp.linspace(0.2, 1.0, int(K.shape[0]))
+    g_custom = jax.grad(objective)(rhs0)
+    g_ref = jax.grad(objective_ref)(rhs0)
+    assert np.allclose(np.asarray(g_custom), np.asarray(g_ref), atol=1e-3, rtol=1e-5)
+
+
+def test_solve_contact_kkt_implicit_grad_diagonal_shift_matches_ref():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    K = contact.assemble_contact_kkt(
+        rho=jnp.array(2.0),
+        multiplier_space="p0",
+        backend="jax",
+        format="dense",
+    )
+    rhs = jnp.linspace(0.2, 1.0, int(K.shape[0]))
+
+    def objective(shift):
+        u = ff.solve_contact_kkt(K, rhs, backend="jax", diagonal_shift=shift)
+        return 0.5 * jnp.dot(u, u)
+
+    def objective_ref(shift):
+        A = K + shift * jnp.eye(K.shape[0], dtype=K.dtype)
+        u = jnp.linalg.solve(A, rhs)
+        return 0.5 * jnp.dot(u, u)
+
+    shift0 = jnp.array(1e-2)
+    g_custom = float(jax.grad(objective)(shift0))
+    g_ref = float(jax.grad(objective_ref)(shift0))
+    rel = abs(g_custom - g_ref) / max(1.0, abs(g_ref))
+    assert rel < 2e-4
+
+
+def test_solve_contact_kkt_sparse_gmres_grad_rhs_matches_dense_ref():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    K_sparse = contact.assemble_contact_kkt(
+        rho=2.0,
+        multiplier_space="p0",
+        backend="jax",
+        format="bcoo",
+    )
+    K_dense = contact.assemble_contact_kkt(
+        rho=2.0,
+        multiplier_space="p0",
+        backend="jax",
+        format="dense",
+    )
+    cfg = ff.ContactKKTSolveConfig(
+        backend="jax",
+        diagonal_shift=1e-2,
+        jax_solver="gmres",
+        jax_tol=1e-10,
+        jax_maxiter=400,
+    )
+
+    def objective(rhs):
+        u = ff.solve_contact_kkt(K_sparse, rhs, config=cfg)
+        return 0.5 * jnp.dot(u, u)
+
+    def objective_ref(rhs):
+        A = K_dense + 1e-2 * jnp.eye(K_dense.shape[0], dtype=K_dense.dtype)
+        u = jnp.linalg.solve(A, rhs)
+        return 0.5 * jnp.dot(u, u)
+
+    rhs0 = jnp.linspace(0.2, 1.0, int(K_dense.shape[0]))
+    g_sparse = jax.grad(objective)(rhs0)
+    g_ref = jax.grad(objective_ref)(rhs0)
+    assert np.allclose(np.asarray(g_sparse), np.asarray(g_ref), atol=1e-3, rtol=1e-5)
+
+
+def test_solve_contact_kkt_sparse_spsolve_matches_dense_ref():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    K_dense = contact.assemble_contact_kkt(
+        rho=2.0,
+        multiplier_space="p0",
+        backend="jax",
+        format="dense",
+    )
+    from jax.experimental import sparse as jsparse
+
+    A_dense = K_dense + 1e-2 * jnp.eye(K_dense.shape[0], dtype=K_dense.dtype)
+    K_sparse = jsparse.BCOO.fromdense(A_dense)
+    rhs = jnp.linspace(0.2, 1.0, int(K_dense.shape[0]))
+    cfg = ff.ContactKKTSolveConfig(backend="jax", jax_solver="spsolve", diagonal_shift=0.0)
+    u_sparse = ff.solve_contact_kkt(K_sparse, rhs, config=cfg)
+    u_ref = jnp.linalg.solve(A_dense, rhs)
+    assert np.allclose(np.asarray(u_sparse), np.asarray(u_ref), atol=1e-5, rtol=1e-5)

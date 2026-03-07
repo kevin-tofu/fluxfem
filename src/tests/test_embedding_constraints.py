@@ -159,6 +159,31 @@ def test_build_barycentric_embedding_map_skip_returns_unmapped_ids():
     assert np.array_equal(np.asarray(unmapped), np.array([1], dtype=int))
 
 
+def test_build_barycentric_embedding_map_bool_allow_unmapped_deprecated():
+    master = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    slave = np.array([[2.0, 2.0, 2.0]], dtype=float)
+    with pytest.warns(DeprecationWarning, match="deprecated"):
+        emb = ff.build_barycentric_embedding_map(master, conn, slave, allow_unmapped=True)
+    assert emb.shape == (1, 4)
+
+
+def test_build_barycentric_embedding_map_empty_master_conn_error_mode():
+    master = np.zeros((0, 3), dtype=float)
+    conn = np.zeros((0, 4), dtype=int)
+    slave = np.array([[0.0, 0.0, 0.0]], dtype=float)
+    with pytest.raises(ValueError, match="master_conn has no elements"):
+        ff.build_barycentric_embedding_map(master, conn, slave, allow_unmapped="error")
+
+
 def test_build_barycentric_embedding_map_from_meshes_with_plane_selector():
     master_mesh = ff.StructuredTetBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     slave_mesh = ff.StructuredTetBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()

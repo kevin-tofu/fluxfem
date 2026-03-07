@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence, TYPE_CHECKING, TypeAlias
+import warnings
 
 import numpy as np
 import numpy.typing as npt
@@ -12,6 +13,7 @@ from .contact_interface import (
     assemble_onesided_bilinear,
     assemble_contact_onesided_floor,
     assemble_contact_coupling_matrices as _assemble_contact_coupling_matrices,
+    volume_shape_values_at_points as _volume_shape_values_at_points,
     map_surface_facets_to_tet_elements,
     map_surface_facets_to_hex_elements,
 )
@@ -52,6 +54,441 @@ class ContactOperators:
     facet_conn_master: np.ndarray | None = None
     rho: float | None = None
     multiplier_space: str | None = None
+
+
+@dataclass(frozen=True)
+class ContactKKTSolveConfig:
+    """Linear solve configuration for ``solve_contact_kkt``."""
+
+    backend: str = "numpy"
+    diagonal_shift: float = 0.0
+    allow_dense_fallback: bool = True
+    jax_solver: str = "gmres"
+    jax_tol: float = 1e-8
+    jax_atol: float = 0.0
+    jax_restart: int = 20
+    jax_maxiter: int | None = None
+    # Prefer iterative path even when a dense matrix is passed.
+    jax_dense_mode: str = "iterative"  # "iterative" | "direct_custom_vjp"
+    petsc_ksp_type: str = "gmres"
+    petsc_pc_type: str = "none"
+    petsc_preconditioner: str | None = "diag0"
+    petsc_rtol: float | None = 1e-10
+    petsc_atol: float | None = None
+    petsc_max_it: int | None = None
+    petsc_options: Mapping[str, Any] | None = None
+    petsc_options_prefix: str | None = "contact_kkt_"
+
+    def validate(self) -> "ContactKKTSolveConfig":
+        backend = str(self.backend).lower()
+        if backend not in {"numpy", "jax", "petsc4py"}:
+            raise ValueError("backend must be 'numpy', 'petsc4py', or 'jax'.")
+        if self.jax_solver not in {"gmres", "spsolve"}:
+            raise ValueError("jax_solver must be 'gmres' or 'spsolve'.")
+        if self.jax_dense_mode not in {"iterative", "direct_custom_vjp"}:
+            raise ValueError("jax_dense_mode must be 'iterative' or 'direct_custom_vjp'.")
+        if int(self.jax_restart) <= 0:
+            raise ValueError("jax_restart must be positive.")
+        if self.jax_solver == "spsolve" and float(self.diagonal_shift) != 0.0:
+            raise ValueError("jax_solver='spsolve' currently requires diagonal_shift == 0.")
+        return self
+
+
+@dataclass(frozen=True)
+class EmbeddingMap:
+    """Sparse mapping ``u_slave = W * u_master``."""
+
+    rows: np.ndarray
+    cols: np.ndarray
+    data: np.ndarray
+    shape: tuple[int, int]
+    mode: str = "nodal"
+    meta: Mapping[str, Any] | None = None
+
+
+def build_nodal_embedding_map(master_coords: np.ndarray, slave_coords: np.ndarray) -> EmbeddingMap:
+    """
+    Build nearest-neighbor nodal embedding map from slave nodes to master nodes.
+    """
+    xm = np.asarray(master_coords, dtype=float)
+    xs = np.asarray(slave_coords, dtype=float)
+    if xm.ndim != 2 or xs.ndim != 2:
+        raise ValueError("master_coords and slave_coords must be rank-2 arrays.")
+    if xm.shape[1] != xs.shape[1]:
+        raise ValueError("master/slave coordinates must share spatial dimension.")
+    if xm.shape[0] == 0 or xs.shape[0] == 0:
+        return EmbeddingMap(
+            rows=np.zeros((0,), dtype=int),
+            cols=np.zeros((0,), dtype=int),
+            data=np.zeros((0,), dtype=float),
+            shape=(int(xs.shape[0]), int(xm.shape[0])),
+            mode="nodal",
+            meta={"mapped_count": 0, "unmapped_count": int(xs.shape[0])},
+        )
+
+    # Brute-force nearest master node per slave node.
+    diffs = xs[:, None, :] - xm[None, :, :]
+    d2 = np.sum(diffs * diffs, axis=2)
+    nearest = np.argmin(d2, axis=1).astype(int)
+    rows = np.arange(xs.shape[0], dtype=int)
+    cols = nearest
+    data = np.ones((xs.shape[0],), dtype=float)
+    return EmbeddingMap(
+        rows=rows,
+        cols=cols,
+        data=data,
+        shape=(int(xs.shape[0]), int(xm.shape[0])),
+        mode="nodal",
+        meta={"mapped_count": int(xs.shape[0]), "unmapped_count": 0},
+    )
+
+
+def build_barycentric_embedding_map(
+    master_coords: np.ndarray,
+    master_conn: np.ndarray,
+    slave_coords: np.ndarray,
+    *,
+    tol: float = 1e-8,
+    allow_unmapped: str | bool = "error",
+    return_unmapped_ids: bool = False,
+) -> EmbeddingMap | tuple[EmbeddingMap, np.ndarray]:
+    """
+    Build barycentric/isoparametric embedding map from slave points to master element nodes.
+
+    Notes:
+    - Uses broad-phase AABB filtering and deterministic tie-break.
+    - If multiple master elements pass inside checks (e.g. point on element boundary),
+      the smallest candidate element id is selected.
+    - Supports element types handled by ``volume_shape_values_at_points``.
+    """
+    xm = np.asarray(master_coords, dtype=float)
+    conn = np.asarray(master_conn, dtype=int)
+    xs = np.asarray(slave_coords, dtype=float)
+    if xm.ndim != 2 or xs.ndim != 2:
+        raise ValueError("master_coords and slave_coords must be rank-2 arrays.")
+    if conn.ndim != 2:
+        raise ValueError("master_conn must be rank-2 array.")
+    if xm.shape[1] != xs.shape[1]:
+        raise ValueError("master/slave coordinates must share spatial dimension.")
+    if isinstance(allow_unmapped, bool):
+        warnings.warn(
+            "Boolean allow_unmapped is deprecated; use 'error' or 'skip'.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        mode = "skip" if allow_unmapped else "error"
+    else:
+        mode = str(allow_unmapped).lower()
+    if mode not in {"error", "skip"}:
+        raise ValueError("allow_unmapped must be 'error' or 'skip' (bool is accepted for compatibility).")
+
+    if xs.shape[0] == 0:
+        emb = EmbeddingMap(
+            rows=np.zeros((0,), dtype=int),
+            cols=np.zeros((0,), dtype=int),
+            data=np.zeros((0,), dtype=float),
+            shape=(int(xs.shape[0]), int(xm.shape[0])),
+            mode="barycentric",
+            meta={"mapped_count": 0, "unmapped_count": 0},
+        )
+        if return_unmapped_ids:
+            return emb, np.zeros((0,), dtype=int)
+        return emb
+    if conn.shape[0] == 0:
+        if mode == "error":
+            raise ValueError("Failed to map slave points: master_conn has no elements.")
+        emb = EmbeddingMap(
+            rows=np.zeros((0,), dtype=int),
+            cols=np.zeros((0,), dtype=int),
+            data=np.zeros((0,), dtype=float),
+            shape=(int(xs.shape[0]), int(xm.shape[0])),
+            mode="barycentric",
+            meta={"mapped_count": 0, "unmapped_count": int(xs.shape[0])},
+        )
+        if return_unmapped_ids:
+            return emb, np.arange(xs.shape[0], dtype=int)
+        return emb
+
+    rows_l: list[int] = []
+    cols_l: list[int] = []
+    data_l: list[float] = []
+    unmapped_l: list[int] = []
+
+    # Broad-phase acceleration: precompute master element AABBs.
+    elem_coords_all = xm[conn]  # (n_elem, n_loc, dim)
+    elem_mins = np.min(elem_coords_all, axis=1)
+    elem_maxs = np.max(elem_coords_all, axis=1)
+    tol_eff = float(tol)
+
+    for i_s, p in enumerate(xs):
+        found = False
+        in_min = p[None, :] >= (elem_mins - tol_eff)
+        in_max = p[None, :] <= (elem_maxs + tol_eff)
+        candidates = np.nonzero(np.all(in_min & in_max, axis=1))[0]
+        if candidates.size:
+            candidates = np.sort(candidates, kind="stable")
+        for e_id in candidates:
+            elem_nodes = conn[int(e_id)]
+            elem_nodes_i = np.asarray(elem_nodes, dtype=int)
+            elem_coords = xm[elem_nodes_i]
+            try:
+                N = np.asarray(_volume_shape_values_at_points(p[None, :], elem_coords, tol=tol_eff)[0], dtype=float)
+            except Exception:
+                continue
+            if np.any(~np.isfinite(N)):
+                continue
+            # Robust inside check for small Newton / floating-point errors.
+            if np.min(N) < -tol_eff or np.max(N) > 1.0 + tol_eff:
+                continue
+            if abs(float(np.sum(N)) - 1.0) > 10.0 * tol_eff:
+                continue
+
+            for j_local, w in enumerate(N):
+                if abs(float(w)) <= tol_eff:
+                    continue
+                rows_l.append(int(i_s))
+                cols_l.append(int(elem_nodes_i[j_local]))
+                data_l.append(float(w))
+            found = True
+            break
+        if not found:
+            unmapped_l.append(int(i_s))
+            if mode == "error":
+                raise ValueError(f"Failed to map slave point index {i_s} to any master element (tol={tol}).")
+
+    if rows_l:
+        rows = np.asarray(rows_l, dtype=int)
+        cols = np.asarray(cols_l, dtype=int)
+        data = np.asarray(data_l, dtype=float)
+    else:
+        rows = np.zeros((0,), dtype=int)
+        cols = np.zeros((0,), dtype=int)
+        data = np.zeros((0,), dtype=float)
+    mapped_ids = np.unique(rows) if rows.size else np.zeros((0,), dtype=int)
+    unmapped_ids_np = np.asarray(unmapped_l, dtype=int)
+    emb = EmbeddingMap(
+        rows=rows,
+        cols=cols,
+        data=data,
+        shape=(int(xs.shape[0]), int(xm.shape[0])),
+        mode="barycentric",
+        meta={
+            "mapped_count": int(mapped_ids.shape[0]),
+            "unmapped_count": int(unmapped_ids_np.shape[0]),
+        },
+    )
+    if return_unmapped_ids:
+        return emb, unmapped_ids_np
+    return emb
+
+
+def build_barycentric_embedding_map_from_meshes(
+    master_mesh: BaseMesh,
+    slave_mesh: BaseMesh,
+    *,
+    slave_facet_selector: Callable[[BaseMesh], np.ndarray] | None = None,
+    slave_node_selector: Callable[[BaseMesh], np.ndarray] | None = None,
+    master_element_selector: Callable[[BaseMesh], np.ndarray] | None = None,
+    tol: float = 1e-8,
+    allow_unmapped: str | bool = "error",
+    return_unmapped_ids: bool = False,
+) -> EmbeddingMap | tuple[EmbeddingMap, np.ndarray]:
+    """
+    Build barycentric embedding map directly from mesh objects and selectors.
+
+    Typical usage is to select slave boundary facets (e.g., plane) and embed those
+    slave nodes into the master volume.
+    """
+    if slave_facet_selector is not None and slave_node_selector is not None:
+        raise ValueError("Provide only one of slave_facet_selector or slave_node_selector.")
+
+    x_master = np.asarray(master_mesh.coords, dtype=float)
+    conn_master = np.asarray(master_mesh.conn, dtype=int)
+    x_slave = np.asarray(slave_mesh.coords, dtype=float)
+    n_slave_total = int(x_slave.shape[0])
+    n_master_total = int(x_master.shape[0])
+
+    if master_element_selector is not None:
+        master_elem_ids = np.asarray(master_element_selector(master_mesh), dtype=int)
+        conn_embed = conn_master[master_elem_ids]
+    else:
+        conn_embed = conn_master
+
+    if slave_node_selector is not None:
+        slave_node_ids = np.asarray(slave_node_selector(slave_mesh), dtype=int).reshape(-1)
+    elif slave_facet_selector is not None:
+        facets = np.asarray(slave_facet_selector(slave_mesh), dtype=int)
+        slave_node_ids = np.unique(facets.reshape(-1)) if facets.size else np.zeros((0,), dtype=int)
+    else:
+        slave_node_ids = np.arange(n_slave_total, dtype=int)
+
+    x_slave_sel = x_slave[slave_node_ids] if slave_node_ids.size else np.zeros((0, x_slave.shape[1]), dtype=float)
+    out_local = build_barycentric_embedding_map(
+        x_master,
+        conn_embed,
+        x_slave_sel,
+        tol=tol,
+        allow_unmapped=allow_unmapped,
+        return_unmapped_ids=return_unmapped_ids,
+    )
+    if return_unmapped_ids:
+        emb_local, unmapped_local = out_local
+    else:
+        emb_local = out_local
+        unmapped_local = np.zeros((0,), dtype=int)
+    rows_global = slave_node_ids[np.asarray(emb_local.rows, dtype=int)] if emb_local.rows.size else np.zeros((0,), dtype=int)
+    emb_global = EmbeddingMap(
+        rows=np.asarray(rows_global, dtype=int),
+        cols=np.asarray(emb_local.cols, dtype=int),
+        data=np.asarray(emb_local.data, dtype=float),
+        shape=(n_slave_total, n_master_total),
+        mode="barycentric",
+        meta={
+            "mapped_count": int(np.unique(rows_global).shape[0]) if np.asarray(rows_global).size else 0,
+            "unmapped_count": int(np.asarray(unmapped_local).shape[0]),
+            "slave_selection": "node_selector"
+            if slave_node_selector is not None
+            else ("facet_selector" if slave_facet_selector is not None else "all_nodes"),
+            "master_selection": "element_selector" if master_element_selector is not None else "all_elements",
+        },
+    )
+    if return_unmapped_ids:
+        return emb_global, slave_node_ids[np.asarray(unmapped_local, dtype=int)]
+    return emb_global
+
+
+def assemble_embedding_constraint_matrix(
+    embedding: EmbeddingMap,
+    *,
+    n_master_nodes: int,
+    n_slave_nodes: int,
+    value_dim: int = 1,
+    backend: str = "numpy",
+):
+    """
+    Assemble ``C`` for equality constraints ``W*u_master - u_slave = 0``.
+
+    Returns matrix with shape ``(n_slave_nodes*value_dim, (n_master_nodes+n_slave_nodes)*value_dim)``.
+    """
+    if backend not in {"numpy", "jax"}:
+        raise ValueError("backend must be 'numpy' or 'jax'")
+    n_m = int(n_master_nodes)
+    n_s = int(n_slave_nodes)
+    vd = int(value_dim)
+    if vd <= 0:
+        raise ValueError("value_dim must be positive.")
+    if int(embedding.shape[0]) > n_s or int(embedding.shape[1]) != n_m:
+        raise ValueError("embedding.shape must satisfy (<= n_slave_nodes, n_master_nodes).")
+
+    emb_rows = np.asarray(embedding.rows, dtype=int)
+    emb_cols = np.asarray(embedding.cols, dtype=int)
+    emb_data = np.asarray(embedding.data, dtype=float)
+    if emb_rows.size != emb_cols.size or emb_rows.size != emb_data.size:
+        raise ValueError("embedding rows/cols/data must have same length.")
+    if emb_rows.size == 0:
+        n_rows = 0
+        row_ids = np.zeros((0,), dtype=int)
+    else:
+        if np.min(emb_rows) < 0 or np.max(emb_rows) >= n_s:
+            raise ValueError("embedding row ids must be within [0, n_slave_nodes).")
+        if np.min(emb_cols) < 0 or np.max(emb_cols) >= n_m:
+            raise ValueError("embedding col ids must be within [0, n_master_nodes).")
+        row_ids = np.unique(emb_rows)
+        n_rows = int(row_ids.shape[0]) * vd
+    row_pos = {int(r): i for i, r in enumerate(row_ids.tolist())}
+    n_cols = (n_m + n_s) * vd
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        C = jnp.zeros((n_rows, n_cols), dtype=float)
+        for r_s, c_m, w in zip(emb_rows, emb_cols, emb_data):
+            for d in range(vd):
+                row = int(row_pos[int(r_s)]) * vd + d
+                col_m = int(c_m) * vd + d
+                col_s = n_m * vd + int(r_s) * vd + d
+                C = C.at[row, col_m].add(float(w))
+                C = C.at[row, col_s].add(-1.0)
+        return C
+
+    C = np.zeros((n_rows, n_cols), dtype=float)
+    for r_s, c_m, w in zip(emb_rows, emb_cols, emb_data):
+        for d in range(vd):
+            row = int(row_pos[int(r_s)]) * vd + d
+            col_m = int(c_m) * vd + d
+            col_s = n_m * vd + int(r_s) * vd + d
+            C[row, col_m] += float(w)
+            C[row, col_s] += -1.0
+    return C
+
+
+def assemble_rbe2_constraint_matrix(
+    ref_point: np.ndarray,
+    slave_coords: np.ndarray,
+    *,
+    backend: str = "numpy",
+):
+    """
+    Assemble 3D RBE2-style rigid kinematic constraints.
+
+    Unknown ordering:
+      q = [u_ref(3), omega_ref(3), u_slave_0(3), ..., u_slave_{n-1}(3)]
+
+    Constraint for each slave node i:
+      u_slave_i - u_ref - (omega_ref x (x_i - x_ref)) = 0
+    """
+    if backend not in {"numpy", "jax"}:
+        raise ValueError("backend must be 'numpy' or 'jax'")
+    x_ref = np.asarray(ref_point, dtype=float).reshape(-1)
+    x_s = np.asarray(slave_coords, dtype=float)
+    if x_ref.shape[0] != 3:
+        raise ValueError("ref_point must be 3D.")
+    if x_s.ndim != 2 or x_s.shape[1] != 3:
+        raise ValueError("slave_coords must have shape (n_slave, 3).")
+
+    n_s = int(x_s.shape[0])
+    n_rows = 3 * n_s
+    n_cols = 6 + 3 * n_s
+
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        C = jnp.zeros((n_rows, n_cols), dtype=float)
+        for i in range(n_s):
+            rx, ry, rz = (x_s[i] - x_ref).tolist()
+            r0 = 3 * i
+            c_slave = 6 + 3 * i
+            C = C.at[r0 + 0, 0].set(-1.0)
+            C = C.at[r0 + 1, 1].set(-1.0)
+            C = C.at[r0 + 2, 2].set(-1.0)
+            C = C.at[r0 + 0, 4].set(-rz)
+            C = C.at[r0 + 0, 5].set(+ry)
+            C = C.at[r0 + 1, 3].set(+rz)
+            C = C.at[r0 + 1, 5].set(-rx)
+            C = C.at[r0 + 2, 3].set(-ry)
+            C = C.at[r0 + 2, 4].set(+rx)
+            C = C.at[r0 + 0, c_slave + 0].set(+1.0)
+            C = C.at[r0 + 1, c_slave + 1].set(+1.0)
+            C = C.at[r0 + 2, c_slave + 2].set(+1.0)
+        return C
+
+    C = np.zeros((n_rows, n_cols), dtype=float)
+    for i in range(n_s):
+        rx, ry, rz = (x_s[i] - x_ref).tolist()
+        r0 = 3 * i
+        c_slave = 6 + 3 * i
+        C[r0 + 0, 0] = -1.0
+        C[r0 + 1, 1] = -1.0
+        C[r0 + 2, 2] = -1.0
+        C[r0 + 0, 4] = -rz
+        C[r0 + 0, 5] = +ry
+        C[r0 + 1, 3] = +rz
+        C[r0 + 1, 5] = -rx
+        C[r0 + 2, 3] = -ry
+        C[r0 + 2, 4] = +rx
+        C[r0 + 0, c_slave + 0] = +1.0
+        C[r0 + 1, c_slave + 1] = +1.0
+        C[r0 + 2, c_slave + 2] = +1.0
+    return C
 
 
 def assemble_contact_interface_residual(*args, **kwargs):
@@ -217,8 +654,27 @@ def assemble_contact_constraint_operators(
     rho: float = 0.0,
     multiplier_space: str = "nodal",
     backend: str = "numpy",
+    weak_form: MixedSurfaceResidualForm | None = None,
+    state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+    res_form: MixedSurfaceResidualForm | None = None,
+    u: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+    params: "WeakParams" | None = None,
+    normal_source: str = "master",
+    sparse: bool = False,
+    batch_jac: bool | None = None,
 ) -> ContactOperators:
-    """Assemble constraint-family operators (coupling/B/Kuu)."""
+    """Assemble constraint-family operators (coupling/B/Kuu, optionally residual/jacobian metadata)."""
+    if weak_form is not None and res_form is not None and weak_form is not res_form:
+        raise ValueError("weak_form and res_form are aliases; provide only one.")
+    if state is not None and u is not None and state is not u:
+        raise ValueError("state and u are aliases; provide only one.")
+    res_form_eff = weak_form if weak_form is not None else res_form
+    u_eff = state if state is not None else u
+    has_eval_inputs = (res_form_eff is not None) or (u_eff is not None) or (params is not None)
+    if has_eval_inputs and (res_form_eff is None or u_eff is None or params is None):
+        raise ValueError(
+            "weak_form/state/params (or res_form/u/params) must be provided together for constraint residual/jacobian evaluation."
+        )
     f_arg = None if formulation is None else str(formulation).lower()
     if f_arg is not None and f_arg in {"penalty", "penalty_consistent", "nitsche"}:
         raise ValueError(
@@ -268,6 +724,21 @@ def assemble_contact_constraint_operators(
 
     B = xp.concatenate([B_a, -B_b], axis=1)
     Kuu = xp.asarray(rho) * (B.T @ B)
+    residual = None
+    jacobian = None
+    if has_eval_inputs:
+        if not hasattr(contact, "assemble_residual") or not hasattr(contact, "assemble_jacobian"):
+            raise TypeError("contact must provide assemble_residual() and assemble_jacobian() for weak-form evaluation.")
+        residual = contact.assemble_residual(res_form_eff, u_eff, params, normal_source=normal_source)
+        jacobian = contact.assemble_jacobian(
+            res_form_eff,
+            u_eff,
+            params,
+            normal_source=normal_source,
+            sparse=sparse,
+            backend=backend,
+            batch_jac=batch_jac,
+        )
     return ContactOperators(
         enforcement=resolved,
         law=law_resolved,
@@ -278,8 +749,10 @@ def assemble_contact_constraint_operators(
         B_b=B_b,
         B=B,
         Kuu=Kuu,
+        residual=residual,
+        jacobian=jacobian,
         facet_conn_master=facet_conn_master,
-        rho=float(rho),
+        rho=rho,
         multiplier_space=str(multiplier_space),
     )
 
@@ -427,34 +900,158 @@ def assemble_contact_kkt(
     return KKT
 
 
-def solve_contact_kkt(kkt_matrix, rhs, *, backend: str = "numpy", diagonal_shift: float = 0.0):
-    """
-    Solve KKT linear system KKT * x = rhs.
+def _resolve_kkt_solve_config(
+    *,
+    backend: str,
+    diagonal_shift: float,
+    config: ContactKKTSolveConfig | None,
+) -> ContactKKTSolveConfig:
+    if config is None:
+        return ContactKKTSolveConfig(backend=backend, diagonal_shift=diagonal_shift).validate()
+    return config.validate()
 
-    backend:
-    - "numpy": dense numpy solve
-    - "jax": custom_vjp-enabled dense solve with implicit differentiation
-    """
-    if backend == "numpy":
-        if hasattr(kkt_matrix, "to_dense"):
-            A = np.asarray(kkt_matrix.to_dense(), dtype=float)
+
+def _as_numpy_dense(kkt_matrix) -> np.ndarray:
+    return np.asarray(kkt_matrix.to_dense(), dtype=float) if hasattr(kkt_matrix, "to_dense") else np.asarray(kkt_matrix, dtype=float)
+
+
+def _as_numpy_csr(kkt_matrix):
+    try:
+        import scipy.sparse as sp
+    except Exception:
+        return None
+    if hasattr(kkt_matrix, "to_csr"):
+        return kkt_matrix.to_csr()
+    if sp.issparse(kkt_matrix):
+        return kkt_matrix.tocsr()
+    return sp.csr_matrix(_as_numpy_dense(kkt_matrix))
+
+
+def _as_jax_linear_op(kkt_matrix):
+    import jax.numpy as jnp
+    from jax.experimental import sparse as jsparse  # type: ignore
+
+    is_fluxsparse = hasattr(kkt_matrix, "matvec") and hasattr(kkt_matrix, "n_dofs")
+    is_bcoo = isinstance(kkt_matrix, jsparse.BCOO)
+    if is_fluxsparse:
+        return (lambda x: kkt_matrix.matvec(x)), True
+    if is_bcoo:
+        return (lambda x: kkt_matrix @ x), True
+    A = jnp.asarray(kkt_matrix.to_dense()) if hasattr(kkt_matrix, "to_dense") else jnp.asarray(kkt_matrix)
+    return (lambda x: A @ x), False
+
+
+def _solve_kkt_petsc(kkt_matrix, rhs, cfg: ContactKKTSolveConfig):
+    from ..solver.petsc import petsc_shell_solve
+
+    A_petsc = _as_numpy_csr(kkt_matrix)
+    if A_petsc is None:
+        A_petsc = _as_numpy_dense(kkt_matrix)
+    if float(cfg.diagonal_shift) != 0.0:
+        try:
+            import scipy.sparse as sp
+        except Exception:
+            sp = None
+        if sp is not None and hasattr(A_petsc, "tocsr"):
+            A_petsc = A_petsc.tocsr() + float(cfg.diagonal_shift) * sp.eye(A_petsc.shape[0], format="csr")
         else:
-            A = np.asarray(kkt_matrix, dtype=float)
-        if diagonal_shift != 0.0:
-            A = A + float(diagonal_shift) * np.eye(A.shape[0], dtype=A.dtype)
-        return np.linalg.solve(A, np.asarray(rhs, dtype=float))
-    if backend != "jax":
-        raise ValueError("backend must be 'numpy' or 'jax'")
+            A_np = np.asarray(A_petsc, dtype=float)
+            A_petsc = A_np + float(cfg.diagonal_shift) * np.eye(A_np.shape[0], dtype=A_np.dtype)
 
+    rhs_np = np.asarray(rhs, dtype=float)
+    n = int(rhs_np.shape[0])
+    return petsc_shell_solve(
+        A_petsc,
+        rhs_np,
+        n_dofs=n,
+        ksp_type=str(cfg.petsc_ksp_type),
+        pc_type=str(cfg.petsc_pc_type),
+        preconditioner=cfg.petsc_preconditioner,
+        pmat=A_petsc,
+        rtol=cfg.petsc_rtol,
+        atol=cfg.petsc_atol,
+        max_it=cfg.petsc_max_it if cfg.petsc_max_it is not None else max(10 * n, 200),
+        options=None if cfg.petsc_options is None else dict(cfg.petsc_options),
+        options_prefix=cfg.petsc_options_prefix,
+    )
+
+
+def _solve_kkt_numpy(kkt_matrix, rhs, cfg: ContactKKTSolveConfig):
+    A_csr = _as_numpy_csr(kkt_matrix)
+    try:
+        import scipy.sparse as sp
+        import scipy.sparse.linalg as spla
+    except Exception:
+        sp = None
+        spla = None
+
+    if A_csr is not None and spla is not None:
+        if float(cfg.diagonal_shift) != 0.0:
+            A_csr = A_csr + float(cfg.diagonal_shift) * sp.eye(A_csr.shape[0], format="csr")
+        return np.asarray(spla.spsolve(A_csr, np.asarray(rhs, dtype=float)))
+
+    if not bool(cfg.allow_dense_fallback):
+        raise ValueError("Dense fallback is disabled by ContactKKTSolveConfig.allow_dense_fallback.")
+    A = _as_numpy_dense(kkt_matrix)
+    if float(cfg.diagonal_shift) != 0.0:
+        A = A + float(cfg.diagonal_shift) * np.eye(A.shape[0], dtype=A.dtype)
+    return np.linalg.solve(A, np.asarray(rhs, dtype=float))
+
+
+def _solve_kkt_jax(kkt_matrix, rhs, cfg: ContactKKTSolveConfig):
     import jax
     import jax.numpy as jnp
+    import jax.scipy as jsp
+    from jax.experimental import sparse as jsparse  # type: ignore
+
+    mv_base, is_sparse_like = _as_jax_linear_op(kkt_matrix)
+
+    def _gmres_solve(mv, bvec):
+        maxiter = cfg.jax_maxiter if cfg.jax_maxiter is not None else max(10 * int(bvec.shape[0]), 100)
+        x, _ = jsp.sparse.linalg.gmres(
+            mv,
+            bvec,
+            tol=float(cfg.jax_tol),
+            atol=float(cfg.jax_atol),
+            restart=int(cfg.jax_restart),
+            maxiter=int(maxiter),
+        )
+        return x
+
+    if cfg.jax_solver == "spsolve":
+        from jax.experimental.sparse.linalg import spsolve as jspsolve
+
+        if hasattr(kkt_matrix, "to_bcoo"):
+            bcoo = kkt_matrix.to_bcoo()
+        elif isinstance(kkt_matrix, jsparse.BCOO):
+            bcoo = kkt_matrix
+        else:
+            raise ValueError("jax_solver='spsolve' requires sparse input (FluxSparseMatrix or BCOO).")
+
+        bcsr = jsparse.BCSR.from_bcoo(bcoo)
+        b = jnp.asarray(rhs)
+        if b.ndim == 1:
+            return jspsolve(bcsr.data, bcsr.indices, bcsr.indptr, b)
+        if b.ndim == 2:
+            return jnp.stack([jspsolve(bcsr.data, bcsr.indices, bcsr.indptr, b[:, i]) for i in range(b.shape[1])], axis=1)
+        raise ValueError("rhs must be rank-1 or rank-2.")
+
+    shift = jnp.asarray(cfg.diagonal_shift, dtype=jnp.asarray(rhs).dtype)
+    mv = (lambda x: mv_base(x) + shift * x)
+    b = jnp.asarray(rhs)
+    if is_sparse_like or cfg.jax_dense_mode == "iterative":
+        if b.ndim == 1:
+            return _gmres_solve(mv, b)
+        if b.ndim == 2:
+            return jnp.stack([_gmres_solve(mv, b[:, i]) for i in range(b.shape[1])], axis=1)
+        raise ValueError("rhs must be rank-1 or rank-2.")
 
     @jax.custom_vjp
-    def _solve_jax(A, b):
-        return jnp.linalg.solve(A, b)
+    def _solve_jax(A, bvec):
+        return jnp.linalg.solve(A, bvec)
 
-    def _solve_jax_fwd(A, b):
-        x = jnp.linalg.solve(A, b)
+    def _solve_jax_fwd(A, bvec):
+        x = jnp.linalg.solve(A, bvec)
         return x, (A, x)
 
     def _solve_jax_bwd(res, g):
@@ -465,20 +1062,32 @@ def solve_contact_kkt(kkt_matrix, rhs, *, backend: str = "numpy", diagonal_shift
         return gA, gb
 
     _solve_jax.defvjp(_solve_jax_fwd, _solve_jax_bwd)
-    if hasattr(kkt_matrix, "to_dense"):
-        A = jnp.asarray(kkt_matrix.to_dense())
-    else:
-        try:
-            from jax.experimental import sparse as jsparse  # type: ignore
-        except Exception:
-            jsparse = None
-        if jsparse is not None and isinstance(kkt_matrix, jsparse.BCOO):
-            A = kkt_matrix.todense()
-        else:
-            A = jnp.asarray(kkt_matrix)
-    if diagonal_shift != 0.0:
-        A = A + jnp.asarray(diagonal_shift, dtype=A.dtype) * jnp.eye(A.shape[0], dtype=A.dtype)
-    return _solve_jax(A, jnp.asarray(rhs))
+    if not bool(cfg.allow_dense_fallback):
+        raise ValueError("Dense fallback is disabled by ContactKKTSolveConfig.allow_dense_fallback.")
+    A = jnp.asarray(kkt_matrix.to_dense()) if hasattr(kkt_matrix, "to_dense") else jnp.asarray(kkt_matrix)
+    A = A + jnp.asarray(cfg.diagonal_shift, dtype=A.dtype) * jnp.eye(A.shape[0], dtype=A.dtype)
+    return _solve_jax(A, b)
+
+
+def solve_contact_kkt(
+    kkt_matrix,
+    rhs,
+    *,
+    backend: str = "numpy",
+    diagonal_shift: float = 0.0,
+    config: ContactKKTSolveConfig | None = None,
+):
+    """
+    Solve KKT linear system ``KKT * x = rhs``.
+
+    `config` is the preferred control surface. `backend`/`diagonal_shift` are kept for compatibility.
+    """
+    cfg = _resolve_kkt_solve_config(backend=backend, diagonal_shift=diagonal_shift, config=config)
+    if cfg.backend == "petsc4py":
+        return _solve_kkt_petsc(kkt_matrix, rhs, cfg)
+    if cfg.backend == "numpy":
+        return _solve_kkt_numpy(kkt_matrix, rhs, cfg)
+    return _solve_kkt_jax(kkt_matrix, rhs, cfg)
 
 
 @dataclass(frozen=True)
@@ -1184,6 +1793,14 @@ class ContactSurfaceSpace:
         rho: float = 0.0,
         multiplier_space: str = "nodal",
         backend: str = "numpy",
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
     ) -> ContactOperators:
         return assemble_contact_constraint_operators(
             self,
@@ -1192,6 +1809,14 @@ class ContactSurfaceSpace:
             rho=rho,
             multiplier_space=multiplier_space,
             backend=backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
         )
 
     def assemble_contact_penalty_operators(
@@ -1982,6 +2607,14 @@ class OneToManyContactSurfaceSpace:
         rho: float = 0.0,
         multiplier_space: str = "nodal",
         backend: str = "numpy",
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
     ) -> ContactOperators:
         return assemble_contact_constraint_operators(
             self,
@@ -1990,6 +2623,14 @@ class OneToManyContactSurfaceSpace:
             rho=rho,
             multiplier_space=multiplier_space,
             backend=backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
         )
 
     def assemble_contact_penalty_operators(
@@ -2030,6 +2671,13 @@ __all__ = [
     "ContactSurfaceSpace",
     "OneToManyContactSurfaceSpace",
     "ContactOperators",
+    "ContactKKTSolveConfig",
+    "EmbeddingMap",
+    "build_nodal_embedding_map",
+    "build_barycentric_embedding_map",
+    "build_barycentric_embedding_map_from_meshes",
+    "assemble_embedding_constraint_matrix",
+    "assemble_rbe2_constraint_matrix",
     "assemble_contact_constraint_operators",
     "assemble_contact_penalty_operators",
     "assemble_contact_interface_residual",

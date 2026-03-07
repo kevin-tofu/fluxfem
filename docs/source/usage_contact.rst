@@ -65,15 +65,19 @@ Use explicit APIs by family:
 .. code-block:: python
 
    # Constraint path: returns coupling/B/Kuu operators
-   ops = ff.assemble_contact_constraint_operators(
+   ops: ff.ContactOperators = ff.assemble_contact_constraint_operators(
        contact,
        rho=5.0,
        multiplier_space="p0",   # or "nodal"
        backend="numpy",
+       # Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.
+       weak_form=res_form,
+       state={"master": u_master, "slaves": [u_s1, u_s2]},
+       params=params,
    )
 
    # Penalty-family path: returns residual/jacobian from your weak form
-   ops_nitsche = ff.assemble_contact_penalty_operators(
+   ops_nitsche: ff.ContactOperators = ff.assemble_contact_penalty_operators(
        contact,
        weak_form=res_form,
        state={"master": u_master, "slaves": [u_s1, u_s2]},
@@ -187,3 +191,24 @@ assemble operators first, then pass them to ``add_contact`` (or ``add_contact_mo
 
 When ``ops_mortar`` comes from ``assemble_contact_constraint_operators(...)``,
 ``rho`` and ``multiplier_space`` are inherited automatically. Override only when needed.
+
+Embedding Map (With Unmapped Report)
+------------------------------------
+
+For mesh-to-mesh tied constraints, you can request unmapped slave node IDs:
+
+.. code-block:: python
+
+   emb, unmapped = ff.build_barycentric_embedding_map_from_meshes(
+       master_mesh,
+       slave_mesh,
+       slave_facet_selector=lambda m: m.facets_on_plane(axis=2, value=0.0),
+       allow_unmapped="skip",           # "error" | "skip"
+       return_unmapped_ids=True,
+   )
+   print("unmapped slave node ids:", unmapped)
+
+   builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+   builder.register_field("master", n_dofs=n_master, value_dim=1)
+   builder.register_field("slave", n_dofs=n_slave, value_dim=1)
+   builder.add_embedding_constraint(emb, master="master", slave="slave", value_dim=1)

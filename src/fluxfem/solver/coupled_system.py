@@ -271,6 +271,82 @@ class _FieldBlock:
     n_nodes: int
 
 
+@dataclass(frozen=True)
+class DirichletSpec:
+    """
+    Field-aware Dirichlet selector for coupled systems.
+
+    Exactly one selector style must be used:
+    - `nodes` (+ optional `components`)
+    - `local_dofs`
+    """
+
+    field: str
+    nodes: int | Sequence[int] | np.ndarray | None = None
+    components: int | Sequence[int] | np.ndarray | None = None
+    local_dofs: int | Sequence[int] | np.ndarray | None = None
+    value: float | Sequence[float] | np.ndarray = 0.0
+
+    def __post_init__(self) -> None:
+        has_nodes = self.nodes is not None
+        has_local = self.local_dofs is not None
+        if has_nodes == has_local:
+            raise ValueError("DirichletSpec requires exactly one of nodes or local_dofs.")
+
+
+@dataclass(frozen=True)
+class ConstraintSpec:
+    """
+    Unified constraint descriptor for CoupledSystemBuilder.
+
+    kind:
+    - "contact": routes to add_contact(...)
+    - "matrix": routes to add_constraint_matrix(...)
+    - "matrix_dof": routes to add_constraint_matrix_dof(...)
+    - "embedding": routes to add_embedding_constraint(...)
+    """
+
+    kind: str
+    master: str
+    slave: str
+    value_dim: int | None = None
+    rho: float = 0.0
+    F_contact: np.ndarray | None = None
+    backend: str = "numpy"
+
+    contact_obj: Any | None = None
+    C: Any | None = None
+    embedding: Any | None = None
+
+    # contact routing/options
+    family: str | None = None
+    enforcement: str | None = None
+    law: str | None = None
+    formulation: str | None = None
+    weak_form: Any | None = None
+    state: Any | None = None
+    params: Any | None = None
+    residual: np.ndarray | None = None
+    scale: float = 1.0
+    residual_sign: float = -1.0
+    normal_source: str = "master"
+    sparse: bool = False
+    batch_jac: bool | None = None
+    multiplier_space: str | None = None
+    facet_conn_master: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        kind = str(self.kind).lower()
+        if kind not in {"contact", "matrix", "matrix_dof", "embedding"}:
+            raise ValueError("ConstraintSpec.kind must be one of: contact, matrix, matrix_dof, embedding.")
+        if kind == "contact" and self.contact_obj is None:
+            raise ValueError("ConstraintSpec(kind='contact') requires contact_obj.")
+        if kind in {"matrix", "matrix_dof"} and self.C is None:
+            raise ValueError("ConstraintSpec(kind='matrix*') requires C.")
+        if kind == "embedding" and self.embedding is None:
+            raise ValueError("ConstraintSpec(kind='embedding') requires embedding.")
+
+
 class CoupledSystemBuilder:
     """
     Helper to reduce manual offset/node bookkeeping for coupled contact assembly.
@@ -398,6 +474,136 @@ class CoupledSystemBuilder:
             raise ValueError(f"Field '{key}' is not registered.{hint}")
         return self._blocks[key]
 
+    def resolve_block_dofs(
+        self,
+        field: str,
+        *,
+        nodes: int | Sequence[int] | np.ndarray | None = None,
+        components: int | Sequence[int] | np.ndarray | None = None,
+        local_dofs: int | Sequence[int] | np.ndarray | None = None,
+    ) -> np.ndarray:
+        """
+        Resolve field-local node/component or local-dof indices to global DOFs.
+
+        Parameters
+        ----------
+        field:
+            Registered block name.
+        nodes/components:
+            Node/component selector in the field.
+            `components=None` means all components in `[0, value_dim)`.
+        local_dofs:
+            Field-local DOF indices. Mutually exclusive with `nodes`.
+        """
+        b = self._get_block(field)
+
+        has_nodes = nodes is not None
+        has_local = local_dofs is not None
+        if has_nodes and has_local:
+            raise ValueError("Specify either nodes/components or local_dofs, not both.")
+        if not has_nodes and not has_local:
+            raise ValueError("One of nodes or local_dofs must be provided.")
+
+        if has_local:
+            ld = np.asarray(local_dofs, dtype=int).reshape(-1)
+            if ld.size == 0:
+                return ld
+            if np.any(ld < 0) or np.any(ld >= b.n_dofs):
+                raise ValueError(f"local_dofs out of range for field '{b.name}'.")
+            return b.offset + ld
+
+        node_arr = np.asarray(nodes, dtype=int).reshape(-1)
+        if node_arr.size == 0:
+            return np.asarray([], dtype=int)
+        if np.any(node_arr < 0) or np.any(node_arr >= b.n_nodes):
+            raise ValueError(f"nodes out of range for field '{b.name}'.")
+
+        if components is None:
+            comp_arr = np.arange(b.value_dim, dtype=int)
+        else:
+            comp_arr = np.asarray(components, dtype=int).reshape(-1)
+        if comp_arr.size == 0:
+            return np.asarray([], dtype=int)
+        if np.any(comp_arr < 0) or np.any(comp_arr >= b.value_dim):
+            raise ValueError(f"components out of range for field '{b.name}'.")
+
+        local = (node_arr[:, None] * b.value_dim + comp_arr[None, :]).reshape(-1)
+        return b.offset + local
+
+    def resolve_dirichlet(
+        self,
+        specs: Sequence[DirichletSpec],
+        *,
+        default_value: float = 0.0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Convert field-based Dirichlet specs into `(dirichlet_dofs, dirichlet_vals)`.
+
+        Supported fields:
+        - `field` (required)
+        - `nodes` and optional `components`
+        - `local_dofs`
+        - `value` (scalar or array-like)
+        """
+        dof_to_value: dict[int, float] = {}
+
+        for spec in specs:
+            if not isinstance(spec, DirichletSpec):
+                raise TypeError("dirichlet specs must be DirichletSpec instances.")
+            field = str(spec.field)
+            dofs = self.resolve_block_dofs(
+                field,
+                nodes=spec.nodes,
+                components=spec.components,
+                local_dofs=spec.local_dofs,
+            )
+
+            val_obj = spec.value if spec.value is not None else default_value
+            val_arr = np.asarray(val_obj, dtype=float).reshape(-1)
+            if dofs.size == 0:
+                continue
+            if val_arr.size == 1:
+                vals = np.full((dofs.size,), float(val_arr[0]), dtype=float)
+            elif val_arr.size == dofs.size:
+                vals = val_arr.astype(float, copy=False)
+            else:
+                raise ValueError(
+                    "Dirichlet 'value' must be scalar or match the number of selected DOFs."
+                )
+
+            for d, v in zip(dofs, vals):
+                dof_to_value[int(d)] = float(v)
+
+        if not dof_to_value:
+            return np.asarray([], dtype=int), np.asarray([], dtype=float)
+        items = sorted(dof_to_value.items(), key=lambda kv: kv[0])
+        dofs = np.asarray([k for k, _ in items], dtype=int)
+        vals = np.asarray([v for _, v in items], dtype=float)
+        return dofs, vals
+
+    def solve(
+        self,
+        *,
+        dirichlet_specs: Sequence[DirichletSpec] | None = None,
+        dirichlet_dofs: np.ndarray | None = None,
+        dirichlet_vals=0.0,
+        format: str = "csr",
+        diagonal_shift: float = 0.0,
+    ):
+        """
+        Build and solve with optional `DirichletSpec` constraints.
+        """
+        if dirichlet_specs is not None and dirichlet_dofs is not None:
+            raise ValueError("Use either dirichlet_specs or dirichlet_dofs, not both.")
+        if dirichlet_specs is not None:
+            dirichlet_dofs, dirichlet_vals = self.resolve_dirichlet(dirichlet_specs)
+        return self.system.solve(
+            dirichlet_dofs=dirichlet_dofs,
+            dirichlet_vals=dirichlet_vals,
+            format=format,
+            diagonal_shift=diagonal_shift,
+        )
+
     def add_contact_nitsche(
         self,
         ops_or_jacobian,
@@ -506,6 +712,7 @@ class CoupledSystemBuilder:
         *,
         master: str,
         slave: str,
+        family: str | None = None,
         enforcement: str | None = None,
         law: str | None = None,
         formulation: str | None = None,
@@ -530,6 +737,19 @@ class CoupledSystemBuilder:
         """
         Unified contact entry point for penalty/constraint families.
         """
+        family_arg = None if family is None else str(family).lower()
+        family_mode = None
+        family_enforcement = None
+        if family_arg is not None:
+            if family_arg in {"constraint", "mortar"}:
+                family_mode = "constraint"
+                family_enforcement = "mortar"
+            elif family_arg in {"penalty", "nitsche"}:
+                family_mode = "penalty"
+                family_enforcement = "nitsche"
+            else:
+                raise ValueError("family must be 'constraint' or 'penalty' (aliases: 'mortar', 'nitsche').")
+
         # Accept raw contact-space objects and assemble operators internally.
         if (
             hasattr(contact_obj, "assemble_contact_constraint_operators")
@@ -538,7 +758,9 @@ class CoupledSystemBuilder:
         ):
             f_arg_guess = None if formulation is None else str(formulation).lower()
             has_penalty_inputs = (weak_form is not None) or (state is not None) or (params is not None)
-            if f_arg_guess in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
+            if family_mode is not None:
+                resolved_family = family_mode
+            elif f_arg_guess in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
                 resolved_family = "constraint"
             elif f_arg_guess in {"penalty", "penalty_consistent", "nitsche"}:
                 resolved_family = "penalty"
@@ -557,6 +779,12 @@ class CoupledSystemBuilder:
                     rho=0.0 if rho is None else float(rho),
                     multiplier_space="nodal" if multiplier_space is None else str(multiplier_space),
                     backend=backend,
+                    weak_form=weak_form,
+                    state=state,
+                    params=params,
+                    normal_source=normal_source,
+                    sparse=sparse,
+                    batch_jac=batch_jac,
                 )
             else:
                 from ..mesh.contact import assemble_contact_penalty_operators as _assemble_ops
@@ -577,8 +805,21 @@ class CoupledSystemBuilder:
         # `law` is currently metadata only; routing is enforcement/formulation-based.
         _ = law
         e_arg = None if enforcement is None else str(enforcement).lower()
+        if e_arg in {"constraint", "mortar"}:
+            e_arg = "mortar"
+        elif e_arg in {"penalty", "nitsche"}:
+            e_arg = "nitsche"
         f_arg = None if formulation is None else str(formulation).lower()
+        if family_enforcement is not None and e_arg is not None and e_arg != family_enforcement:
+            raise ValueError("family conflicts with enforcement.")
+        if family_mode == "constraint" and f_arg in {"penalty", "penalty_consistent", "nitsche"}:
+            raise ValueError("family='constraint' conflicts with penalty formulation.")
+        if family_mode == "penalty" and f_arg in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
+            raise ValueError("family='penalty' conflicts with multiplier formulation.")
+
         m = e_arg
+        if m is None and family_enforcement is not None:
+            m = family_enforcement
         if m is None and f_arg is not None:
             if f_arg in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
                 m = "mortar"
@@ -628,8 +869,212 @@ class CoupledSystemBuilder:
             return
         raise ValueError("enforcement must be 'nitsche' or 'mortar'.")
 
+    def add_constraint(self, spec: ConstraintSpec) -> None:
+        """
+        Add a constraint through a unified typed descriptor.
+        """
+        if not isinstance(spec, ConstraintSpec):
+            raise TypeError("spec must be a ConstraintSpec instance.")
+
+        kind = str(spec.kind).lower()
+        if kind == "contact":
+            self.add_contact(
+                spec.contact_obj,
+                master=spec.master,
+                slave=spec.slave,
+                family=spec.family,
+                enforcement=spec.enforcement,
+                law=spec.law,
+                formulation=spec.formulation,
+                value_dim=spec.value_dim,
+                weak_form=spec.weak_form,
+                state=spec.state,
+                params=spec.params,
+                residual=spec.residual,
+                scale=spec.scale,
+                residual_sign=spec.residual_sign,
+                normal_source=spec.normal_source,
+                sparse=spec.sparse,
+                batch_jac=spec.batch_jac,
+                F_contact=spec.F_contact,
+                rho=spec.rho,
+                multiplier_space=spec.multiplier_space,
+                facet_conn_master=spec.facet_conn_master,
+                backend=spec.backend,
+            )
+            return
+        if kind == "matrix":
+            self.add_constraint_matrix(
+                spec.C,
+                master=spec.master,
+                slave=spec.slave,
+                value_dim=spec.value_dim,
+                rho=spec.rho,
+                F_contact=spec.F_contact,
+            )
+            return
+        if kind == "matrix_dof":
+            self.add_constraint_matrix_dof(
+                spec.C,
+                master=spec.master,
+                slave=spec.slave,
+                rho=spec.rho,
+                F_contact=spec.F_contact,
+            )
+            return
+        if kind == "embedding":
+            self.add_embedding_constraint(
+                spec.embedding,
+                master=spec.master,
+                slave=spec.slave,
+                value_dim=spec.value_dim,
+                rho=spec.rho,
+                backend=spec.backend,
+                F_contact=spec.F_contact,
+            )
+            return
+        raise ValueError("Unsupported ConstraintSpec.kind.")
+
+    def add_constraint_matrix(
+        self,
+        C,
+        *,
+        master: str,
+        slave: str,
+        value_dim: int | None = None,
+        rho: float = 0.0,
+        F_contact: np.ndarray | None = None,
+    ) -> None:
+        """
+        Add generic two-block equality constraints:
+            C * [u_master; u_slave] = 0
+        using KKT assembly with optional AL-like regularization ``rho * C^T C``.
+
+        Accepted ``C`` inputs:
+        - SciPy sparse matrix (recommended for large systems)
+        - dense array-like
+        - ``FluxSparseMatrix`` (converted internally via ``to_csr()``)
+        """
+        m = self._get_block(master)
+        s = self._get_block(slave)
+        if value_dim is None:
+            if m.value_dim != s.value_dim:
+                raise ValueError("master/slave value_dim mismatch. Pass value_dim explicitly.")
+            vd = m.value_dim
+        else:
+            vd = int(value_dim)
+        if vd <= 0:
+            raise ValueError("value_dim must be positive.")
+
+        if isinstance(C, FluxSparseMatrix):
+            C_csr = C.to_csr()
+        elif sp.issparse(C):
+            C_csr = C.tocsr()
+        else:
+            C_csr = sp.csr_matrix(np.asarray(C, dtype=float))
+        n_cu = vd * int(m.n_nodes + s.n_nodes)
+        if C_csr.ndim != 2 or C_csr.shape[1] != n_cu:
+            raise ValueError("C shape mismatch for provided master/slave node counts and value_dim.")
+        n_l = int(C_csr.shape[0])
+        Kuu = float(rho) * (C_csr.T @ C_csr)
+        Zll = sp.csr_matrix((n_l, n_l), dtype=float)
+        K_contact = sp.bmat([[Kuu, C_csr.T], [C_csr, Zll]], format="csr")
+
+        self.system.add_contact_kkt(
+            K_contact,
+            n_master_nodes=m.n_nodes,
+            n_slave_nodes=s.n_nodes,
+            master_offset=m.offset,
+            slave_offset=s.offset,
+            F_contact=F_contact,
+            value_dim=vd,
+        )
+
+    def add_constraint_matrix_dof(
+        self,
+        C,
+        *,
+        master: str,
+        slave: str,
+        rho: float = 0.0,
+        F_contact: np.ndarray | None = None,
+    ) -> None:
+        """
+        Add generic DOF-level equality constraints on concatenated block DOFs:
+            C * [u_master_dof; u_slave_dof] = 0
+
+        Unlike ``add_constraint_matrix``, this method does not use ``value_dim``/node
+        interpretation and instead treats both blocks as pure DOF vectors.
+        """
+        m = self._get_block(master)
+        s = self._get_block(slave)
+        if isinstance(C, FluxSparseMatrix):
+            C_csr = C.to_csr()
+        elif sp.issparse(C):
+            C_csr = C.tocsr()
+        else:
+            C_csr = sp.csr_matrix(np.asarray(C, dtype=float))
+
+        n_cu = int(m.n_dofs + s.n_dofs)
+        if C_csr.ndim != 2 or C_csr.shape[1] != n_cu:
+            raise ValueError("C shape mismatch for provided master/slave DOF counts.")
+        n_l = int(C_csr.shape[0])
+        Kuu = float(rho) * (C_csr.T @ C_csr)
+        Zll = sp.csr_matrix((n_l, n_l), dtype=float)
+        K_contact = sp.bmat([[Kuu, C_csr.T], [C_csr, Zll]], format="csr")
+
+        self.system.add_contact_kkt(
+            K_contact,
+            n_master_nodes=m.n_dofs,
+            n_slave_nodes=s.n_dofs,
+            master_offset=m.offset,
+            slave_offset=s.offset,
+            F_contact=F_contact,
+            value_dim=1,
+        )
+
+    def add_embedding_constraint(
+        self,
+        embedding,
+        *,
+        master: str,
+        slave: str,
+        value_dim: int | None = None,
+        rho: float = 0.0,
+        backend: str = "numpy",
+        F_contact: np.ndarray | None = None,
+    ) -> None:
+        """
+        Build and add embedding constraints from ``EmbeddingMap``.
+        """
+        from ..mesh.contact import assemble_embedding_constraint_matrix
+
+        m = self._get_block(master)
+        s = self._get_block(slave)
+        if value_dim is None:
+            if m.value_dim != s.value_dim:
+                raise ValueError("master/slave value_dim mismatch. Pass value_dim explicitly.")
+            vd = m.value_dim
+        else:
+            vd = int(value_dim)
+        C = assemble_embedding_constraint_matrix(
+            embedding,
+            n_master_nodes=m.n_nodes,
+            n_slave_nodes=s.n_nodes,
+            value_dim=vd,
+            backend=backend,
+        )
+        self.add_constraint_matrix(
+            C,
+            master=master,
+            slave=slave,
+            value_dim=vd,
+            rho=rho,
+            F_contact=F_contact,
+        )
+
     def build(self) -> CoupledSystem:
         return self.system
 
 
-__all__ = ["CoupledSystem", "CoupledSystemBuilder"]
+__all__ = ["CoupledSystem", "CoupledSystemBuilder", "DirichletSpec", "ConstraintSpec"]

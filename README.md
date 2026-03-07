@@ -244,15 +244,19 @@ contact = ff.OneToManyContactSurfaceSpace.from_meshes(
 )
 
 # 1) Assemble constraint operators (B, Kuu, ...)
-ops = ff.assemble_contact_constraint_operators(
+ops: ff.ContactOperators = ff.assemble_contact_constraint_operators(
     contact,
     rho=1.0,
     multiplier_space="p0",
     backend="numpy",
+    # Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.
+    weak_form=contact_residual_form,
+    state={"a": u_master, "b": u_slave},
+    params=params,
 )
 
 # 2) Penalty-family path: user weak form -> residual/jacobian operators
-ops_nitsche = ff.assemble_contact_penalty_operators(
+ops_nitsche: ff.ContactOperators = ff.assemble_contact_penalty_operators(
     contact,
     weak_form=contact_residual_form,
     state={"a": u_master, "b": u_slave},
