@@ -43,7 +43,7 @@ You do not need to manually pass surface coordinates/connectivity.
    u = jnp.zeros(n)
    K = contact.assemble_bilinear(bilin, u, [u, u], params)
 
-Nitsche-Style Jacobian Assembly
+Penalty-Style Jacobian Assembly
 -------------------------------
 
 After building contact space, call ``assemble_bilinear`` with your weak form.
@@ -55,31 +55,34 @@ After building contact space, call ``assemble_bilinear`` with your weak form.
 Contact Operators API (Recommended)
 -----------------------------------
 
-Use ``assemble_contact_operators`` to separate operator assembly from solving.
+Use explicit APIs by family:
+
+- ``law``: physical contact model.
+- ``formulation``: multiplier-family vs penalty-family intent.
+- ``assemble_contact_constraint_operators``: coupling/B/Kuu.
+- ``assemble_contact_penalty_operators``: residual/jacobian from weak form.
 
 .. code-block:: python
 
-   # Mortar path: returns coupling/B/Kuu operators
-   ops = ff.assemble_contact_operators(
+   # Constraint path: returns coupling/B/Kuu operators
+   ops = ff.assemble_contact_constraint_operators(
        contact,
-       method="mortar",
        rho=5.0,
        multiplier_space="p0",   # or "nodal"
        backend="numpy",
    )
 
-   # Nitsche path: returns residual/jacobian from your weak form
-   ops_nitsche = ff.assemble_contact_operators(
+   # Penalty-family path: returns residual/jacobian from your weak form
+   ops_nitsche = ff.assemble_contact_penalty_operators(
        contact,
-       method="nitsche",
-       res_form=res_form,
-       u={"master": u_master, "slaves": [u_s1, u_s2]},
+       weak_form=res_form,
+       state={"master": u_master, "slaves": [u_s1, u_s2]},
        params=params,
        backend="jax",
    )
 
-Contact Coupling Matrices (Mortar)
-----------------------------------
+Contact Coupling Matrices (Constraint)
+--------------------------------------
 
 Coupling matrices for constraints are available from:
 
@@ -145,10 +148,10 @@ Notes
 
 - ``master_facet_selector`` and ``slave_facet_selectors`` are recommended for robust workflows.
 - For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.
-- ``multiplier_space="p0"`` gives facet-wise constant multipliers (common for mortar-like constraints).
-- ``assemble_contact_kkt`` does not take a weak form directly; pass operators (from coupling matrices / ``assemble_contact_operators``).
+- ``multiplier_space="p0"`` gives facet-wise constant multipliers (common for constraint-family coupling).
+- ``assemble_contact_kkt`` is a low-level API. In most cases, prefer ``CoupledSystemBuilder.add_contact(...)``.
 
-CoupledSystemBuilder (Nitsche)
+CoupledSystemBuilder (Penalty)
 ------------------------------
 
 To avoid manual offset/node bookkeeping, use ``CoupledSystemBuilder``:
@@ -160,7 +163,7 @@ To avoid manual offset/node bookkeeping, use ``CoupledSystemBuilder``:
        ("top", top_space, {"value_dim": 1}),
        ("support", support_space, {"value_dim": 1}),
    ])
-   builder.add_contact(ops_nitsche, master="top", slave="support", method="nitsche", value_dim=1)
+   builder.add_contact(ops_nitsche, master="top", slave="support", value_dim=1)
    system = builder.build()
    u = system.solve(dirichlet_dofs=dir_dofs, dirichlet_vals=0.0, format="csr")
 
@@ -171,28 +174,16 @@ To avoid manual offset/node bookkeeping, use ``CoupledSystemBuilder``:
    builder.register_field("u", n_dofs=nu, value_dim=1)   # offset=0
    builder.register_field("v", n_dofs=nv, value_dim=1)   # offset=nu
 
-Mortar with Builder
--------------------
+Constraint with Builder
+-----------------------
 
-``assemble_contact_operators(method="mortar")`` and builder are consistent:
+``assemble_contact_constraint_operators(...)`` and builder are consistent:
 assemble operators first, then pass them to ``add_contact`` (or ``add_contact_mortar``).
 
 .. code-block:: python
 
-   ops_mortar = ff.assemble_contact_operators(
-       contact,
-       method="mortar",
-       rho=1.0,
-       multiplier_space="p0",
-       backend="numpy",
-   )
-   builder.add_contact(
-       ops_mortar,
-       master="top",
-       slave="support",
-       method="mortar",
-       value_dim=1,
-   )
+   ops_mortar = ff.assemble_contact_constraint_operators(contact, rho=1.0, multiplier_space="p0", backend="numpy")
+   builder.add_contact(ops_mortar, master="top", slave="support", value_dim=1)
 
-When ``ops_mortar`` comes from ``assemble_contact_operators(method="mortar")``,
+When ``ops_mortar`` comes from ``assemble_contact_constraint_operators(...)``,
 ``rho`` and ``multiplier_space`` are inherited automatically. Override only when needed.

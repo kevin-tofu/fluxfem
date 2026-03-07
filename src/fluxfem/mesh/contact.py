@@ -38,7 +38,9 @@ _CONTACT_SETUP_CACHE: dict[tuple, "ContactSurfaceSpace"] = {}
 class ContactOperators:
     """Container for assembled contact operators."""
 
-    method: str
+    enforcement: str
+    law: str | None = None
+    formulation: str | None = None
     coupling_aa: Any | None = None
     coupling_ab: Any | None = None
     B_a: Any | None = None
@@ -207,13 +209,89 @@ def _kkt_coo_from_coupling(
     return rows, cols, data, n_total
 
 
-def assemble_contact_operators(
+def assemble_contact_constraint_operators(
     contact,
     *,
-    method: str = "mortar",
+    law: str | None = None,
+    formulation: str | None = None,
     rho: float = 0.0,
     multiplier_space: str = "nodal",
     backend: str = "numpy",
+) -> ContactOperators:
+    """Assemble constraint-family operators (coupling/B/Kuu)."""
+    f_arg = None if formulation is None else str(formulation).lower()
+    if f_arg is not None and f_arg in {"penalty", "penalty_consistent", "nitsche"}:
+        raise ValueError(
+            "Constraint operators are multiplier-family only. Use a multiplier/augmented_lagrangian formulation."
+        )
+    resolved = "mortar"
+    law_resolved = str(law) if law is not None else "one_sided_normal_frictionless"
+    formulation_resolved = str(formulation) if formulation is not None else "multiplier"
+    if backend not in {"numpy", "jax"}:
+        raise ValueError("backend must be 'numpy' or 'jax'")
+
+    if not hasattr(contact, "assemble_contact_coupling_matrices"):
+        raise TypeError("contact must provide assemble_contact_coupling_matrices() for constraint operators.")
+    coupling_aa, coupling_ab = contact.assemble_contact_coupling_matrices()
+
+    facet_conn_master = None
+    if hasattr(contact, "surface_master"):
+        facet_conn_master = np.asarray(contact.surface_master.conn, dtype=int)
+    elif hasattr(contact, "contacts") and len(getattr(contact, "contacts")) > 0:
+        first = contact.contacts[0]
+        if hasattr(first, "surface_master"):
+            facet_conn_master = np.asarray(first.surface_master.conn, dtype=int)
+
+    M_aa = _coo_to_dense(coupling_aa.rows, coupling_aa.cols, coupling_aa.data, coupling_aa.shape, backend=backend)
+    M_ab = _coo_to_dense(coupling_ab.rows, coupling_ab.cols, coupling_ab.data, coupling_ab.shape, backend=backend)
+
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        xp = jnp
+    else:
+        xp = np
+
+    if multiplier_space == "nodal":
+        B_a = M_aa
+        B_b = M_ab
+    elif multiplier_space == "p0":
+        if facet_conn_master is None:
+            raise ValueError("facet_conn_master is required when multiplier_space='p0'.")
+        n_master_nodes = int(coupling_aa.shape[0])
+        S_np = _p0_reduction_matrix_from_facets(facet_conn_master, n_master_nodes)
+        S = xp.asarray(S_np)
+        B_a = S @ M_aa
+        B_b = S @ M_ab
+    else:
+        raise ValueError("multiplier_space must be 'nodal' or 'p0'")
+
+    B = xp.concatenate([B_a, -B_b], axis=1)
+    Kuu = xp.asarray(rho) * (B.T @ B)
+    return ContactOperators(
+        enforcement=resolved,
+        law=law_resolved,
+        formulation=formulation_resolved,
+        coupling_aa=coupling_aa,
+        coupling_ab=coupling_ab,
+        B_a=B_a,
+        B_b=B_b,
+        B=B,
+        Kuu=Kuu,
+        facet_conn_master=facet_conn_master,
+        rho=float(rho),
+        multiplier_space=str(multiplier_space),
+    )
+
+
+def assemble_contact_penalty_operators(
+    contact,
+    *,
+    law: str | None = None,
+    formulation: str | None = None,
+    backend: str = "numpy",
+    weak_form: MixedSurfaceResidualForm | None = None,
+    state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
     res_form: MixedSurfaceResidualForm | None = None,
     u: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
     params: "WeakParams" | None = None,
@@ -221,81 +299,32 @@ def assemble_contact_operators(
     sparse: bool = False,
     batch_jac: bool | None = None,
 ) -> ContactOperators:
-    """
-    Assemble contact operators, separating operator build from KKT solve assembly.
+    """Assemble penalty-family operators (residual/jacobian)."""
+    f_arg = None if formulation is None else str(formulation).lower()
+    if f_arg is not None and f_arg in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
+        raise ValueError(
+            "Penalty operators are penalty-family only. Use penalty/penalty_consistent formulation."
+        )
+    resolved = "nitsche"
+    if weak_form is not None and res_form is not None and weak_form is not res_form:
+        raise ValueError("weak_form and res_form are aliases; provide only one.")
+    if state is not None and u is not None and state is not u:
+        raise ValueError("state and u are aliases; provide only one.")
+    res_form_eff = weak_form if weak_form is not None else res_form
+    u_eff = state if state is not None else u
 
-    - method='mortar': assemble coupling operators and dense B/Kuu blocks.
-    - method='nitsche': assemble residual and Jacobian from a user weak form.
-    """
-    if method not in {"mortar", "nitsche"}:
-        raise ValueError("method must be 'mortar' or 'nitsche'")
+    law_resolved = str(law) if law is not None else "one_sided_normal_frictionless"
+    formulation_resolved = str(formulation) if formulation is not None else "penalty_consistent"
     if backend not in {"numpy", "jax"}:
         raise ValueError("backend must be 'numpy' or 'jax'")
-
-    if method == "mortar":
-        if not hasattr(contact, "assemble_contact_coupling_matrices"):
-            raise TypeError("contact must provide assemble_contact_coupling_matrices() for method='mortar'.")
-        coupling_aa, coupling_ab = contact.assemble_contact_coupling_matrices()
-
-        facet_conn_master = None
-        if hasattr(contact, "surface_master"):
-            facet_conn_master = np.asarray(contact.surface_master.conn, dtype=int)
-        elif hasattr(contact, "contacts") and len(getattr(contact, "contacts")) > 0:
-            first = contact.contacts[0]
-            if hasattr(first, "surface_master"):
-                facet_conn_master = np.asarray(first.surface_master.conn, dtype=int)
-
-        M_aa = _coo_to_dense(
-            coupling_aa.rows, coupling_aa.cols, coupling_aa.data, coupling_aa.shape, backend=backend
-        )
-        M_ab = _coo_to_dense(
-            coupling_ab.rows, coupling_ab.cols, coupling_ab.data, coupling_ab.shape, backend=backend
-        )
-
-        if backend == "jax":
-            import jax.numpy as jnp
-
-            xp = jnp
-        else:
-            xp = np
-
-        if multiplier_space == "nodal":
-            B_a = M_aa
-            B_b = M_ab
-        elif multiplier_space == "p0":
-            if facet_conn_master is None:
-                raise ValueError("facet_conn_master is required when multiplier_space='p0'.")
-            n_master_nodes = int(coupling_aa.shape[0])
-            S_np = _p0_reduction_matrix_from_facets(facet_conn_master, n_master_nodes)
-            S = xp.asarray(S_np)
-            B_a = S @ M_aa
-            B_b = S @ M_ab
-        else:
-            raise ValueError("multiplier_space must be 'nodal' or 'p0'")
-
-        B = xp.concatenate([B_a, -B_b], axis=1)
-        Kuu = xp.asarray(rho) * (B.T @ B)
-        return ContactOperators(
-            method="mortar",
-            coupling_aa=coupling_aa,
-            coupling_ab=coupling_ab,
-            B_a=B_a,
-            B_b=B_b,
-            B=B,
-            Kuu=Kuu,
-            facet_conn_master=facet_conn_master,
-            rho=float(rho),
-            multiplier_space=str(multiplier_space),
-        )
-
-    if res_form is None or u is None or params is None:
-        raise ValueError("method='nitsche' requires res_form, u, and params.")
+    if res_form_eff is None or u_eff is None or params is None:
+        raise ValueError("weak_form/state/params (or res_form/u/params) are required for penalty operators.")
     if not hasattr(contact, "assemble_residual") or not hasattr(contact, "assemble_jacobian"):
-        raise TypeError("contact must provide assemble_residual() and assemble_jacobian() for method='nitsche'.")
-    residual = contact.assemble_residual(res_form, u, params, normal_source=normal_source)
+        raise TypeError("contact must provide assemble_residual() and assemble_jacobian() for penalty operators.")
+    residual = contact.assemble_residual(res_form_eff, u_eff, params, normal_source=normal_source)
     jacobian = contact.assemble_jacobian(
-        res_form,
-        u,
+        res_form_eff,
+        u_eff,
         params,
         normal_source=normal_source,
         sparse=sparse,
@@ -303,7 +332,9 @@ def assemble_contact_operators(
         batch_jac=batch_jac,
     )
     return ContactOperators(
-        method="nitsche",
+        enforcement=resolved,
+        law=law_resolved,
+        formulation=formulation_resolved,
         residual=residual,
         jacobian=jacobian,
     )
@@ -1145,13 +1176,32 @@ class ContactSurfaceSpace:
             return_blocks=return_blocks,
         )
 
-    def assemble_contact_operators(
+    def assemble_contact_constraint_operators(
         self,
         *,
-        method: str = "mortar",
+        law: str | None = None,
+        formulation: str | None = None,
         rho: float = 0.0,
         multiplier_space: str = "nodal",
         backend: str = "numpy",
+    ) -> ContactOperators:
+        return assemble_contact_constraint_operators(
+            self,
+            law=law,
+            formulation=formulation,
+            rho=rho,
+            multiplier_space=multiplier_space,
+            backend=backend,
+        )
+
+    def assemble_contact_penalty_operators(
+        self,
+        *,
+        law: str | None = None,
+        formulation: str | None = None,
+        backend: str = "numpy",
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
         u: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
         params: "WeakParams" | None = None,
@@ -1159,12 +1209,13 @@ class ContactSurfaceSpace:
         sparse: bool = False,
         batch_jac: bool | None = None,
     ) -> ContactOperators:
-        return assemble_contact_operators(
+        return assemble_contact_penalty_operators(
             self,
-            method=method,
-            rho=rho,
-            multiplier_space=multiplier_space,
+            law=law,
+            formulation=formulation,
             backend=backend,
+            weak_form=weak_form,
+            state=state,
             res_form=res_form,
             u=u,
             params=params,
@@ -1923,13 +1974,32 @@ class OneToManyContactSurfaceSpace:
             return_blocks=return_blocks,
         )
 
-    def assemble_contact_operators(
+    def assemble_contact_constraint_operators(
         self,
         *,
-        method: str = "mortar",
+        law: str | None = None,
+        formulation: str | None = None,
         rho: float = 0.0,
         multiplier_space: str = "nodal",
         backend: str = "numpy",
+    ) -> ContactOperators:
+        return assemble_contact_constraint_operators(
+            self,
+            law=law,
+            formulation=formulation,
+            rho=rho,
+            multiplier_space=multiplier_space,
+            backend=backend,
+        )
+
+    def assemble_contact_penalty_operators(
+        self,
+        *,
+        law: str | None = None,
+        formulation: str | None = None,
+        backend: str = "numpy",
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
         u: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
         params: "WeakParams" | None = None,
@@ -1937,12 +2007,13 @@ class OneToManyContactSurfaceSpace:
         sparse: bool = False,
         batch_jac: bool | None = None,
     ) -> ContactOperators:
-        return assemble_contact_operators(
+        return assemble_contact_penalty_operators(
             self,
-            method=method,
-            rho=rho,
-            multiplier_space=multiplier_space,
+            law=law,
+            formulation=formulation,
             backend=backend,
+            weak_form=weak_form,
+            state=state,
             res_form=res_form,
             u=u,
             params=params,
@@ -1959,7 +2030,8 @@ __all__ = [
     "ContactSurfaceSpace",
     "OneToManyContactSurfaceSpace",
     "ContactOperators",
-    "assemble_contact_operators",
+    "assemble_contact_constraint_operators",
+    "assemble_contact_penalty_operators",
     "assemble_contact_interface_residual",
     "assemble_contact_interface_jacobian",
     "assemble_contact_coupling_matrices",

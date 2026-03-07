@@ -1,0 +1,170 @@
+[Contact Progress Note 2]
+
+現状、CoupledSystem と contact tutorial にはハードコーディングが多い。
+理由は「まず Nitsche で解ける最短経路」を優先したため。
+
+主な要因
+1) DOF マッピングの手動指定
+- `n_master_nodes`, `n_slave_nodes`, `master_offset`, `slave_offset` を呼び出し側で直指定している。
+- 本来は FESpace / ContactSpace から自動構築すべき。
+
+2) Interface DOF ordering 前提
+- `J_contact` / `residual` は `[master, slave]` 順序を前提にリフトしている。
+- 一般化するには field name と local-to-global map の明示管理が必要。
+
+3) Stabilization/penalty の固定値
+- tutorial 側で `alpha`, `inv_h`, `diagonal_shift` を固定している。
+- 問題依存で最適値が変わるため、設定オブジェクト化が必要。
+
+次の改善方針
+A) `CoupledSystemBuilder`（仮）導入
+- `from_spaces(...)` で構造 DOF map を自動生成。
+- `add_contact(...)` で mortar/nitsche を統一 API で追加。
+
+B) Contact parameter の dataclass 化
+- `ContactParams(alpha, inv_h, rho, diagonal_shift, active_set_opts, ...)`。
+- tutorial/テストから魔法定数を削減。
+
+C) Ordering 契約の明文化
+- interface block の field ordering を API 契約として定義。
+- 必要なら permutation を builder 内で自動適用。
+
+D) Active-set（将来）
+- 研究要素として optional 実装。
+- まずは linearized Nitsche path を安定化してから段階導入。
+
+補足
+- 現在の実装は「動く最小系」であり、設計的には過渡状態。
+- 次フェーズで builder + params へ整理して、ハードコード依存を減らす。
+
+[2026-03-07 update]
+- `CoupledSystemBuilder` を追加（`solver/coupled_system.py`）。
+  - `from_structural(...)`
+  - `register_field(...)` / `register_space(...)`
+  - `add_contact_nitsche(...)`（ops.jacobian/residual 受け取り可）
+  - `build()`
+- `CoupledSystem.add_contact_kkt(...)` を `value_dim>1` でも扱える投影構築に一般化。
+- チュートリアル `contact_supported_box_by_pillars.py` を builder 経由に変更。
+  - 手動 `master_offset/slave_offset` 指定を削減。
+  - 手動 `n_master_nodes/n_slave_nodes` 指定を削減。
+- テスト追加: `src/tests/test_coupled_system.py`
+  - builder 登録 + nitsche 取り込みの回帰テスト。
+- docs更新: `docs/source/usage_contact.rst` に `CoupledSystemBuilder` を使う Nitsche 例を追加。
+- `CoupledSystemBuilder.register_space(..., offset=None)` で自動 offset 連番割当てを追加。
+- tutorial を auto-offset 版へ更新（`offset` 引数不要）。
+- テスト追加: auto-offset で contact lifting が想定位置に入る回帰を追加。
+- `register_field(..., offset=None)` に拡張し、field登録でも auto-offset を利用可能化。
+- docs に `register_field` auto-offset 例を追記。
+- `CoupledSystemBuilder.add_contact_mortar(...)` を実装。
+  - `assemble_contact_operators(method="mortar")` の戻り値（coupling_aa/ab）を直接受け取り可能。
+  - 内部で `assemble_contact_kkt(...)` を呼んで `CoupledSystem.add_contact_kkt(...)` にリフト。
+  - preassembled KKT を直接渡す経路も維持。
+- テスト追加: `test_coupled_system_builder_add_contact_mortar_from_operators`。
+- docs更新: usage_contact に mortar+builder の整合フロー例を追記。
+- API美化フェーズ:
+  - `CoupledSystemBuilder.register_blocks(...)` を追加（tuple/dict 両対応）。
+  - `add_contact_mortar(...)` は `assemble_contact_operators(method="mortar")` 由来の `ops` から
+    `rho` / `multiplier_space` を自動継承（重複指定を削減）。
+  - field名 typo 時のエラーメッセージに近傍候補（Did you mean ...）を追加。
+- `ContactOperators` に `rho` / `multiplier_space` を保持するフィールドを追加。
+- テスト追加/更新:
+  - register_blocks の混在入力
+  - typo suggestion
+  - mortar ops default 継承
+- `CoupledSystemBuilder.add_contact(...)` を追加（統一入口）。
+  - `method` 指定、または `contact_obj.method` から自動推定。
+  - nitsche/mortar で既存 `add_contact_nitsche` / `add_contact_mortar` に委譲。
+- tutorial を `add_contact(..., method="nitsche")` へ切替。
+- docsを統一入口ベースに更新。
+- テスト追加: unified add_contact の nitsche/mortar 両経路。
+
+[2026-03-07 design direction (law/enforcement split)]
+- 目的
+  - 接触の物理定義（片側、法線のみ、摩擦あり等）と、
+    数値拘束の組み立て方式（Nitsche/Mortar）を分離する。
+  - 利用者は「何を解くか（law）」と「どう課すか（enforcement）」を独立に選べる。
+
+- 設計原則
+1) Contact law を先に定義
+  - 例: one-sided + normal-only, Coulomb friction, stick/slip など。
+  - law は traction/gap/effective tangent の評価責務を持つ。
+
+2) Enforcement は build 時に選択
+  - `builder.add_contact(..., method=\"nitsche\"|\"mortar\")` で決定。
+  - 同一 law を Nitsche/Mortar の両方で比較可能にする。
+
+3) Builder が組み立て詳細を吸収
+  - Mortar: coupling から KKT 生成 (`assemble_contact_kkt`) は builder 内部で実施。
+  - Nitsche: residual/jacobian 生成は builder 側で統一入口から委譲。
+  - 呼び出し側が `ops.coupling_aa/ab` などの内部表現を直接扱う箇所を減らす。
+
+- API 方針（後方互換を維持）
+  - `method` は当面維持しつつ意味を enforcement として文書化。
+  - 将来的に `enforcement` 引数を正式化し、`method` は alias 扱いへ移行。
+  - `contact law` を外部注入可能にする引数（`law` など）を `assemble_contact_operators` /
+    `builder.add_contact` 側で受けられるようにする。
+
+- デフォルト接触（アプリ向け）
+  - 初学者/アプリ用途向けに、最小構成の default law を提供する。
+  - 初期案:
+    - `default_contact_law = one_sided + normal_only + frictionless`
+    - 安定化の初期パラメータ（alpha/rho など）を conservatively 設定
+  - README/usage には「デフォルトでまず動かす経路」と「law を差し替える経路」を併記。
+
+- 実装ステップ（次フェーズ）
+A) 契約整理
+  - ContactLaw の最小インターフェース定義（評価に必要な関数群）。
+  - interface ordering 契約を builder 側に閉じ込める（呼び出し側へ露出しない）。
+
+B) Builder 統合
+  - `add_contact(...)` で `law` + `method(enforcement)` を受ける。
+  - Mortar/Nitsche 分岐を内部化し、手動 `assemble_contact_kkt` 呼び出しを不要化。
+
+C) ドキュメント更新
+  - README の contact 例は builder 主体に寄せる。
+  - 低レベル API（coupling 行列直操作）は「advanced」節に退避。
+
+D) 回帰テスト
+  - 同一 law を Nitsche/Mortar で通す API レベル整合テスト。
+  - default law の smoke test（one-sided/normal-only/frictionless）。
+
+[2026-03-07 implementation update (enforcement alias + builder-first docs)]
+- `assemble_contact_operators(...)` に `enforcement` 引数を追加（`method` は後方互換 alias）。
+  - 両方指定時に不一致なら `ValueError` を返すようにした。
+- `ContactSurfaceSpace` / `OneToManyContactSurfaceSpace` の
+  `assemble_contact_operators(...)` でも `enforcement` を受けられるようにした。
+- `CoupledSystemBuilder.add_contact(...)` に `enforcement` 引数を追加。
+  - 推定順を `enforcement` -> `method` -> `contact_obj.enforcement` -> `contact_obj.method` に整理。
+  - mortar/nitsche 以外の値に対するエラーメッセージを明確化。
+- README / usage_contact を builder 主体の説明へ更新。
+  - mortar の KKT 直組み立ては低レベル API として位置づけ。
+  - 例コードは `add_contact(..., enforcement=\"mortar\"|\"nitsche\")` ベースに寄せた。
+- テスト追加:
+  - `test_contact_operators_accepts_enforcement_alias`
+  - `test_contact_operators_rejects_method_enforcement_mismatch`
+  - `test_coupled_system_builder_add_contact_accepts_enforcement_alias`
+  - `test_coupled_system_builder_add_contact_rejects_method_enforcement_mismatch`
+
+[2026-03-07 implementation update (drop method compatibility)]
+- 後方互換は維持せず、contact API のルーティング軸を `enforcement` に一本化。
+  - `assemble_contact_operators(...)` から `method` を削除。
+  - `ContactOperators` の必須識別子を `method` から `enforcement` に変更。
+  - `CoupledSystemBuilder.add_contact(...)` から `method` を削除。
+- `law` / `formulation` / `enforcement` の3軸入力を docs/README へ反映。
+- `formulation` からの自動ルーティングを builder へ実装。
+  - `multiplier|augmented_lagrangian` -> mortar
+  - `penalty|penalty_consistent|nitsche` -> nitsche
+- 接触回帰テストを `enforcement` 主体へ更新し、対象セットで通過確認済み。
+
+[2026-03-07 implementation update (naming split finalized)]
+- `assemble_contact_operators` を廃止し、責務別に関数名を分割:
+  - `assemble_contact_constraint_operators(...)`  : coupling/B/Kuu（constraint family）
+  - `assemble_contact_penalty_operators(...)`     : residual/jacobian（penalty family）
+- `ContactSurfaceSpace` / `OneToManyContactSurfaceSpace` にも同名メソッドを追加。
+- `CoupledSystemBuilder.add_contact(...)` は raw contact object + weak form を直接受け取り、
+  formulation/入力内容から constraint/penalty を自動分岐して内部組み立て可能にした。
+- README / usage / tutorial / API docs を新命名へ更新。
+- 接触系回帰テスト:
+  - `src/tests/test_contact_kkt_autodiff.py`
+  - `src/tests/test_coupled_system.py`
+  で通過確認済み。

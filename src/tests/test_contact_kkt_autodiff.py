@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import jax
 import jax.numpy as jnp
+import pytest
 
 import fluxfem as ff
 
@@ -63,7 +64,7 @@ def test_contact_kkt_matches_module_and_class_api():
     assert np.allclose(K_a, K_bcoo_dense, atol=1e-12)
 
 
-def test_contact_operators_mortar_matches_kkt_blocks():
+def test_contact_constraint_operators_match_kkt_blocks():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(
         coords,
@@ -77,9 +78,8 @@ def test_contact_operators_mortar_matches_kkt_blocks():
         quad_order=1,
     )
 
-    ops = ff.assemble_contact_operators(
+    ops = ff.assemble_contact_constraint_operators(
         contact,
-        method="mortar",
         rho=3.0,
         multiplier_space="p0",
         backend="numpy",
@@ -98,6 +98,149 @@ def test_contact_operators_mortar_matches_kkt_blocks():
 
     n_u = int(np.asarray(ops.B).shape[1])
     assert np.allclose(np.asarray(ops.Kuu), np.asarray(K_dense)[:n_u, :n_u], atol=1e-12)
+
+
+def test_contact_constraint_operators_default_formulation_is_multiplier():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+
+    ops_default = ff.assemble_contact_constraint_operators(
+        contact,
+        rho=3.0,
+        multiplier_space="p0",
+        backend="numpy",
+    )
+    ops_formulation = ff.assemble_contact_constraint_operators(
+        contact,
+        formulation="multiplier",
+        rho=3.0,
+        multiplier_space="p0",
+        backend="numpy",
+    )
+
+    assert np.allclose(np.asarray(ops_default.B), np.asarray(ops_formulation.B), atol=1e-12)
+    assert np.allclose(np.asarray(ops_default.Kuu), np.asarray(ops_formulation.Kuu), atol=1e-12)
+    assert ops_formulation.enforcement == "mortar"
+    assert ops_formulation.formulation == "multiplier"
+    assert ops_formulation.law == "one_sided_normal_frictionless"
+
+
+def test_contact_penalty_operators_from_inputs():
+    class _ContactStub:
+        def assemble_residual(self, res_form, u, params, *, normal_source="master"):
+            _ = (res_form, u, params, normal_source)
+            return np.array([0.0], dtype=float)
+
+        def assemble_jacobian(
+            self,
+            res_form,
+            u,
+            params,
+            *,
+            normal_source="master",
+            sparse=False,
+            backend="numpy",
+            batch_jac=None,
+        ):
+            _ = (res_form, u, params, normal_source, sparse, backend, batch_jac)
+            return np.array([[1.0]], dtype=float)
+
+    def _dummy_res_form(ctx, u, p):
+        _ = (ctx, u, p)
+        return {"a": np.array([0.0]), "b": np.array([0.0])}
+
+    ops = ff.assemble_contact_penalty_operators(
+        _ContactStub(),
+        weak_form=_dummy_res_form,
+        state={"a": np.array([0.0]), "b": np.array([0.0])},
+        params=object(),
+    )
+    assert ops.enforcement == "nitsche"
+    assert ops.formulation == "penalty_consistent"
+
+
+def test_contact_penalty_operators_accepts_weak_form_state_aliases():
+    class _ContactStub:
+        def assemble_residual(self, res_form, u, params, *, normal_source="master"):
+            _ = (res_form, u, params, normal_source)
+            return np.array([0.0], dtype=float)
+
+        def assemble_jacobian(
+            self,
+            res_form,
+            u,
+            params,
+            *,
+            normal_source="master",
+            sparse=False,
+            backend="numpy",
+            batch_jac=None,
+        ):
+            _ = (res_form, u, params, normal_source, sparse, backend, batch_jac)
+            return np.array([[1.0]], dtype=float)
+
+    def _dummy_res_form(ctx, u, p):
+        _ = (ctx, u, p)
+        return {"a": np.array([0.0]), "b": np.array([0.0])}
+
+    ops = ff.assemble_contact_penalty_operators(
+        _ContactStub(),
+        weak_form=_dummy_res_form,
+        state={"a": np.array([0.0]), "b": np.array([0.0])},
+        params=object(),
+    )
+    assert ops.enforcement == "nitsche"
+
+
+def test_contact_constraint_operators_keep_law_formulation_metadata():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    ops = ff.assemble_contact_constraint_operators(
+        contact,
+        law="coulomb_like",
+        formulation="augmented_lagrangian",
+        rho=1.0,
+    )
+    assert ops.enforcement == "mortar"
+    assert ops.formulation == "augmented_lagrangian"
+    assert ops.law == "coulomb_like"
+
+
+def test_contact_constraint_operators_reject_penalty_formulation():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    with pytest.raises(ValueError, match="Constraint operators are multiplier-family only"):
+        ff.assemble_contact_constraint_operators(contact, formulation="penalty")
 
 
 def test_contact_kkt_augmented_lagrangian_grad_rho_matches_fd():

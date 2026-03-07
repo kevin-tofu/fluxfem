@@ -33,7 +33,7 @@ where variational forms are treated as first-class, differentiable programs.
 - Two assembly approaches: tensor-based (scikit-fem–style) assembly and weak-form-based assembly.
 - Handles both linear and nonlinear analyses with AD in JAX.
 - Optional PETSc/PETSc-shell solvers via `petsc4py` for scalable linear solves (add `fluxfem[petsc]`).
-- Contact interface support for Nitsche and mortar-style coupling, including one-to-many contact spaces (`OneToManyContactSurfaceSpace.from_meshes`) and KKT assembly utilities (`assemble_contact_coupling_matrices`, `assemble_contact_kkt`, `solve_contact_kkt`).
+- Contact interface support for penalty/constraint contact formulations, including one-to-many contact spaces (`OneToManyContactSurfaceSpace.from_meshes`) and KKT assembly utilities (`assemble_contact_coupling_matrices`, `assemble_contact_kkt`, `solve_contact_kkt`).
 
 ## Usage 
 
@@ -243,46 +243,55 @@ contact = ff.OneToManyContactSurfaceSpace.from_meshes(
     slave_facet_selectors=[select_slave],
 )
 
-# 1) Assemble mortar operators (B, Kuu, ...)
-ops = ff.assemble_contact_operators(
+# 1) Assemble constraint operators (B, Kuu, ...)
+ops = ff.assemble_contact_constraint_operators(
     contact,
-    method="mortar",
     rho=1.0,
     multiplier_space="p0",
     backend="numpy",
 )
 
-# 2) Build KKT from coupling matrices and solve
-K = ff.assemble_contact_kkt(
-    ops.coupling_aa,
-    ops.coupling_ab,
-    rho=1.0,
-    multiplier_space="p0",
-    facet_conn_master=ops.facet_conn_master,
-    format="fluxsparse",
-)
-rhs = np.zeros(K.n_dofs)
-du = ff.solve_contact_kkt(K, rhs)
-
-# 3) Nitsche path: user weak form -> residual/jacobian operators
-ops_nitsche = ff.assemble_contact_operators(
+# 2) Penalty-family path: user weak form -> residual/jacobian operators
+ops_nitsche = ff.assemble_contact_penalty_operators(
     contact,
-    method="nitsche",
-    res_form=contact_residual_form,
-    u={"a": u_master, "b": u_slave},
+    weak_form=contact_residual_form,
+    state={"a": u_master, "b": u_slave},
     params=params,
     backend="jax",
 )
 
-# 4) Unified coupled API (Nitsche)
+# 3) Unified coupled API (Penalty Family)
 builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
 builder.register_blocks([
     ("master", space_master, {"value_dim": 1}),
     ("slave", space_slave, {"value_dim": 1}),
 ])
-builder.add_contact(ops_nitsche, master="master", slave="slave", method="nitsche", value_dim=1)
+builder.add_contact(
+    ops_nitsche,
+    master="master",
+    slave="slave",
+    value_dim=1,
+)
 system = builder.build()
 u = system.solve(dirichlet_dofs=dir_dofs, dirichlet_vals=0.0, format="csr")
+
+# 4) Unified coupled API (Constraint Family): KKT assembly is internal to builder
+builder_mortar = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+builder_mortar.register_blocks([
+    ("master", space_master, {"value_dim": 1}),
+    ("slave", space_slave, {"value_dim": 1}),
+])
+builder_mortar.add_contact(
+    ops,
+    master="master",
+    slave="slave",
+    value_dim=1,
+)
+system_mortar = builder_mortar.build()
+
+# Advanced: law/formulation can be set explicitly when needed.
+# - law="one_sided_normal_frictionless"
+# - formulation="multiplier" | "penalty_consistent"
 ```
 
 
@@ -295,7 +304,7 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 - `tutorials/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
 - `tutorials/neo_hookean_cantilever.py` (nonlinear hyperelasticity)
 - `tutorials/thermoelastic_bar_1d.py` / `tutorials/thermoelastic_bar_1d_mixed.py` (thermoelastic coupling)
-- `tutorials/contact_supported_box_by_pillars.py` (large box supported by multiple small boxes via Nitsche contact + Dirichlet supports)
+- `tutorials/contact_supported_box_by_pillars.py` (large box supported by multiple small boxes via penalty contact + Dirichlet supports)
 - `tutorials/petsc_shell_poisson_demo.py` (PETSc shell solver integration; see also `tutorials/petsc_shell_poisson_pmat_demo.py`)
 
 ## Setup
