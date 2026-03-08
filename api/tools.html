@@ -563,8 +563,22 @@ rewriting call sites:</p>
 
 </dd></dl>
 
-<section id="jit-helpers">
-<h2>JIT Helpers<a class="headerlink" href="#jit-helpers" title="Link to this heading">#</a></h2>
+<section id="module-fluxfem.tools.jit">
+<span id="jit-helpers"></span><h2>JIT Helpers<a class="headerlink" href="#module-fluxfem.tools.jit" title="Link to this heading">#</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.tools.jit.make_jitted_jacobian">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.tools.jit.</span></span><span class="sig-name descname"><span class="pre">make_jitted_jacobian</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FESpace</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">res_form</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="core.html#fluxfem.core.ResidualForm" title="fluxfem.core.ResidualForm"><span class="pre">ResidualForm</span></a><span class="p"><span class="pre">[</span></span><span class="pre">P</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">P</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="pre">jax.Array</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">JacobianReturn</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.tools.jit.make_jitted_jacobian" title="Link to this definition">#</a></dt>
+<dd><p>Create a jitted Jacobian assembler: u -&gt; J(u).
+params and space are closed over.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.tools.jit.make_jitted_residual">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.tools.jit.</span></span><span class="sig-name descname"><span class="pre">make_jitted_residual</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FESpace</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">res_form</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="core.html#fluxfem.core.ResidualForm" title="fluxfem.core.ResidualForm"><span class="pre">ResidualForm</span></a><span class="p"><span class="pre">[</span></span><span class="pre">P</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="pre">jax.Array</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">LinearReturn</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.tools.jit.make_jitted_residual" title="Link to this definition">#</a></dt>
+<dd><p>Create a jitted residual assembler: u -&gt; R(u).
+params and space are closed over.</p>
+</dd></dl>
+
 </section>
 <section id="module-fluxfem.tools.timer">
 <span id="timer"></span><h2>Timer<a class="headerlink" href="#module-fluxfem.tools.timer" title="Link to this heading">#</a></h2>
@@ -792,8 +806,23 @@ rewriting call sites:</p>
 </dd></dl>
 
 </section>
-<section id="visualizer">
-<h2>Visualizer<a class="headerlink" href="#visualizer" title="Link to this heading">#</a></h2>
+<section id="module-fluxfem.tools.visualizer">
+<span id="visualizer"></span><h2>Visualizer<a class="headerlink" href="#module-fluxfem.tools.visualizer" title="Link to this heading">#</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.tools.visualizer.write_displacement_vtu">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.tools.visualizer.</span></span><span class="sig-name descname"><span class="pre">write_displacement_vtu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">BaseMeshClosure</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filepath</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'displacement'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#fluxfem.tools.visualizer.write_displacement_vtu" title="Link to this definition">#</a></dt>
+<dd><p>Convenience wrapper: reshape displacement vector to point data and write VTU.
+Assumes 3 dof/node ordering [u0,v0,w0, u1,v1,w1, …].</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fluxfem.tools.visualizer.write_vtu">
+<span class="sig-prename descclassname"><span class="pre">fluxfem.tools.visualizer.</span></span><span class="sig-name descname"><span class="pre">write_vtu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">BaseMeshClosure</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filepath</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">point_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">ndarray</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">ndarray</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#fluxfem.tools.visualizer.write_vtu" title="Link to this definition">#</a></dt>
+<dd><p>Write an UnstructuredGrid VTU for HexMesh or TetMesh.
+point_data/cell_data: dict name -&gt; ndarray. Point data length must match n_points;
+cell data length must match n_cells.</p>
+</dd></dl>
+
 </section>
 </section>
 
@@ -864,7 +893,11 @@ rewriting call sites:</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.tools.SectionTimer.wrap"><code class="docutils literal notranslate"><span class="pre">SectionTimer.wrap()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#jit-helpers">JIT Helpers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-fluxfem.tools.jit">JIT Helpers</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.tools.jit.make_jitted_jacobian"><code class="docutils literal notranslate"><span class="pre">make_jitted_jacobian()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.tools.jit.make_jitted_residual"><code class="docutils literal notranslate"><span class="pre">make_jitted_residual()</span></code></a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-fluxfem.tools.timer">Timer</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.tools.timer.BaseTimer"><code class="docutils literal notranslate"><span class="pre">BaseTimer</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.tools.timer.BaseTimer.section"><code class="docutils literal notranslate"><span class="pre">BaseTimer.section()</span></code></a></li>
@@ -900,7 +933,11 @@ rewriting call sites:</p>
 </li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#visualizer">Visualizer</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-fluxfem.tools.visualizer">Visualizer</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.tools.visualizer.write_displacement_vtu"><code class="docutils literal notranslate"><span class="pre">write_displacement_vtu()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.tools.visualizer.write_vtu"><code class="docutils literal notranslate"><span class="pre">write_vtu()</span></code></a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 

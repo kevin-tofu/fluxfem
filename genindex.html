@@ -336,29 +336,57 @@
  <a href="#A"><strong>A</strong></a>
  | <a href="#B"><strong>B</strong></a>
  | <a href="#C"><strong>C</strong></a>
+ | <a href="#D"><strong>D</strong></a>
+ | <a href="#E"><strong>E</strong></a>
  | <a href="#F"><strong>F</strong></a>
+ | <a href="#G"><strong>G</strong></a>
+ | <a href="#H"><strong>H</strong></a>
+ | <a href="#I"><strong>I</strong></a>
+ | <a href="#K"><strong>K</strong></a>
  | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
  | <a href="#N"><strong>N</strong></a>
+ | <a href="#O"><strong>O</strong></a>
  | <a href="#P"><strong>P</strong></a>
  | <a href="#R"><strong>R</strong></a>
  | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
+ | <a href="#V"><strong>V</strong></a>
  | <a href="#W"><strong>W</strong></a>
  
 </div>
 <h2 id="A">A</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.action">action() (in module fluxfem.helpers_wf)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.active_contact_facets">active_contact_facets() (in module fluxfem.mesh)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.SectionTimer.add">add() (fluxfem.tools.SectionTimer method)</a>
 
       <ul>
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.add">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_constant_body_force">assemble_constant_body_force() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_constraint_operators">assemble_contact_constraint_operators() (in module fluxfem.mesh)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_coupling_matrices">assemble_contact_coupling_matrices() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_interface_jacobian">assemble_contact_interface_jacobian() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_interface_residual">assemble_contact_interface_residual() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_kkt">assemble_contact_kkt() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_penalty_operators">assemble_contact_penalty_operators() (in module fluxfem.mesh)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.timer.SectionStats.avg">avg (fluxfem.tools.timer.SectionStats attribute)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.axis_plane_predicate">axis_plane_predicate() (in module fluxfem.mesh)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -366,7 +394,19 @@
 <h2 id="B">B</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/mesh.html#fluxfem.mesh.BaseMesh">BaseMesh (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.BaseMeshPytree">BaseMeshPytree (class in fluxfem.mesh)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.timer.BaseTimer">BaseTimer (class in fluxfem.tools.timer)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/mesh.html#fluxfem.mesh.bbox_predicate">bbox_predicate() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.BilinearForm">BilinearForm (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.block_diag">block_diag() (in module fluxfem.solver)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -374,7 +414,83 @@
 <h2 id="C">C</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/solver.html#fluxfem.solver.cg_solve">cg_solve() (in module fluxfem.solver)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.cg_solve_jax">cg_solve_jax() (in module fluxfem.solver)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.condense_dirichlet_dense">condense_dirichlet_dense() (in module fluxfem.solver)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.condense_dirichlet_fluxsparse">condense_dirichlet_fluxsparse() (in module fluxfem.solver)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/physics.html#fluxfem.physics.constant_body_force_vector_form">constant_body_force_vector_form() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.ContactOperators">ContactOperators (class in fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.ContactSide">ContactSide (class in fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.ContactSurfaceSpace">ContactSurfaceSpace (class in fluxfem.mesh)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.timer.SectionStats.count">count (fluxfem.tools.timer.SectionStats attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="D">D</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/helpers.html#fluxfem.helpers_ts.ddot">ddot() (in module fluxfem.helpers_ts)</a>
+
+      <ul>
+        <li><a href="api/helpers.html#fluxfem.helpers_wf.ddot">(in module fluxfem.helpers_wf)</a>
+</li>
+        <li><a href="api/physics.html#fluxfem.physics.ddot">(in module fluxfem.physics)</a>
+</li>
+        <li><a href="api/physics.html#fluxfem.physics.operators.ddot">(in module fluxfem.physics.operators)</a>
+</li>
+      </ul></li>
+      <li><a href="api/physics.html#fluxfem.physics.deformation_gradient">deformation_gradient() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.det">det() (in module fluxfem.helpers_wf)</a>
+</li>
+      <li><a href="api/top.html#fluxfem.diffusion_form">diffusion_form() (in module fluxfem)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.diffusion_form">(in module fluxfem.physics)</a>
+</li>
+        <li><a href="api/physics.html#fluxfem.physics.diffusion.diffusion_form">(in module fluxfem.physics.diffusion)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.dOmega">dOmega() (in module fluxfem.helpers_wf)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_ts.dot">dot() (in module fluxfem.helpers_ts)</a>
+
+      <ul>
+        <li><a href="api/helpers.html#fluxfem.helpers_wf.dot">(in module fluxfem.helpers_wf)</a>
+</li>
+        <li><a href="api/physics.html#fluxfem.physics.dot">(in module fluxfem.physics)</a>
+</li>
+        <li><a href="api/physics.html#fluxfem.physics.operators.dot">(in module fluxfem.physics.operators)</a>
+</li>
+      </ul></li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.ds">ds() (in module fluxfem.helpers_wf)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="E">E</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/solver.html#fluxfem.solver.enforce_dirichlet_dense">enforce_dirichlet_dense() (in module fluxfem.solver)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/solver.html#fluxfem.solver.enforce_dirichlet_sparse">enforce_dirichlet_sparse() (in module fluxfem.solver)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.expand_dirichlet_solution">expand_dirichlet_solution() (in module fluxfem.solver)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -382,6 +498,64 @@
 <h2 id="F">F</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/mesh.html#fluxfem.mesh.facet_gap_values">facet_gap_values() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/top.html#fluxfem.FESpace">FESpace (in module fluxfem)</a>
+
+      <ul>
+        <li><a href="api/core.html#fluxfem.core.FESpace">(in module fluxfem.core)</a>
+</li>
+      </ul></li>
+      <li><a href="api/core.html#fluxfem.core.FESpaceBase">FESpaceBase (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.FESpacePytree">FESpacePytree (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.FluxBlockMatrix">FluxBlockMatrix (class in fluxfem.solver)</a>
+</li>
+      <li>
+    fluxfem.helpers_ts
+
+      <ul>
+        <li><a href="api/helpers.html#module-fluxfem.helpers_ts">module</a>
+</li>
+      </ul></li>
+      <li>
+    fluxfem.helpers_wf
+
+      <ul>
+        <li><a href="api/helpers.html#module-fluxfem.helpers_wf">module</a>
+</li>
+      </ul></li>
+      <li>
+    fluxfem.physics
+
+      <ul>
+        <li><a href="api/physics.html#module-fluxfem.physics">module</a>
+</li>
+      </ul></li>
+      <li>
+    fluxfem.physics.diffusion
+
+      <ul>
+        <li><a href="api/physics.html#module-fluxfem.physics.diffusion">module</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    fluxfem.physics.operators
+
+      <ul>
+        <li><a href="api/physics.html#module-fluxfem.physics.operators">module</a>
+</li>
+      </ul></li>
+      <li>
+    fluxfem.physics.postprocess
+
+      <ul>
+        <li><a href="api/physics.html#module-fluxfem.physics.postprocess">module</a>
+</li>
+      </ul></li>
       <li>
     fluxfem.tools
 
@@ -389,8 +563,13 @@
         <li><a href="api/tools.html#module-fluxfem.tools">module</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    fluxfem.tools.jit
+
+      <ul>
+        <li><a href="api/tools.html#module-fluxfem.tools.jit">module</a>
+</li>
+      </ul></li>
       <li>
     fluxfem.tools.timer
 
@@ -398,33 +577,214 @@
         <li><a href="api/tools.html#module-fluxfem.tools.timer">module</a>
 </li>
       </ul></li>
+      <li>
+    fluxfem.tools.visualizer
+
+      <ul>
+        <li><a href="api/tools.html#module-fluxfem.tools.visualizer">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/solver.html#fluxfem.solver.FluxSparseMatrix">FluxSparseMatrix (class in fluxfem.solver)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.FormContext">FormContext (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.free_dofs">free_dofs() (in module fluxfem.solver)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="G">G</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.gaction">gaction() (in module fluxfem.helpers_wf)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.grad">grad() (in module fluxfem.helpers_wf)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.green_lagrange_strain">green_lagrange_strain() (in module fluxfem.physics)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="H">H</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/mesh.html#fluxfem.mesh.HexMesh">HexMesh (class in fluxfem.mesh)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/mesh.html#fluxfem.mesh.HexMeshPytree">HexMeshPytree (class in fluxfem.mesh)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="I">I</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.I">I() (in module fluxfem.helpers_wf)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.inner">inner() (in module fluxfem.helpers_wf)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.interpolate_at_points">interpolate_at_points() (in module fluxfem.physics)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.postprocess.interpolate_at_points">(in module fluxfem.physics.postprocess)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.inv">inv() (in module fluxfem.helpers_wf)</a>
+</li>
+      <li><a href="api/top.html#fluxfem.isotropic_3d_D">isotropic_3d_D() (in module fluxfem)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.isotropic_3d_D">(in module fluxfem.physics)</a>
+</li>
+      </ul></li>
+  </ul></td>
+</tr></table>
+
+<h2 id="K">K</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#fluxfem.core.kernel">kernel() (in module fluxfem.core)</a>
+</li>
   </ul></td>
 </tr></table>
 
 <h2 id="L">L</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/top.html#fluxfem.lame_parameters">lame_parameters() (in module fluxfem)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.lame_parameters">(in module fluxfem.physics)</a>
+</li>
+      </ul></li>
       <li><a href="api/tools.html#fluxfem.tools.SectionTimer.last">last() (fluxfem.tools.SectionTimer method)</a>
 
       <ul>
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.last">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+      <li><a href="api/top.html#fluxfem.linear_elasticity_form">linear_elasticity_form() (in module fluxfem)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.linear_elasticity_form">(in module fluxfem.physics)</a>
+</li>
+      </ul></li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.linear_stress">linear_stress() (in module fluxfem.helpers_wf)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.LinearAnalysis">LinearAnalysis (class in fluxfem.solver)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#fluxfem.core.LinearForm">LinearForm (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.LinearSolveConfig">LinearSolveConfig (class in fluxfem.solver)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.LinearSolver">LinearSolver (class in fluxfem.solver)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.LinearSolveRunner">LinearSolveRunner (class in fluxfem.solver)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.load_gmsh_hex_mesh">load_gmsh_hex_mesh() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.load_gmsh_mesh">load_gmsh_mesh() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.load_gmsh_tet_mesh">load_gmsh_tet_mesh() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.log">log() (in module fluxfem.helpers_wf)</a>
+</li>
   </ul></td>
 </tr></table>
 
 <h2 id="M">M</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/solver.html#fluxfem.solver.make_block_matrix">make_block_matrix() (in module fluxfem.solver)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.make_elastic_point_data">make_elastic_point_data() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/top.html#fluxfem.make_hex_space">make_hex_space() (in module fluxfem)</a>
+
+      <ul>
+        <li><a href="api/core.html#fluxfem.core.make_hex_space">(in module fluxfem.core)</a>
+</li>
+      </ul></li>
+      <li><a href="api/core.html#fluxfem.core.make_hex_space_pytree">make_hex_space_pytree() (in module fluxfem.core)</a>
+</li>
+      <li><a href="api/tools.html#fluxfem.tools.jit.make_jitted_jacobian">make_jitted_jacobian() (in module fluxfem.tools.jit)</a>
+</li>
+      <li><a href="api/tools.html#fluxfem.tools.jit.make_jitted_residual">make_jitted_residual() (in module fluxfem.tools.jit)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.make_mixed_residuals">make_mixed_residuals() (in module fluxfem.core)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.make_point_data_displacement">make_point_data_displacement() (in module fluxfem.physics)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.postprocess.make_point_data_displacement">(in module fluxfem.physics.postprocess)</a>
+</li>
+      </ul></li>
+      <li><a href="api/core.html#fluxfem.core.make_space">make_space() (in module fluxfem.core)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.make_space_pytree">make_space_pytree() (in module fluxfem.core)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.make_sparsity_pattern">make_sparsity_pattern() (in module fluxfem.core)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.make_surface_from_facets">make_surface_from_facets() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/top.html#fluxfem.make_tet_space">make_tet_space() (in module fluxfem)</a>
+
+      <ul>
+        <li><a href="api/core.html#fluxfem.core.make_tet_space">(in module fluxfem.core)</a>
+</li>
+      </ul></li>
+      <li><a href="api/core.html#fluxfem.core.make_tet_space_pytree">make_tet_space_pytree() (in module fluxfem.core)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.matmul">matmul() (in module fluxfem.helpers_wf)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.matmul_std">matmul_std() (in module fluxfem.helpers_wf)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.timer.SectionStats.max">max (fluxfem.tools.timer.SectionStats attribute)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.max_shear_stress">max_shear_stress() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.MixedBlockSystem">MixedBlockSystem (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.MixedFESpace">MixedFESpace (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.MixedFormContext">MixedFormContext (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.MixedProblem">MixedProblem (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.MixedWeakForm">MixedWeakForm (class in fluxfem.core)</a>
 </li>
       <li>
     module
 
       <ul>
+        <li><a href="api/helpers.html#module-fluxfem.helpers_ts">fluxfem.helpers_ts</a>
+</li>
+        <li><a href="api/helpers.html#module-fluxfem.helpers_wf">fluxfem.helpers_wf</a>
+</li>
+        <li><a href="api/physics.html#module-fluxfem.physics">fluxfem.physics</a>
+</li>
+        <li><a href="api/physics.html#module-fluxfem.physics.diffusion">fluxfem.physics.diffusion</a>
+</li>
+        <li><a href="api/physics.html#module-fluxfem.physics.operators">fluxfem.physics.operators</a>
+</li>
+        <li><a href="api/physics.html#module-fluxfem.physics.postprocess">fluxfem.physics.postprocess</a>
+</li>
         <li><a href="api/tools.html#module-fluxfem.tools">fluxfem.tools</a>
 </li>
+        <li><a href="api/tools.html#module-fluxfem.tools.jit">fluxfem.tools.jit</a>
+</li>
         <li><a href="api/tools.html#module-fluxfem.tools.timer">fluxfem.tools.timer</a>
+</li>
+        <li><a href="api/tools.html#module-fluxfem.tools.visualizer">fluxfem.tools.visualizer</a>
 </li>
       </ul></li>
   </ul></td>
@@ -435,8 +795,26 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/tools.html#fluxfem.tools.timer.SectionStats.name">name (fluxfem.tools.timer.SectionStats attribute)</a>
 </li>
+      <li><a href="api/top.html#fluxfem.neo_hookean_residual_form">neo_hookean_residual_form() (in module fluxfem)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.neo_hookean_residual_form">(in module fluxfem.physics)</a>
+</li>
+      </ul></li>
+      <li><a href="api/solver.html#fluxfem.solver.newton_solve">newton_solve() (in module fluxfem.solver)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.NewtonLoopConfig">NewtonLoopConfig (class in fluxfem.solver)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/solver.html#fluxfem.solver.NewtonSolveRunner">NewtonSolveRunner (class in fluxfem.solver)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.NonlinearAnalysis">NonlinearAnalysis (class in fluxfem.solver)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.NonlinearSolver">NonlinearSolver (class in fluxfem.solver)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.normal">normal() (in module fluxfem.helpers_wf)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.NullTimer">NullTimer (class in fluxfem.tools)</a>
 
       <ul>
@@ -446,9 +824,27 @@
   </ul></td>
 </tr></table>
 
+<h2 id="O">O</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/mesh.html#fluxfem.mesh.OneSidedContactSurfaceSpace">OneSidedContactSurfaceSpace (class in fluxfem.mesh)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/mesh.html#fluxfem.mesh.OneToManyContactSurfaceSpace">OneToManyContactSurfaceSpace (class in fluxfem.mesh)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.outer">outer() (in module fluxfem.helpers_wf)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="P">P</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/physics.html#fluxfem.physics.pk2_neo_hookean">pk2_neo_hookean() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.plane_predicate">plane_predicate() (in module fluxfem.mesh)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.SectionTimer.plot">plot() (fluxfem.tools.SectionTimer method)</a>
 
       <ul>
@@ -469,6 +865,10 @@
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.plot_pie">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+      <li><a href="api/physics.html#fluxfem.physics.principal_stresses">principal_stresses() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.principal_sum">principal_sum() (in module fluxfem.physics)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -481,14 +881,18 @@
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.report">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/tools.html#fluxfem.tools.SectionTimer.reset">reset() (fluxfem.tools.SectionTimer method)</a>
 
       <ul>
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.reset">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#fluxfem.core.ResidualForm">ResidualForm (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.right_cauchy_green">right_cauchy_green() (in module fluxfem.physics)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -501,6 +905,8 @@
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.save_plot">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.sdot">sdot() (in module fluxfem.helpers_wf)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.NullTimer.section">section() (fluxfem.tools.NullTimer method)</a>
 
       <ul>
@@ -515,20 +921,34 @@
       </ul></li>
       <li><a href="api/tools.html#fluxfem.tools.timer.SectionStats">SectionStats (class in fluxfem.tools.timer)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/tools.html#fluxfem.tools.SectionTimer">SectionTimer (class in fluxfem.tools)</a>
 
       <ul>
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer">(class in fluxfem.tools.timer)</a>
 </li>
       </ul></li>
+      <li><a href="api/mesh.html#fluxfem.mesh.slab_predicate">slab_predicate() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.solve_contact_kkt">solve_contact_kkt() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.solve_nonlinear">solve_nonlinear() (in module fluxfem.solver)</a>
+</li>
+      <li><a href="api/solver.html#fluxfem.solver.SparsityPattern">SparsityPattern (class in fluxfem.solver)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.SectionTimer.stats">stats() (fluxfem.tools.SectionTimer method)</a>
 
       <ul>
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.stats">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/mesh.html#fluxfem.mesh.StructuredHexBox">StructuredHexBox (class in fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.StructuredTetBox">StructuredTetBox (class in fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.StructuredTetTensorBox">StructuredTetTensorBox (class in fluxfem.mesh)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.SectionTimer.summary">summary() (fluxfem.tools.SectionTimer method)</a>
 
       <ul>
@@ -541,13 +961,73 @@
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.summary_self_time">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+      <li><a href="api/core.html#fluxfem.core.SurfaceContext">SurfaceContext (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.SurfaceMesh">SurfaceMesh (class in fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.SurfaceMeshPytree">SurfaceMeshPytree (class in fluxfem.mesh)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_ts.sym_grad">sym_grad() (in module fluxfem.helpers_ts)</a>
+
+      <ul>
+        <li><a href="api/helpers.html#fluxfem.helpers_wf.sym_grad">(in module fluxfem.helpers_wf)</a>
+</li>
+        <li><a href="api/physics.html#fluxfem.physics.sym_grad">(in module fluxfem.physics)</a>
+</li>
+        <li><a href="api/physics.html#fluxfem.physics.operators.sym_grad">(in module fluxfem.physics.operators)</a>
+</li>
+      </ul></li>
+      <li><a href="api/physics.html#fluxfem.physics.sym_grad_u">sym_grad_u() (in module fluxfem.physics)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.operators.sym_grad_u">(in module fluxfem.physics.operators)</a>
+</li>
+      </ul></li>
   </ul></td>
 </tr></table>
 
 <h2 id="T">T</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/mesh.html#fluxfem.mesh.tag_axis_minmax_facets">tag_axis_minmax_facets() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.TetMesh">TetMesh (class in fluxfem.mesh)</a>
+</li>
+      <li><a href="api/mesh.html#fluxfem.mesh.TetMeshPytree">TetMeshPytree (class in fluxfem.mesh)</a>
+</li>
       <li><a href="api/tools.html#fluxfem.tools.timer.SectionStats.total">total (fluxfem.tools.timer.SectionStats attribute)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.traction">traction() (in module fluxfem.helpers_wf)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.transpose">transpose() (in module fluxfem.helpers_wf)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_ts.transpose_last2">transpose_last2() (in module fluxfem.helpers_ts)</a>
+
+      <ul>
+        <li><a href="api/helpers.html#fluxfem.helpers_wf.transpose_last2">(in module fluxfem.helpers_wf)</a>
+</li>
+        <li><a href="api/physics.html#fluxfem.physics.transpose_last2">(in module fluxfem.physics)</a>
+</li>
+        <li><a href="api/physics.html#fluxfem.physics.operators.transpose_last2">(in module fluxfem.physics.operators)</a>
+</li>
+      </ul></li>
+  </ul></td>
+</tr></table>
+
+<h2 id="V">V</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/physics.html#fluxfem.physics.vector_body_force_form">vector_body_force_form() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/helpers.html#fluxfem.helpers_wf.voigt_to_tensor">voigt_to_tensor() (in module fluxfem.helpers_wf)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#fluxfem.core.VolumeContext">VolumeContext (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.von_mises_stress">von_mises_stress() (in module fluxfem.physics)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -561,6 +1041,20 @@
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.wrap">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+      <li><a href="api/tools.html#fluxfem.tools.visualizer.write_displacement_vtu">write_displacement_vtu() (in module fluxfem.tools.visualizer)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/physics.html#fluxfem.physics.write_elastic_vtu">write_elastic_vtu() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.write_point_data_vtu">write_point_data_vtu() (in module fluxfem.physics)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.postprocess.write_point_data_vtu">(in module fluxfem.physics.postprocess)</a>
+</li>
+      </ul></li>
+      <li><a href="api/tools.html#fluxfem.tools.visualizer.write_vtu">write_vtu() (in module fluxfem.tools.visualizer)</a>
+</li>
   </ul></td>
 </tr></table>
 
