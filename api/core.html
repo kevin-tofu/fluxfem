@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Core &#8212; FluxFEM 0.2.7 documentation</title>
+    <title>Core &#8212; FluxFEM 0.2.8 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=7dc55c04"></script>
+    <script src="../_static/documentation_options.js?v=dfb2ad43"></script>
     <script src="../_static/doctools.js?v=9bcbadda"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'api/core';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.7 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.8 documentation</p>
   
 </a></div>
     
@@ -384,154 +384,9 @@
 <h1>Core<a class="headerlink" href="#core" title="Link to this heading">#</a></h1>
 <section id="spaces">
 <h2>Spaces<a class="headerlink" href="#spaces" title="Link to this heading">#</a></h2>
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.FESpaceBase">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">FESpaceBase</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.FESpaceBase" title="Link to this definition">#</a></dt>
-<dd><p>Protocol for FE space objects used by assembly.</p>
-<p>This defines the minimal interface required by the core assembly routines:
-element-to-DOF connectivity, value dimension, and the ability to build
-per-element FormContext objects (test/trial fields plus quadrature data).</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="fluxfem.core.FESpace">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">FESpace</span></span><a class="headerlink" href="#fluxfem.core.FESpace" title="Link to this definition">#</a></dt>
-<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">FESpaceClosure</span></code></p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.FESpacePytree">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">FESpacePytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh:</span> <span class="pre">BaseMesh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basis:</span> <span class="pre">Basis3D</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">elem_dofs:</span> <span class="pre">jnp.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value_dim:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_n_dofs:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_n_ldofs:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data:</span> <span class="pre">SpaceData</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_pattern_cache:</span> <span class="pre">PatternCache</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_kernel_cache:</span> <span class="pre">KernelCache</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_form_context_cache:</span> <span class="pre">dict[ContextCacheKey</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">FormContext]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_elem_rows_cache:</span> <span class="pre">jnp.ndarray</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.FESpacePytree" title="Link to this definition">#</a></dt>
-<dd><p>FESpaceClosure with JAX pytree support.</p>
-<p>Use this when a space must be carried through JAX transformations (jit/vmap),
-or stored inside other pytrees. Only mesh, basis, and elem_dofs are treated
-as children; metadata is preserved as auxiliary data.</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.MixedFESpace">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">MixedFESpace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fields</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">FESpaceClosure</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">field_order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.MixedFESpace" title="Link to this definition">#</a></dt>
-<dd><p>Mixed FE space composed of multiple scalar/vector spaces.</p>
-<dl class="simple">
-<dt>Field DOFs are concatenated in field order:</dt><dd><p>[field0 dofs | field1 dofs | …]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.MixedProblem">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">MixedProblem</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#fluxfem.core.MixedFESpace" title="fluxfem.core.mixed_space.MixedFESpace"><span class="pre">MixedFESpace</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">residuals</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Callable</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference internal" href="#fluxfem.core.MixedWeakForm" title="fluxfem.core.weakform.MixedWeakForm"><span class="pre">MixedWeakForm</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">object</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pattern</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">object</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_chunks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pad_trace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.MixedProblem" title="Link to this definition">#</a></dt>
-<dd><p>Lightweight wrapper for mixed residual assembly with cached compilation.</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.MixedBlockSystem">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">MixedBlockSystem</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mixed</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'MixedFESpace'</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">K</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'object'</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">F</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'object'</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">free_dofs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'np.ndarray'</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dirichlet</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'MixedDirichletBC'</span></span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.MixedBlockSystem" title="Link to this definition">#</a></dt>
-<dd></dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="fluxfem.core.make_space">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">make_space</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">BaseMeshClosure</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Basis3D</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ElementVector</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">FESpaceClosure</span></span></span><a class="headerlink" href="#fluxfem.core.make_space" title="Link to this definition">#</a></dt>
-<dd><p>Build an FE space from a mesh and basis.</p>
-<p>element=None → scalar dof per node (elem_dofs = mesh.conn), value_dim=1
-element=ElementVector(dim) → vector dof per node, value_dim=dim</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="fluxfem.core.make_space_pytree">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">make_space_pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Basis3D</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ElementVector</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></span><a class="headerlink" href="#fluxfem.core.make_space_pytree" title="Link to this definition">#</a></dt>
-<dd><p>Build a pytree-compatible FE space.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="fluxfem.core.make_hex_space">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">make_hex_space</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="mesh.html#fluxfem.mesh.HexMesh" title="fluxfem.mesh.hex.HexMesh"><span class="pre">HexMesh</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">FESpaceClosure</span></span></span><a class="headerlink" href="#fluxfem.core.make_hex_space" title="Link to this definition">#</a></dt>
-<dd><p>Create a trilinear hex space (8-node elements).</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="fluxfem.core.make_hex_space_pytree">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">make_hex_space_pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="mesh.html#fluxfem.mesh.HexMesh" title="fluxfem.mesh.hex.HexMesh"><span class="pre">HexMesh</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></span><a class="headerlink" href="#fluxfem.core.make_hex_space_pytree" title="Link to this definition">#</a></dt>
-<dd><p>Create a pytree trilinear hex space (8-node elements).</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="fluxfem.core.make_tet_space">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">make_tet_space</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="mesh.html#fluxfem.mesh.TetMesh" title="fluxfem.mesh.tet.TetMesh"><span class="pre">TetMesh</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">FESpaceClosure</span></span></span><a class="headerlink" href="#fluxfem.core.make_tet_space" title="Link to this definition">#</a></dt>
-<dd><p>Create a linear or quadratic tet space based on mesh nodes.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="fluxfem.core.make_tet_space_pytree">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">make_tet_space_pytree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mesh</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="mesh.html#fluxfem.mesh.TetMesh" title="fluxfem.mesh.tet.TetMesh"><span class="pre">TetMesh</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intorder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">jax.tree_util.register_pytree_node_class</span></span></span><a class="headerlink" href="#fluxfem.core.make_tet_space_pytree" title="Link to this definition">#</a></dt>
-<dd><p>Create a pytree linear or quadratic tet space based on mesh nodes.</p>
-</dd></dl>
-
 </section>
 <section id="forms">
 <h2>Forms<a class="headerlink" href="#forms" title="Link to this heading">#</a></h2>
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.FormContext">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">FormContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">test</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FormFieldLike</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trial</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FormFieldLike</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_q</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jnp.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jnp.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">elem_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jnp.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.FormContext" title="Link to this definition">#</a></dt>
-<dd><p>Bundle test/trial fields and quadrature data for element assembly.</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.MixedFormContext">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">MixedFormContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fields</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">FieldPair</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_q</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jnp.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jnp.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">elem_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">jnp.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unknown</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FormFieldLike</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trial_fields</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">FormFieldLike</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">test_fields</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">FormFieldLike</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unknown_fields</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">FormFieldLike</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.MixedFormContext" title="Link to this definition">#</a></dt>
-<dd><p>FormContext for mixed formulations keyed by field name.</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.VolumeContext">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">VolumeContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.VolumeContext" title="Link to this definition">#</a></dt>
-<dd><p>Minimum interface for volume weak-form evaluation.</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.SurfaceContext">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">SurfaceContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.SurfaceContext" title="Link to this definition">#</a></dt>
-<dd><p>Minimum interface for surface weak-form evaluation.</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.LinearForm">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">LinearForm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.LinearForm" title="Link to this definition">#</a></dt>
-<dd><p>Linear form wrapper with volume/surface backends.</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.BilinearForm">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">BilinearForm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.BilinearForm" title="Link to this definition">#</a></dt>
-<dd><p>Bilinear form wrapper with volume/surface backends.</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.ResidualForm">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">ResidualForm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.ResidualForm" title="Link to this definition">#</a></dt>
-<dd><p>Residual form wrapper (volume only for now).</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.MixedWeakForm">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">MixedWeakForm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">residuals</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Callable</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.MixedWeakForm" title="Link to this definition">#</a></dt>
-<dd><p>Container for mixed weak-form residuals keyed by field name.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="fluxfem.core.make_mixed_residuals">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">make_mixed_residuals</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">residuals</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Callable</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Callable</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fluxfem.core.make_mixed_residuals" title="Link to this definition">#</a></dt>
-<dd><p>Helper to build mixed residual dictionaries.</p>
-<p class="rubric">Example</p>
-<p>res = make_mixed_residuals(u=res_u, p=res_p)</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="fluxfem.core.kernel">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">kernel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'volume'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.kernel" title="Link to this definition">#</a></dt>
-<dd><p>Decorator to tag raw kernels with kind/domain metadata for assembly inference.</p>
-</dd></dl>
-
 </section>
 <section id="kernel-metadata-ff-kernel">
 <h2>Kernel metadata (ff.kernel)<a class="headerlink" href="#kernel-metadata-ff-kernel" title="Link to this heading">#</a></h2>
@@ -605,11 +460,6 @@ explicit <code class="docutils literal notranslate"><span class="pre">dim</span>
 </section>
 <section id="assembly">
 <h2>Assembly<a class="headerlink" href="#assembly" title="Link to this heading">#</a></h2>
-<dl class="py function">
-<dt class="sig sig-object py" id="fluxfem.core.make_sparsity_pattern">
-<span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">make_sparsity_pattern</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">space</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">SpaceLike</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_idx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="headerlink" href="#fluxfem.core.make_sparsity_pattern" title="Link to this definition">#</a></dt>
-<dd></dd></dl>
-
 </section>
 </section>
 
@@ -660,41 +510,12 @@ explicit <code class="docutils literal notranslate"><span class="pre">dim</span>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#spaces">Spaces</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.FESpaceBase"><code class="docutils literal notranslate"><span class="pre">FESpaceBase</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.FESpace"><code class="docutils literal notranslate"><span class="pre">FESpace</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.FESpacePytree"><code class="docutils literal notranslate"><span class="pre">FESpacePytree</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.MixedFESpace"><code class="docutils literal notranslate"><span class="pre">MixedFESpace</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.MixedProblem"><code class="docutils literal notranslate"><span class="pre">MixedProblem</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.MixedBlockSystem"><code class="docutils literal notranslate"><span class="pre">MixedBlockSystem</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.make_space"><code class="docutils literal notranslate"><span class="pre">make_space()</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.make_space_pytree"><code class="docutils literal notranslate"><span class="pre">make_space_pytree()</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.make_hex_space"><code class="docutils literal notranslate"><span class="pre">make_hex_space()</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.make_hex_space_pytree"><code class="docutils literal notranslate"><span class="pre">make_hex_space_pytree()</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.make_tet_space"><code class="docutils literal notranslate"><span class="pre">make_tet_space()</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.make_tet_space_pytree"><code class="docutils literal notranslate"><span class="pre">make_tet_space_pytree()</span></code></a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#forms">Forms</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.FormContext"><code class="docutils literal notranslate"><span class="pre">FormContext</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.MixedFormContext"><code class="docutils literal notranslate"><span class="pre">MixedFormContext</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.VolumeContext"><code class="docutils literal notranslate"><span class="pre">VolumeContext</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.SurfaceContext"><code class="docutils literal notranslate"><span class="pre">SurfaceContext</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.LinearForm"><code class="docutils literal notranslate"><span class="pre">LinearForm</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.BilinearForm"><code class="docutils literal notranslate"><span class="pre">BilinearForm</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.ResidualForm"><code class="docutils literal notranslate"><span class="pre">ResidualForm</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.MixedWeakForm"><code class="docutils literal notranslate"><span class="pre">MixedWeakForm</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.make_mixed_residuals"><code class="docutils literal notranslate"><span class="pre">make_mixed_residuals()</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.kernel"><code class="docutils literal notranslate"><span class="pre">kernel()</span></code></a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#spaces">Spaces</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#forms">Forms</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#kernel-metadata-ff-kernel">Kernel metadata (ff.kernel)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-mixedproblem">Example (MixedProblem)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-mixedblocksystem">Example (MixedBlockSystem)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#assembly">Assembly</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.make_sparsity_pattern"><code class="docutils literal notranslate"><span class="pre">make_sparsity_pattern()</span></code></a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#assembly">Assembly</a></li>
 </ul>
   </nav></div>
 

@@ -3,6 +3,9 @@ Contact Interface Usage
 
 This page shows the recommended high-level API for contact assembly.
 
+For terminology/ownership/scope (``contact``, ``multiplier``, ``formulation``, ``ops``),
+see :doc:`contact_api_boundaries`.
+
 One-To-Many Contact From Meshes
 -------------------------------
 
@@ -64,11 +67,17 @@ Use explicit APIs by family:
 
 .. code-block:: python
 
+   lm_space = ff.ContactMultiplierSpace.from_contact(
+       contact,
+       family="p0",
+       side="master",
+   )
+
    # Constraint path: returns coupling/B/Kuu operators
    ops: ff.ContactOperators = ff.assemble_contact_constraint_operators(
        contact,
        rho=5.0,
-       multiplier_space="p0",   # or "nodal"
+       multiplier=lm_space,
        backend="numpy",
        # Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.
        weak_form=res_form,
@@ -106,7 +115,7 @@ The default output is ``FluxSparseMatrix``.
        ops.coupling_aa,
        ops.coupling_ab,
        rho=5.0,
-       multiplier_space="p0",
+       multiplier=lm_space,
        facet_conn_master=ops.facet_conn_master,
        backend="numpy",
    )
@@ -121,7 +130,7 @@ You can also request formats explicitly:
        ops.coupling_aa,
        ops.coupling_ab,
        rho=5.0,
-       multiplier_space="p0",
+       multiplier=lm_space,
        facet_conn_master=ops.facet_conn_master,
        backend="jax",
        format="dense",
@@ -131,7 +140,7 @@ You can also request formats explicitly:
        ops.coupling_aa,
        ops.coupling_ab,
        rho=5.0,
-       multiplier_space="p0",
+       multiplier=lm_space,
        facet_conn_master=ops.facet_conn_master,
        backend="jax",
        format="bcoo",
@@ -152,7 +161,7 @@ Notes
 
 - ``master_facet_selector`` and ``slave_facet_selectors`` are recommended for robust workflows.
 - For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.
-- ``multiplier_space="p0"`` gives facet-wise constant multipliers (common for constraint-family coupling).
+- ``ContactMultiplierSpace(family="p0")`` gives facet-wise constant multipliers (common for constraint-family coupling).
 - ``assemble_contact_kkt`` is a low-level API. In most cases, prefer ``CoupledSystemBuilder.add_contact(...)``.
 
 CoupledSystemBuilder (Penalty)
@@ -186,11 +195,12 @@ assemble operators first, then pass them to ``add_contact`` (or ``add_contact_mo
 
 .. code-block:: python
 
-   ops_mortar = ff.assemble_contact_constraint_operators(contact, rho=1.0, multiplier_space="p0", backend="numpy")
+   lm_space = ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master")
+   ops_mortar = ff.assemble_contact_constraint_operators(contact, rho=1.0, multiplier=lm_space, backend="numpy")
    builder.add_contact(ops_mortar, master="top", slave="support", value_dim=1)
 
 When ``ops_mortar`` comes from ``assemble_contact_constraint_operators(...)``,
-``rho`` and ``multiplier_space`` are inherited automatically. Override only when needed.
+``rho`` and ``multiplier`` are inherited automatically. Override only when needed.
 
 Embedding Map (With Unmapped Report)
 ------------------------------------
