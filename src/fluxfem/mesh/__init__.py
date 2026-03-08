@@ -23,6 +23,7 @@ from .contact_interface import (
 )
 from .contact import (
     ContactOperators,
+    ContactMultiplierSpace,
     ContactKKTSolveConfig,
     EmbeddingMap,
     build_nodal_embedding_map,
@@ -87,6 +88,7 @@ __all__ = [
     "ContactSurfaceSpace",
     "ContactSide",
     "ContactOperators",
+    "ContactMultiplierSpace",
     "ContactKKTSolveConfig",
     "EmbeddingMap",
     "build_nodal_embedding_map",

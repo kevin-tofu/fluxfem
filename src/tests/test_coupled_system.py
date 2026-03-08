@@ -168,7 +168,7 @@ def test_coupled_system_builder_add_contact_mortar_from_operators():
     ops.coupling_ab = coupling_ab
     ops.facet_conn_master = np.array([[0]], dtype=int)
 
-    builder.add_contact_mortar(ops, master="a", slave="b", multiplier_space="nodal", rho=0.0)
+    builder.add_contact_mortar(ops, master="a", slave="b", multiplier=ff.ContactMultiplierSpace(family="nodal"), rho=0.0)
     K, _ = builder.build().assemble(format="csr")
     Kd = K.toarray()
     assert Kd.shape == (3, 3)
@@ -205,7 +205,7 @@ def test_coupled_system_builder_add_contact_mortar_uses_ops_defaults():
         coupling_ab=coupling_ab,
         facet_conn_master=np.array([[0]], dtype=int),
         rho=2.0,
-        multiplier_space="nodal",
+        multiplier=ff.ContactMultiplierSpace(family="nodal"),
     )
     builder.add_contact_mortar(ops, master="a", slave="b")
     K, _ = builder.build().assemble(format="csr")
@@ -213,6 +213,113 @@ def test_coupled_system_builder_add_contact_mortar_uses_ops_defaults():
     assert np.allclose(Kd[0, 0], 12.0, atol=1e-12)
     assert np.allclose(Kd[1, 1], 32.0, atol=1e-12)
     assert np.allclose(Kd[0, 1], -2.0, atol=1e-12)
+
+
+def test_coupled_system_builder_add_contact_mortar_uses_multiplier_object_default():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder.register_field("a", n_dofs=1, value_dim=1)
+    builder.register_field("b", n_dofs=1, value_dim=1)
+
+    coupling_aa = ff.ContactCouplingMatrix(
+        rows=np.array([0], dtype=int),
+        cols=np.array([0], dtype=int),
+        data=np.array([1.0], dtype=float),
+        shape=(1, 1),
+    )
+    coupling_ab = ff.ContactCouplingMatrix(
+        rows=np.array([0], dtype=int),
+        cols=np.array([0], dtype=int),
+        data=np.array([1.0], dtype=float),
+        shape=(1, 1),
+    )
+    ops = ff.ContactOperators(
+        enforcement="mortar",
+        coupling_aa=coupling_aa,
+        coupling_ab=coupling_ab,
+        facet_conn_master=np.array([[0]], dtype=int),
+        rho=2.0,
+        multiplier=ff.ContactMultiplierSpace(family="nodal"),
+    )
+    builder.add_contact_mortar(ops, master="a", slave="b")
+    K, _ = builder.build().assemble(format="csr")
+    Kd = K.toarray()
+    assert np.allclose(Kd[0, 0], 12.0, atol=1e-12)
+    assert np.allclose(Kd[1, 1], 32.0, atol=1e-12)
+    assert np.allclose(Kd[0, 1], -2.0, atol=1e-12)
+
+
+def test_coupled_system_builder_add_contact_mortar_multiple_contacts_different_lambda_sizes():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0, 50.0, 60.0], format="csr"), np.zeros(6))
+    builder.register_field("a", n_dofs=1, value_dim=1)
+    builder.register_field("b", n_dofs=1, value_dim=1)
+    builder.register_field("c", n_dofs=2, value_dim=1)
+    builder.register_field("d", n_dofs=2, value_dim=1)
+
+    coupling_aa_1 = ff.ContactCouplingMatrix(
+        rows=np.array([0], dtype=int),
+        cols=np.array([0], dtype=int),
+        data=np.array([1.0], dtype=float),
+        shape=(1, 1),
+    )
+    coupling_ab_1 = ff.ContactCouplingMatrix(
+        rows=np.array([0], dtype=int),
+        cols=np.array([0], dtype=int),
+        data=np.array([1.0], dtype=float),
+        shape=(1, 1),
+    )
+    ops1 = ff.ContactOperators(
+        enforcement="mortar",
+        coupling_aa=coupling_aa_1,
+        coupling_ab=coupling_ab_1,
+        facet_conn_master=np.array([[0]], dtype=int),
+        rho=0.0,
+        multiplier=ff.ContactMultiplierSpace(family="nodal"),
+    )
+    builder.add_contact_mortar(ops1, master="a", slave="b")
+
+    coupling_aa_2 = ff.ContactCouplingMatrix(
+        rows=np.array([0, 1], dtype=int),
+        cols=np.array([0, 1], dtype=int),
+        data=np.array([1.0, 1.0], dtype=float),
+        shape=(2, 2),
+    )
+    coupling_ab_2 = ff.ContactCouplingMatrix(
+        rows=np.array([0, 1], dtype=int),
+        cols=np.array([0, 1], dtype=int),
+        data=np.array([1.0, 1.0], dtype=float),
+        shape=(2, 2),
+    )
+    ops2 = ff.ContactOperators(
+        enforcement="mortar",
+        coupling_aa=coupling_aa_2,
+        coupling_ab=coupling_ab_2,
+        facet_conn_master=np.array([[0], [1]], dtype=int),
+        rho=0.0,
+        multiplier=ff.ContactMultiplierSpace(family="nodal"),
+    )
+    builder.add_contact_mortar(ops2, master="c", slave="d")
+
+    K, _ = builder.build().assemble(format="csr")
+    Kd = K.toarray()
+
+    # n_u=6, lambda blocks: 1 + 2
+    assert Kd.shape == (9, 9)
+
+    # First contact (a,b) couples into first lambda dof at index 6.
+    assert np.allclose(Kd[0, 6], 1.0, atol=1e-12)
+    assert np.allclose(Kd[1, 6], -1.0, atol=1e-12)
+    assert np.allclose(Kd[6, 0], 1.0, atol=1e-12)
+    assert np.allclose(Kd[6, 1], -1.0, atol=1e-12)
+
+    # Second contact (c,d) couples into lambda dofs at indices 7,8.
+    assert np.allclose(Kd[2, 7], 1.0, atol=1e-12)
+    assert np.allclose(Kd[4, 7], -1.0, atol=1e-12)
+    assert np.allclose(Kd[3, 8], 1.0, atol=1e-12)
+    assert np.allclose(Kd[5, 8], -1.0, atol=1e-12)
+
+    # Independent lambda blocks: no cross coupling between old/new lambda.
+    assert np.allclose(Kd[6, 7], 0.0, atol=1e-12)
+    assert np.allclose(Kd[7, 6], 0.0, atol=1e-12)
 
 
 def test_coupled_system_builder_add_contact_unified_nitsche():
@@ -264,7 +371,7 @@ def test_coupled_system_builder_add_contact_unified_mortar():
         coupling_ab=coupling_ab,
         facet_conn_master=np.array([[0]], dtype=int),
         rho=0.0,
-        multiplier_space="nodal",
+        multiplier=ff.ContactMultiplierSpace(family="nodal"),
     )
     builder.add_contact(ops, master="a", slave="b")
     K, _ = builder.build().assemble(format="csr")
@@ -330,7 +437,7 @@ def test_coupled_system_builder_add_contact_accepts_family_constraint_alias():
         coupling_ab=coupling_ab,
         facet_conn_master=np.array([[0]], dtype=int),
         rho=0.0,
-        multiplier_space="nodal",
+        multiplier=ff.ContactMultiplierSpace(family="nodal"),
     )
     builder.add_contact(ops, master="a", slave="b", family="constraint")
     K, _ = builder.build().assemble(format="csr")
@@ -379,7 +486,7 @@ def test_coupled_system_builder_add_contact_routes_by_formulation_multiplier():
         coupling_ab=coupling_ab,
         facet_conn_master=np.array([[0]], dtype=int),
         rho=0.0,
-        multiplier_space="nodal",
+        multiplier=ff.ContactMultiplierSpace(family="nodal"),
     )
     builder.add_contact(ops, master="a", slave="b", formulation="multiplier")
     K, _ = builder.build().assemble(format="csr")
@@ -499,6 +606,7 @@ def test_coupled_system_builder_add_contact_constraint_family_consumes_eval_inpu
         master="a",
         slave="b",
         family="constraint",
+        multiplier=ff.ContactMultiplierSpace(family="nodal"),
         weak_form=_wf,
         state={"a": np.array([0.0]), "b": np.array([0.0])},
         params=object(),

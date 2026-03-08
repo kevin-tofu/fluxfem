@@ -76,6 +76,7 @@ def _configure_runtime(
     low_mem: bool,
 ) -> tuple[str, bool, int | None]:
     import os
+    import warnings
     import jax
 
     if low_mem:
@@ -96,6 +97,13 @@ def _configure_runtime(
         os.environ.setdefault("MKL_NUM_THREADS", str(omp_threads))
 
     jax.config.update("jax_enable_x64", x64)
+    if not x64:
+        warnings.warn(
+            "Running in float32 mode (x64 disabled). Contact solve residuals/conditioning "
+            "can degrade; use --x64 for reliable diagnostics.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return platform, x64, omp_threads
 
 
@@ -130,6 +138,10 @@ def _solve_linear_system(
 ):
     import fluxfem as ff
 
+    if linear_solver in ("spsolve", "spsolve_jax"):
+        solver = ff.LinearSolver(method=linear_solver)
+        u_free, info = solver.solve(K_free, F_free)
+        return u_free, info
     if linear_solver == "cg":
         u_free, info = ff.cg_solve(
             K_free,
@@ -492,10 +504,12 @@ def run_skfem_demo(
     F_from_U = Kc.dot(u[I])
     F_pred_full = K @ u
     residual_full = F_pred_full - F
+    residual_free = residual_full[I]
+    residual_dir = np.delete(residual_full, I)
 
     res_norm = np.linalg.norm(Fc - Kc @ uc)
     rhs_norm = np.linalg.norm(Fc)
-    rel_res = res_norm / rhs_norm
+    rel_res = res_norm / (rhs_norm + 1e-30)
 
     if verbose:
         print("K1:", K1.shape)
@@ -508,7 +522,9 @@ def run_skfem_demo(
         print("F_pred_full.shape, F.shape", F_pred_full.shape, F.shape)
         print("len(F_pred_full) =", len(F_pred_full))
         print("len(F) =", len(F))
-        print("‖residual‖₂ =", np.linalg.norm(residual_full))
+        print("‖residual(full)‖₂ =", np.linalg.norm(residual_full))
+        print("‖residual(free)‖₂ =", np.linalg.norm(residual_free))
+        print("‖residual(dir)‖₂ =", np.linalg.norm(residual_dir))
         print("relative residual =", rel_res)
 
     summary = {
@@ -518,7 +534,9 @@ def run_skfem_demo(
         "len_t1": len(t1),
         "len_t2": len(t2),
         "sum_abs_Fdiff": float(np.sum(np.abs(F_from_U - Fc))),
-        "residual_norm_2": float(np.linalg.norm(residual_full)),
+        "residual_norm_full_2": float(np.linalg.norm(residual_full)),
+        "residual_norm_free_2": float(np.linalg.norm(residual_free)),
+        "residual_norm_dir_2": float(np.linalg.norm(residual_dir)),
         "relative_residual": float(rel_res),
     }
 
@@ -892,17 +910,26 @@ def run_fluxfem_demo(
     F_from_U = mv_free(u_free)
     F_pred_full = K.matvec(u)
     residual_full = F_pred_full - F_j
+    free = condensed.free_dofs
+    residual_full_np = np.asarray(residual_full)
+    residual_free = residual_full_np[free]
+    residual_dir = np.delete(residual_full_np, free)
 
-    res_norm = np.linalg.norm(np.asarray(F_free - F_from_U))
-    rhs_norm = np.linalg.norm(np.asarray(F_free))
-    rel_res = res_norm / rhs_norm
+    F_from_U_np = np.asarray(F_from_U)
+    F_from_U_condensed = np.asarray(condensed.K @ np.asarray(u_free))
+    F_free_np = np.asarray(F_free)
+    res_norm = np.linalg.norm(F_free_np - F_from_U_condensed)
+    rhs_norm = np.linalg.norm(F_free_np)
+    rel_res = res_norm / (rhs_norm + 1e-30)
+    flux_matvec_mismatch = np.linalg.norm(F_from_U_np - F_from_U_condensed)
 
     if verbose:
         print("K1:", (int(K1.n_dofs), int(K1.n_dofs)))
         print("K2:", (int(K2.n_dofs), int(K2.n_dofs)))
         print("B1:", (int(K_contact.n_dofs), int(K_contact.n_dofs)))
         print("len(t1):", int(contact_facets_top.shape[0]), "len(t2):", int(contact_facets_bot.shape[0]))
-        print("sum|F_from_U - F_free|:", float(np.sum(np.abs(np.asarray(F_from_U) - np.asarray(F_free)))))
+        print("sum|F_from_U(condensed) - F_free|:", float(np.sum(np.abs(F_from_U_condensed - F_free_np))))
+        print("sum|F_from_U(flux) - F_from_U(condensed)|:", float(np.sum(np.abs(F_from_U_np - F_from_U_condensed))))
         print("linear solver:", linear_solver)
         print("linear iters:", int(info.get("iters", -1)))
         print("linear residual_norm:", float(info.get("residual_norm", float("nan"))))
@@ -914,7 +941,9 @@ def run_fluxfem_demo(
         print("F_pred_full.shape, F.shape", F_pred_full.shape, F_j.shape)
         print("len(F_pred_full) =", int(F_pred_full.shape[0]))
         print("len(F) =", len(F))
-        print("‖residual‖₂ =", float(np.linalg.norm(np.asarray(residual_full))))
+        print("‖residual(full)‖₂ =", float(np.linalg.norm(residual_full_np)))
+        print("‖residual(free)‖₂ =", float(np.linalg.norm(residual_free)))
+        print("‖residual(dir)‖₂ =", float(np.linalg.norm(residual_dir)))
         print("relative residual =", float(rel_res))
 
     summary = {
@@ -923,8 +952,11 @@ def run_fluxfem_demo(
         "K_contact_shape": (int(K_contact.n_dofs), int(K_contact.n_dofs)),
         "len_contact_top": int(contact_facets_top.shape[0]),
         "len_contact_bot": int(contact_facets_bot.shape[0]),
-        "sum_abs_Fdiff": float(np.sum(np.abs(np.asarray(F_from_U) - np.asarray(F_free)))),
-        "residual_norm_2": float(np.linalg.norm(np.asarray(residual_full))),
+        "sum_abs_Fdiff": float(np.sum(np.abs(F_from_U_condensed - F_free_np))),
+        "flux_matvec_mismatch_2": float(flux_matvec_mismatch),
+        "residual_norm_full_2": float(np.linalg.norm(residual_full_np)),
+        "residual_norm_free_2": float(np.linalg.norm(residual_free)),
+        "residual_norm_dir_2": float(np.linalg.norm(residual_dir)),
         "relative_residual": float(rel_res),
         "linear_solver": linear_solver,
         "linear_iters": int(info.get("iters", -1)),
@@ -1164,17 +1196,26 @@ def run_fluxfem_oneside_demo(
     F_from_U = mv_free(u_free)
     F_pred_full = K.matvec(u)
     residual_full = F_pred_full - F_j
+    free = condensed.free_dofs
+    residual_full_np = np.asarray(residual_full)
+    residual_free = residual_full_np[free]
+    residual_dir = np.delete(residual_full_np, free)
 
-    res_norm = np.linalg.norm(np.asarray(F_free - F_from_U))
-    rhs_norm = np.linalg.norm(np.asarray(F_free))
-    rel_res = res_norm / rhs_norm
+    F_from_U_np = np.asarray(F_from_U)
+    F_from_U_condensed = np.asarray(condensed.K @ np.asarray(u_free))
+    F_free_np = np.asarray(F_free)
+    res_norm = np.linalg.norm(F_free_np - F_from_U_condensed)
+    rhs_norm = np.linalg.norm(F_free_np)
+    rel_res = res_norm / (rhs_norm + 1e-30)
+    flux_matvec_mismatch = np.linalg.norm(F_from_U_np - F_from_U_condensed)
 
     if verbose:
         print("K1:", (int(K1.n_dofs), int(K1.n_dofs)))
         print("K2:", (int(K2.n_dofs), int(K2.n_dofs)))
         print("B1:", (n_contact_dofs, n_contact_dofs))
         print("len(t1):", int(contact_facets_top.shape[0]), "len(t2):", int(contact_facets_bot.shape[0]))
-        print("sum|F_from_U - F_free|:", float(np.sum(np.abs(np.asarray(F_from_U) - np.asarray(F_free)))))
+        print("sum|F_from_U(condensed) - F_free|:", float(np.sum(np.abs(F_from_U_condensed - F_free_np))))
+        print("sum|F_from_U(flux) - F_from_U(condensed)|:", float(np.sum(np.abs(F_from_U_np - F_from_U_condensed))))
         print("linear solver:", linear_solver)
         print("linear iters:", int(info.get("iters", -1)))
         print("linear residual_norm:", float(info.get("residual_norm", float("nan"))))
@@ -1186,7 +1227,9 @@ def run_fluxfem_oneside_demo(
         print("F_pred_full.shape, F.shape", F_pred_full.shape, F_j.shape)
         print("len(F_pred_full) =", int(F_pred_full.shape[0]))
         print("len(F) =", len(F))
-        print("‖residual‖₂ =", float(np.linalg.norm(np.asarray(residual_full))))
+        print("‖residual(full)‖₂ =", float(np.linalg.norm(residual_full_np)))
+        print("‖residual(free)‖₂ =", float(np.linalg.norm(residual_free)))
+        print("‖residual(dir)‖₂ =", float(np.linalg.norm(residual_dir)))
         print("relative residual =", float(rel_res))
 
     summary = {
@@ -1195,8 +1238,11 @@ def run_fluxfem_oneside_demo(
         "K_contact_shape": (n_contact_dofs, n_contact_dofs),
         "len_contact_top": int(contact_facets_top.shape[0]),
         "len_contact_bot": int(contact_facets_bot.shape[0]),
-        "sum_abs_Fdiff": float(np.sum(np.abs(np.asarray(F_from_U) - np.asarray(F_free)))),
-        "residual_norm_2": float(np.linalg.norm(np.asarray(residual_full))),
+        "sum_abs_Fdiff": float(np.sum(np.abs(F_from_U_condensed - F_free_np))),
+        "flux_matvec_mismatch_2": float(flux_matvec_mismatch),
+        "residual_norm_full_2": float(np.linalg.norm(residual_full_np)),
+        "residual_norm_free_2": float(np.linalg.norm(residual_free)),
+        "residual_norm_dir_2": float(np.linalg.norm(residual_dir)),
         "relative_residual": float(rel_res),
         "linear_solver": linear_solver,
         "linear_iters": int(info.get("iters", -1)),

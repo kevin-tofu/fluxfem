@@ -121,9 +121,14 @@ class DirichletBC:
         """
         Condense for FluxSparseMatrix and return (K_free, F_free, free_dofs).
         """
-        condensed = self.condense_system(A, F)
-        free = condensed.free_dofs
-        return restrict_flux_to_free(A, free), condensed.F, free
+        K_free, F_free, free, _dir, _vals = condense_dirichlet_fluxsparse_coo(
+            A,
+            F,
+            self.dofs,
+            self.vals,
+            coalesce=True,
+        )
+        return K_free, F_free, free
 
     def enforce_flux(self, A: FluxSparseMatrix, F: ArrayLike):
         return enforce_dirichlet_fluxsparse(A, F, self.dofs, self.vals)

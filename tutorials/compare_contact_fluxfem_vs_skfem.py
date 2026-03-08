@@ -16,7 +16,10 @@ from tutorials._contact_compare_utils import (
     tet4_coords,
 )
 
-jax.config.update("jax_enable_x64", True)
+_X64 = os.getenv("COMPARE_X64", "1").strip().lower() not in {"0", "false", "no"}
+jax.config.update("jax_enable_x64", _X64)
+if os.getenv("COMPARE_DISABLE_JIT", "0").strip().lower() in {"1", "true", "yes"}:
+    jax.config.update("jax_disable_jit", True)
 def _facet_area(nodes: np.ndarray, coords_local: np.ndarray) -> float:
     n = int(len(nodes))
     if n == 3:
@@ -792,33 +795,44 @@ def build_fluxfem_contact(
     E, nu = 210e9, 0.3
     lam, mu = ff.lame_parameters(E, nu)
 
-    def bilin(v1, v2, u1, u2, p):
+    def res_a(v, u, p):
         n = h_wf.normal()
-        ju = u1.val - u2.val
-        t_u = 0.5 * (h_wf.traction(u1, n, p) + h_wf.traction(u2, n, p))
-        t_v1 = h_wf.traction(v1, n, p)
-        t_v2 = h_wf.traction(v2, n, p)
-        penalty = (p.alpha * p.inv_h) * (h_wf.dot(v1, ju) - h_wf.dot(v2, ju))
-        traction = -h_wf.dot(v1, t_u) + h_wf.dot(v2, t_u)
-        traction -= 0.5 * wf_einsum("qia,qi->qa", t_v1, ju)
-        traction -= 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
-        if not use_penalty:
-            penalty = 0.0
-        if not use_traction:
-            traction = 0.0
+        u_b = ff.unknown_ref("b")
+        ju = u.val - u_b.val
+        t_u = 0.5 * (h_wf.traction(u, n, p) + h_wf.traction(u_b, n, p))
+        t_v = h_wf.traction(v, n, p)
+        penalty = p.use_penalty * (p.alpha * p.inv_h) * h_wf.dot(v, ju)
+        traction = p.use_traction * (-h_wf.dot(v, t_u) - 0.5 * wf_einsum("qia,qi->qa", t_v, ju))
+        return (penalty + traction) * h_wf.ds()
+
+    def res_b(v, u, p):
+        n = h_wf.normal()
+        u_a = ff.unknown_ref("a")
+        ju = u_a.val - u.val
+        t_u = 0.5 * (h_wf.traction(u_a, n, p) + h_wf.traction(u, n, p))
+        t_v = h_wf.traction(v, n, p)
+        penalty = p.use_penalty * (-(p.alpha * p.inv_h) * h_wf.dot(v, ju))
+        traction = p.use_traction * (h_wf.dot(v, t_u) - 0.5 * wf_einsum("qia,qi->qa", t_v, ju))
         return (penalty + traction) * h_wf.ds()
 
     u_a = jnp.zeros(coords.shape[0] * 3)
     u_b = jnp.zeros(coords.shape[0] * 3)
-    params = ff.Params(alpha=float(alpha), inv_h=float(1.0 / h), lam=float(lam), mu=float(mu))
-    K = contact.assemble_bilinear(
-        bilin,
-        u_a,
-        u_b,
-        params=params,
-        sparse=False,
+    params = ff.Params(
+        alpha=float(alpha),
+        inv_h=float(1.0 / h),
+        lam=float(lam),
+        mu=float(mu),
+        use_penalty=float(use_penalty),
+        use_traction=float(use_traction),
     )
-    return np.asarray(K)
+    ops = ff.assemble_contact_penalty_operators(
+        contact,
+        weak_form=ff.compile_mixed_surface_residual({"a": res_a, "b": res_b}),
+        state={"a": u_a, "b": u_b},
+        params=params,
+        backend="numpy",
+    )
+    return np.asarray(ops.jacobian)
 
 
 def build_skfem_contact(
@@ -1036,25 +1050,41 @@ def _vector_perm_for_skfem(
 if __name__ == "__main__":
     alpha = 10.0
     h = 1.0
-    quad_order = int(os.getenv("QUAD_ORDER", "5"))
+    fast_mode = os.getenv("COMPARE_FAST", "0").strip().lower() in {"1", "true", "yes"}
+    no_jac_mode = os.getenv("COMPARE_NO_JAC", "0").strip().lower() in {"1", "true", "yes"}
+    quad_order = int(os.getenv("QUAD_ORDER", "1" if fast_mode else "5"))
     if quad_order > 5:
         print(f"[compare] quad_order={quad_order} not supported; using quad_order=5")
         quad_order = 5
     diag_verbose = os.getenv("DIAG_VERBOSE", "0") == "1"
     diag_voln = os.getenv("DIAG_VOLN", "0") == "1"
     diag_quad = os.getenv("DIAG_QUAD", "0") == "1"
+    if fast_mode:
+        diag_verbose = False
+        diag_voln = False
+        diag_quad = False
 
     only_elems = [s.strip().lower() for s in os.getenv("COMPARE_ELEMS", "").split(",") if s.strip()]
 
     def _enabled(name: str) -> bool:
         return not only_elems or name.lower() in only_elems
 
-    cases = [
-        ("penalty", True, False),
-        ("traction", False, True),
-        ("full", True, True),
-    ]
-    elems = ["hex8", "hex27", "tet4", "tet10"]
+    if fast_mode:
+        cases = [("full", True, True)]
+        elems = ["tet4"] if not only_elems else ["tet4" if "tet4" in only_elems else only_elems[0]]
+    else:
+        cases = [
+            ("penalty", True, False),
+            ("traction", False, True),
+            ("full", True, True),
+        ]
+        elems = ["hex8", "hex27", "tet4", "tet10"]
+
+    print(
+        f"[compare] fast={int(fast_mode)} no_jac={int(no_jac_mode)} x64={int(_X64)} "
+        f"disable_jit={int(os.getenv('COMPARE_DISABLE_JIT', '0').strip().lower() in {'1','true','yes'})} "
+        f"quad_order={quad_order}"
+    )
 
     for elem in elems:
         if not _enabled(elem):
@@ -1070,6 +1100,9 @@ if __name__ == "__main__":
             coords_hex27, _conn_hex27, _order_hex27 = fluxfem_mesh_for("hex27")
         _diag_contact_surface(elem, quad_order, verbose=diag_verbose)
         for name, use_penalty, use_traction in cases:
+            if no_jac_mode:
+                print(f"[{elem}/{name}] COMPARE_NO_JAC=1 -> skip Jacobian assembly/comparison")
+                continue
             K_sf, h_ref = build_skfem_contact(
                 elem,
                 alpha=alpha,

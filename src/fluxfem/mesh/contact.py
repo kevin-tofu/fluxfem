@@ -53,7 +53,47 @@ class ContactOperators:
     jacobian: Any | None = None
     facet_conn_master: np.ndarray | None = None
     rho: float | None = None
-    multiplier_space: str | None = None
+    multiplier: Any | None = None
+
+
+@dataclass(frozen=True)
+class ContactMultiplierSpace:
+    """Discrete LM-space description used by constraint-family contact assembly."""
+
+    family: str = "nodal"  # "nodal" | "p0"
+    side: str = "master"  # For family="p0", current implementation supports only "master".
+    value_dim: int = 1
+    facet_conn: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        fam = str(self.family).lower()
+        if fam not in {"nodal", "p0"}:
+            raise ValueError("ContactMultiplierSpace.family must be 'nodal' or 'p0'.")
+        side = str(self.side).lower()
+        if side not in {"master", "slave"}:
+            raise ValueError("ContactMultiplierSpace.side must be 'master' or 'slave'.")
+        if int(self.value_dim) <= 0:
+            raise ValueError("ContactMultiplierSpace.value_dim must be positive.")
+
+    @classmethod
+    def from_contact(
+        cls,
+        contact,
+        *,
+        family: str = "nodal",
+        side: str = "master",
+        value_dim: int = 1,
+        facet_conn: np.ndarray | None = None,
+    ) -> "ContactMultiplierSpace":
+        fc = None if facet_conn is None else np.asarray(facet_conn, dtype=int)
+        if str(family).lower() == "p0" and fc is None:
+            fc = _infer_contact_side_facets(contact, side=str(side))
+        return cls(
+            family=str(family).lower(),
+            side=str(side).lower(),
+            value_dim=int(value_dim),
+            facet_conn=fc,
+        )
 
 
 @dataclass(frozen=True)
@@ -528,6 +568,59 @@ def _p0_reduction_matrix_from_facets(facet_conn: np.ndarray, n_nodes: int):
     return S
 
 
+def _infer_contact_side_facets(contact, *, side: str) -> np.ndarray | None:
+    side_norm = str(side).lower()
+    if side_norm not in {"master", "slave"}:
+        raise ValueError("side must be 'master' or 'slave'.")
+
+    if hasattr(contact, "surface_master") and hasattr(contact, "surface_slave"):
+        surf = contact.surface_master if side_norm == "master" else contact.surface_slave
+        return np.asarray(surf.conn, dtype=int)
+
+    if hasattr(contact, "contacts") and len(getattr(contact, "contacts")) > 0:
+        if side_norm == "slave":
+            return None
+        first = contact.contacts[0]
+        if hasattr(first, "surface_master"):
+            return np.asarray(first.surface_master.conn, dtype=int)
+    return None
+
+
+def _resolve_multiplier_spec(
+    contact,
+    *,
+    multiplier: ContactMultiplierSpace | None,
+    facet_conn_master: np.ndarray | None,
+) -> tuple[str, np.ndarray | None, ContactMultiplierSpace]:
+    if multiplier is not None and not isinstance(multiplier, ContactMultiplierSpace):
+        raise TypeError("multiplier must be a ContactMultiplierSpace.")
+    if multiplier is None:
+        raise TypeError("multiplier is required (ContactMultiplierSpace).")
+    fam = str(multiplier.family).lower()
+    if fam == "p0" and str(multiplier.side).lower() != "master":
+        raise NotImplementedError(
+            "p0 multiplier currently supports only side='master' "
+            "(current implementation limitation)."
+        )
+    facet = multiplier.facet_conn
+    if facet is None and fam == "p0":
+        facet = _infer_contact_side_facets(contact, side=str(multiplier.side))
+    if facet is None:
+        facet = facet_conn_master
+    if fam not in {"nodal", "p0"}:
+        raise ValueError("multiplier.family must be 'nodal' or 'p0'")
+    if fam == "p0" and facet is None:
+        raise ValueError("facet_conn_master is required when multiplier.family='p0'.")
+    facet_arr = None if facet is None else np.asarray(facet, dtype=int)
+    resolved_multiplier = ContactMultiplierSpace(
+        family=fam,
+        side=str(multiplier.side).lower(),
+        value_dim=int(multiplier.value_dim),
+        facet_conn=facet_arr,
+    )
+    return fam, facet_arr, resolved_multiplier
+
+
 def _coalesce_int_coo(rows: np.ndarray, cols: np.ndarray, data: np.ndarray):
     from ..solver.sparse import coalesce_coo
 
@@ -652,7 +745,7 @@ def assemble_contact_constraint_operators(
     law: str | None = None,
     formulation: str | None = None,
     rho: float = 0.0,
-    multiplier_space: str = "nodal",
+    multiplier: ContactMultiplierSpace,
     backend: str = "numpy",
     weak_form: MixedSurfaceResidualForm | None = None,
     state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
@@ -690,13 +783,11 @@ def assemble_contact_constraint_operators(
         raise TypeError("contact must provide assemble_contact_coupling_matrices() for constraint operators.")
     coupling_aa, coupling_ab = contact.assemble_contact_coupling_matrices()
 
-    facet_conn_master = None
-    if hasattr(contact, "surface_master"):
-        facet_conn_master = np.asarray(contact.surface_master.conn, dtype=int)
-    elif hasattr(contact, "contacts") and len(getattr(contact, "contacts")) > 0:
-        first = contact.contacts[0]
-        if hasattr(first, "surface_master"):
-            facet_conn_master = np.asarray(first.surface_master.conn, dtype=int)
+    mult_space, facet_conn_master, multiplier_resolved = _resolve_multiplier_spec(
+        contact,
+        multiplier=multiplier,
+        facet_conn_master=None,
+    )
 
     M_aa = _coo_to_dense(coupling_aa.rows, coupling_aa.cols, coupling_aa.data, coupling_aa.shape, backend=backend)
     M_ab = _coo_to_dense(coupling_ab.rows, coupling_ab.cols, coupling_ab.data, coupling_ab.shape, backend=backend)
@@ -708,19 +799,15 @@ def assemble_contact_constraint_operators(
     else:
         xp = np
 
-    if multiplier_space == "nodal":
+    if mult_space == "nodal":
         B_a = M_aa
         B_b = M_ab
-    elif multiplier_space == "p0":
-        if facet_conn_master is None:
-            raise ValueError("facet_conn_master is required when multiplier_space='p0'.")
+    elif mult_space == "p0":
         n_master_nodes = int(coupling_aa.shape[0])
         S_np = _p0_reduction_matrix_from_facets(facet_conn_master, n_master_nodes)
         S = xp.asarray(S_np)
         B_a = S @ M_aa
         B_b = S @ M_ab
-    else:
-        raise ValueError("multiplier_space must be 'nodal' or 'p0'")
 
     B = xp.concatenate([B_a, -B_b], axis=1)
     Kuu = xp.asarray(rho) * (B.T @ B)
@@ -753,7 +840,7 @@ def assemble_contact_constraint_operators(
         jacobian=jacobian,
         facet_conn_master=facet_conn_master,
         rho=rho,
-        multiplier_space=str(multiplier_space),
+        multiplier=multiplier_resolved,
     )
 
 
@@ -818,7 +905,7 @@ def assemble_contact_kkt(
     coupling_ab,
     *,
     rho: float = 0.0,
-    multiplier_space: str = "nodal",
+    multiplier: ContactMultiplierSpace,
     facet_conn_master: np.ndarray | None = None,
     backend: str = "numpy",
     format: str = "fluxsparse",
@@ -832,14 +919,17 @@ def assemble_contact_kkt(
       Kuu = rho * (B^T B)
       KKT = [[Kuu, B^T], [B, 0]]
 
-    multiplier_space:
-    - "nodal": lambda lives on interface nodal basis (B_a=M_aa, B_b=M_ab)
-    - "p0": lambda is facet-wise constant on master side (B_* = S * M_*)
+    multiplier:
+    - ``family="nodal"``: lambda lives on interface nodal basis (B_a=M_aa, B_b=M_ab)
+    - ``family="p0"``: lambda is facet-wise constant on master side (B_* = S * M_*)
     """
     if backend not in {"numpy", "jax"}:
         raise ValueError("backend must be 'numpy' or 'jax'")
-    if multiplier_space not in {"nodal", "p0"}:
-        raise ValueError("multiplier_space must be 'nodal' or 'p0'")
+    mult_space, facet_conn_master, _ = _resolve_multiplier_spec(
+        None,
+        multiplier=multiplier,
+        facet_conn_master=facet_conn_master,
+    )
     if format not in {"dense", "fluxsparse", "bcoo"}:
         raise ValueError("format must be 'dense', 'fluxsparse', or 'bcoo'")
     if return_blocks and format != "dense":
@@ -854,7 +944,7 @@ def assemble_contact_kkt(
             coupling_aa,
             coupling_ab,
             rho=float(rho),
-            multiplier_space=multiplier_space,
+            multiplier_space=mult_space,
             facet_conn_master=facet_conn_master,
         )
         if format == "fluxsparse":
@@ -877,12 +967,10 @@ def assemble_contact_kkt(
     else:
         xp = np
 
-    if multiplier_space == "nodal":
+    if mult_space == "nodal":
         B_a = M_aa
         B_b = M_ab
     else:
-        if facet_conn_master is None:
-            raise ValueError("facet_conn_master is required when multiplier_space='p0'.")
         n_master_nodes = int(coupling_aa.shape[0])
         S_np = _p0_reduction_matrix_from_facets(facet_conn_master, n_master_nodes)
         S = xp.asarray(S_np)
@@ -1768,7 +1856,7 @@ class ContactSurfaceSpace:
         self,
         *,
         rho: float = 0.0,
-        multiplier_space: str = "nodal",
+        multiplier: ContactMultiplierSpace,
         backend: str = "numpy",
         format: str = "fluxsparse",
         return_blocks: bool = False,
@@ -1778,7 +1866,7 @@ class ContactSurfaceSpace:
             m_aa,
             m_ab,
             rho=rho,
-            multiplier_space=multiplier_space,
+            multiplier=multiplier,
             facet_conn_master=np.asarray(self.surface_master.conn, dtype=int),
             backend=backend,
             format=format,
@@ -1791,7 +1879,7 @@ class ContactSurfaceSpace:
         law: str | None = None,
         formulation: str | None = None,
         rho: float = 0.0,
-        multiplier_space: str = "nodal",
+        multiplier: ContactMultiplierSpace,
         backend: str = "numpy",
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
@@ -1807,7 +1895,7 @@ class ContactSurfaceSpace:
             law=law,
             formulation=formulation,
             rho=rho,
-            multiplier_space=multiplier_space,
+            multiplier=multiplier,
             backend=backend,
             weak_form=weak_form,
             state=state,
@@ -2581,7 +2669,7 @@ class OneToManyContactSurfaceSpace:
         self,
         *,
         rho: float = 0.0,
-        multiplier_space: str = "nodal",
+        multiplier: ContactMultiplierSpace,
         backend: str = "numpy",
         format: str = "fluxsparse",
         return_blocks: bool = False,
@@ -2592,7 +2680,7 @@ class OneToManyContactSurfaceSpace:
             m_aa,
             m_ab,
             rho=rho,
-            multiplier_space=multiplier_space,
+            multiplier=multiplier,
             facet_conn_master=master_facets,
             backend=backend,
             format=format,
@@ -2605,7 +2693,7 @@ class OneToManyContactSurfaceSpace:
         law: str | None = None,
         formulation: str | None = None,
         rho: float = 0.0,
-        multiplier_space: str = "nodal",
+        multiplier: ContactMultiplierSpace,
         backend: str = "numpy",
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
@@ -2621,7 +2709,7 @@ class OneToManyContactSurfaceSpace:
             law=law,
             formulation=formulation,
             rho=rho,
-            multiplier_space=multiplier_space,
+            multiplier=multiplier,
             backend=backend,
             weak_form=weak_form,
             state=state,
@@ -2671,6 +2759,7 @@ __all__ = [
     "ContactSurfaceSpace",
     "OneToManyContactSurfaceSpace",
     "ContactOperators",
+    "ContactMultiplierSpace",
     "ContactKKTSolveConfig",
     "EmbeddingMap",
     "build_nodal_embedding_map",

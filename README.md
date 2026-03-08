@@ -244,10 +244,16 @@ contact = ff.OneToManyContactSurfaceSpace.from_meshes(
 )
 
 # 1) Assemble constraint operators (B, Kuu, ...)
+lm_space = ff.ContactMultiplierSpace.from_contact(
+    contact,
+    family="p0",
+    side="master",
+)
+
 ops: ff.ContactOperators = ff.assemble_contact_constraint_operators(
     contact,
     rho=1.0,
-    multiplier_space="p0",
+    multiplier=lm_space,
     backend="numpy",
     # Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.
     weak_form=contact_residual_form,
@@ -297,6 +303,19 @@ system_mortar = builder_mortar.build()
 # - law="one_sided_normal_frictionless"
 # - formulation="multiplier" | "penalty_consistent"
 ```
+
+Contact API boundaries (fixed terms):
+
+- `contact`: interface geometry/pairing/supermesh/quadrature.
+- `multiplier`: LM discretization (`family`, `side`, `value_dim`).
+- `formulation`: enforcement variant used for routing.
+- `ops`: assembled bundle passed to `CoupledSystemBuilder`.
+
+Notes:
+
+- Multiple contacts can be added with different settings per `builder.add_contact(...)` call.
+- `ContactMultiplierSpace(family="p0")` currently supports `side="master"` only (implementation limitation).
+- See docs: `Usage -> Contact API Boundaries`.
 
 
 ## Documentation

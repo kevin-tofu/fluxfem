@@ -125,26 +125,56 @@ class CoupledSystem:
             format="csr",
         )
 
+        F_add = np.zeros((self.n_u + n_l,), dtype=float)
+        if F_contact is not None:
+            Fc = np.asarray(F_contact, dtype=float)
+            if Fc.shape != F_add.shape:
+                raise ValueError("F_contact shape mismatch.")
+            F_add += Fc
+
         if self.K_contact_lifted is None:
             self.K_contact_lifted = K_add
-            F_add = np.zeros((self.n_u + n_l,), dtype=float)
-            if F_contact is not None:
-                Fc = np.asarray(F_contact, dtype=float)
-                if Fc.shape != F_add.shape:
-                    raise ValueError("F_contact shape mismatch.")
-                F_add += Fc
             self.F_contact_lifted = F_add
             return
 
-        if self.K_contact_lifted.shape != K_add.shape:
-            raise ValueError("Contact block size mismatch while accumulating contact contributions.")
-        self.K_contact_lifted = self.K_contact_lifted + K_add
-        if F_contact is not None:
-            Fc = np.asarray(F_contact, dtype=float)
-            if Fc.shape != self.F_contact_lifted.shape:
-                raise ValueError("F_contact shape mismatch.")
-            assert self.F_contact_lifted is not None
-            self.F_contact_lifted += Fc
+        # Accumulate multiple mortar/KKT contacts by appending new lambda blocks.
+        # This allows each contact contribution to have its own lambda size.
+        K_prev = self.K_contact_lifted.tocsr()
+        n_prev_l = int(K_prev.shape[0] - self.n_u)
+        if n_prev_l < 0:
+            raise ValueError("Invalid lifted contact matrix shape.")
+
+        Kuu_prev = K_prev[: self.n_u, : self.n_u]
+        Kul_prev = K_prev[: self.n_u, self.n_u :]
+        Klu_prev = K_prev[self.n_u :, : self.n_u]
+        Kll_prev = K_prev[self.n_u :, self.n_u :]
+
+        Kuu_new = K_add[: self.n_u, : self.n_u]
+        Kul_new = K_add[: self.n_u, self.n_u :]
+        Klu_new = K_add[self.n_u :, : self.n_u]
+        Kll_new = K_add[self.n_u :, self.n_u :]
+
+        z_prev_new = sp.csr_matrix((n_prev_l, n_l), dtype=float)
+        z_new_prev = sp.csr_matrix((n_l, n_prev_l), dtype=float)
+        self.K_contact_lifted = sp.bmat(
+            [
+                [Kuu_prev + Kuu_new, Kul_prev, Kul_new],
+                [Klu_prev, Kll_prev, z_prev_new],
+                [Klu_new, z_new_prev, Kll_new],
+            ],
+            format="csr",
+        )
+
+        F_prev = self.F_contact_lifted
+        if F_prev is None:
+            F_prev = np.zeros((self.n_u + n_prev_l,), dtype=float)
+        self.F_contact_lifted = np.concatenate(
+            [
+                np.asarray(F_prev[: self.n_u], dtype=float) + F_add[: self.n_u],
+                np.asarray(F_prev[self.n_u :], dtype=float),
+                np.asarray(F_add[self.n_u :], dtype=float),
+            ]
+        )
 
     def add_contact_nitsche(
         self,
@@ -332,7 +362,7 @@ class ConstraintSpec:
     normal_source: str = "master"
     sparse: bool = False
     batch_jac: bool | None = None
-    multiplier_space: str | None = None
+    multiplier: Any | None = None
     facet_conn_master: np.ndarray | None = None
 
     def __post_init__(self) -> None:
@@ -650,7 +680,7 @@ class CoupledSystemBuilder:
         value_dim: int | None = None,
         F_contact: np.ndarray | None = None,
         rho: float | None = None,
-        multiplier_space: str | None = None,
+        multiplier=None,
         facet_conn_master: np.ndarray | None = None,
         backend: str = "numpy",
     ) -> None:
@@ -676,9 +706,9 @@ class CoupledSystemBuilder:
             rho_eff = getattr(ops_or_kkt, "rho", None) if rho is None else float(rho)
             if rho_eff is None:
                 rho_eff = 0.0
-            mult_eff = getattr(ops_or_kkt, "multiplier_space", None) if multiplier_space is None else multiplier_space
-            if mult_eff is None:
-                mult_eff = "nodal"
+            mult_obj = getattr(ops_or_kkt, "multiplier", None) if multiplier is None else multiplier
+            if mult_obj is None:
+                raise ValueError("Constraint-family contact requires multiplier (ContactMultiplierSpace).")
             fc = facet_conn_master
             if fc is None and hasattr(ops_or_kkt, "facet_conn_master"):
                 fc = getattr(ops_or_kkt, "facet_conn_master")
@@ -688,7 +718,7 @@ class CoupledSystemBuilder:
                 coupling_aa,
                 coupling_ab,
                 rho=float(rho_eff),
-                multiplier_space=str(mult_eff),
+                multiplier=mult_obj,
                 facet_conn_master=fc,
                 backend=backend,
                 format="fluxsparse",
@@ -730,7 +760,7 @@ class CoupledSystemBuilder:
         # mortar options
         F_contact: np.ndarray | None = None,
         rho: float | None = None,
-        multiplier_space: str | None = None,
+        multiplier=None,
         facet_conn_master: np.ndarray | None = None,
         backend: str = "numpy",
     ) -> None:
@@ -771,13 +801,15 @@ class CoupledSystemBuilder:
 
             if resolved_family == "constraint":
                 from ..mesh.contact import assemble_contact_constraint_operators as _assemble_ops
+                if multiplier is None:
+                    raise ValueError("family='constraint' requires multiplier (ContactMultiplierSpace).")
 
                 contact_obj = _assemble_ops(
                     contact_obj,
                     law=law,
                     formulation=formulation,
                     rho=0.0 if rho is None else float(rho),
-                    multiplier_space="nodal" if multiplier_space is None else str(multiplier_space),
+                    multiplier=multiplier,
                     backend=backend,
                     weak_form=weak_form,
                     state=state,
@@ -862,7 +894,7 @@ class CoupledSystemBuilder:
                 value_dim=value_dim,
                 F_contact=F_contact,
                 rho=rho,
-                multiplier_space=multiplier_space,
+                multiplier=multiplier,
                 facet_conn_master=facet_conn_master,
                 backend=backend,
             )
@@ -898,7 +930,7 @@ class CoupledSystemBuilder:
                 batch_jac=spec.batch_jac,
                 F_contact=spec.F_contact,
                 rho=spec.rho,
-                multiplier_space=spec.multiplier_space,
+                multiplier=spec.multiplier,
                 facet_conn_master=spec.facet_conn_master,
                 backend=spec.backend,
             )

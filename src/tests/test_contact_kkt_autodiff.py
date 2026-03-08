@@ -25,6 +25,14 @@ def _tet4_fixture():
     return coords, conn, facets
 
 
+def _p0_multiplier(contact):
+    return ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master")
+
+
+def _nodal_multiplier():
+    return ff.ContactMultiplierSpace(family="nodal")
+
+
 def test_contact_kkt_matches_module_and_class_api():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(
@@ -45,21 +53,21 @@ def test_contact_kkt_matches_module_and_class_api():
             m_aa,
             m_ab,
             rho=3.0,
-            multiplier_space="p0",
+            multiplier=_p0_multiplier(contact),
             facet_conn_master=facets,
             backend="numpy",
             format="dense",
         )
     )
-    K_b = np.asarray(contact.assemble_contact_kkt(rho=3.0, multiplier_space="p0", backend="numpy", format="dense"))
+    K_b = np.asarray(contact.assemble_contact_kkt(rho=3.0, multiplier=_p0_multiplier(contact), backend="numpy", format="dense"))
     assert np.allclose(K_a, K_b, atol=1e-12)
 
-    K_flux = contact.assemble_contact_kkt(rho=3.0, multiplier_space="p0", backend="numpy")
+    K_flux = contact.assemble_contact_kkt(rho=3.0, multiplier=_p0_multiplier(contact), backend="numpy")
     assert hasattr(K_flux, "to_bcoo")
     K_flux_dense = np.asarray(K_flux.to_dense())
     assert np.allclose(K_a, K_flux_dense, atol=1e-12)
 
-    K_bcoo = contact.assemble_contact_kkt(rho=3.0, multiplier_space="p0", backend="jax", format="bcoo")
+    K_bcoo = contact.assemble_contact_kkt(rho=3.0, multiplier=_p0_multiplier(contact), backend="jax", format="bcoo")
     K_bcoo_dense = np.asarray(K_bcoo.todense())
     assert np.allclose(K_a, K_bcoo_dense, atol=1e-12)
 
@@ -81,12 +89,12 @@ def test_contact_constraint_operators_match_kkt_blocks():
     ops = ff.assemble_contact_constraint_operators(
         contact,
         rho=3.0,
-        multiplier_space="p0",
+        multiplier=_p0_multiplier(contact),
         backend="numpy",
     )
     K_dense, B_a_ref, B_b_ref = contact.assemble_contact_kkt(
         rho=3.0,
-        multiplier_space="p0",
+        multiplier=_p0_multiplier(contact),
         backend="numpy",
         format="dense",
         return_blocks=True,
@@ -98,6 +106,58 @@ def test_contact_constraint_operators_match_kkt_blocks():
 
     n_u = int(np.asarray(ops.B).shape[1])
     assert np.allclose(np.asarray(ops.Kuu), np.asarray(K_dense)[:n_u, :n_u], atol=1e-12)
+
+
+def test_contact_multiplier_object_path_is_consistent():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master")
+
+    ops_obj = ff.assemble_contact_constraint_operators(
+        contact,
+        rho=3.0,
+        multiplier=mult,
+        backend="numpy",
+    )
+    ops_ref = ff.assemble_contact_constraint_operators(
+        contact,
+        rho=3.0,
+        multiplier=_p0_multiplier(contact),
+        backend="numpy",
+    )
+    assert np.allclose(np.asarray(ops_obj.B), np.asarray(ops_ref.B), atol=1e-12)
+    assert np.allclose(np.asarray(ops_obj.Kuu), np.asarray(ops_ref.Kuu), atol=1e-12)
+    assert isinstance(ops_obj.multiplier, ff.ContactMultiplierSpace)
+
+    m_aa, m_ab = contact.assemble_contact_coupling_matrices()
+    K_obj = ff.assemble_contact_kkt(
+        m_aa,
+        m_ab,
+        rho=3.0,
+        multiplier=mult,
+        backend="numpy",
+        format="dense",
+    )
+    K_str = ff.assemble_contact_kkt(
+        m_aa,
+        m_ab,
+        rho=3.0,
+        multiplier=_p0_multiplier(contact),
+        facet_conn_master=facets,
+        backend="numpy",
+        format="dense",
+    )
+    assert np.allclose(np.asarray(K_obj), np.asarray(K_str), atol=1e-12)
 
 
 def test_contact_constraint_operators_default_formulation_is_multiplier():
@@ -117,14 +177,14 @@ def test_contact_constraint_operators_default_formulation_is_multiplier():
     ops_default = ff.assemble_contact_constraint_operators(
         contact,
         rho=3.0,
-        multiplier_space="p0",
+        multiplier=_p0_multiplier(contact),
         backend="numpy",
     )
     ops_formulation = ff.assemble_contact_constraint_operators(
         contact,
         formulation="multiplier",
         rho=3.0,
-        multiplier_space="p0",
+        multiplier=_p0_multiplier(contact),
         backend="numpy",
     )
 
@@ -221,6 +281,7 @@ def test_contact_constraint_operators_keep_law_formulation_metadata():
         law="coulomb_like",
         formulation="augmented_lagrangian",
         rho=1.0,
+        multiplier=_nodal_multiplier(),
     )
     assert isinstance(ops, ff.ContactOperators)
     assert ops.enforcement == "mortar"
@@ -268,10 +329,11 @@ def test_contact_constraint_operators_accept_penalty_style_inputs_for_api_symmet
         return {"a": np.array([0.0]), "b": np.array([0.0])}
 
     contact = _ContactStub()
-    ops_base = ff.assemble_contact_constraint_operators(contact, rho=1.0)
+    ops_base = ff.assemble_contact_constraint_operators(contact, rho=1.0, multiplier=_nodal_multiplier())
     ops_with_alias_inputs = ff.assemble_contact_constraint_operators(
         contact,
         rho=1.0,
+        multiplier=_nodal_multiplier(),
         weak_form=_dummy_res_form,
         state={"a": np.array([0.0]), "b": np.array([0.0])},
         params=object(),
@@ -309,7 +371,7 @@ def test_contact_constraint_operators_reject_partial_eval_inputs():
         return {"a": np.array([0.0]), "b": np.array([0.0])}
 
     with pytest.raises(ValueError, match="must be provided together"):
-        ff.assemble_contact_constraint_operators(_ContactStub(), weak_form=_dummy_res_form)
+        ff.assemble_contact_constraint_operators(_ContactStub(), multiplier=_nodal_multiplier(), weak_form=_dummy_res_form)
 
 
 def test_contact_constraint_operators_reject_penalty_formulation():
@@ -326,7 +388,7 @@ def test_contact_constraint_operators_reject_penalty_formulation():
         quad_order=1,
     )
     with pytest.raises(ValueError, match="Constraint operators are multiplier-family only"):
-        ff.assemble_contact_constraint_operators(contact, formulation="penalty")
+        ff.assemble_contact_constraint_operators(contact, multiplier=_nodal_multiplier(), formulation="penalty")
 
 
 def test_contact_constraint_eval_grad_state_matches_fd():
@@ -378,6 +440,7 @@ def test_contact_constraint_eval_grad_state_matches_fd():
         ops = ff.assemble_contact_constraint_operators(
             contact,
             rho=1.5,
+            multiplier=_nodal_multiplier(),
             backend="jax",
             weak_form=_dummy_res_form,
             state={"a": jnp.asarray([s]), "b": jnp.asarray([0.5])},
@@ -440,6 +503,7 @@ def test_contact_constraint_eval_grad_rho_matches_fd():
         ops = ff.assemble_contact_constraint_operators(
             contact,
             rho=rho,
+            multiplier=_nodal_multiplier(),
             backend="jax",
             weak_form=_dummy_res_form,
             state={"a": jnp.asarray([0.2]), "b": jnp.asarray([0.4])},
@@ -476,7 +540,7 @@ def test_contact_kkt_augmented_lagrangian_grad_rho_matches_fd():
     def objective(rho):
         K = contact.assemble_contact_kkt(
             rho=rho,
-            multiplier_space="p0",
+            multiplier=_p0_multiplier(contact),
             backend="jax",
             format="dense",
         )
@@ -512,7 +576,7 @@ def test_solve_contact_kkt_implicit_grad_rho_matches_fd():
     def objective(rho):
         K = contact.assemble_contact_kkt(
             rho=rho,
-            multiplier_space="p0",
+            multiplier=_p0_multiplier(contact),
             backend="jax",
             format="dense",
         )
@@ -522,7 +586,7 @@ def test_solve_contact_kkt_implicit_grad_rho_matches_fd():
     def objective_ref(rho):
         K = contact.assemble_contact_kkt(
             rho=rho,
-            multiplier_space="p0",
+            multiplier=_p0_multiplier(contact),
             backend="jax",
             format="dense",
         )
@@ -552,7 +616,7 @@ def test_solve_contact_kkt_implicit_grad_rhs_matches_ref():
     )
     K = contact.assemble_contact_kkt(
         rho=jnp.array(2.0),
-        multiplier_space="p0",
+        multiplier=_p0_multiplier(contact),
         backend="jax",
         format="dense",
     )
@@ -587,7 +651,7 @@ def test_solve_contact_kkt_implicit_grad_diagonal_shift_matches_ref():
     )
     K = contact.assemble_contact_kkt(
         rho=jnp.array(2.0),
-        multiplier_space="p0",
+        multiplier=_p0_multiplier(contact),
         backend="jax",
         format="dense",
     )
@@ -624,13 +688,13 @@ def test_solve_contact_kkt_sparse_gmres_grad_rhs_matches_dense_ref():
     )
     K_sparse = contact.assemble_contact_kkt(
         rho=2.0,
-        multiplier_space="p0",
+        multiplier=_p0_multiplier(contact),
         backend="jax",
         format="bcoo",
     )
     K_dense = contact.assemble_contact_kkt(
         rho=2.0,
-        multiplier_space="p0",
+        multiplier=_p0_multiplier(contact),
         backend="jax",
         format="dense",
     )
@@ -672,7 +736,7 @@ def test_solve_contact_kkt_sparse_spsolve_matches_dense_ref():
     )
     K_dense = contact.assemble_contact_kkt(
         rho=2.0,
-        multiplier_space="p0",
+        multiplier=_p0_multiplier(contact),
         backend="jax",
         format="dense",
     )
@@ -685,3 +749,46 @@ def test_solve_contact_kkt_sparse_spsolve_matches_dense_ref():
     u_sparse = ff.solve_contact_kkt(K_sparse, rhs, config=cfg)
     u_ref = jnp.linalg.solve(A_dense, rhs)
     assert np.allclose(np.asarray(u_sparse), np.asarray(u_ref), atol=1e-5, rtol=1e-5)
+
+
+def test_solve_contact_kkt_petsc_config_forwarding(monkeypatch):
+    import fluxfem.solver.petsc as petsc_mod
+
+    captured = {}
+
+    def _stub_petsc_shell_solve(A, b, **kwargs):
+        captured["A_shape"] = tuple(getattr(A, "shape", ()))
+        captured["b"] = np.asarray(b)
+        captured["kwargs"] = dict(kwargs)
+        return np.arange(np.asarray(b).shape[0], dtype=float)
+
+    monkeypatch.setattr(petsc_mod, "petsc_shell_solve", _stub_petsc_shell_solve)
+
+    K = np.array([[4.0, 1.0], [1.0, 3.0]], dtype=float)
+    rhs = np.array([1.0, 2.0], dtype=float)
+    cfg = ff.ContactKKTSolveConfig(
+        backend="petsc4py",
+        diagonal_shift=1e-3,
+        petsc_ksp_type="bcgs",
+        petsc_pc_type="jacobi",
+        petsc_preconditioner=None,
+        petsc_rtol=1e-7,
+        petsc_atol=1e-9,
+        petsc_max_it=123,
+        petsc_options={"ksp_monitor": None},
+        petsc_options_prefix="kkt_test_",
+    )
+
+    x = ff.solve_contact_kkt(K, rhs, config=cfg)
+    assert np.allclose(np.asarray(x), np.array([0.0, 1.0], dtype=float))
+    assert captured["A_shape"] == (2, 2)
+    assert np.allclose(captured["b"], rhs)
+    assert captured["kwargs"]["n_dofs"] == 2
+    assert captured["kwargs"]["ksp_type"] == "bcgs"
+    assert captured["kwargs"]["pc_type"] == "jacobi"
+    assert captured["kwargs"]["preconditioner"] is None
+    assert captured["kwargs"]["rtol"] == 1e-7
+    assert captured["kwargs"]["atol"] == 1e-9
+    assert captured["kwargs"]["max_it"] == 123
+    assert captured["kwargs"]["options"] == {"ksp_monitor": None}
+    assert captured["kwargs"]["options_prefix"] == "kkt_test_"

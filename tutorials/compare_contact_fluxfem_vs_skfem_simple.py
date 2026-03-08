@@ -152,8 +152,12 @@ def build_fluxfem_contact(
     contact = ff.ContactSurfaceSpace.from_facets(
         coords,
         facets,
-        elem_conn=conn,
-        value_dim=3,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=3,
+        value_dim_slave=3,
         quad_order=quad_order,
         normal_sign=normal_sign,
     )
@@ -161,33 +165,44 @@ def build_fluxfem_contact(
     E, nu = 210e9, 0.3
     lam, mu = ff.lame_parameters(E, nu)
 
-    def bilin(v1, v2, u1, u2, p):
+    def res_a(v, u, p):
         n = h_wf.normal()
-        ju = u1.val - u2.val
-        t_u = 0.5 * (h_wf.traction(u1, n, p) + h_wf.traction(u2, n, p))
-        t_v1 = h_wf.traction(v1, n, p)
-        t_v2 = h_wf.traction(v2, n, p)
-        penalty = (p.alpha * p.inv_h) * (h_wf.dot(v1, ju) - h_wf.dot(v2, ju))
-        traction = -h_wf.dot(v1, t_u) + h_wf.dot(v2, t_u)
-        traction -= 0.5 * wf_einsum("qia,qi->qa", t_v1, ju)
-        traction -= 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
-        if not use_penalty:
-            penalty = 0.0
-        if not use_traction:
-            traction = 0.0
+        u_b = ff.unknown_ref("b")
+        ju = u.val - u_b.val
+        t_u = 0.5 * (h_wf.traction(u, n, p) + h_wf.traction(u_b, n, p))
+        t_v = h_wf.traction(v, n, p)
+        penalty = p.use_penalty * (p.alpha * p.inv_h) * h_wf.dot(v, ju)
+        traction = p.use_traction * (-h_wf.dot(v, t_u) - 0.5 * wf_einsum("qia,qi->qa", t_v, ju))
+        return (penalty + traction) * h_wf.ds()
+
+    def res_b(v, u, p):
+        n = h_wf.normal()
+        u_a = ff.unknown_ref("a")
+        ju = u_a.val - u.val
+        t_u = 0.5 * (h_wf.traction(u_a, n, p) + h_wf.traction(u, n, p))
+        t_v = h_wf.traction(v, n, p)
+        penalty = p.use_penalty * (-(p.alpha * p.inv_h) * h_wf.dot(v, ju))
+        traction = p.use_traction * (h_wf.dot(v, t_u) - 0.5 * wf_einsum("qia,qi->qa", t_v, ju))
         return (penalty + traction) * h_wf.ds()
 
     u_a = jnp.zeros(coords.shape[0] * 3)
     u_b = jnp.zeros(coords.shape[0] * 3)
-    params = ff.Params(alpha=float(alpha), inv_h=float(1.0 / h), lam=float(lam), mu=float(mu))
-    K = contact.assemble_bilinear(
-        bilin,
-        u_a,
-        u_b,
-        params=params,
-        sparse=False,
+    params = ff.Params(
+        alpha=float(alpha),
+        inv_h=float(1.0 / h),
+        lam=float(lam),
+        mu=float(mu),
+        use_penalty=float(use_penalty),
+        use_traction=float(use_traction),
     )
-    return np.asarray(K)
+    ops = ff.assemble_contact_penalty_operators(
+        contact,
+        weak_form=ff.compile_mixed_surface_residual({"a": res_a, "b": res_b}),
+        state={"a": u_a, "b": u_b},
+        params=params,
+        backend="numpy",
+    )
+    return np.asarray(ops.jacobian)
 
 
 def build_skfem_contact(
@@ -326,6 +341,7 @@ def _rel_err(a: float, b: float) -> float:
 if __name__ == "__main__":
     alpha = float(os.getenv("ALPHA", "10.0"))
     h = float(os.getenv("H_REF", "1.0"))
+    no_jac_mode = os.getenv("COMPARE_NO_JAC", "0").strip().lower() in {"1", "true", "yes"}
     quad_order = int(os.getenv("QUAD_ORDER", "5"))
     normal_sign = float(os.getenv("NORMAL_SIGN", "-1.0"))
 
@@ -338,11 +354,14 @@ if __name__ == "__main__":
     def _enabled(name: str) -> bool:
         return not only_elems or name.lower() in only_elems
 
-    print(f"[simple] quad_order={quad_order}")
+    print(f"[simple] no_jac={int(no_jac_mode)} quad_order={quad_order}")
     for elem in elems:
         if not _enabled(elem):
             continue
         for name, use_penalty, use_traction in cases:
+            if no_jac_mode:
+                print(f"[{elem}/{name}] COMPARE_NO_JAC=1 -> skip Jacobian assembly/comparison")
+                continue
             K_sf, h_ref = build_skfem_contact(
                 elem,
                 alpha=alpha,

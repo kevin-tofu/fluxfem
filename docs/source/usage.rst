@@ -10,3 +10,4 @@ Usage
    solver
    space
    usage_contact
+   contact_api_boundaries
