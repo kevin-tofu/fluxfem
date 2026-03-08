@@ -5,6 +5,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+from .._runtime_warn import warn_float32_assembly_once
 from ..mesh import HexMesh, StructuredHexBox
 from .dtypes import INDEX_DTYPE
 from .forms import FormContext
@@ -503,6 +504,7 @@ def assemble_bilinear_form(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> FluxSparseMatrix:
+    warn_float32_assembly_once(context="volume assembly")
     """
     Assemble a sparse bilinear form into a FluxSparseMatrix.
 
@@ -631,6 +633,7 @@ def assemble_mass_matrix(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> MassReturn:
+    warn_float32_assembly_once(context="mass-matrix assembly")
     """
     Assemble mass matrix M_ij = ∫ N_i N_j dΩ.
     Supports scalar and vector spaces. If lumped=True, rows are summed to diagonal.
@@ -746,6 +749,7 @@ def assemble_linear_form(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
+    warn_float32_assembly_once(context="linear-form assembly")
     """
     Expects form(ctx, params) -> (n_q, n_ldofs) and integrates Σ_q form * wJ for RHS.
     If kernel is provided: kernel(ctx) -> (n_ldofs,).
@@ -922,6 +926,7 @@ def assemble_bilinear_linear_pair(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> PairReturn:
+    warn_float32_assembly_once(context="paired bilinear/linear assembly")
     from ..solver import FluxSparseMatrix
     n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
         policy=policy,
@@ -1261,6 +1266,7 @@ def assemble_residual(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
+    warn_float32_assembly_once(context="residual assembly")
     from .assembly_residual import assemble_residual as _impl
     return _impl(
         space,
@@ -1288,6 +1294,7 @@ def assemble_jacobian(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> JacobianReturn:
+    warn_float32_assembly_once(context="jacobian assembly")
     from .assembly_jacobian import assemble_jacobian as _impl
     return _impl(
         space,

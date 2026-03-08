@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 import numpy.typing as npt
 
+from .._runtime_warn import warn_float32_assembly_once
 from .contact_interface import (
     assemble_contact_interface_jacobian as _assemble_contact_interface_jacobian,
     assemble_contact_interface_residual as _assemble_contact_interface_residual,
@@ -756,6 +757,7 @@ def assemble_contact_constraint_operators(
     sparse: bool = False,
     batch_jac: bool | None = None,
 ) -> ContactOperators:
+    warn_float32_assembly_once(context="contact constraint assembly")
     """Assemble constraint-family operators (coupling/B/Kuu, optionally residual/jacobian metadata)."""
     if weak_form is not None and res_form is not None and weak_form is not res_form:
         raise ValueError("weak_form and res_form are aliases; provide only one.")
@@ -859,6 +861,7 @@ def assemble_contact_penalty_operators(
     sparse: bool = False,
     batch_jac: bool | None = None,
 ) -> ContactOperators:
+    warn_float32_assembly_once(context="contact penalty assembly")
     """Assemble penalty-family operators (residual/jacobian)."""
     f_arg = None if formulation is None else str(formulation).lower()
     if f_arg is not None and f_arg in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
@@ -911,6 +914,7 @@ def assemble_contact_kkt(
     format: str = "fluxsparse",
     return_blocks: bool = False,
 ):
+    warn_float32_assembly_once(context="contact KKT assembly")
     """
     Assemble contact KKT block from coupling matrices.
 
