@@ -7,7 +7,29 @@ import warnings
 import numpy as np
 import numpy.typing as npt
 
-from .._runtime_warn import warn_float32_assembly_once
+try:
+    from .._runtime_warn import warn_float32_assembly_once
+except Exception:  # pragma: no cover
+    _WARNED_FLOAT32_CONTACT_ASSEMBLY = False
+
+    def warn_float32_assembly_once(*, context: str = "assembly") -> None:
+        global _WARNED_FLOAT32_CONTACT_ASSEMBLY
+        if _WARNED_FLOAT32_CONTACT_ASSEMBLY:
+            return
+        try:
+            import jax
+        except Exception:
+            return
+        if bool(jax.config.read("jax_enable_x64")):
+            return
+        _WARNED_FLOAT32_CONTACT_ASSEMBLY = True
+        warnings.warn(
+            "Running in float32 mode (x64 disabled). "
+            f"{context} can suffer from residual/conditioning degradation; "
+            "use x64 for reliable diagnostics.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 from .contact_interface import (
     assemble_contact_interface_jacobian as _assemble_contact_interface_jacobian,
     assemble_contact_interface_residual as _assemble_contact_interface_residual,
