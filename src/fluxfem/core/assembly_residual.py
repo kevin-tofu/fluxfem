@@ -104,6 +104,7 @@ def assemble_residual_scatter(
     u: jnp.ndarray,
     params: Any,
     *,
+    backend: str = "jax",
     kernel=None,
     sparse: bool = False,
     vector_accumulation: str = "scatter",
@@ -116,6 +117,8 @@ def assemble_residual_scatter(
     Avoids Python loops; good for JIT stability.
     """
     from . import assembly as _a
+    if backend not in {"jax", "numpy"}:
+        raise ValueError("backend must be 'jax' or 'numpy'")
 
     n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _a._resolve_assembly_policy(
         policy=policy,
@@ -137,6 +140,28 @@ def assemble_residual_scatter(
         if np.min(elem_dofs) < 0:
             raise ValueError("elem_dofs contains negative index")
     ker = kernel if kernel is not None else _a.make_element_residual_kernel(res_form, params)
+
+    if backend == "numpy":
+        if n_chunks is not None:
+            raise ValueError("backend='numpy' currently supports only non-chunked assembly.")
+        elem_dofs_np = np.asarray(elem_dofs, dtype=int)
+        u_np = np.asarray(u)
+        ctxs = space.build_form_contexts(include_x_q=include_x_q, lightweight=lightweight_context)
+        n_elems = int(elem_dofs_np.shape[0])
+        data_parts: list[np.ndarray] = []
+        for e in range(n_elems):
+            ctx_e = jax.tree_util.tree_map(lambda x: x[e], ctxs)
+            u_elem = u_np[elem_dofs_np[e]]
+            fe = np.asarray(ker(ctx_e, u_elem), dtype=float).reshape(-1)
+            data_parts.append(fe)
+        data = np.concatenate(data_parts, axis=0) if data_parts else np.zeros((0,), dtype=float)
+        rows = np.asarray(_a._get_elem_rows(space), dtype=int)
+        if sparse:
+            return rows, data, n_dofs
+        F = np.zeros((int(n_dofs),), dtype=float)
+        if data.size:
+            np.add.at(F, rows, data)
+        return F
 
     u_elems = u[elem_dofs]
     if n_chunks is None:
@@ -294,6 +319,7 @@ def assemble_residual(
     u: jnp.ndarray,
     params: Any,
     *,
+    backend: str = "jax",
     kernel=None,
     sparse: bool = False,
     vector_accumulation: str = "scatter",
@@ -310,6 +336,7 @@ def assemble_residual(
         form,
         u,
         params,
+        backend=backend,
         kernel=kernel,
         sparse=sparse,
         vector_accumulation=vector_accumulation,

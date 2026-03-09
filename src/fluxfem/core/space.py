@@ -497,6 +497,7 @@ class FESpaceClosure:
         form: FormKernel[P],
         params: P,
         *,
+        backend: str = "jax",
         policy: AssemblyPolicy | None = None,
         dep: jnp.ndarray | None = None,
         kernel: ElementBilinearKernel | None = None,
@@ -508,7 +509,7 @@ class FESpaceClosure:
         if "pattern" not in kwargs or kwargs.get("pattern") is None:
             kwargs["pattern"] = self.get_sparsity_pattern(with_idx=True)
         return assemble_bilinear_form(
-            self, form, params, policy=policy, dep=dep, kernel=kernel, **kwargs
+            self, form, params, backend=backend, policy=policy, dep=dep, kernel=kernel, **kwargs
         )
 
     def assemble_linear_form(
@@ -516,6 +517,7 @@ class FESpaceClosure:
         form: FormKernel[P],
         params: P,
         *,
+        backend: str = "jax",
         policy: AssemblyPolicy | None = None,
         dep: jnp.ndarray | None = None,
         kernel: ElementLinearKernel | None = None,
@@ -529,6 +531,7 @@ class FESpaceClosure:
             self,
             form,
             params,
+            backend=backend,
             policy=policy,
             dep=dep,
             kernel=kernel,
@@ -543,6 +546,7 @@ class FESpaceClosure:
         linear_form: FormKernel[P],
         linear_params: P,
         *,
+        backend: str = "jax",
         policy: AssemblyPolicy | None = None,
         dep: jnp.ndarray | None = None,
         bilinear_kernel: ElementBilinearKernel | None = None,
@@ -560,6 +564,7 @@ class FESpaceClosure:
             bilinear_params,
             linear_form,
             linear_params,
+            backend=backend,
             policy=policy,
             dep=dep,
             bilinear_kernel=bilinear_kernel,
@@ -568,19 +573,26 @@ class FESpaceClosure:
             **kwargs,
         )
 
-    def assemble_functional(self, form: FormKernel[P], params: P) -> jnp.ndarray:
+    def assemble_functional(
+        self,
+        form: FormKernel[P],
+        params: P,
+        *,
+        backend: str = "jax",
+    ) -> jnp.ndarray | np.ndarray:
         from .assembly import assemble_functional
-        return assemble_functional(self, form, params)
+        return assemble_functional(self, form, params, backend=backend)
 
     def assemble_mass_matrix(
         self,
         *,
+        backend: str = "jax",
         policy: AssemblyPolicy | None = None,
         **kwargs,
     ) -> MassReturn:
         from .assembly import assemble_mass_matrix
         _reject_legacy_policy_kwargs(kwargs)
-        return assemble_mass_matrix(self, policy=policy, **kwargs)
+        return assemble_mass_matrix(self, backend=backend, policy=policy, **kwargs)
 
     def assemble_bilinear_dense(
         self,
@@ -596,6 +608,7 @@ class FESpaceClosure:
         u: jnp.ndarray,
         params: P,
         *,
+        backend: str = "jax",
         kernel: ElementResidualKernel | None = None,
         policy: AssemblyPolicy | None = None,
         vector_accumulation: Literal["segment", "scatter"] = "scatter",
@@ -608,6 +621,7 @@ class FESpaceClosure:
             res_form,
             u,
             params,
+            backend=backend,
             kernel=kernel,
             policy=policy,
             vector_accumulation=vector_accumulation,
