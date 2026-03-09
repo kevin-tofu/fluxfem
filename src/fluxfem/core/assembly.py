@@ -491,6 +491,7 @@ def assemble_bilinear_form(
     form: FormKernel[P],
     params: P,
     *,
+    backend: str = "jax",
     pattern: SparsityPattern | None = None,
     n_chunks: Optional[int] = None,   # None -> no chunking
     dep: jnp.ndarray | None = None,
@@ -510,6 +511,8 @@ def assemble_bilinear_form(
     If kernel is provided: kernel(ctx) -> (n_ldofs, n_ldofs).
     """
     from ..solver import FluxSparseMatrix
+    if backend not in {"jax", "numpy"}:
+        raise ValueError("backend must be 'jax' or 'numpy'")
     include_x_q_req = include_x_q
     if include_x_q_req is None and policy is None:
         include_x_q_req = False
@@ -531,7 +534,36 @@ def assemble_bilinear_form(
         pat = pattern
 
     if kernel is None:
-        kernel = make_element_bilinear_kernel(form, params, jit=jit)
+        kernel_jit = jit if backend == "jax" else False
+        kernel = make_element_bilinear_kernel(form, params, jit=kernel_jit)
+    if backend == "numpy":
+        if n_chunks is not None:
+            raise ValueError("backend='numpy' currently supports only non-chunked assembly.")
+        if elem_data is not None:
+            elem_data_use = elem_data
+        else:
+            def _eval_np(include_x_q_eff: bool) -> FormContext:
+                return space.build_form_contexts(
+                    dep=dep,
+                    include_x_q=include_x_q_eff,
+                    lightweight=lightweight_context,
+                )
+
+            try:
+                elem_data_use = _eval_np(include_x_q)
+            except Exception:
+                if include_x_q:
+                    raise
+                elem_data_use = _eval_np(True)
+        n_elems = int(space.elem_dofs.shape[0])
+        data_parts: list[np.ndarray] = []
+        for e in range(n_elems):
+            ctx_e = jax.tree_util.tree_map(lambda x: x[e], elem_data_use)
+            ke = np.asarray(kernel(ctx_e), dtype=float)
+            data_parts.append(ke.reshape(-1))
+        data_np = np.concatenate(data_parts, axis=0) if data_parts else np.zeros((0,), dtype=float)
+        return FluxSparseMatrix(pat, data_np)
+
     vmapped_kernel = jax.vmap(kernel)
 
     if n_chunks is None or (jax.core.trace_ctx.is_top_level() and not chunk_build_context):
@@ -626,6 +658,7 @@ def assemble_bilinear_form(
 def assemble_mass_matrix(
     space: SpaceLike,
     *,
+    backend: str = "jax",
     lumped: bool = False,
     n_chunks: Optional[int] = None,
     pad_trace: bool | None = None,
@@ -636,6 +669,8 @@ def assemble_mass_matrix(
     Supports scalar and vector spaces. If lumped=True, rows are summed to diagonal.
     """
     from ..solver import FluxSparseMatrix  # local import to avoid circular
+    if backend not in {"jax", "numpy"}:
+        raise ValueError("backend must be 'jax' or 'numpy'")
     n_ldofs = int(space.n_ldofs)
     n_chunks, _include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
         policy=policy,
@@ -650,6 +685,32 @@ def assemble_mass_matrix(
         wJ = ctx.w * ctx.test.detJ
         vd = int(getattr(ctx.test, "value_dim", 1))
         return _element_mass_local(N, wJ, vd)
+
+    if backend == "numpy":
+        if n_chunks is not None:
+            raise ValueError("backend='numpy' currently supports only non-chunked assembly.")
+        ctxs = space.build_form_contexts(include_x_q=False, lightweight=lightweight_context)
+        n_elems = int(space.elem_dofs.shape[0])
+        data_parts: list[np.ndarray] = []
+        for e in range(n_elems):
+            ctx_e = jax.tree_util.tree_map(lambda x: x[e], ctxs)
+            me = np.asarray(per_element(ctx_e), dtype=float)
+            data_parts.append(me.reshape(-1))
+        data = np.concatenate(data_parts, axis=0) if data_parts else np.zeros((0,), dtype=float)
+        pat = _get_pattern(space, with_idx=False)
+        if pat is None:
+            elem_dofs = np.asarray(space.elem_dofs, dtype=int)
+            rows = np.repeat(elem_dofs, n_ldofs, axis=1).reshape(-1)
+            cols = np.tile(elem_dofs, (1, n_ldofs)).reshape(-1)
+        else:
+            rows = np.asarray(pat.rows, dtype=int)
+            cols = np.asarray(pat.cols, dtype=int)
+        if lumped:
+            M = np.zeros((int(space.n_dofs),), dtype=float)
+            if data.size:
+                np.add.at(M, rows, data)
+            return M
+        return FluxSparseMatrix(rows, cols, data, n_dofs=space.n_dofs)
 
     if n_chunks is None:
         ctxs = space.build_form_contexts(include_x_q=False, lightweight=lightweight_context)
@@ -734,6 +795,7 @@ def assemble_linear_form(
     form: FormKernel[P],
     params: P,
     *,
+    backend: str = "jax",
     kernel: ElementLinearKernel | None = None,
     sparse: bool = False,
     vector_accumulation: Literal["segment", "scatter"] = "scatter",
@@ -750,6 +812,8 @@ def assemble_linear_form(
     Expects form(ctx, params) -> (n_q, n_ldofs) and integrates Σ_q form * wJ for RHS.
     If kernel is provided: kernel(ctx) -> (n_ldofs,).
     """
+    if backend not in {"jax", "numpy"}:
+        raise ValueError("backend must be 'jax' or 'numpy'")
     elem_dofs = space.elem_dofs
     n_dofs = space.n_dofs
     n_ldofs = space.n_ldofs
@@ -782,6 +846,30 @@ def assemble_linear_form(
             )  # (m,)
     else:
         per_element = kernel
+
+    if backend == "numpy":
+        if n_chunks is not None:
+            raise ValueError("backend='numpy' currently supports only non-chunked assembly.")
+        if elem_data is None:
+            elem_data = space.build_form_contexts(
+                dep=dep,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+            )
+        n_elems = int(space.elem_dofs.shape[0])
+        data_parts: list[np.ndarray] = []
+        for e in range(n_elems):
+            ctx_e = jax.tree_util.tree_map(lambda x: x[e], elem_data)
+            fe = np.asarray(per_element(ctx_e), dtype=float).reshape(-1)
+            data_parts.append(fe)
+        data = np.concatenate(data_parts, axis=0) if data_parts else np.zeros((0,), dtype=float)
+        rows = np.asarray(_get_elem_rows(space), dtype=int)
+        if sparse:
+            return rows, data, n_dofs
+        F = np.zeros((int(n_dofs),), dtype=float)
+        if data.size:
+            np.add.at(F, rows, data)
+        return F
 
     if n_chunks is None or (jax.core.trace_ctx.is_top_level() and not chunk_build_context):
         if elem_data is None:
@@ -908,6 +996,7 @@ def assemble_bilinear_linear_pair(
     linear_form: FormKernel[P],
     linear_params: P,
     *,
+    backend: str = "jax",
     pattern: SparsityPattern | None = None,
     n_chunks: Optional[int] = None,
     dep: jnp.ndarray | None = None,
@@ -923,6 +1012,8 @@ def assemble_bilinear_linear_pair(
     policy: AssemblyPolicy | None = None,
 ) -> PairReturn:
     from ..solver import FluxSparseMatrix
+    if backend not in {"jax", "numpy"}:
+        raise ValueError("backend must be 'jax' or 'numpy'")
     n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _resolve_assembly_policy(
         policy=policy,
         n_chunks=n_chunks,
@@ -941,9 +1032,17 @@ def assemble_bilinear_linear_pair(
         pat = pattern
 
     if bilinear_kernel is None:
-        bilinear_kernel = make_element_bilinear_kernel(bilinear_form, bilinear_params, jit=jit)
+        bilinear_kernel = make_element_bilinear_kernel(
+            bilinear_form,
+            bilinear_params,
+            jit=(jit if backend == "jax" else False),
+        )
     if linear_kernel is None:
-        linear_kernel = make_element_linear_kernel(linear_form, linear_params, jit=jit)
+        linear_kernel = make_element_linear_kernel(
+            linear_form,
+            linear_params,
+            jit=(jit if backend == "jax" else False),
+        )
     if vector_accumulation not in ("segment", "scatter"):
         raise ValueError(
             f"vector_accumulation must be 'segment' or 'scatter' (got {vector_accumulation!r})"
@@ -951,6 +1050,31 @@ def assemble_bilinear_linear_pair(
 
     n_elems = int(space.elem_dofs.shape[0])
     n_ldofs = int(space.n_ldofs)
+
+    if backend == "numpy":
+        if n_chunks is not None:
+            raise ValueError("backend='numpy' currently supports only non-chunked assembly.")
+        if elem_data is None:
+            elem_data = space.build_form_contexts(
+                dep=dep,
+                include_x_q=include_x_q,
+                lightweight=lightweight_context,
+            )
+        K_data_parts: list[np.ndarray] = []
+        F_data_parts: list[np.ndarray] = []
+        for e in range(n_elems):
+            ctx_e = jax.tree_util.tree_map(lambda x: x[e], elem_data)
+            ke = np.asarray(bilinear_kernel(ctx_e), dtype=float).reshape(-1)
+            fe = np.asarray(linear_kernel(ctx_e), dtype=float).reshape(-1)
+            K_data_parts.append(ke)
+            F_data_parts.append(fe)
+        K_data = np.concatenate(K_data_parts, axis=0) if K_data_parts else np.zeros((0,), dtype=float)
+        F_data = np.concatenate(F_data_parts, axis=0) if F_data_parts else np.zeros((0,), dtype=float)
+        rows = np.asarray(_get_elem_rows(space), dtype=int)
+        F = np.zeros((int(space.n_dofs),), dtype=float)
+        if F_data.size:
+            np.add.at(F, rows, F_data)
+        return FluxSparseMatrix(pat, K_data), F
 
     if n_chunks is None or (jax.core.trace_ctx.is_top_level() and not chunk_build_context):
         if elem_data is None:
@@ -1038,11 +1162,19 @@ def assemble_bilinear_linear_pair(
     return FluxSparseMatrix(pat, K_data), F
 
 
-def assemble_functional(space: SpaceLike, form: FormKernel[P], params: P) -> jnp.ndarray:
+def assemble_functional(
+    space: SpaceLike,
+    form: FormKernel[P],
+    params: P,
+    *,
+    backend: str = "jax",
+) -> jnp.ndarray | np.ndarray:
     """
     Assemble scalar functional J = ∫ form(ctx, params) dΩ.
     Expects form(ctx, params) -> (n_q,) or (n_q, 1).
     """
+    if backend not in {"jax", "numpy"}:
+        raise ValueError("backend must be 'jax' or 'numpy'")
     elem_data = space.build_form_contexts()
 
     includes_measure = getattr(form, "_includes_measure", False)
@@ -1057,6 +1189,14 @@ def assemble_functional(space: SpaceLike, form: FormKernel[P], params: P) -> jnp
             wJ,
             includes_measure=bool(includes_measure),
         )
+
+    if backend == "numpy":
+        n_elems = int(space.elem_dofs.shape[0])
+        total = 0.0
+        for e in range(n_elems):
+            ctx_e = jax.tree_util.tree_map(lambda x: x[e], elem_data)
+            total += float(np.asarray(per_element(ctx_e)))
+        return np.asarray(total, dtype=float)
 
     vals = jax.vmap(per_element)(elem_data)
     return jnp.sum(vals)
@@ -1254,6 +1394,7 @@ def assemble_residual(
     u: jnp.ndarray,
     params: P,
     *,
+    backend: str = "jax",
     kernel: ElementResidualKernel | None = None,
     sparse: bool = False,
     vector_accumulation: Literal["segment", "scatter"] = "scatter",
@@ -1267,6 +1408,7 @@ def assemble_residual(
         form,
         u,
         params,
+        backend=backend,
         kernel=kernel,
         sparse=sparse,
         vector_accumulation=vector_accumulation,

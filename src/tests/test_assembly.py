@@ -104,6 +104,71 @@ def test_bilinear_form_chunk_consistency(n_chunks):
     assert np.allclose(np.asarray(K_ref), np.asarray(K_chk))
 
 
+def test_numpy_backend_forward_assembly_matches_jax():
+    mesh = ff.StructuredHexBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    K_jax = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="jax").to_dense())
+    K_np = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy").to_dense())
+    assert np.allclose(K_jax, K_np)
+
+    F_jax = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="jax"))
+    F_np = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy"))
+    assert np.allclose(F_jax, F_np)
+
+    A_jax, b_jax = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+        backend="jax",
+    )
+    A_np, b_np = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+        backend="numpy",
+    )
+    assert np.allclose(np.asarray(A_jax.to_dense()), np.asarray(A_np.to_dense()))
+    assert np.allclose(np.asarray(b_jax), np.asarray(b_np))
+
+
+def test_numpy_backend_chunked_assembly_not_supported():
+    mesh = ff.StructuredHexBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(2)
+
+    with pytest.raises(ValueError, match="backend='numpy' currently supports only non-chunked assembly."):
+        space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy", policy=pol)
+    with pytest.raises(ValueError, match="backend='numpy' currently supports only non-chunked assembly."):
+        space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy", policy=pol)
+    with pytest.raises(ValueError, match="backend='numpy' currently supports only non-chunked assembly."):
+        space.assemble_bilinear_linear_pair(
+            ff.diffusion_form,
+            1.0,
+            ff.scalar_body_force_form,
+            2.0,
+            backend="numpy",
+            policy=pol,
+        )
+    with pytest.raises(ValueError, match="backend='numpy' currently supports only non-chunked assembly."):
+        space.assemble_mass_matrix(backend="numpy", policy=pol)
+
+
+def test_numpy_backend_mass_matrix_matches_jax():
+    mesh = ff.StructuredHexBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    M_jax = np.asarray(space.assemble_mass_matrix(backend="jax").to_dense())
+    M_np = np.asarray(space.assemble_mass_matrix(backend="numpy").to_dense())
+    assert np.allclose(M_jax, M_np)
+
+    m_jax = np.asarray(space.assemble_mass_matrix(backend="jax", lumped=True))
+    m_np = np.asarray(space.assemble_mass_matrix(backend="numpy", lumped=True))
+    assert np.allclose(m_jax, m_np)
+
+
 def test_chunk_parity_none_vs_8_across_core_assembly_paths():
     """n_chunks=None and n_chunks=8 should match across core assembly entry points."""
     mesh = ff.StructuredHexBox(nx=9, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
@@ -224,6 +289,75 @@ def test_residual_vector_accumulation_equivalence(n_chunks):
         vector_accumulation="scatter",
     )
     assert np.allclose(np.asarray(r_seg), np.asarray(r_sca))
+
+
+def test_residual_numpy_backend_matches_jax():
+    mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+
+    def simple_residual(ctx, u_elem, _params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    r_jax = np.asarray(space.assemble_residual(simple_residual, u, params=None, backend="jax"))
+    r_np = np.asarray(space.assemble_residual(simple_residual, u, params=None, backend="numpy"))
+    assert np.allclose(r_jax, r_np)
+
+
+def test_residual_numpy_backend_chunked_not_supported():
+    mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(2)
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+
+    def simple_residual(ctx, u_elem, _params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    with pytest.raises(ValueError, match="backend='numpy' currently supports only non-chunked assembly."):
+        space.assemble_residual(simple_residual, u, params=None, backend="numpy", policy=pol)
+
+
+def test_numpy_backend_sparse_outputs_match_jax():
+    mesh = ff.StructuredHexBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+
+    rows_jax, data_jax, n_jax = space.assemble_linear_form(
+        ff.scalar_body_force_form,
+        params=2.0,
+        backend="jax",
+        sparse=True,
+    )
+    rows_np, data_np, n_np = space.assemble_linear_form(
+        ff.scalar_body_force_form,
+        params=2.0,
+        backend="numpy",
+        sparse=True,
+    )
+    assert int(n_jax) == int(n_np) == int(space.n_dofs)
+    assert np.array_equal(np.asarray(rows_jax), np.asarray(rows_np))
+    assert np.allclose(np.asarray(data_jax), np.asarray(data_np))
+
+    def simple_residual(ctx, u_elem, _params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    r_rows_jax, r_data_jax, r_n_jax = space.assemble_residual(
+        simple_residual,
+        u,
+        params=None,
+        backend="jax",
+        sparse=True,
+    )
+    r_rows_np, r_data_np, r_n_np = space.assemble_residual(
+        simple_residual,
+        u,
+        params=None,
+        backend="numpy",
+        sparse=True,
+    )
+    assert int(r_n_jax) == int(r_n_np) == int(space.n_dofs)
+    assert np.array_equal(np.asarray(r_rows_jax), np.asarray(r_rows_np))
+    assert np.allclose(np.asarray(r_data_jax), np.asarray(r_data_np))
 
 
 @pytest.mark.parametrize("n_chunks", [2, 8])
@@ -459,6 +593,29 @@ def test_functional_integrates_volume():
 
     val = float(space.assemble_functional(one, params=None))
     assert np.isclose(val, 24.0, rtol=1e-6, atol=1e-6)
+
+
+def test_functional_numpy_backend_matches_jax():
+    mesh = ff.StructuredHexBox(nx=2, ny=1, nz=1, lx=2.0, ly=3.0, lz=4.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    def one(ctx, params):
+        return jnp.ones_like(ctx.w)
+
+    jax_val = float(space.assemble_functional(one, params=None, backend="jax"))
+    np_val = float(space.assemble_functional(one, params=None, backend="numpy"))
+    assert np.isclose(jax_val, np_val, rtol=1e-6, atol=1e-6)
+
+
+def test_functional_backend_validation():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    def one(ctx, params):
+        return jnp.ones_like(ctx.w)
+
+    with pytest.raises(ValueError, match="backend must be 'jax' or 'numpy'"):
+        space.assemble_functional(one, params=None, backend="bad")
 
 
 def test_tag_axis_minmax_facets():
