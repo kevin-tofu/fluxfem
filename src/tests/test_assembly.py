@@ -134,27 +134,67 @@ def test_numpy_backend_forward_assembly_matches_jax():
     assert np.allclose(np.asarray(b_jax), np.asarray(b_np))
 
 
-def test_numpy_backend_chunked_assembly_not_supported():
-    mesh = ff.StructuredHexBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+def test_numpy_backend_chunked_pair_matches_nonchunked():
+    mesh = ff.StructuredTetTensorBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_tet_space(mesh, dim=1, intorder=2)
     pol = ff.AssemblyPolicy.chunked(2)
 
-    with pytest.raises(ValueError, match="backend='numpy' currently supports only non-chunked assembly."):
-        space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy", policy=pol)
-    with pytest.raises(ValueError, match="backend='numpy' currently supports only non-chunked assembly."):
-        space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy", policy=pol)
-    with pytest.raises(ValueError, match="backend='numpy' currently supports only non-chunked assembly."):
-        space.assemble_bilinear_linear_pair(
-            ff.diffusion_form,
-            1.0,
-            ff.scalar_body_force_form,
-            2.0,
-            backend="numpy",
-            policy=pol,
-        )
-    with pytest.raises(ValueError, match="backend='numpy' currently supports only non-chunked assembly."):
-        space.assemble_mass_matrix(backend="numpy", policy=pol)
+    K_ref = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy")
+    K_chk = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy", policy=pol)
+    assert np.allclose(np.asarray(K_ref.to_dense()), np.asarray(K_chk.to_dense()))
 
+    F_ref = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy"))
+    F_chk = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy", policy=pol))
+    assert np.allclose(F_ref, F_chk)
+
+    A_ref, b_ref = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+        backend="numpy",
+    )
+    A_chk, b_chk = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+        backend="numpy",
+        policy=pol,
+    )
+    assert np.allclose(np.asarray(A_ref.to_dense()), np.asarray(A_chk.to_dense()))
+    assert np.allclose(np.asarray(b_ref), np.asarray(b_chk))
+
+    mesh_hex = ff.StructuredHexBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space_hex = ff.make_hex_space(mesh_hex, dim=1, intorder=2)
+    with pytest.raises(ValueError, match="backend='numpy' currently supports only non-chunked assembly."):
+        space_hex.assemble_mass_matrix(backend="numpy", policy=pol)
+
+
+@pytest.mark.parametrize(
+    ("mesh", "make_space"),
+    [
+        (
+            ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build(),
+            ff.make_hex_space,
+        ),
+        (
+            ff.StructuredTetBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, order=2).build(),
+            ff.make_tet10_space,
+        ),
+    ],
+)
+def test_numpy_backend_chunked_scalar_diffusion_fast_path_matches_nonchunked(mesh, make_space):
+    space = make_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(2)
+
+    K_ref = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy").to_dense())
+    K_chk = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy", policy=pol).to_dense())
+    assert np.allclose(K_ref, K_chk)
+
+    F_ref = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy"))
+    F_chk = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy", policy=pol))
+    assert np.allclose(F_ref, F_chk)
 
 def test_numpy_backend_mass_matrix_matches_jax():
     mesh = ff.StructuredHexBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
@@ -581,6 +621,45 @@ def test_linear_form_constant_body_force():
     F = space.assemble_linear_form(ff.scalar_body_force_form, params=fval)
     expected = np.full((8,), fval / 8.0, dtype=np.float32)  # vol=1 → ∫N_i=1/8
     assert np.allclose(np.asarray(F), expected, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("mesh", "make_space"),
+    [
+        (
+            ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build(),
+            ff.make_hex_space,
+        ),
+        (
+            ff.StructuredTetBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, order=2).build(),
+            ff.make_tet10_space,
+        ),
+    ],
+)
+def test_numpy_backend_xq_dependent_scalar_body_force_matches_jax(mesh, make_space):
+    space = make_space(mesh, dim=1, intorder=2)
+
+    def body_force(x_q):
+        return 1.0 + 0.25 * x_q[:, 0] - 0.1 * x_q[:, 1] + 0.05 * x_q[:, 2]
+
+    rhs_form = ff.make_scalar_body_force_form(body_force)
+    F_jax = np.asarray(space.assemble_linear_form(rhs_form, params=None, backend="jax"))
+    F_np = np.asarray(space.assemble_linear_form(rhs_form, params=None, backend="numpy"))
+    assert np.allclose(F_jax, F_np, rtol=1e-6, atol=1e-6)
+
+
+def test_numpy_backend_chunked_xq_dependent_scalar_body_force_matches_nonchunked():
+    mesh = ff.StructuredHexBox(nx=3, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    pol = ff.AssemblyPolicy.chunked(2, include_x_q=True, lightweight_context=True)
+
+    def body_force(x_q):
+        return 1.0 + 0.2 * x_q[:, 0] - 0.05 * x_q[:, 1]
+
+    rhs_form = ff.make_scalar_body_force_form(body_force)
+    F_ref = np.asarray(space.assemble_linear_form(rhs_form, params=None, backend="numpy"))
+    F_chk = np.asarray(space.assemble_linear_form(rhs_form, params=None, backend="numpy", policy=pol))
+    assert np.allclose(F_ref, F_chk, rtol=1e-6, atol=1e-6)
 
 
 def test_functional_integrates_volume():

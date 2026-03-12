@@ -22,6 +22,18 @@ def test_space_data_from_closure_and_pytree():
     assert np.array_equal(np.asarray(data_closure.elem_dofs), np.asarray(data_pytree.elem_dofs))
 
 
+def test_closure_space_data_is_lazy():
+    mesh = _build_mesh()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    assert space.__dict__["data"] is None
+
+    data = space.data
+
+    assert data is space.__dict__["data"]
+    assert data.n_dofs == space.n_dofs
+
+
 def test_closure_space_jit_via_closure():
     mesh = _build_mesh()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
