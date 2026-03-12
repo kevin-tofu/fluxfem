@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Protocol
 
 import jax
@@ -919,18 +920,21 @@ def _tet_quadrature(degree: int) -> tuple[jnp.ndarray, jnp.ndarray]:
     return qp, qw
 
 
+@lru_cache(maxsize=None)
 def make_tet_basis(intorder: int = 2) -> TetLinearBasis:
     """Create a linear tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)
     return TetLinearBasis(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_tet_basis_pytree(intorder: int = 2) -> TetLinearBasisPytree:
     """Create a pytree linear tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)
     return TetLinearBasisPytree(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex_basis(intorder: int = 2) -> HexTriLinearBasis:
     """
     Trilinear hex basis with tensor-product Gauss-Legendre quadrature.
@@ -947,6 +951,7 @@ def make_hex_basis(intorder: int = 2) -> HexTriLinearBasis:
     return HexTriLinearBasis(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex_basis_pytree(intorder: int = 2) -> HexTriLinearBasisPytree:
     """Create a pytree trilinear hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
@@ -959,6 +964,7 @@ def make_hex_basis_pytree(intorder: int = 2) -> HexTriLinearBasisPytree:
     return HexTriLinearBasisPytree(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex20_basis(intorder: int = 2) -> HexSerendipityBasis20:
     """Create a serendipity hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
@@ -971,6 +977,7 @@ def make_hex20_basis(intorder: int = 2) -> HexSerendipityBasis20:
     return HexSerendipityBasis20(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex20_basis_pytree(intorder: int = 2) -> HexSerendipityBasis20Pytree:
     """Create a pytree serendipity hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
@@ -983,6 +990,7 @@ def make_hex20_basis_pytree(intorder: int = 2) -> HexSerendipityBasis20Pytree:
     return HexSerendipityBasis20Pytree(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex27_basis(intorder: int = 3) -> HexTriQuadraticBasis27:
     """Create a triquadratic hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
@@ -994,6 +1002,7 @@ def make_hex27_basis(intorder: int = 3) -> HexTriQuadraticBasis27:
     return HexTriQuadraticBasis27(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex27_basis_pytree(intorder: int = 3) -> HexTriQuadraticBasis27Pytree:
     """Create a pytree triquadratic hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
@@ -1005,12 +1014,14 @@ def make_hex27_basis_pytree(intorder: int = 3) -> HexTriQuadraticBasis27Pytree:
     return HexTriQuadraticBasis27Pytree(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_tet10_basis(intorder: int = 2) -> TetQuadraticBasis10:
     """Create a quadratic tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)
     return TetQuadraticBasis10(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_tet10_basis_pytree(intorder: int = 2) -> TetQuadraticBasis10Pytree:
     """Create a pytree quadratic tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)

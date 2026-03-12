@@ -126,7 +126,7 @@ class StructuredTetBox:
         coords = np.asarray(coords_list, dtype=DTYPE)
         conn = np.asarray(conn_list, dtype=NP_INDEX_DTYPE)
         conn = self._fix_orientation(coords, conn)
-        return TetMesh(coords=jnp.array(coords), conn=jnp.array(conn))
+        return TetMesh(coords=jnp.asarray(coords), conn=jnp.asarray(conn))
 
     def build(self) -> TetMesh:
         if self.nx <= 0 or self.ny <= 0 or self.nz <= 0:
@@ -177,7 +177,7 @@ class StructuredTetBox:
                     )
         conn = np.asarray(conn_list, dtype=NP_INDEX_DTYPE)
         conn = self._fix_orientation(coords, conn)
-        return TetMesh(coords=jnp.array(coords), conn=jnp.array(conn))
+        return TetMesh(coords=jnp.asarray(coords), conn=jnp.asarray(conn))
 
 
 @dataclass
@@ -252,4 +252,4 @@ class StructuredTetTensorBox:
         coords = p.T.astype(DTYPE, copy=False)
         conn: np.ndarray = T.T.astype(NP_INDEX_DTYPE, copy=False)
         conn = self._fix_orientation(coords, conn)
-        return TetMesh(coords=jnp.array(coords), conn=jnp.array(conn))
+        return TetMesh(coords=jnp.asarray(coords), conn=jnp.asarray(conn))

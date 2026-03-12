@@ -30,6 +30,13 @@ from ..mesh import HexMesh, StructuredHexBox
 from .dtypes import INDEX_DTYPE
 from .forms import FormContext
 from .space import FESpaceBase
+from .assembly_numpy import (
+    assemble_numpy_scalar_diffusion_body_force_data as _assemble_numpy_scalar_diffusion_body_force_data,
+    assemble_numpy_scalar_diffusion_pair_fast as _assemble_numpy_scalar_diffusion_pair_fast,
+    is_numpy_scalar_body_force_fast_path as _is_numpy_scalar_body_force_fast_path,
+    is_numpy_scalar_diffusion_body_force_pair_fast_path as _is_numpy_scalar_diffusion_body_force_pair_fast_path,
+    is_numpy_scalar_diffusion_fast_path as _is_numpy_scalar_diffusion_fast_path,
+)
 
 # Shared call signatures for kernels/forms
 Array: TypeAlias = jnp.ndarray
@@ -559,30 +566,39 @@ def assemble_bilinear_form(
         kernel_jit = jit if backend == "jax" else False
         kernel = make_element_bilinear_kernel(form, params, jit=kernel_jit)
     if backend == "numpy":
-        if n_chunks is not None:
-            raise ValueError("backend='numpy' currently supports only non-chunked assembly.")
-        if elem_data is not None:
-            elem_data_use = elem_data
-        else:
-            def _eval_np(include_x_q_eff: bool) -> FormContext:
-                return space.build_form_contexts(
-                    dep=dep,
-                    include_x_q=include_x_q_eff,
-                    lightweight=lightweight_context,
-                )
-
-            try:
-                elem_data_use = _eval_np(include_x_q)
-            except Exception:
-                if include_x_q:
-                    raise
-                elem_data_use = _eval_np(True)
-        n_elems = int(space.elem_dofs.shape[0])
+        if _is_numpy_scalar_diffusion_fast_path(space, form):
+            K_data, _F, _F_data = _assemble_numpy_scalar_diffusion_body_force_data(
+                space,
+                bilinear_params=float(params),
+                linear_params=0.0,
+                n_chunks=n_chunks,
+                pad_trace=pad_trace,
+            )
+            return FluxSparseMatrix(pat, K_data)
         data_parts: list[np.ndarray] = []
-        for e in range(n_elems):
-            ctx_e = jax.tree_util.tree_map(lambda x: x[e], elem_data_use)
-            ke = np.asarray(kernel(ctx_e), dtype=float)
-            data_parts.append(ke.reshape(-1))
+        if elem_data is not None:
+            raise NotImplementedError("backend='numpy' with explicit elem_data is not supported in generic mode.")
+        chunk_size_np = int(space.elem_dofs.shape[0]) if n_chunks is None else max(1, int(np.ceil(int(space.elem_dofs.shape[0]) / int(n_chunks))))
+        try:
+            ctx_chunks = space.build_form_contexts_numpy_chunked(
+                chunk_size=chunk_size_np,
+                dep=dep,
+                include_x_q=include_x_q,
+                lightweight=bool(lightweight_context),
+            )
+        except Exception:
+            if include_x_q:
+                raise
+            ctx_chunks = space.build_form_contexts_numpy_chunked(
+                chunk_size=chunk_size_np,
+                dep=dep,
+                include_x_q=True,
+                lightweight=bool(lightweight_context),
+            )
+        for ctxs in ctx_chunks:
+            for ctx_e in ctxs:
+                ke = np.asarray(kernel(ctx_e), dtype=float)
+                data_parts.append(ke.reshape(-1))
         data_np = np.concatenate(data_parts, axis=0) if data_parts else np.zeros((0,), dtype=float)
         return FluxSparseMatrix(pat, data_np)
 
@@ -872,20 +888,30 @@ def assemble_linear_form(
         per_element = kernel
 
     if backend == "numpy":
-        if n_chunks is not None:
-            raise ValueError("backend='numpy' currently supports only non-chunked assembly.")
-        if elem_data is None:
-            elem_data = space.build_form_contexts(
-                dep=dep,
-                include_x_q=include_x_q,
-                lightweight=lightweight_context,
+        if _is_numpy_scalar_body_force_fast_path(space, form):
+            _K_data, F, F_data = _assemble_numpy_scalar_diffusion_body_force_data(
+                space,
+                bilinear_params=0.0,
+                linear_params=float(params),
+                n_chunks=n_chunks,
+                pad_trace=pad_trace,
             )
-        n_elems = int(space.elem_dofs.shape[0])
+            if sparse:
+                return np.asarray(_get_elem_rows(space), dtype=int), F_data, n_dofs
+            return F
         data_parts: list[np.ndarray] = []
-        for e in range(n_elems):
-            ctx_e = jax.tree_util.tree_map(lambda x: x[e], elem_data)
-            fe = np.asarray(per_element(ctx_e), dtype=float).reshape(-1)
-            data_parts.append(fe)
+        if elem_data is not None:
+            raise NotImplementedError("backend='numpy' with explicit elem_data is not supported in generic mode.")
+        chunk_size_np = int(space.elem_dofs.shape[0]) if n_chunks is None else max(1, int(np.ceil(int(space.elem_dofs.shape[0]) / int(n_chunks))))
+        for ctxs in space.build_form_contexts_numpy_chunked(
+            chunk_size=chunk_size_np,
+            dep=dep,
+            include_x_q=include_x_q,
+            lightweight=bool(lightweight_context),
+        ):
+            for ctx_e in ctxs:
+                fe = np.asarray(per_element(ctx_e), dtype=float).reshape(-1)
+                data_parts.append(fe)
         data = np.concatenate(data_parts, axis=0) if data_parts else np.zeros((0,), dtype=float)
         rows = np.asarray(_get_elem_rows(space), dtype=int)
         if sparse:
@@ -1077,28 +1103,91 @@ def assemble_bilinear_linear_pair(
     n_ldofs = int(space.n_ldofs)
 
     if backend == "numpy":
-        if n_chunks is not None:
-            raise ValueError("backend='numpy' currently supports only non-chunked assembly.")
+        if _is_numpy_scalar_diffusion_body_force_pair_fast_path(space, bilinear_form, linear_form):
+            return _assemble_numpy_scalar_diffusion_pair_fast(
+                space,
+                bilinear_params=float(bilinear_params),
+                linear_params=float(linear_params),
+                pattern=pat,
+                n_chunks=n_chunks,
+                pad_trace=pad_trace,
+            )
+        bilinear_kernel_batched = jax.vmap(bilinear_kernel)
+        linear_kernel_batched = jax.vmap(linear_kernel)
         if elem_data is None:
             elem_data = space.build_form_contexts(
                 dep=dep,
                 include_x_q=include_x_q,
                 lightweight=lightweight_context,
             )
-        K_data_parts: list[np.ndarray] = []
-        F_data_parts: list[np.ndarray] = []
-        for e in range(n_elems):
-            ctx_e = jax.tree_util.tree_map(lambda x: x[e], elem_data)
-            ke = np.asarray(bilinear_kernel(ctx_e), dtype=float).reshape(-1)
-            fe = np.asarray(linear_kernel(ctx_e), dtype=float).reshape(-1)
-            K_data_parts.append(ke)
-            F_data_parts.append(fe)
-        K_data = np.concatenate(K_data_parts, axis=0) if K_data_parts else np.zeros((0,), dtype=float)
-        F_data = np.concatenate(F_data_parts, axis=0) if F_data_parts else np.zeros((0,), dtype=float)
+        if n_chunks is None:
+            assert elem_data is not None
+            Ke = np.asarray(bilinear_kernel_batched(elem_data), dtype=float)
+            Fe = np.asarray(linear_kernel_batched(elem_data), dtype=float)
+            K_data = Ke.reshape(-1)
+            F_data = Fe.reshape(-1)
+            rows = np.asarray(_get_elem_rows(space), dtype=int)
+            F = np.zeros((int(space.n_dofs),), dtype=float)
+            if F_data.size:
+                np.add.at(F, rows, F_data)
+            return FluxSparseMatrix(pat, K_data), F
+
+        n_chunks, chunk_size, pad, n_pad, valid_mask = _prepare_chunk_iteration(
+            n_elems=int(n_elems),
+            n_chunks=n_chunks,
+            pad_trace=pad_trace,
+        )
+        use_chunk_context = bool(dep is None and chunk_build_context)
+        use_chunk_context, conn_pad, elem_ids, elem_data_pad = _prepare_chunk_context_source(
+            space,
+            n_pad=int(n_pad),
+            pad=int(pad),
+            dep=dep,
+            include_x_q=include_x_q,
+            lightweight_context=lightweight_context,
+            chunk_build_context=use_chunk_context,
+            elem_data=elem_data,
+        )
+
+        def chunk_values_np(start: int) -> tuple[np.ndarray, np.ndarray]:
+            ctx_chunk = _chunk_context_from_source(
+                space,
+                start=start,
+                chunk_size=chunk_size,
+                use_chunk_context=use_chunk_context,
+                conn_pad=conn_pad,
+                elem_ids=elem_ids,
+                ctxs_pad=elem_data_pad,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+            )
+            Ke_chunk = np.asarray(bilinear_kernel_batched(ctx_chunk), dtype=float)
+            Fe_chunk = np.asarray(linear_kernel_batched(ctx_chunk), dtype=float)
+            return Ke_chunk, Fe_chunk
+
+        sample_ke, sample_fe = chunk_values_np(0)
+        m = int(sample_ke.shape[-1])
         rows = np.asarray(_get_elem_rows(space), dtype=int)
+        if pad:
+            rows_pad = np.concatenate([rows, np.repeat(rows[-n_ldofs:], pad * n_ldofs)])
+            valid_mask_np = np.asarray(valid_mask, dtype=bool)
+        else:
+            rows_pad = rows
+            valid_mask_np = None
+
+        K_parts: list[np.ndarray] = []
         F = np.zeros((int(space.n_dofs),), dtype=float)
-        if F_data.size:
-            np.add.at(F, rows, F_data)
+        for start in range(0, int(n_pad), int(chunk_size)):
+            Ke_chunk, Fe_chunk = chunk_values_np(start)
+            if valid_mask_np is not None:
+                mask = valid_mask_np[start : start + int(chunk_size)]
+                Ke_chunk = Ke_chunk[mask]
+                Fe_chunk = Fe_chunk[mask]
+            K_parts.append(Ke_chunk.reshape(-1))
+            if Fe_chunk.size:
+                chunk_rows = rows_pad[start * n_ldofs : (start + Fe_chunk.shape[0]) * n_ldofs]
+                np.add.at(F, chunk_rows, Fe_chunk.reshape(-1))
+        K_data = np.concatenate(K_parts, axis=0) if K_parts else np.zeros((0,), dtype=float)
         return FluxSparseMatrix(pat, K_data), F
 
     if n_chunks is None or (jax.core.trace_ctx.is_top_level() and not chunk_build_context):

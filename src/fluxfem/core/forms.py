@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
 
@@ -276,6 +277,78 @@ class FormContext:
             w,
             elem_id,
         )
+
+
+@dataclass(eq=False)
+class NumpyPrecomputedScalarFormField:
+    basis: Basis3D
+    _N: np.ndarray
+    _gradN: np.ndarray
+    _detJ: np.ndarray
+
+    @property
+    def N(self):
+        return self._N
+
+    @property
+    def gradN(self):
+        return self._gradN
+
+    @property
+    def detJ(self):
+        return self._detJ
+
+    def eval(self, u_elem: np.ndarray) -> np.ndarray:
+        return np.einsum("qa,a->q", self.N, u_elem)
+
+    def grad(self, u_elem: np.ndarray) -> np.ndarray:
+        return np.einsum("qaj,a->qj", self.gradN, u_elem)
+
+
+@dataclass(eq=False)
+class NumpyPrecomputedVectorFormField:
+    basis: Basis3D
+    value_dim: int
+    _N: np.ndarray
+    _gradN: np.ndarray
+    _detJ: np.ndarray
+
+    @property
+    def N(self):
+        return self._N
+
+    @property
+    def gradN(self):
+        return self._gradN
+
+    @property
+    def detJ(self):
+        return self._detJ
+
+    def eval(self, u_elem: np.ndarray) -> np.ndarray:
+        u_nodes = u_elem.reshape((-1, int(self.value_dim)))
+        return np.einsum("qa,ai->qi", self.N, u_nodes)
+
+    def grad(self, u_elem: np.ndarray) -> np.ndarray:
+        u_nodes = u_elem.reshape((-1, int(self.value_dim)))
+        return np.einsum("qaj,ai->qij", self.gradN, u_nodes)
+
+
+@dataclass(eq=False)
+class NumpyFormContext:
+    test: object
+    trial: object
+    x_q: np.ndarray
+    w: np.ndarray
+    elem_id: np.ndarray | int = 0
+
+    @property
+    def u(self):
+        return self.trial
+
+    @property
+    def v(self):
+        return self.test
 
 
 @jax.tree_util.register_pytree_node_class

@@ -184,7 +184,7 @@ class FESpaceClosure:
     value_dim: int = 1      # 1=scalar, 3=vector, etc.
     _n_dofs: int | None = None
     _n_ldofs: int | None = None
-    data: SpaceData | None = None
+    data: SpaceData | None = field(default=None, repr=False)
     _pattern_cache: PatternCache = field(default_factory=dict, repr=False)
     _kernel_cache: KernelCache = field(default_factory=dict, repr=False)
     _form_context_cache: dict[ContextCacheKey, FormContext] = field(default_factory=dict, repr=False)
@@ -199,7 +199,7 @@ class FESpaceClosure:
         if self._n_dofs is None:
             self._n_dofs = int(np.asarray(self.elem_dofs).max()) + 1
 
-        n_nodes = int(self.mesh.element_coords().shape[1])
+        n_nodes = int(self.mesh.conn.shape[1])
         expected = n_nodes * self.value_dim
         if self._n_ldofs != expected:
             raise ValueError(
@@ -207,8 +207,14 @@ class FESpaceClosure:
                 f"but n_nodes({n_nodes})*value_dim({self.value_dim})={expected}"
             )
 
-        if self.data is None:
-            self.data = SpaceData.from_space(self)
+    def __getattribute__(self, name: str):
+        if name == "data":
+            data = object.__getattribute__(self, "__dict__").get("data")
+            if data is None:
+                data = SpaceData.from_space(self)
+                object.__getattribute__(self, "__dict__")["data"] = data
+            return data
+        return object.__getattribute__(self, name)
 
     @property
     def n_dofs(self) -> int:
@@ -330,6 +336,40 @@ class FESpaceClosure:
         return FormContext(
             test=test, trial=trial, x_q=x_q,
             w=w, elem_id=elem_id
+        )
+
+    def build_form_contexts_numpy(
+        self,
+        dep: jnp.ndarray | None = None,
+        *,
+        include_x_q: bool = True,
+        lightweight: bool = True,
+    ):
+        from .space_numpy import build_form_contexts_numpy
+
+        return build_form_contexts_numpy(
+            self,
+            dep=dep,
+            include_x_q=include_x_q,
+            lightweight=lightweight,
+        )
+
+    def build_form_contexts_numpy_chunked(
+        self,
+        *,
+        chunk_size: int,
+        dep: jnp.ndarray | None = None,
+        include_x_q: bool = True,
+        lightweight: bool = True,
+    ):
+        from .space_numpy import build_form_contexts_numpy_chunked
+
+        yield from build_form_contexts_numpy_chunked(
+            self,
+            chunk_size=chunk_size,
+            dep=dep,
+            include_x_q=include_x_q,
+            lightweight=lightweight,
         )
 
     def make_batched_assembler(self, *, dep: jnp.ndarray | None = None, pattern=None):
@@ -719,12 +759,17 @@ def make_space(
     else:
         elem_dofs = element.dof_map(mesh.conn)
         value_dim = int(element.dim)
+    n_nodes = int(mesh.conn.shape[1])
+    n_dofs = int(mesh.coords.shape[0]) * value_dim
+    n_ldofs = n_nodes * value_dim
 
     return FESpace(
         mesh=mesh,
         basis=basis,
         elem_dofs=jnp.asarray(elem_dofs, dtype=INDEX_DTYPE),
-        value_dim=value_dim
+        value_dim=value_dim,
+        _n_dofs=n_dofs,
+        _n_ldofs=n_ldofs,
     )
 
 
@@ -785,6 +830,9 @@ def make_space_pytree(
     else:
         elem_dofs = element.dof_map(mesh.conn)
         value_dim = int(element.dim)
+    n_nodes = int(mesh.conn.shape[1])
+    n_dofs = int(mesh.coords.shape[0]) * value_dim
+    n_ldofs = n_nodes * value_dim
 
     mesh_py = _mesh_to_pytree(mesh)
     basis_py = _basis_to_pytree(basis)
@@ -794,6 +842,8 @@ def make_space_pytree(
         basis=basis_py,
         elem_dofs=jnp.asarray(elem_dofs, dtype=INDEX_DTYPE),
         value_dim=value_dim,
+        _n_dofs=n_dofs,
+        _n_ldofs=n_ldofs,
     )
 
 
