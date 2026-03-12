@@ -105,6 +105,7 @@ def assemble_jacobian_values(
     u: jnp.ndarray,
     params: Any,
     *,
+    backend: str = "jax",
     kernel=None,
     n_chunks: Optional[int] = None,
     pad_trace: bool | None = None,
@@ -114,6 +115,8 @@ def assemble_jacobian_values(
     Assemble only the numeric values for the Jacobian (pattern-free).
     """
     from . import assembly as _a
+    if backend != "jax":
+        raise NotImplementedError("assemble_jacobian backend='numpy' is not implemented.")
 
     include_x_q_req: bool | None = None if policy is not None else False
     n_chunks, include_x_q, lightweight_context, chunk_build_context, pad_trace = _a._resolve_assembly_policy(
@@ -207,6 +210,7 @@ def assemble_jacobian_scatter(
     u: jnp.ndarray,
     params: Any,
     *,
+    backend: str = "jax",
     kernel=None,
     pattern=None,
     n_chunks: Optional[int] = None,
@@ -219,6 +223,8 @@ def assemble_jacobian_scatter(
     """
     from . import assembly as _a
     from ..solver import FluxSparseMatrix
+    if backend != "jax":
+        raise NotImplementedError("assemble_jacobian backend='numpy' is not implemented.")
 
     if pattern is not None:
         pat = pattern
@@ -231,6 +237,7 @@ def assemble_jacobian_scatter(
         res_form,
         u,
         params,
+        backend=backend,
         kernel=kernel,
         n_chunks=n_chunks,
         pad_trace=pad_trace,
@@ -245,6 +252,7 @@ def assemble_jacobian(
     u: jnp.ndarray,
     params: Any,
     *,
+    backend: str = "jax",
     kernel=None,
     pattern=None,
     n_chunks: Optional[int] = None,
@@ -260,6 +268,7 @@ def assemble_jacobian(
         res_form,
         u,
         params,
+        backend=backend,
         kernel=kernel,
         pattern=pattern,
         n_chunks=n_chunks,
