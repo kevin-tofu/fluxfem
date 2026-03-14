@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Sequence, TYPE_CHECKING, TypeAlias
+from typing import Any, Callable, Mapping, Sequence, TYPE_CHECKING, TypeAlias, Union
 import warnings
 
 import numpy as np
@@ -48,8 +48,9 @@ if TYPE_CHECKING:
     from .contact_interface import ContactCouplingMatrix
     from ..core.weakform import Params as WeakParams
     from .contact_interface import SurfaceMixedFormContext
+    from ..solver import FluxSparseMatrix
 
-ContactJacobianReturn: TypeAlias = np.ndarray | tuple[np.ndarray, np.ndarray, np.ndarray, int]
+ContactJacobianReturn: TypeAlias = Union[np.ndarray, "FluxSparseMatrix"]
 MixedSurfaceResidualForm: TypeAlias = Callable[
     ["SurfaceMixedFormContext", Mapping[str, npt.ArrayLike], Any],
     Mapping[str, npt.ArrayLike],
@@ -117,6 +118,24 @@ class ContactMultiplierSpace:
             value_dim=int(value_dim),
             facet_conn=fc,
         )
+
+
+def _contact_sparse_to_coo(jacobian: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    if hasattr(jacobian, "to_coo"):
+        rows, cols, data, n_dofs = jacobian.to_coo()
+        return (
+            np.asarray(rows, dtype=int),
+            np.asarray(cols, dtype=int),
+            np.asarray(data, dtype=float),
+            int(n_dofs),
+        )
+    rows, cols, data, n_dofs = jacobian
+    return (
+        np.asarray(rows, dtype=int),
+        np.asarray(cols, dtype=int),
+        np.asarray(data, dtype=float),
+        int(n_dofs),
+    )
 
 
 @dataclass(frozen=True)
@@ -2462,6 +2481,8 @@ class OneToManyContactSurfaceSpace:
         n_master, slave_sizes, n_total = self._dof_layout()
         slave_offset = 0
         if sparse:
+            from ..solver import FluxSparseMatrix
+
             rows_all: list[np.ndarray] = []
             cols_all: list[np.ndarray] = []
             data_all: list[np.ndarray] = []
@@ -2475,16 +2496,16 @@ class OneToManyContactSurfaceSpace:
                     backend=backend,
                     batch_jac=batch_jac,
                 )
-                rows, cols, data, n_pair = j_local
-                if int(n_pair) != n_master + n_slave:
+                rows, cols, data, n_pair = _contact_sparse_to_coo(j_local)
+                if n_pair != n_master + n_slave:
                     raise ValueError("Pair Jacobian size mismatch while assembling sparse one-to-many Jacobian.")
                 rows_all.append(
-                    self._scatter_pair_indices(np.asarray(rows, dtype=int), n_master=n_master, slave_offset=slave_offset)
+                    self._scatter_pair_indices(rows, n_master=n_master, slave_offset=slave_offset)
                 )
                 cols_all.append(
-                    self._scatter_pair_indices(np.asarray(cols, dtype=int), n_master=n_master, slave_offset=slave_offset)
+                    self._scatter_pair_indices(cols, n_master=n_master, slave_offset=slave_offset)
                 )
-                data_all.append(np.asarray(data, dtype=float))
+                data_all.append(data)
                 slave_offset += n_slave
             if rows_all:
                 rows_out = np.concatenate(rows_all)
@@ -2494,7 +2515,7 @@ class OneToManyContactSurfaceSpace:
                 rows_out = np.zeros((0,), dtype=int)
                 cols_out = np.zeros((0,), dtype=int)
                 data_out = np.zeros((0,), dtype=float)
-            return rows_out, cols_out, data_out, n_total
+            return FluxSparseMatrix(rows_out, cols_out, data_out, n_dofs=n_total)
 
         K = np.zeros((n_total, n_total), dtype=float)
         for contact, u_slave, n_slave in zip(self.contacts, u_slaves, slave_sizes):
@@ -2548,6 +2569,8 @@ class OneToManyContactSurfaceSpace:
         n_master, slave_sizes, n_total = self._dof_layout()
         slave_offset = 0
         if sparse:
+            from ..solver import FluxSparseMatrix
+
             rows_all: list[np.ndarray] = []
             cols_all: list[np.ndarray] = []
             data_all: list[np.ndarray] = []
@@ -2560,16 +2583,16 @@ class OneToManyContactSurfaceSpace:
                     sparse=True,
                     normal_source=normal_source,
                 )
-                rows, cols, data, n_pair = j_local
-                if int(n_pair) != n_master + n_slave:
+                rows, cols, data, n_pair = _contact_sparse_to_coo(j_local)
+                if n_pair != n_master + n_slave:
                     raise ValueError("Pair Jacobian size mismatch while assembling sparse one-to-many bilinear.")
                 rows_all.append(
-                    self._scatter_pair_indices(np.asarray(rows, dtype=int), n_master=n_master, slave_offset=slave_offset)
+                    self._scatter_pair_indices(rows, n_master=n_master, slave_offset=slave_offset)
                 )
                 cols_all.append(
-                    self._scatter_pair_indices(np.asarray(cols, dtype=int), n_master=n_master, slave_offset=slave_offset)
+                    self._scatter_pair_indices(cols, n_master=n_master, slave_offset=slave_offset)
                 )
-                data_all.append(np.asarray(data, dtype=float))
+                data_all.append(data)
                 slave_offset += n_slave
             if rows_all:
                 rows_out = np.concatenate(rows_all)
@@ -2579,7 +2602,7 @@ class OneToManyContactSurfaceSpace:
                 rows_out = np.zeros((0,), dtype=int)
                 cols_out = np.zeros((0,), dtype=int)
                 data_out = np.zeros((0,), dtype=float)
-            return rows_out, cols_out, data_out, n_total
+            return FluxSparseMatrix(rows_out, cols_out, data_out, n_dofs=n_total)
 
         K = np.zeros((n_total, n_total), dtype=float)
         for contact, u_slave, n_slave in zip(self.contacts, u_slaves, slave_sizes):

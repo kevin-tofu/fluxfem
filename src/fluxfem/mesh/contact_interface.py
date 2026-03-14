@@ -4221,7 +4221,14 @@ def assemble_contact_interface_jacobian(
                 K_dense=K_dense,
             )
             if sparse:
-                return np.asarray(rows, dtype=int), np.asarray(cols, dtype=int), np.asarray(data, dtype=float), n_total
+                from ..solver import FluxSparseMatrix
+
+                return FluxSparseMatrix(
+                    np.asarray(rows, dtype=int),
+                    np.asarray(cols, dtype=int),
+                    np.asarray(data, dtype=float),
+                    n_dofs=n_total,
+                )
             assert K_dense is not None
             return K_dense
 
@@ -4578,7 +4585,9 @@ def assemble_contact_interface_jacobian(
                     rows_np = np.zeros((0,), dtype=int)
                     cols_np = np.zeros((0,), dtype=int)
                     data_np = np.zeros((0,), dtype=float)
-                return rows_np, cols_np, data_np, n_total
+                from ..solver import FluxSparseMatrix
+
+                return FluxSparseMatrix(rows_np, cols_np, data_np, n_dofs=n_total)
             assert K_dense is not None
             return K_dense
 
@@ -4706,7 +4715,14 @@ def assemble_contact_interface_jacobian(
     if proj_diag:
         _proj_diag_report()
     if sparse:
-        return np.asarray(rows, dtype=int), np.asarray(cols, dtype=int), np.asarray(data, dtype=float), n_total
+        from ..solver import FluxSparseMatrix
+
+        return FluxSparseMatrix(
+            np.asarray(rows, dtype=int),
+            np.asarray(cols, dtype=int),
+            np.asarray(data, dtype=float),
+            n_dofs=n_total,
+        )
     assert K_dense is not None
     return K_dense
 
