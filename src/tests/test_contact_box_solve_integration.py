@@ -79,7 +79,7 @@ def test_contact_solve_box_12x12x12_vs_2x2x2():
         weak_form=_penalty_residual_form(),
         state={"a": jnp.zeros(int(top_space.n_dofs)), "b": jnp.zeros(int(support_space.n_dofs))},
         params=ff.Params(alpha=40.0, inv_h=1.0),
-        backend="numpy",
+        backend="jax",
     )
 
     K_u = sp.block_diag((K_top.to_csr(), K_support.to_csr()), format="csr")
@@ -105,7 +105,16 @@ def test_contact_solve_box_12x12x12_vs_2x2x2():
             diagonal_shift=1.0e-8,
         )
     )
+    K_csr, F = system.assemble(format="csr")
+    K_coo = K_csr.tocoo()
+    K_flux = ff.FluxSparseMatrix(K_coo.row, K_coo.col, K_coo.data, K_csr.shape[0])
+    K_bc, F_bc = ff.enforce_dirichlet_sparse(K_flux, F, dir_dofs, 0.0)
+    K_bc = K_bc + 1.0e-8 * sp.eye(K_bc.shape[0], format="csr")
+    residual = np.asarray(K_bc @ sol - F_bc, dtype=float)
+    free = np.setdiff1d(np.arange(sol.shape[0], dtype=int), np.asarray(dir_dofs, dtype=int))
+
     u_top = sol[: int(top_space.n_dofs)]
     assert np.all(np.isfinite(sol))
     assert np.linalg.norm(u_top) > 0.0
     assert float(np.mean(u_top)) < 0.0
+    assert float(np.linalg.norm(residual[free])) < 1.0e-7

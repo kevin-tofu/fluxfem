@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Iterator, Literal, Mapping, TypeAlias, cast, get_args
+from typing import Any, Callable, ClassVar, Iterator, Literal, Mapping, TypeAlias, cast, get_args
 import inspect
 from dataclasses import dataclass
 from functools import update_wrapper
@@ -72,9 +72,10 @@ def _pretty_render_arg(arg, prec: int | None = None) -> str:
     if isinstance(arg, Expr):
         return _pretty_expr(arg, prec or 0)
     if isinstance(arg, FieldRef):
+        suffix = f"@{arg.space_key}" if arg.space_key is not None else ""
         if arg.name is None:
-            return f"{arg.role}"
-        return f"{arg.role}:{arg.name}"
+            return f"{arg.role}{suffix}"
+        return f"{arg.role}:{arg.name}{suffix}"
     if isinstance(arg, ParamRef):
         return "param"
     return repr(arg)
@@ -309,6 +310,7 @@ class FieldRef:
 
     role: str
     name: str | None = None
+    space_key: str | None = None
 
     @property
     def val(self):
@@ -363,6 +365,46 @@ class FieldRef:
                 "FieldRef | FieldRef is not supported; use outer(test, trial) for basis kernels."
             )
         return Expr("dot", _as_expr(other), self)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class TrialRef(FieldRef):
+    """Symbolic reference to a trial field."""
+
+    ROLE: ClassVar[str] = "trial"
+
+    def __init__(self, name: str | None = "u", *, space_key: str | None = None):
+        FieldRef.__init__(self, role=self.ROLE, name=name, space_key=space_key)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class TestRef(FieldRef):
+    """Symbolic reference to a test field."""
+
+    ROLE: ClassVar[str] = "test"
+
+    def __init__(self, name: str | None = "v", *, space_key: str | None = None):
+        FieldRef.__init__(self, role=self.ROLE, name=name, space_key=space_key)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class UnknownRef(FieldRef):
+    """Symbolic reference to the current unknown field."""
+
+    ROLE: ClassVar[str] = "unknown"
+
+    def __init__(self, name: str | None = "u", *, space_key: str | None = None):
+        FieldRef.__init__(self, role=self.ROLE, name=name, space_key=space_key)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ZeroRef(FieldRef):
+    """Symbolic reference to a zero-valued field."""
+
+    ROLE: ClassVar[str] = "zero"
+
+    def __init__(self, name: str, *, space_key: str | None = None):
+        FieldRef.__init__(self, role=self.ROLE, name=name, space_key=space_key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,19 +463,19 @@ class _ZeroFieldNp:
         self.basis = getattr(base, "basis", None)
 
 
-def trial_ref(name: str | None = "u") -> FieldRef:
+def trial_ref(name: str | None = "u", *, space: str | None = None) -> FieldRef:
     """Create a symbolic trial field reference."""
-    return FieldRef(role="trial", name=name)
+    return TrialRef(name=name, space_key=space)
 
 
-def test_ref(name: str | None = "v") -> FieldRef:
+def test_ref(name: str | None = "v", *, space: str | None = None) -> FieldRef:
     """Create a symbolic test field reference."""
-    return FieldRef(role="test", name=name)
+    return TestRef(name=name, space_key=space)
 
 
-def unknown_ref(name: str | None = "u") -> FieldRef:
+def unknown_ref(name: str | None = "u", *, space: str | None = None) -> FieldRef:
     """Create a symbolic unknown (current solution) field reference."""
-    return FieldRef(role="unknown", name=name)
+    return UnknownRef(name=name, space_key=space)
 
 
 def param_ref() -> ParamRef:
@@ -441,9 +483,40 @@ def param_ref() -> ParamRef:
     return ParamRef()
 
 
-def zero_ref(name: str) -> FieldRef:
+def zero_ref(name: str, *, space: str | None = None) -> FieldRef:
     """Create a zero-valued field reference (shape derived from context)."""
-    return FieldRef("zero", name)
+    return ZeroRef(name, space_key=space)
+
+
+def _resolve_space_bundle(
+    ctx: WeakFormContext,
+    key: str | None,
+):
+    if key is None:
+        return None
+    spaces = getattr(ctx, "spaces", None)
+    if spaces is None:
+        return None
+    return spaces.get(key)
+
+
+def _select_from_bundle(obj: FieldRef, bundle):
+    if bundle is None:
+        return None
+    if isinstance(obj, TrialRef):
+        return getattr(bundle, "trial", None)
+    if isinstance(obj, TestRef):
+        return getattr(bundle, "test", None)
+    if isinstance(obj, UnknownRef):
+        unknown = getattr(bundle, "unknown", None)
+        if unknown is not None:
+            return unknown
+        return getattr(bundle, "trial", None)
+    if isinstance(obj, ZeroRef):
+        base = getattr(bundle, "test", None) or getattr(bundle, "trial", None)
+        if base is not None:
+            return base
+    return None
 
 
 def _eval_field(
@@ -452,63 +525,60 @@ def _eval_field(
     params: ParamsLike,
 ) -> FormFieldLike:
     if isinstance(obj, FieldRef):
-        if obj.role == "zero":
-            if obj.name is None:
+        if isinstance(obj, ZeroRef):
+            lookup_key = obj.space_key or obj.name
+            if lookup_key is None:
                 raise ValueError("zero_ref requires a named field.")
             base = None
-            test_fields = getattr(ctx, "test_fields", None)
-            if test_fields is not None and obj.name in test_fields:
-                base = test_fields[obj.name]
-            trial_fields = getattr(ctx, "trial_fields", None)
-            if base is None and trial_fields is not None and obj.name in trial_fields:
-                base = trial_fields[obj.name]
-            fields = getattr(ctx, "fields", None)
-            if base is None and fields is not None and obj.name in fields:
-                group = fields[obj.name]
+            bundle = _resolve_space_bundle(ctx, obj.space_key)
+            if bundle is not None:
+                base = _select_from_bundle(obj, bundle)
+            bindings = getattr(ctx, "bindings", getattr(ctx, "fields", None))
+            if base is None and bindings is not None and lookup_key in bindings:
+                group = bindings[lookup_key]
                 if hasattr(group, "test"):
                     base = group.test
                 elif hasattr(group, "trial"):
                     base = group.trial
             if base is None:
-                raise ValueError(f"zero_ref could not resolve field '{obj.name}'.")
+                raise ValueError(f"zero_ref could not resolve field '{lookup_key}'.")
             return _ZeroField(base)
+        if obj.space_key is not None:
+            bundle = _resolve_space_bundle(ctx, obj.space_key)
+            selected = _select_from_bundle(obj, bundle)
+            if selected is not None:
+                return selected
         if obj.name is not None:
-            mixed_fields = getattr(ctx, "fields", None)
-            if mixed_fields is not None and obj.name in mixed_fields:
-                group = mixed_fields[obj.name]
-                if hasattr(group, "trial") and obj.role == "trial":
+            bindings = getattr(ctx, "bindings", getattr(ctx, "fields", None))
+            if bindings is not None and obj.name in bindings:
+                group = bindings[obj.name]
+                if hasattr(group, "trial") and isinstance(obj, TrialRef):
                     return group.trial
-                if hasattr(group, "test") and obj.role == "test":
+                if hasattr(group, "test") and isinstance(obj, TestRef):
                     return group.test
-                if hasattr(group, "unknown") and obj.role == "unknown":
+                if hasattr(group, "unknown") and isinstance(obj, UnknownRef):
                     return group.unknown if group.unknown is not None else group.trial
-            trial_fields = getattr(ctx, "trial_fields", None)
-            if obj.role == "trial" and trial_fields is not None and obj.name in trial_fields:
-                return trial_fields[obj.name]
-            test_fields = getattr(ctx, "test_fields", None)
-            if obj.role == "test" and test_fields is not None and obj.name in test_fields:
-                return test_fields[obj.name]
-            unknown_fields = getattr(ctx, "unknown_fields", None)
-            if obj.role == "unknown" and unknown_fields is not None and obj.name in unknown_fields:
-                return unknown_fields[obj.name]
-            fields = getattr(ctx, "fields", None)
-            if fields is not None and obj.name in fields:
-                group = fields[obj.name]
+            if bindings is not None and obj.name in bindings:
+                group = bindings[obj.name]
                 if isinstance(group, dict):
                     if obj.role in group:
                         return group[obj.role]
                     if "field" in group:
                         return group["field"]
                 return group
-        if obj.role == "trial":
+        default_bundle = _resolve_space_bundle(ctx, getattr(ctx, "default_space", None))
+        selected_default = _select_from_bundle(obj, default_bundle)
+        if selected_default is not None:
+            return selected_default
+        if isinstance(obj, TrialRef):
             return ctx.trial
-        if obj.role == "test":
+        if isinstance(obj, TestRef):
             if hasattr(ctx, "test"):
                 return ctx.test
             if hasattr(ctx, "v"):
                 return ctx.v
             raise ValueError("Surface context is missing test field.")
-        if obj.role == "unknown":
+        if isinstance(obj, UnknownRef):
             return getattr(ctx, "unknown", ctx.trial)
         raise ValueError(f"Unknown field role: {obj.role}")
     raise TypeError("Expected a field reference for this operator.")
@@ -520,63 +590,60 @@ def _eval_field_np(
     params: ParamsLike,
 ) -> FormFieldLike:
     if isinstance(obj, FieldRef):
-        if obj.role == "zero":
-            if obj.name is None:
+        if isinstance(obj, ZeroRef):
+            lookup_key = obj.space_key or obj.name
+            if lookup_key is None:
                 raise ValueError("zero_ref requires a named field.")
             base = None
-            test_fields = getattr(ctx, "test_fields", None)
-            if test_fields is not None and obj.name in test_fields:
-                base = test_fields[obj.name]
-            trial_fields = getattr(ctx, "trial_fields", None)
-            if base is None and trial_fields is not None and obj.name in trial_fields:
-                base = trial_fields[obj.name]
-            fields = getattr(ctx, "fields", None)
-            if base is None and fields is not None and obj.name in fields:
-                group = fields[obj.name]
+            bundle = _resolve_space_bundle(ctx, obj.space_key)
+            if bundle is not None:
+                base = _select_from_bundle(obj, bundle)
+            bindings = getattr(ctx, "bindings", getattr(ctx, "fields", None))
+            if base is None and bindings is not None and lookup_key in bindings:
+                group = bindings[lookup_key]
                 if hasattr(group, "test"):
                     base = group.test
                 elif hasattr(group, "trial"):
                     base = group.trial
             if base is None:
-                raise ValueError(f"zero_ref could not resolve field '{obj.name}'.")
+                raise ValueError(f"zero_ref could not resolve field '{lookup_key}'.")
             return _ZeroFieldNp(base)
+        if obj.space_key is not None:
+            bundle = _resolve_space_bundle(ctx, obj.space_key)
+            selected = _select_from_bundle(obj, bundle)
+            if selected is not None:
+                return selected
         if obj.name is not None:
-            mixed_fields = getattr(ctx, "fields", None)
-            if mixed_fields is not None and obj.name in mixed_fields:
-                group = mixed_fields[obj.name]
-                if hasattr(group, "trial") and obj.role == "trial":
+            bindings = getattr(ctx, "bindings", getattr(ctx, "fields", None))
+            if bindings is not None and obj.name in bindings:
+                group = bindings[obj.name]
+                if hasattr(group, "trial") and isinstance(obj, TrialRef):
                     return group.trial
-                if hasattr(group, "test") and obj.role == "test":
+                if hasattr(group, "test") and isinstance(obj, TestRef):
                     return group.test
-                if hasattr(group, "unknown") and obj.role == "unknown":
+                if hasattr(group, "unknown") and isinstance(obj, UnknownRef):
                     return group.unknown if group.unknown is not None else group.trial
-            trial_fields = getattr(ctx, "trial_fields", None)
-            if obj.role == "trial" and trial_fields is not None and obj.name in trial_fields:
-                return trial_fields[obj.name]
-            test_fields = getattr(ctx, "test_fields", None)
-            if obj.role == "test" and test_fields is not None and obj.name in test_fields:
-                return test_fields[obj.name]
-            unknown_fields = getattr(ctx, "unknown_fields", None)
-            if obj.role == "unknown" and unknown_fields is not None and obj.name in unknown_fields:
-                return unknown_fields[obj.name]
-            fields = getattr(ctx, "fields", None)
-            if fields is not None and obj.name in fields:
-                group = fields[obj.name]
+            if bindings is not None and obj.name in bindings:
+                group = bindings[obj.name]
                 if isinstance(group, dict):
                     if obj.role in group:
                         return group[obj.role]
                     if "field" in group:
                         return group["field"]
                 return group
-        if obj.role == "trial":
+        default_bundle = _resolve_space_bundle(ctx, getattr(ctx, "default_space", None))
+        selected_default = _select_from_bundle(obj, default_bundle)
+        if selected_default is not None:
+            return selected_default
+        if isinstance(obj, TrialRef):
             return ctx.trial
-        if obj.role == "test":
+        if isinstance(obj, TestRef):
             if hasattr(ctx, "test"):
                 return ctx.test
             if hasattr(ctx, "v"):
                 return ctx.v
             raise ValueError("Surface context is missing test field.")
-        if obj.role == "unknown":
+        if isinstance(obj, UnknownRef):
             return getattr(ctx, "unknown", ctx.trial)
         raise ValueError(f"Unknown field role: {obj.role}")
     raise TypeError("Expected a field reference for this operator.")
@@ -599,10 +666,10 @@ def _extract_unknown_elem(field_ref: FieldRef, u_elem: UElement) -> ArrayLike:
     if u_elem is None:
         raise ValueError("u_elem is required to evaluate unknown field value.")
     if isinstance(u_elem, dict):
-        name = field_ref.name or "u"
-        if name not in u_elem:
-            raise ValueError(f"u_elem is missing key '{name}'.")
-        return u_elem[name]
+        key = field_ref.space_key or field_ref.name or "u"
+        if key not in u_elem:
+            raise ValueError(f"u_elem is missing key '{key}'.")
+        return u_elem[key]
     return u_elem
 
 
@@ -759,7 +826,7 @@ def outer(a, b) -> Expr:
     """Outer product of scalar fields: `outer(v, u)` (test, trial)."""
     if not isinstance(a, FieldRef) or not isinstance(b, FieldRef):
         raise TypeError("outer expects FieldRef operands.")
-    if a.role != "test" or b.role != "trial":
+    if not isinstance(a, TestRef) or not isinstance(b, TrialRef):
         raise TypeError("outer expects outer(test, trial).")
     return Expr("outer", a, b)
 
@@ -1058,7 +1125,7 @@ def _validate_eval_plan(nodes: tuple[Expr, ...]) -> None:
         elif op == "outer":
             if len(args) != 2 or not all(isinstance(arg, FieldRef) for arg in args):
                 raise TypeError("outer expects two FieldRef operands.")
-            if args[0].role != "test" or args[1].role != "trial":
+            if not isinstance(args[0], TestRef) or not isinstance(args[1], TrialRef):
                 raise TypeError("outer expects outer(test, trial).")
 
 
@@ -1112,7 +1179,7 @@ def eval_with_plan(
             ref = args[0]
             assert isinstance(ref, FieldRef)
             field = _eval_field(ref, ctx_w, params)
-            if ref.role == "unknown":
+            if isinstance(ref, UnknownRef):
                 vals[i] = _eval_unknown_value(ref, field, u_elem)
             else:
                 vals[i] = field.N
@@ -1121,7 +1188,7 @@ def eval_with_plan(
             ref = args[0]
             assert isinstance(ref, FieldRef)
             field = _eval_field(ref, ctx_w, params)
-            if ref.role == "unknown":
+            if isinstance(ref, UnknownRef):
                 vals[i] = _eval_unknown_grad(ref, field, u_elem)
             else:
                 vals[i] = field.gradN
@@ -1166,7 +1233,7 @@ def eval_with_plan(
             ref = args[0]
             assert isinstance(ref, FieldRef)
             field = _eval_field(ref, ctx_w, params)
-            if ref.role == "unknown":
+            if isinstance(ref, UnknownRef):
                 if u_elem is None:
                     raise ValueError("u_elem is required to evaluate unknown sym_grad.")
                 u_local = _extract_unknown_elem(ref, u_elem)
@@ -1382,7 +1449,7 @@ def eval_with_plan_numpy(
             ref = args[0]
             assert isinstance(ref, FieldRef)
             field = _eval_field_np(ref, ctx_w, params)
-            if ref.role == "unknown":
+            if isinstance(ref, UnknownRef):
                 vals[i] = _eval_unknown_value_np(ref, field, u_elem)
             else:
                 vals[i] = field.N
@@ -1391,7 +1458,7 @@ def eval_with_plan_numpy(
             ref = args[0]
             assert isinstance(ref, FieldRef)
             field = _eval_field_np(ref, ctx_w, params)
-            if ref.role == "unknown":
+            if isinstance(ref, UnknownRef):
                 vals[i] = _eval_unknown_grad_np(ref, field, u_elem)
             else:
                 vals[i] = field.gradN
@@ -1436,7 +1503,7 @@ def eval_with_plan_numpy(
             ref = args[0]
             assert isinstance(ref, FieldRef)
             field = _eval_field_np(ref, ctx_w, params)
-            if ref.role == "unknown":
+            if isinstance(ref, UnknownRef):
                 if u_elem is None:
                     raise ValueError("u_elem is required to evaluate unknown sym_grad.")
                 u_local = _extract_unknown_elem(ref, u_elem)
@@ -1756,6 +1823,37 @@ class ResidualForm:
         return compile_residual(self.fn)
 
 
+@dataclass(frozen=True)
+class MixedResidualBinding:
+    """Bind a residual label to a target mixed field and optional space key."""
+
+    target: str
+    fn: Callable | Expr
+    space: str | None = None
+
+
+def bind_mixed_residual(
+    target: str,
+    fn: Callable | Expr,
+    *,
+    space: str | None = None,
+) -> MixedResidualBinding:
+    """Create an explicit mixed residual binding."""
+    return MixedResidualBinding(target=target, fn=fn, space=space)
+
+
+def _normalize_mixed_residuals(
+    residuals: Mapping[str, Callable | Expr | MixedResidualBinding],
+) -> dict[str, MixedResidualBinding]:
+    normalized: dict[str, MixedResidualBinding] = {}
+    for label, spec in residuals.items():
+        if isinstance(spec, MixedResidualBinding):
+            normalized[label] = spec
+        else:
+            normalized[label] = MixedResidualBinding(target=label, fn=spec, space=label)
+    return normalized
+
+
 def compile_residual(fn):
     """get_compiled a residual weak form (v, u, params) -> Expr into a kernel."""
     if isinstance(fn, Expr):
@@ -1788,17 +1886,27 @@ def compile_residual(fn):
     return _tag_form(_form, kind="residual", domain="volume")
 
 
-def compile_mixed_residual(residuals: dict[str, Callable]):
-    """get_compiled mixed residuals keyed by field name."""
+def compile_mixed_residual(residuals: Mapping[str, Callable | Expr | MixedResidualBinding]):
+    """Compile mixed residuals keyed by residual label."""
     compiled = {}
     plans = {}
     includes_measure = {}
-    for name, fn in residuals.items():
+    bindings = _normalize_mixed_residuals(residuals)
+    target_by_label = {label: binding.target for label, binding in bindings.items()}
+    space_by_target = {
+        binding.target: binding.space
+        for binding in bindings.values()
+        if binding.space is not None
+    }
+    for name, binding in bindings.items():
+        fn = binding.fn
         if isinstance(fn, Expr):
             expr = fn
         else:
-            v = test_ref(name)
-            u = unknown_ref(name)
+            target = binding.target
+            space_key = binding.space or target
+            v = test_ref(target, space=space_key)
+            u = unknown_ref(target, space=space_key)
             p = param_ref()
             expr = _call_user(fn, v, u, params=p)
         expr = _as_expr(expr)
@@ -1808,7 +1916,8 @@ def compile_mixed_residual(residuals: dict[str, Callable]):
         plans[name] = make_eval_plan(expr)
         volume_count = _count_op(compiled[name], "volume_measure")
         surface_count = _count_op(compiled[name], "surface_measure")
-        includes_measure[name] = volume_count == 1
+        target = binding.target
+        includes_measure[target] = bool(includes_measure.get(target, False) or volume_count == 1)
         if volume_count == 0:
             raise ValueError(f"Mixed residual '{name}' must include dOmega().")
         if volume_count > 1:
@@ -1817,18 +1926,17 @@ def compile_mixed_residual(residuals: dict[str, Callable]):
             raise ValueError(f"Mixed residual '{name}' must not include ds().")
 
     class _MixedContextView:
-        def __init__(self, ctx, field_name: str):
+        def __init__(self, ctx, residual_label: str):
             self._ctx = ctx
-            self.fields = ctx.fields
+            self.bindings = ctx.bindings
+            self.spaces = getattr(ctx, "spaces", None)
+            self.default_space = getattr(ctx, "default_space", None)
             self.x_q = ctx.x_q
             self.w = ctx.w
             self.elem_id = ctx.elem_id
-            self.trial_fields = ctx.trial_fields
-            self.test_fields = ctx.test_fields
-            self.unknown_fields = ctx.unknown_fields
             self.unknown = ctx.unknown
 
-            pair = ctx.fields[field_name]
+            pair = ctx.bindings[target_by_label[residual_label]]
             self.test = pair.test
             self.trial = pair.trial
             self.v = pair.test
@@ -1841,26 +1949,42 @@ def compile_mixed_residual(residuals: dict[str, Callable]):
             return getattr(self._ctx, name)
 
     def _form(ctx, u_elem, params):
-        return {
-            name: eval_with_plan(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
-            for name, plan in plans.items()
-        }
+        out = {}
+        for name, plan in plans.items():
+            target = target_by_label[name]
+            value = eval_with_plan(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
+            if target in out:
+                out[target] = out[target] + value
+            else:
+                out[target] = value
+        return out
 
     _form._includes_measure = includes_measure  # type: ignore[attr-defined]
+    _form._space_by_target = space_by_target  # type: ignore[attr-defined]
     return _tag_form(_form, kind="residual", domain="volume")
 
 
 def compile_mixed_surface_residual(residuals: dict[str, Callable]):
-    """get_compiled mixed surface residuals keyed by field name."""
+    """Compile mixed surface residuals keyed by residual label."""
     compiled = {}
     plans = {}
     includes_measure = {}
-    for name, fn in residuals.items():
+    bindings = _normalize_mixed_residuals(residuals)
+    target_by_label = {label: binding.target for label, binding in bindings.items()}
+    space_by_target = {
+        binding.target: binding.space
+        for binding in bindings.values()
+        if binding.space is not None
+    }
+    for name, binding in bindings.items():
+        fn = binding.fn
         if isinstance(fn, Expr):
             expr = fn
         else:
-            v = test_ref(name)
-            u = unknown_ref(name)
+            target = binding.target
+            space_key = binding.space or target
+            v = test_ref(target, space=space_key)
+            u = unknown_ref(target, space=space_key)
             p = param_ref()
             expr = _call_user(fn, v, u, params=p)
         expr = _as_expr(expr)
@@ -1870,7 +1994,8 @@ def compile_mixed_surface_residual(residuals: dict[str, Callable]):
         plans[name] = make_eval_plan(expr)
         volume_count = _count_op(compiled[name], "volume_measure")
         surface_count = _count_op(compiled[name], "surface_measure")
-        includes_measure[name] = surface_count == 1
+        target = binding.target
+        includes_measure[target] = bool(includes_measure.get(target, False) or surface_count == 1)
         if surface_count == 0:
             raise ValueError(f"Mixed surface residual '{name}' must include ds().")
         if surface_count > 1:
@@ -1879,19 +2004,18 @@ def compile_mixed_surface_residual(residuals: dict[str, Callable]):
             raise ValueError(f"Mixed surface residual '{name}' must not include dOmega().")
 
     class _MixedContextView:
-        def __init__(self, ctx, field_name: str):
+        def __init__(self, ctx, residual_label: str):
             self._ctx = ctx
-            self.fields = ctx.fields
+            self.bindings = ctx.bindings
+            self.spaces = getattr(ctx, "spaces", None)
+            self.default_space = getattr(ctx, "default_space", None)
             self.x_q = ctx.x_q
             self.w = ctx.w
             self.detJ = ctx.detJ
             self.normal = getattr(ctx, "normal", None)
-            self.trial_fields = ctx.trial_fields
-            self.test_fields = ctx.test_fields
-            self.unknown_fields = ctx.unknown_fields
             self.unknown = getattr(ctx, "unknown", None)
 
-            pair = ctx.fields[field_name]
+            pair = ctx.bindings[target_by_label[residual_label]]
             self.test = pair.test
             self.trial = pair.trial
             self.v = pair.test
@@ -1901,26 +2025,44 @@ def compile_mixed_surface_residual(residuals: dict[str, Callable]):
             return getattr(self._ctx, name)
 
     def _form(ctx, u_elem, params):
-        return {
-            name: eval_with_plan(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
-            for name, plan in plans.items()
-        }
+        out = {}
+        for name, plan in plans.items():
+            target = target_by_label[name]
+            value = eval_with_plan(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
+            if target in out:
+                out[target] = out[target] + value
+            else:
+                out[target] = value
+        return out
 
     _form._includes_measure = includes_measure  # type: ignore[attr-defined]
+    _form._space_by_target = space_by_target  # type: ignore[attr-defined]
     return _tag_form(_form, kind="residual", domain="surface")
 
 
-def compile_mixed_surface_residual_numpy(residuals: dict[str, Callable]):
+def compile_mixed_surface_residual_numpy(
+    residuals: Mapping[str, Callable | Expr | MixedResidualBinding]
+):
     """Mixed surface residual compiled for numpy evaluation."""
     compiled = {}
     plans = {}
     includes_measure = {}
-    for name, fn in residuals.items():
+    bindings = _normalize_mixed_residuals(residuals)
+    target_by_label = {label: binding.target for label, binding in bindings.items()}
+    space_by_target = {
+        binding.target: binding.space
+        for binding in bindings.values()
+        if binding.space is not None
+    }
+    for name, binding in bindings.items():
+        fn = binding.fn
         if isinstance(fn, Expr):
             expr = fn
         else:
-            v = test_ref(name)
-            u = unknown_ref(name)
+            target = binding.target
+            space_key = binding.space or target
+            v = test_ref(target, space=space_key)
+            u = unknown_ref(target, space=space_key)
             p = param_ref()
             expr = _call_user(fn, v, u, params=p)
         expr = _as_expr(expr)
@@ -1930,7 +2072,8 @@ def compile_mixed_surface_residual_numpy(residuals: dict[str, Callable]):
         plans[name] = make_eval_plan(expr)
         volume_count = _count_op(compiled[name], "volume_measure")
         surface_count = _count_op(compiled[name], "surface_measure")
-        includes_measure[name] = surface_count == 1
+        target = binding.target
+        includes_measure[target] = bool(includes_measure.get(target, False) or surface_count == 1)
         if surface_count == 0:
             raise ValueError(f"Mixed surface residual '{name}' must include ds().")
         if surface_count > 1:
@@ -1939,19 +2082,18 @@ def compile_mixed_surface_residual_numpy(residuals: dict[str, Callable]):
             raise ValueError(f"Mixed surface residual '{name}' must not include dOmega().")
 
     class _MixedContextView:
-        def __init__(self, ctx, field_name: str):
+        def __init__(self, ctx, residual_label: str):
             self._ctx = ctx
-            self.fields = ctx.fields
+            self.bindings = ctx.bindings
+            self.spaces = getattr(ctx, "spaces", None)
+            self.default_space = getattr(ctx, "default_space", None)
             self.x_q = ctx.x_q
             self.w = ctx.w
             self.detJ = ctx.detJ
             self.normal = getattr(ctx, "normal", None)
-            self.trial_fields = ctx.trial_fields
-            self.test_fields = ctx.test_fields
-            self.unknown_fields = ctx.unknown_fields
             self.unknown = getattr(ctx, "unknown", None)
 
-            pair = ctx.fields[field_name]
+            pair = ctx.bindings[target_by_label[residual_label]]
             self.test = pair.test
             self.trial = pair.trial
             self.v = pair.test
@@ -1961,19 +2103,25 @@ def compile_mixed_surface_residual_numpy(residuals: dict[str, Callable]):
             return getattr(self._ctx, name)
 
     def _form(ctx, u_elem, params):
-        return {
-            name: eval_with_plan_numpy(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
-            for name, plan in plans.items()
-        }
+        out = {}
+        for name, plan in plans.items():
+            target = target_by_label[name]
+            value = eval_with_plan_numpy(plan, _MixedContextView(ctx, name), params, u_elem=u_elem)
+            if target in out:
+                out[target] = out[target] + value
+            else:
+                out[target] = value
+        return out
 
     _form._includes_measure = includes_measure  # type: ignore[attr-defined]
+    _form._space_by_target = space_by_target  # type: ignore[attr-defined]
     return _tag_form(_form, kind="residual", domain="surface")
 
 
 class MixedWeakForm:
-    """Container for mixed weak-form residuals keyed by field name."""
+    """Container for mixed weak-form residuals keyed by residual label."""
 
-    def __init__(self, *, residuals: dict[str, Callable]):
+    def __init__(self, *, residuals: Mapping[str, Callable | Expr | MixedResidualBinding]):
         self.residuals = residuals
 
     def get_compiled(self):
@@ -1982,7 +2130,10 @@ class MixedWeakForm:
         return compile_mixed_residual(self.residuals)
 
 
-def make_mixed_residuals(residuals: dict[str, Callable] | None = None, **kwargs) -> dict[str, Callable]:
+def make_mixed_residuals(
+    residuals: Mapping[str, Callable | Expr | MixedResidualBinding] | None = None,
+    **kwargs,
+) -> dict[str, Callable | Expr | MixedResidualBinding]:
     """
     Helper to build mixed residual dictionaries.
 
@@ -2009,6 +2160,10 @@ def _eval_expr(
 __all__ = [
     "Expr",
     "FieldRef",
+    "TrialRef",
+    "TestRef",
+    "UnknownRef",
+    "ZeroRef",
     "ParamRef",
     "trial_ref",
     "test_ref",
@@ -2020,6 +2175,8 @@ __all__ = [
     "make_mixed_residuals",
     "kernel",
     "ResidualForm",
+    "MixedResidualBinding",
+    "bind_mixed_residual",
     "compile_bilinear",
     "compile_linear",
     "compile_residual",

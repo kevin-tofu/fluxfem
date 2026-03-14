@@ -31,6 +31,7 @@ Forms
 .. autoclass:: fluxfem.core.ResidualForm
 .. autoclass:: fluxfem.core.MixedWeakForm
 .. autofunction:: fluxfem.core.make_mixed_residuals
+.. autofunction:: fluxfem.core.bind_mixed_residual
 .. autofunction:: fluxfem.core.kernel
 
 Kernel metadata (ff.kernel)
@@ -71,8 +72,14 @@ Example (MixedProblem)
 
 .. code-block:: python
 
-   mixed = ff.MixedFESpace({"u": space, "p": space})
-   residuals = ff.make_mixed_residuals(u=res_u, p=res_p)
+   mixed = ff.MixedFESpace(
+       {"u": space, "p": space},
+       field_to_space_key={"u": "U", "p": "P"},
+   )
+   residuals = ff.make_mixed_residuals(
+       u=ff.bind_mixed_residual("u", res_u, space="U"),
+       p=ff.bind_mixed_residual("p", res_p, space="P"),
+   )
    params = ff.Params(alpha=1.2, beta=-0.4)
    pattern = mixed.get_sparsity_pattern(with_idx=True)
    problem = ff.MixedProblem(mixed, residuals, params=params, pattern=pattern)
@@ -80,6 +87,12 @@ Example (MixedProblem)
    u0 = jnp.zeros(mixed.n_dofs)
    K = problem.assemble_jacobian(u0)
    R = problem.assemble_residual(u0)
+
+Mixed naming convention:
+
+- ``ctx.test`` / ``ctx.trial`` for simple single-space code
+- ``ctx.bindings["u"]`` for named mixed-field lookup
+- ``ctx.spaces["U"]`` for explicit space-key lookup
 
 Example (MixedBlockSystem)
 --------------------------

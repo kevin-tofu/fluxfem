@@ -148,14 +148,17 @@ def main() -> int:
 
     def mixed_residuals():
         def res_u(v, u, p):
-            p_ref = ff.unknown_ref("p")
+            p_ref = ff.unknown_ref("p", space="P")
             return (v * (u.val + p.alpha * p_ref.val)) * h_wf.dOmega()
 
         def res_p(q, p_field, p):
-            u_ref = ff.unknown_ref("u")
+            u_ref = ff.unknown_ref("u", space="U")
             return (q * (p_field.val + p.beta * u_ref.val)) * h_wf.dOmega()
 
-        return {"u": res_u, "p": res_p}
+        return {
+            "u": ff.bind_mixed_residual("u", res_u, space="U"),
+            "p": ff.bind_mixed_residual("p", res_p, space="P"),
+        }
 
     sizes = _parse_sizes(args.sizes)
     modes = ["pad", "nopad"] if args.mode == "compare" else [args.mode]
@@ -260,7 +263,10 @@ def main() -> int:
             mixed_u = None
             mixed_params = None
         else:
-            mixed = MixedFESpace({"u": space, "p": space})
+            mixed = MixedFESpace(
+                {"u": space, "p": space},
+                field_to_space_key={"u": "U", "p": "P"},
+            )
             mixed_u = jnp.zeros(mixed.n_dofs, dtype=jnp.float64)
             mixed_params = ff.Params(alpha=1.2, beta=-0.4)
 

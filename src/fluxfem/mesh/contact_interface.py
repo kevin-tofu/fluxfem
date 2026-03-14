@@ -33,14 +33,12 @@ class SurfaceMixedFormField:
 @dataclass(eq=False)
 class SurfaceMixedFormContext:
     """Surface mixed context for weak-form evaluation on supermesh."""
-    fields: dict[str, "FieldPair"]
+    bindings: dict[str, "FieldPair"]
     x_q: np.ndarray
     w: np.ndarray
     detJ: np.ndarray
     normal: np.ndarray | None = None
-    trial_fields: dict[str, SurfaceMixedFormField] | None = None
-    test_fields: dict[str, SurfaceMixedFormField] | None = None
-    unknown_fields: dict[str, SurfaceMixedFormField] | None = None
+    spaces: dict[str, "FieldPair"] | None = None
 
 
 @dataclass(eq=False)
@@ -1294,6 +1292,8 @@ def _build_mixed_surface_context(
     *,
     field_a: str,
     field_b: str,
+    space_key_a: str | None,
+    space_key_b: str | None,
     Na: np.ndarray,
     Nb: np.ndarray,
     gradNa: np.ndarray | None,
@@ -1323,16 +1323,59 @@ def _build_mixed_surface_context(
         field_a: FieldPair(test=cast("FormFieldLike", field_a_obj), trial=cast("FormFieldLike", field_a_obj)),
         field_b: FieldPair(test=cast("FormFieldLike", field_b_obj), trial=cast("FormFieldLike", field_b_obj)),
     }
+    spaces = dict(fields)
+    if space_key_a is not None:
+        spaces[space_key_a] = fields[field_a]
+    if space_key_b is not None:
+        spaces[space_key_b] = fields[field_b]
     return SurfaceMixedFormContext(
-        fields=fields,
+        bindings=fields,
         x_q=x_q,
         w=w,
         detJ=detJ,
         normal=normal_q,
-        trial_fields={field_a: field_a_obj, field_b: field_b_obj},
-        test_fields={field_a: field_a_obj, field_b: field_b_obj},
-        unknown_fields={field_a: field_a_obj, field_b: field_b_obj},
+        spaces=spaces,
     )
+
+
+def _surface_u_elem_with_space_aliases(
+    *,
+    field_a: str,
+    field_b: str,
+    space_key_a: str | None,
+    space_key_b: str | None,
+    u_local_a: np.ndarray,
+    u_local_b: np.ndarray,
+) -> dict[str, np.ndarray]:
+    u_elem = {
+        field_a: u_local_a,
+        field_b: u_local_b,
+    }
+    if space_key_a is not None:
+        u_elem[space_key_a] = u_elem[field_a]
+    if space_key_b is not None:
+        u_elem[space_key_b] = u_elem[field_b]
+    return u_elem
+
+
+def _surface_local_u_dict(
+    *,
+    u_vec: np.ndarray | jnp.ndarray,
+    slices: dict[str, slice],
+    field_a: str,
+    field_b: str,
+    ctx: SurfaceMixedFormContext,
+) -> dict[str, np.ndarray | jnp.ndarray]:
+    u_dict = {name: u_vec[slices[name]] for name in (field_a, field_b)}
+    if ctx.spaces is not None:
+        for key, pair in ctx.spaces.items():
+            if key in u_dict:
+                continue
+            if pair is ctx.bindings[field_a]:
+                u_dict[key] = u_dict[field_a]
+            elif pair is ctx.bindings[field_b]:
+                u_dict[key] = u_dict[field_b]
+    return u_dict
 
 
 def _reduce_surface_residual_jax(
@@ -1372,7 +1415,13 @@ def _mixed_surface_local_residual_jax(
     params: Any,
     includes_measure: dict[str, bool],
 ) -> jnp.ndarray:
-    u_dict = {name: u_vec[slices[name]] for name in (field_a, field_b)}
+    u_dict = _surface_local_u_dict(
+        u_vec=u_vec,
+        slices=slices,
+        field_a=field_a,
+        field_b=field_b,
+        ctx=ctx,
+    )
     fe_q = res_form(ctx, u_dict, params)
     res_parts = []
     for name in (field_a, field_b):
@@ -1398,7 +1447,13 @@ def _mixed_surface_local_residual_numpy(
     params: Any,
     includes_measure: dict[str, bool],
 ) -> np.ndarray:
-    u_dict = {name: u_vec[slices[name]] for name in (field_a, field_b)}
+    u_dict = _surface_local_u_dict(
+        u_vec=u_vec,
+        slices=slices,
+        field_a=field_a,
+        field_b=field_b,
+        ctx=ctx,
+    )
     fe_q = res_form(ctx, u_dict, params)
     res_parts = []
     for name in (field_a, field_b):
@@ -1428,104 +1483,23 @@ def _compute_mixed_surface_local_jacobian(
     params: Any,
     includes_measure: dict[str, bool],
 ) -> np.ndarray:
-    if backend == "jax":
-        def _res_local(u_vec):
-            return _mixed_surface_local_residual_jax(
-                u_vec=jnp.asarray(u_vec),
-                slices=slices,
-                field_a=field_a,
-                field_b=field_b,
-                res_form=res_form,
-                ctx=ctx,
-                params=params,
-                includes_measure=includes_measure,
-            )
+    if backend != "jax":
+        raise NotImplementedError("backend='numpy' for contact weak-form Jacobians has been removed.")
 
-        J_local = jax.jacrev(_res_local)(jnp.asarray(u_local))
-        return np.asarray(J_local)
+    def _res_local(u_vec):
+        return _mixed_surface_local_residual_jax(
+            u_vec=jnp.asarray(u_vec),
+            slices=slices,
+            field_a=field_a,
+            field_b=field_b,
+            res_form=res_form,
+            ctx=ctx,
+            params=params,
+            includes_measure=includes_measure,
+        )
 
-    n_ldofs = int(u_local.shape[0])
-    J_local_np = np.zeros((n_ldofs, n_ldofs), dtype=float)
-    u_base = np.asarray(u_local, dtype=float)
-    r0 = _mixed_surface_local_residual_numpy(
-        u_vec=u_base,
-        slices=slices,
-        field_a=field_a,
-        field_b=field_b,
-        res_form=res_form,
-        ctx=ctx,
-        params=params,
-        includes_measure=includes_measure,
-    ) if fd_mode == "forward" else None
-    block = max(1, int(fd_block_size))
-    if block <= 1:
-        for i in range(n_ldofs):
-            u_p = u_base.copy()
-            u_p[i] += fd_eps
-            r_p = _mixed_surface_local_residual_numpy(
-                u_vec=u_p,
-                slices=slices,
-                field_a=field_a,
-                field_b=field_b,
-                res_form=res_form,
-                ctx=ctx,
-                params=params,
-                includes_measure=includes_measure,
-            )
-            if fd_mode == "central":
-                u_m = u_base.copy()
-                u_m[i] -= fd_eps
-                r_m = _mixed_surface_local_residual_numpy(
-                    u_vec=u_m,
-                    slices=slices,
-                    field_a=field_a,
-                    field_b=field_b,
-                    res_form=res_form,
-                    ctx=ctx,
-                    params=params,
-                    includes_measure=includes_measure,
-                )
-                col = (r_p - r_m) / (2.0 * fd_eps)
-            else:
-                assert r0 is not None
-                col = (r_p - r0) / fd_eps
-            J_local_np[:, i] = np.asarray(col, dtype=float)
-    else:
-        for i0 in range(0, n_ldofs, block):
-            idxs = np.arange(i0, min(i0 + block, n_ldofs))
-            u_block = np.repeat(u_base[:, None], idxs.size, axis=1)
-            for bi, idx in enumerate(idxs):
-                u_block[idx, bi] += fd_eps
-            r_p = _mixed_surface_local_residual_numpy(
-                u_vec=u_block,
-                slices=slices,
-                field_a=field_a,
-                field_b=field_b,
-                res_form=res_form,
-                ctx=ctx,
-                params=params,
-                includes_measure=includes_measure,
-            )
-            if fd_mode == "central":
-                u_block_m = np.repeat(u_base[:, None], idxs.size, axis=1)
-                for bi, idx in enumerate(idxs):
-                    u_block_m[idx, bi] -= fd_eps
-                r_m = _mixed_surface_local_residual_numpy(
-                    u_vec=u_block_m,
-                    slices=slices,
-                    field_a=field_a,
-                    field_b=field_b,
-                    res_form=res_form,
-                    ctx=ctx,
-                    params=params,
-                    includes_measure=includes_measure,
-                )
-                cols = (r_p - r_m) / (2.0 * fd_eps)
-            else:
-                assert r0 is not None
-                cols = (r_p - r0[:, None]) / fd_eps
-            J_local_np[:, idxs] = np.asarray(cols, dtype=float)
-    return J_local_np
+    J_local = jax.jacrev(_res_local)(jnp.asarray(u_local))
+    return np.asarray(J_local)
 
 
 def _accumulate_supermesh_residual_triangle(
@@ -1689,10 +1663,15 @@ def _accumulate_supermesh_residual_triangle(
             tol=tol,
         )
 
+    space_keys = getattr(res_form, "_space_by_target", {})
+    space_key_a = space_keys.get(field_a)
+    space_key_b = space_keys.get(field_b)
     normal_q = None if normal is None else np.repeat(normal[None, :], quad_pts.shape[0], axis=0)
     ctx = _build_mixed_surface_context(
         field_a=field_a,
         field_b=field_b,
+        space_key_a=space_key_a,
+        space_key_b=space_key_b,
         Na=Na,
         Nb=Nb,
         gradNa=gradNa,
@@ -1705,10 +1684,14 @@ def _accumulate_supermesh_residual_triangle(
         normal_q=normal_q,
     )
 
-    u_elem = {
-        field_a: np.asarray(u_a, dtype=float)[np.asarray(dofs_local_a, dtype=int)],
-        field_b: np.asarray(u_b, dtype=float)[np.asarray(dofs_local_b, dtype=int)],
-    }
+    u_elem = _surface_u_elem_with_space_aliases(
+        field_a=field_a,
+        field_b=field_b,
+        space_key_a=space_key_a,
+        space_key_b=space_key_b,
+        u_local_a=np.asarray(u_a, dtype=float)[np.asarray(dofs_local_a, dtype=int)],
+        u_local_b=np.asarray(u_b, dtype=float)[np.asarray(dofs_local_b, dtype=int)],
+    )
     fe_q = res_form(ctx, u_elem, params)
     for name, dofs_local, offset in (
         (field_a, dofs_local_a, offset_a),
@@ -1995,10 +1978,15 @@ def _accumulate_supermesh_jacobian_triangle_core(
     if normal is not None:
         normal = normal_sign * normal
 
+    space_keys = getattr(res_form, "_space_by_target", {})
+    space_key_a = space_keys.get(field_a)
+    space_key_b = space_keys.get(field_b)
     normal_q = None if normal is None else np.repeat(normal[None, :], quad_pts.shape[0], axis=0)
     ctx = _build_mixed_surface_context(
         field_a=field_a,
         field_b=field_b,
+        space_key_a=space_key_a,
+        space_key_b=space_key_b,
         Na=Na,
         Nb=Nb,
         gradNa=gradNa,
@@ -2011,10 +1999,14 @@ def _accumulate_supermesh_jacobian_triangle_core(
         normal_q=normal_q,
     )
 
-    u_elem = {
-        field_a: np.asarray(u_a, dtype=float)[np.asarray(dofs_local_a, dtype=int)],
-        field_b: np.asarray(u_b, dtype=float)[np.asarray(dofs_local_b, dtype=int)],
-    }
+    u_elem = _surface_u_elem_with_space_aliases(
+        field_a=field_a,
+        field_b=field_b,
+        space_key_a=space_key_a,
+        space_key_b=space_key_b,
+        u_local_a=np.asarray(u_a, dtype=float)[np.asarray(dofs_local_a, dtype=int)],
+        u_local_b=np.asarray(u_b, dtype=float)[np.asarray(dofs_local_b, dtype=int)],
+    )
     u_local = np.concatenate([u_elem[field_a], u_elem[field_b]], axis=0)
     sizes = (u_elem[field_a].shape[0], u_elem[field_b].shape[0])
     slices = {
@@ -2112,6 +2104,9 @@ def _accumulate_projection_jacobian_batch(
     data: list[float],
     K_dense: np.ndarray | None,
 ) -> None:
+    space_keys = getattr(res_form, "_space_by_target", {})
+    space_key_a = space_keys.get(field_a)
+    space_key_b = space_keys.get(field_b)
     Na = batch["Na"]
     Nb = batch["Nb"]
     gradNa = batch["gradNa"]
@@ -2123,6 +2118,8 @@ def _accumulate_projection_jacobian_batch(
     ctx = _build_mixed_surface_context(
         field_a=field_a,
         field_b=field_b,
+        space_key_a=space_key_a,
+        space_key_b=space_key_b,
         Na=Na,
         Nb=Nb,
         gradNa=gradNa,
@@ -2135,10 +2132,14 @@ def _accumulate_projection_jacobian_batch(
         normal_q=normal_q,
     )
 
-    u_elem = {
-        field_a: _gather_u_local(u_a, nodes_a, value_dim_a),
-        field_b: _gather_u_local(u_b, nodes_b, value_dim_b),
-    }
+    u_elem = _surface_u_elem_with_space_aliases(
+        field_a=field_a,
+        field_b=field_b,
+        space_key_a=space_key_a,
+        space_key_b=space_key_b,
+        u_local_a=_gather_u_local(u_a, nodes_a, value_dim_a),
+        u_local_b=_gather_u_local(u_b, nodes_b, value_dim_b),
+    )
     u_local = np.concatenate([u_elem[field_a], u_elem[field_b]], axis=0)
     sizes = (u_elem[field_a].shape[0], u_elem[field_b].shape[0])
     slices = {
@@ -3872,6 +3873,9 @@ def assemble_contact_interface_residual(
             tol=tol,
         )
         if batches is not None and not fallback:
+            space_keys = getattr(res_form, "_space_by_target", {})
+            space_key_a = space_keys.get(field_a)
+            space_key_b = space_keys.get(field_b)
             for batch in batches:
                 Na = batch["Na"]
                 Nb = batch["Nb"]
@@ -3884,6 +3888,8 @@ def assemble_contact_interface_residual(
                 ctx = _build_mixed_surface_context(
                     field_a=field_a,
                     field_b=field_b,
+                    space_key_a=space_key_a,
+                    space_key_b=space_key_b,
                     Na=Na,
                     Nb=Nb,
                     gradNa=gradNa,
@@ -3895,10 +3901,14 @@ def assemble_contact_interface_residual(
                     detJ=batch["detJ"],
                     normal_q=normal_q,
                 )
-                u_elem = {
-                    field_a: _gather_u_local(u_a_np, nodes_a, value_dim_a),
-                    field_b: _gather_u_local(u_b_np, nodes_b, value_dim_b),
-                }
+                u_elem = _surface_u_elem_with_space_aliases(
+                    field_a=field_a,
+                    field_b=field_b,
+                    space_key_a=space_key_a,
+                    space_key_b=space_key_b,
+                    u_local_a=_gather_u_local(u_a_np, nodes_a, value_dim_a),
+                    u_local_b=_gather_u_local(u_b_np, nodes_b, value_dim_b),
+                )
                 fe_q = res_form(ctx, u_elem, params)
                 for name, facet, value_dim, offset in (
                     (field_a, nodes_a, value_dim_a, offset_a),
@@ -4153,10 +4163,7 @@ def assemble_contact_interface_jacobian(
     if backend not in {"jax", "numpy"}:
         raise ValueError("backend must be 'jax' or 'numpy'")
     if backend == "numpy":
-        if fd_eps <= 0.0:
-            raise ValueError("fd_eps must be positive for numpy backend")
-        if fd_mode not in {"central", "forward"}:
-            raise ValueError("fd_mode must be 'central' or 'forward' for numpy backend")
+        raise NotImplementedError("backend='numpy' for contact weak-form Jacobians has been removed.")
     if batch_jac is None:
         batch_jac = _env_flag("FLUXFEM_CONTACT_INTERFACE_BATCH_JAC", True)
 
@@ -4250,6 +4257,10 @@ def assemble_contact_interface_jacobian(
         jit_batch = _env_flag("FLUXFEM_CONTACT_INTERFACE_BATCH_JIT", False)
 
         def _make_jac_fun(n_a_local: int, n_b_local: int):
+            space_keys = getattr(res_form, "_space_by_target", {})
+            space_key_a = space_keys.get(field_a)
+            space_key_b = space_keys.get(field_b)
+
             def _res_local_batch(u_vec, Na, Nb, gradNa, gradNb, x_q, w, detJ, normal):
                 field_a_obj = SurfaceMixedFormField(
                     N=Na,
@@ -4267,21 +4278,28 @@ def assemble_contact_interface_jacobian(
                     field_a: FieldPair(test=cast("FormFieldLike", field_a_obj), trial=cast("FormFieldLike", field_a_obj)),
                     field_b: FieldPair(test=cast("FormFieldLike", field_b_obj), trial=cast("FormFieldLike", field_b_obj)),
                 }
+                spaces = dict(fields)
+                if space_key_a is not None:
+                    spaces[space_key_a] = fields[field_a]
+                if space_key_b is not None:
+                    spaces[space_key_b] = fields[field_b]
                 normal_q = jnp.repeat(normal[None, :], x_q.shape[0], axis=0)
                 ctx = SurfaceMixedFormContext(
-                    fields=fields,
+                    bindings=fields,
                     x_q=x_q,
                     w=w,
                     detJ=detJ,
                     normal=normal_q,
-                    trial_fields={field_a: field_a_obj, field_b: field_b_obj},
-                    test_fields={field_a: field_a_obj, field_b: field_b_obj},
-                    unknown_fields={field_a: field_a_obj, field_b: field_b_obj},
+                    spaces=spaces,
                 )
                 u_dict = {
                     field_a: u_vec[:n_a_local],
                     field_b: u_vec[n_a_local:],
                 }
+                if space_key_a is not None:
+                    u_dict[space_key_a] = u_dict[field_a]
+                if space_key_b is not None:
+                    u_dict[space_key_b] = u_dict[field_b]
                 fe_q = res_form(ctx, u_dict, params)
                 res_parts = []
                 for name in (field_a, field_b):
@@ -4356,7 +4374,9 @@ def assemble_contact_interface_jacobian(
                 batch_data.append(data)
             else:
                 assert K_dense is not None
-                K_dense[rows, cols] += data
+                # rows/cols contain repeated global DOF pairs across triangles in the batch.
+                # Advanced indexing with += does not accumulate repeated indices reliably.
+                np.add.at(K_dense, (rows, cols), data)
         for (tri, a, b, c), fa, fb in zip(
             _iter_supermesh_tris(supermesh_coords, supermesh_conn),
             source_facets_a,
@@ -4866,14 +4886,12 @@ def assemble_onesided_bilinear(
                 normal = normal_sign * normal
             normal_q = None if normal is None else np.repeat(normal[None, :], quad_pts.shape[0], axis=0)
             ctx = SurfaceMixedFormContext(
-                fields=fields,
+                bindings=fields,
                 x_q=x_q,
                 w=quad_w,
                 detJ=np.array([detJ], dtype=float),
                 normal=normal_q,
-                trial_fields={"u": field},
-                test_fields={"u": field},
-                unknown_fields={"u": field},
+                spaces=fields,
             )
             params_local = Params(
                 lam=params.lam,

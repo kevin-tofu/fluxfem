@@ -128,6 +128,7 @@ from .basis import (
 )
 from .forms import (
     ElementVector,
+    FieldPair,
     FormContext,
     FormFieldLike,
     PrecomputedScalarFormField,
@@ -334,8 +335,13 @@ class FESpaceClosure:
             elem_id = jnp.arange(elem_coords.shape[0], dtype=INDEX_DTYPE)
 
         return FormContext(
-            test=test, trial=trial, x_q=x_q,
-            w=w, elem_id=elem_id
+            test=test,
+            trial=trial,
+            x_q=x_q,
+            w=w,
+            elem_id=elem_id,
+            spaces={"default": FieldPair(test=test, trial=trial, unknown=trial)},
+            default_space="default",
         )
 
     def build_form_contexts_numpy(

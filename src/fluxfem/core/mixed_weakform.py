@@ -12,9 +12,9 @@ from typing import Callable, Mapping
 import jax.numpy as jnp
 
 from .mixed_space import MixedFESpace
-from .weakform import MixedWeakForm
+from .weakform import MixedResidualBinding, MixedWeakForm
 
-MixedResiduals = Mapping[str, Callable]
+MixedResiduals = Mapping[str, Callable | MixedResidualBinding]
 
 class MixedResidualForm:
     """Wrapper for mixed residuals to mirror the single-field ResidualForm API."""

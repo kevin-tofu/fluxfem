@@ -34,7 +34,10 @@ class MixedFESpace:
     """
     fields: dict[str, FESpaceClosure]
     field_order: Sequence[str] | None = None
+    field_to_space_key: Mapping[str, str] | None = None
     field_names: tuple[str, ...] = field(init=False)
+    space_key_by_field: dict[str, str] = field(init=False)
+    fields_by_space_key: dict[str, str] = field(init=False)
     field_offsets: dict[str, int] = field(init=False)
     field_slices: dict[str, slice] = field(init=False)
     elem_slices: dict[str, slice] = field(init=False)
@@ -55,6 +58,32 @@ class MixedFESpace:
             extra = set(self.field_names) - set(self.fields.keys())
             if missing or extra:
                 raise ValueError(f"field_order mismatch: missing={missing}, extra={extra}")
+
+        if self.field_to_space_key is None:
+            space_key_by_field = {name: name for name in self.field_names}
+        else:
+            space_key_by_field = {
+                name: self.field_to_space_key.get(name, name) for name in self.field_names
+            }
+            extra_space_keys = set(self.field_to_space_key.keys()) - set(self.field_names)
+            if extra_space_keys:
+                raise ValueError(f"field_to_space_key has unknown fields: {extra_space_keys}")
+
+        fields_by_space_key: dict[str, str] = {}
+        for name in self.field_names:
+            key = str(space_key_by_field[name])
+            if key in fields_by_space_key:
+                prev = fields_by_space_key[key]
+                if self.fields[prev] is not self.fields[name]:
+                    raise ValueError(
+                        f"space key '{key}' is assigned to multiple distinct fields "
+                        f"({prev!r}, {name!r}); use unique space keys."
+                    )
+            else:
+                fields_by_space_key[key] = name
+
+        self.space_key_by_field = dict(space_key_by_field)
+        self.fields_by_space_key = fields_by_space_key
 
         ref_space = self.fields[self.field_names[0]]
         ref_mesh = ref_space.mesh
@@ -115,7 +144,11 @@ class MixedFESpace:
 
     def split_element_vector(self, u_elem: jnp.ndarray) -> dict[str, jnp.ndarray]:
         """Split an element-local mixed vector into per-field element vectors."""
-        return {name: u_elem[self.elem_slices[name]] for name in self.field_names}
+        split = {name: u_elem[self.elem_slices[name]] for name in self.field_names}
+        for name in self.field_names:
+            key = self.space_key_by_field[name]
+            split.setdefault(key, split[name])
+        return split
 
     def build_form_contexts(self, dep: jnp.ndarray | None = None) -> MixedFormContext:
         ctxs_by_field = {name: sp.build_form_contexts(dep) for name, sp in self.fields.items()}
@@ -125,18 +158,17 @@ class MixedFESpace:
             name: FieldPair(test=ctx.test, trial=ctx.trial, unknown=None)
             for name, ctx in ctxs_by_field.items()
         }
-        trial_fields = {name: ctx.trial for name, ctx in ctxs_by_field.items()}
-        test_fields = {name: ctx.test for name, ctx in ctxs_by_field.items()}
-        unknown_fields = {name: ctx.trial for name, ctx in ctxs_by_field.items()}
+        spaces = {
+            self.space_key_by_field[name]: fields[name]
+            for name in self.field_names
+        }
 
         return MixedFormContext(
-            fields=fields,
+            bindings=fields,
             x_q=ref_ctx.x_q,
             w=ref_ctx.w,
             elem_id=ref_ctx.elem_id,
-            trial_fields=trial_fields,
-            test_fields=test_fields,
-            unknown_fields=unknown_fields,
+            spaces=spaces,
         )
 
     def get_sparsity_pattern(self, *, with_idx: bool = True):

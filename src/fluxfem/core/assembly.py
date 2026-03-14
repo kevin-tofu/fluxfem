@@ -206,7 +206,7 @@ def _integrate_q_named_fields(
         if use_measure:
             out[name] = jnp.einsum("qa->a", val)
         else:
-            wJ = ctx.w * ctx.fields[name].test.detJ
+            wJ = ctx.w * ctx.bindings[name].test.detJ
             out[name] = jnp.einsum("qa,q->a", val, wJ)
     return out
 

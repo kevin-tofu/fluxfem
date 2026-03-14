@@ -34,10 +34,15 @@ def run_ch_3d():
     n_steps = 200
     plot_interval = 1
     order = 1
+    phase_space = "C"
+    chemical_space = "MU"
 
     mesh = ff.StructuredHexBox(nx=16, ny=16, nz=16, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2 * order)
-    mixed = MixedFESpace({"c": space, "mu": space})
+    mixed = MixedFESpace(
+        {"c": space, "mu": space},
+        field_to_space_key={"c": phase_space, "mu": chemical_space},
+    )
 
     rng = np.random.default_rng(0)
     mean_c0 = 0.0
@@ -54,14 +59,17 @@ def run_ch_3d():
     times.append(0.0)
 
     def res_c(v, u, p):
-        mu = ff.unknown_ref("mu")
+        mu = ff.unknown_ref("mu", space=chemical_space)
         return (v * (u.val - p.c_old) + p.dt * h_wf.gaction(v, h_wf.grad(mu))) * h_wf.dOmega()
 
     def res_mu(q, u, p):
-        c = ff.unknown_ref("c")
+        c = ff.unknown_ref("c", space=phase_space)
         return (q * (u.val - (p.c_old**3 - p.c_old)) - p.kappa * h_wf.gaction(q, h_wf.grad(c))) * h_wf.dOmega()
 
-    residuals = ff.make_mixed_residuals(c=res_c, mu=res_mu)
+    residuals = ff.make_mixed_residuals(
+        c=ff.bind_mixed_residual("c", res_c, space=phase_space),
+        mu=ff.bind_mixed_residual("mu", res_mu, space=chemical_space),
+    )
 
     solver = ff.LinearSolver(method="spsolve")
     pattern = mixed.get_sparsity_pattern(with_idx=True)
@@ -71,7 +79,7 @@ def run_ch_3d():
 
         def params_fn(ctx, c_old_elems=c_old_elems, kappa=kappa, dt=dt):
             c_old_elem = c_old_elems[ctx.elem_id]
-            c_old_q = ctx.fields["c"].trial.eval(c_old_elem)
+            c_old_q = ctx.spaces[phase_space].trial.eval(c_old_elem)
             return {"kappa": kappa, "dt": dt, "c_old": c_old_q}
 
         u0 = jnp.zeros(mixed.n_dofs)
@@ -81,8 +89,8 @@ def run_ch_3d():
         b = -R0
 
         u_new, _info = solver.solve(K, b)
-        fields = mixed.unpack_fields(u_new)
-        c_vec = np.asarray(fields["c"])
+        solution_fields = mixed.unpack_fields(u_new)
+        c_vec = np.asarray(solution_fields["c"])
 
         if (step % plot_interval == 0) or (step == n_steps):
             fname = f"ch_{step:04d}.vtu"

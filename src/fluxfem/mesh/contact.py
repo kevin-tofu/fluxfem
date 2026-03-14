@@ -802,6 +802,11 @@ def assemble_contact_constraint_operators(
     formulation_resolved = str(formulation) if formulation is not None else "multiplier"
     if backend not in {"numpy", "jax"}:
         raise ValueError("backend must be 'numpy' or 'jax'")
+    if has_eval_inputs and backend != "jax":
+        raise NotImplementedError(
+            "weak-form contact residual/jacobian evaluation requires backend='jax'. "
+            "backend='numpy' remains available for coupling/KKT assembly only."
+        )
 
     if not hasattr(contact, "assemble_contact_coupling_matrices"):
         raise TypeError("contact must provide assemble_contact_coupling_matrices() for constraint operators.")
@@ -873,7 +878,7 @@ def assemble_contact_penalty_operators(
     *,
     law: str | None = None,
     formulation: str | None = None,
-    backend: str = "numpy",
+    backend: str = "jax",
     weak_form: MixedSurfaceResidualForm | None = None,
     state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
     res_form: MixedSurfaceResidualForm | None = None,
@@ -902,6 +907,11 @@ def assemble_contact_penalty_operators(
     formulation_resolved = str(formulation) if formulation is not None else "penalty_consistent"
     if backend not in {"numpy", "jax"}:
         raise ValueError("backend must be 'numpy' or 'jax'")
+    if backend != "jax":
+        raise NotImplementedError(
+            "Penalty-family weak-form Jacobian assembly requires backend='jax'. "
+            "backend='numpy' for contact Jacobians has been removed."
+        )
     if res_form_eff is None or u_eff is None or params is None:
         raise ValueError("weak_form/state/params (or res_form/u/params) are required for penalty operators.")
     if not hasattr(contact, "assemble_residual") or not hasattr(contact, "assemble_jacobian"):
@@ -1497,9 +1507,6 @@ class ContactSurfaceSpace:
     normal_sign: float | None = None
     tol: float = 1e-8
     backend: str = "jax"
-    fd_eps: float = 1e-6
-    fd_mode: str = "central"
-    fd_block_size: int = 1
     batch_jac: bool | None = None
 
     @classmethod
@@ -1522,9 +1529,6 @@ class ContactSurfaceSpace:
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
-        fd_eps: float = 1e-6,
-        fd_mode: str = "central",
-        fd_block_size: int = 1,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -1567,9 +1571,6 @@ class ContactSurfaceSpace:
                 float(normal_sign) if normal_sign is not None else None,
                 float(tol),
                 backend,
-                float(fd_eps),
-                fd_mode,
-                int(fd_block_size),
                 bool(batch_jac) if batch_jac is not None else None,
             )
             cached = _CONTACT_SETUP_CACHE.get(key)
@@ -1621,9 +1622,6 @@ class ContactSurfaceSpace:
             normal_sign=normal_sign,
             tol=tol,
             backend=backend,
-            fd_eps=fd_eps,
-            fd_mode=fd_mode,
-            fd_block_size=fd_block_size,
             batch_jac=batch_jac,
         )
         if setup_cache_enabled:
@@ -1649,9 +1647,6 @@ class ContactSurfaceSpace:
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
-        fd_eps: float = 1e-6,
-        fd_mode: str = "central",
-        fd_block_size: int = 1,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -1672,9 +1667,6 @@ class ContactSurfaceSpace:
             normal_sign=normal_sign,
             tol=tol,
             backend=backend,
-            fd_eps=fd_eps,
-            fd_mode=fd_mode,
-            fd_block_size=fd_block_size,
             batch_jac=batch_jac,
             setup_cache_enabled=setup_cache_enabled,
             setup_cache_trace=setup_cache_trace,
@@ -1702,9 +1694,6 @@ class ContactSurfaceSpace:
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
-        fd_eps: float = 1e-6,
-        fd_mode: str = "central",
-        fd_block_size: int = 1,
         batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
         if value_dim_master is None:
@@ -1728,9 +1717,6 @@ class ContactSurfaceSpace:
             normal_sign=normal_sign,
             tol=tol,
             backend=backend,
-            fd_eps=fd_eps,
-            fd_mode=fd_mode,
-            fd_block_size=fd_block_size,
             batch_jac=batch_jac,
         )
 
@@ -1750,9 +1736,6 @@ class ContactSurfaceSpace:
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
-        fd_eps: float = 1e-6,
-        fd_mode: str = "central",
-        fd_block_size: int = 1,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -1774,9 +1757,6 @@ class ContactSurfaceSpace:
             normal_sign=normal_sign,
             tol=tol,
             backend=backend,
-            fd_eps=fd_eps,
-            fd_mode=fd_mode,
-            fd_block_size=fd_block_size,
             batch_jac=batch_jac,
             setup_cache_enabled=setup_cache_enabled,
             setup_cache_trace=setup_cache_trace,
@@ -1804,8 +1784,6 @@ class ContactSurfaceSpace:
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
-        fd_eps: float = 1e-6,
-        fd_mode: str = "central",
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -1829,8 +1807,6 @@ class ContactSurfaceSpace:
             normal_sign=normal_sign,
             tol=tol,
             backend=backend,
-            fd_eps=fd_eps,
-            fd_mode=fd_mode,
             batch_jac=batch_jac,
             setup_cache_enabled=setup_cache_enabled,
             setup_cache_trace=setup_cache_trace,
@@ -2063,9 +2039,6 @@ class ContactSurfaceSpace:
             sparse=sparse,
             backend=use_backend,
             batch_jac=use_batch_jac,
-            fd_eps=self.fd_eps,
-            fd_mode=self.fd_mode,
-            fd_block_size=self.fd_block_size,
         )
 
     def assemble_bilinear(
@@ -2091,7 +2064,6 @@ class ContactSurfaceSpace:
         """
         from ..core.weakform import (
             compile_mixed_surface_residual,
-            compile_mixed_surface_residual_numpy,
             unknown_ref,
             test_ref,
             param_ref,
@@ -2125,10 +2097,12 @@ class ContactSurfaceSpace:
         expr_a = bilin(v1, z2, u1, u2, p)
         expr_b = bilin(z1, v2, u1, u2, p)
         use_backend = self._resolve_backend(None)
-        if use_backend == "numpy":
-            res_form = compile_mixed_surface_residual_numpy({self.field_master: expr_a, self.field_slave: expr_b})
-        else:
-            res_form = compile_mixed_surface_residual({self.field_master: expr_a, self.field_slave: expr_b})
+        if use_backend != "jax":
+            raise NotImplementedError(
+                "ContactSurfaceSpace.assemble_bilinear requires backend='jax'; "
+                "backend='numpy' weak-form Jacobians have been removed."
+            )
+        res_form = compile_mixed_surface_residual({self.field_master: expr_a, self.field_slave: expr_b})
         return self.assemble_jacobian(
             res_form,
             {self.field_master: u_master, self.field_slave: u_slave},
@@ -2214,9 +2188,6 @@ class OneToManyContactSurfaceSpace:
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
-        fd_eps: float = 1e-6,
-        fd_mode: str = "central",
-        fd_block_size: int = 1,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -2299,9 +2270,6 @@ class OneToManyContactSurfaceSpace:
             normal_sign=normal_sign,
             tol=tol,
             backend=backend,
-            fd_eps=fd_eps,
-            fd_mode=fd_mode,
-            fd_block_size=fd_block_size,
             batch_jac=batch_jac,
             setup_cache_enabled=setup_cache_enabled,
             setup_cache_trace=setup_cache_trace,
@@ -2323,9 +2291,6 @@ class OneToManyContactSurfaceSpace:
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
-        fd_eps: float = 1e-6,
-        fd_mode: str = "central",
-        fd_block_size: int = 1,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -2346,9 +2311,6 @@ class OneToManyContactSurfaceSpace:
                 normal_sign=normal_sign,
                 tol=tol,
                 backend=backend,
-                fd_eps=fd_eps,
-                fd_mode=fd_mode,
-                fd_block_size=fd_block_size,
                 batch_jac=batch_jac,
                 setup_cache_enabled=setup_cache_enabled,
                 setup_cache_trace=setup_cache_trace,
@@ -2377,9 +2339,6 @@ class OneToManyContactSurfaceSpace:
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
-        fd_eps: float = 1e-6,
-        fd_mode: str = "central",
-        fd_block_size: int = 1,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -2408,9 +2367,6 @@ class OneToManyContactSurfaceSpace:
                 normal_sign=normal_sign,
                 tol=tol,
                 backend=backend,
-                fd_eps=fd_eps,
-                fd_mode=fd_mode,
-                fd_block_size=fd_block_size,
                 batch_jac=batch_jac,
                 setup_cache_enabled=setup_cache_enabled,
                 setup_cache_trace=setup_cache_trace,

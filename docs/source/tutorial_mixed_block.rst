@@ -16,16 +16,22 @@ Define a mixed space, write per-field residuals, and solve in a single system:
 
    mesh = ff.StructuredHexBox(nx=2, ny=1, nz=1, lx=1.0, ly=0.1, lz=0.1).build()
    space = ff.make_hex_space(mesh, dim=1, intorder=2)
-   mixed = ff.MixedFESpace({"u": space, "T": space})
+   mixed = ff.MixedFESpace(
+       {"u": space, "T": space},
+       field_to_space_key={"u": "U", "T": "THETA"},
+   )
 
    def res_T(v, T, p):
        return (p.kappa * h_wf.gaction(v, h_wf.grad(T)) - v * p.q) * h_wf.dOmega()
 
    def res_u(v, u, p):
-       T_ref = ff.unknown_ref("T")
+       T_ref = ff.unknown_ref("T", space="THETA")
        return p.E * h_wf.gaction(v, h_wf.grad(u)) * h_wf.dOmega() - p.alpha * h_wf.gaction(v, T_ref.val) * h_wf.dOmega()
 
-   residuals = ff.make_mixed_residuals(u=res_u, T=res_T)
+   residuals = ff.make_mixed_residuals(
+       u=ff.bind_mixed_residual("u", res_u, space="U"),
+       T=ff.bind_mixed_residual("T", res_T, space="THETA"),
+   )
    params = ff.Params(kappa=1.0, q=1.0, E=1.0, alpha=1.0e-3)
 
    bc = mixed.make_dirichlet(
@@ -41,7 +47,13 @@ Define a mixed space, write per-field residuals, and solve in a single system:
    sol, _ = ff.LinearSolver(method="spsolve").solve(
        K, b, dirichlet=bc.as_dirichlet_bc(), dirichlet_mode="condense"
    )
-   fields = mixed.unpack_fields(sol)
+   solution_fields = mixed.unpack_fields(sol)
+
+The standard mixed lookup rules are:
+
+- use ``ctx.test`` / ``ctx.trial`` for the local residual arguments
+- use ``ctx.bindings["u"]`` when you want a named mixed field from the full mixed context
+- use ``ctx.spaces["U"]`` when the discrete space itself must be selected explicitly
 
 Related mixed tutorials:
 

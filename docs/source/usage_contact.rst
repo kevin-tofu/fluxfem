@@ -78,7 +78,7 @@ Use explicit APIs by family:
        contact,
        rho=5.0,
        multiplier=lm_space,
-       backend="numpy",
+       backend="jax",
        # Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.
        weak_form=res_form,
        state={"master": u_master, "slaves": [u_s1, u_s2]},
@@ -117,7 +117,7 @@ The default output is ``FluxSparseMatrix``.
        rho=5.0,
        multiplier=lm_space,
        facet_conn_master=ops.facet_conn_master,
-       backend="numpy",
+       backend="jax",
    )
 
    KKT_bcoo = KKT_flux.to_bcoo()

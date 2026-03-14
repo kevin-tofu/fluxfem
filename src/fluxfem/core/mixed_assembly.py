@@ -14,28 +14,38 @@ def _coerce_mixed_u(space, u):
     return jnp.asarray(u)
 
 
-def _split_elem_vec(field_names, elem_slices, u_elem_vec):
-    return {name: u_elem_vec[elem_slices[name]] for name in field_names}
+def _split_elem_vec(field_names, elem_slices, space_key_by_field, u_elem_vec):
+    split = {name: u_elem_vec[elem_slices[name]] for name in field_names}
+    for name in field_names:
+        key = space_key_by_field.get(name, name)
+        split.setdefault(key, split[name])
+    return split
 
 
 def _concat_residuals(field_names, res_dict):
     return jnp.concatenate([res_dict[name] for name in field_names], axis=0)
 
 
-def make_element_mixed_residual_kernel(res_form, params, field_names, elem_slices):
+def make_element_mixed_residual_kernel(res_form, params, field_names, elem_slices, space_key_by_field):
     """Jitted element residual kernel for mixed systems."""
 
     def per_element(ctx, u_elem_vec):
-        u_elem = _split_elem_vec(field_names, elem_slices, u_elem_vec)
+        u_elem = _split_elem_vec(field_names, elem_slices, space_key_by_field, u_elem_vec)
         res_dict = element_residual(res_form, ctx, u_elem, params)
         return _concat_residuals(field_names, res_dict)
 
     return jax.jit(per_element)
 
 
-def make_element_mixed_jacobian_kernel(res_form, params, field_names, elem_slices):
+def make_element_mixed_jacobian_kernel(res_form, params, field_names, elem_slices, space_key_by_field):
     """Jitted element Jacobian kernel for mixed systems."""
-    res_kernel = make_element_mixed_residual_kernel(res_form, params, field_names, elem_slices)
+    res_kernel = make_element_mixed_residual_kernel(
+        res_form,
+        params,
+        field_names,
+        elem_slices,
+        space_key_by_field,
+    )
 
     def fe_fun(u_elem_vec, ctx):
         return res_kernel(ctx, u_elem_vec)
@@ -58,7 +68,11 @@ def assemble_mixed_residual_scatter(
     u_vec = _coerce_mixed_u(space, u)
     ctxs = space.build_form_contexts()
     ker = kernel if kernel is not None else make_element_mixed_residual_kernel(
-        res_form, params, space.field_names, space.elem_slices
+        res_form,
+        params,
+        space.field_names,
+        space.elem_slices,
+        space.space_key_by_field,
     )
 
     u_elems = u_vec[space.elem_dofs]
@@ -126,7 +140,11 @@ def assemble_mixed_jacobian_values(
     u_vec = _coerce_mixed_u(space, u)
     ctxs = space.build_form_contexts()
     ker = kernel if kernel is not None else make_element_mixed_jacobian_kernel(
-        res_form, params, space.field_names, space.elem_slices
+        res_form,
+        params,
+        space.field_names,
+        space.elem_slices,
+        space.space_key_by_field,
     )
 
     u_elems = u_vec[space.elem_dofs]
@@ -197,7 +215,15 @@ def assemble_mixed_jacobian_scatter(
 
 
 def assemble_mixed_residual(
-    space, res_form, u, params, *, sparse: bool = False, n_chunks: int | None = None, pad_trace: bool = False
+    space,
+    res_form,
+    u,
+    params,
+    *,
+    sparse: bool = False,
+    pattern=None,
+    n_chunks: int | None = None,
+    pad_trace: bool = False,
 ):
     """Assemble the global mixed residual vector."""
     return assemble_mixed_residual_scatter(

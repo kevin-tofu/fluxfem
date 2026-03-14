@@ -186,6 +186,21 @@ coordinates are part of the computation), use `FESpacePytree` via
 `make_*_space_pytree(...)`. This keeps the mesh/basis in the pytree so
 `jax.jit`/`jax.grad` can see geometry changes.
 
+In other words:
+
+- fixed-geometry solve/assembly: `FESpace`
+- geometry-sensitive differentiation: `FESpacePytree`
+
+The mesh-move example in [`tutorials/diffusion_3d_mesh_proxy.py`](tutorials/diffusion_3d_mesh_proxy.py)
+computes `jax.grad(...)` with respect to node coordinates on top of
+`make_hex_space_pytree(...)`.
+
+Current boundary:
+
+- geometry-dependent objectives and residual-style quantities can be differentiated in JAX when the geometry is carried through a pytree space
+- there is not yet a dedicated public "shape derivative" API layer; shape sensitivity is currently expressed as ordinary JAX differentiation through assembly/solve code
+- `backend="numpy"` is not part of this differentiable path
+
 ### Mixed systems
 
 Mixed problems can be assembled from residual blocks and solved as a coupled system.
@@ -205,6 +220,32 @@ u0 = jnp.zeros(mixed.n_dofs)
 R = problem.assemble_residual(u0)
 J = problem.assemble_jacobian(u0, return_flux_matrix=True)
 ```
+
+Mixed weak-form naming follows this convention:
+
+- simple single-space code: `ctx.test` / `ctx.trial`
+- named mixed field lookup: `ctx.bindings["u"]`
+- explicit space-key lookup: `ctx.spaces["V"]`
+- explicit residual-to-field routing: `bind_mixed_residual(...)`
+
+Use the explicit forms only where they help readability or avoid ambiguity.
+Examples:
+
+- [`tutorials/coupled_reaction_diffusion_new_api.py`](tutorials/coupled_reaction_diffusion_new_api.py)
+- [`tutorials/ch3d_fluxfem_wf_new_api.py`](tutorials/ch3d_fluxfem_wf_new_api.py)
+
+### Backend notes
+
+`backend="jax"` is the primary path for differentiation and Jacobian assembly.
+`backend="numpy"` is available mainly for forward assembly/evaluation and comparison/debug workflows.
+
+Today, the practical split is:
+
+- `jax`: bilinear/linear/residual assembly, autodiff-based Jacobians, geometry-sensitive differentiation
+- `numpy`: bilinear/linear/residual/functional forward assembly in many paths, plus several contact/coupled utilities
+- `numpy` Jacobian assembly is not generally implemented; for example `assemble_jacobian(..., backend="numpy")` is not available
+
+For contact/supermesh code, `backend="numpy"` is also used in places where the Jacobian is approximated by finite differences rather than differentiated symbolically.
 
 ### Block assembly
 

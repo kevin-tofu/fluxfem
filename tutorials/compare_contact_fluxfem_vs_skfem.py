@@ -797,7 +797,7 @@ def build_fluxfem_contact(
 
     def res_a(v, u, p):
         n = h_wf.normal()
-        u_b = ff.unknown_ref("b")
+        u_b = ff.unknown_ref("b", space="B")
         ju = u.val - u_b.val
         t_u = 0.5 * (h_wf.traction(u, n, p) + h_wf.traction(u_b, n, p))
         t_v = h_wf.traction(v, n, p)
@@ -807,7 +807,7 @@ def build_fluxfem_contact(
 
     def res_b(v, u, p):
         n = h_wf.normal()
-        u_a = ff.unknown_ref("a")
+        u_a = ff.unknown_ref("a", space="A")
         ju = u_a.val - u.val
         t_u = 0.5 * (h_wf.traction(u_a, n, p) + h_wf.traction(u, n, p))
         t_v = h_wf.traction(v, n, p)
@@ -827,10 +827,15 @@ def build_fluxfem_contact(
     )
     ops = ff.assemble_contact_penalty_operators(
         contact,
-        weak_form=ff.compile_mixed_surface_residual({"a": res_a, "b": res_b}),
+        weak_form=ff.compile_mixed_surface_residual(
+            {
+                "a": ff.bind_mixed_residual("a", res_a, space="A"),
+                "b": ff.bind_mixed_residual("b", res_b, space="B"),
+            }
+        ),
         state={"a": u_a, "b": u_b},
         params=params,
-        backend="numpy",
+        backend="jax",
     )
     return np.asarray(ops.jacobian)
 

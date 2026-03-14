@@ -337,6 +337,7 @@ def test_contact_constraint_operators_accept_penalty_style_inputs_for_api_symmet
         weak_form=_dummy_res_form,
         state={"a": np.array([0.0]), "b": np.array([0.0])},
         params=object(),
+        backend="jax",
     )
 
     assert np.allclose(np.asarray(ops_base.B), np.asarray(ops_with_alias_inputs.B), atol=1e-12)

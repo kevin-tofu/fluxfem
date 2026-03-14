@@ -788,6 +788,7 @@ class CoupledSystemBuilder:
         ):
             f_arg_guess = None if formulation is None else str(formulation).lower()
             has_penalty_inputs = (weak_form is not None) or (state is not None) or (params is not None)
+            eval_backend = "jax" if (has_penalty_inputs and backend == "numpy") else backend
             if family_mode is not None:
                 resolved_family = family_mode
             elif f_arg_guess in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
@@ -810,7 +811,7 @@ class CoupledSystemBuilder:
                     formulation=formulation,
                     rho=0.0 if rho is None else float(rho),
                     multiplier=multiplier,
-                    backend=backend,
+                    backend=eval_backend,
                     weak_form=weak_form,
                     state=state,
                     params=params,
@@ -825,7 +826,7 @@ class CoupledSystemBuilder:
                     contact_obj,
                     law=law,
                     formulation=formulation,
-                    backend=backend,
+                    backend=eval_backend,
                     weak_form=weak_form,
                     state=state,
                     params=params,

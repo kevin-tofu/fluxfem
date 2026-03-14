@@ -572,7 +572,6 @@ def run_skfem_demo(
 def run_fluxfem_demo(
     params: NitscheContactParams,
     *,
-    contact_backend: str = "jax",
     platform: str = "auto",
     x64: bool = True,
     xla_cpu_parallelism: int | None = None,
@@ -600,9 +599,6 @@ def run_fluxfem_demo(
     bench_contact: bool = False,
     debug_contact: bool = False,
     batch_jac: bool = True,
-    fd_eps: float = 1e-6,
-    fd_mode: str = "central",
-    fd_block_size: int = 1,
     log_path: str | None = None,
     vtu_path: str | None = None,
     plot_path: str | None = None,
@@ -643,11 +639,7 @@ def run_fluxfem_demo(
         int(params.ny_bot),
         int(params.nz_bot),
         int(params.quad_order),
-        str(contact_backend),
         bool(batch_jac),
-        float(fd_eps),
-        str(fd_mode),
-        int(fd_block_size),
     )
     cache = getattr(run_fluxfem_demo, "_setup_cache", None)
     if cache is None:
@@ -734,11 +726,8 @@ def run_fluxfem_demo(
             side_top,
             side_bot,
             quad_order=int(params.quad_order),
-            backend=contact_backend,
+            backend="jax",
             batch_jac=batch_jac,
-            fd_eps=fd_eps,
-            fd_mode=fd_mode,
-            fd_block_size=fd_block_size,
         )
         if timing:
             print(
@@ -769,9 +758,6 @@ def run_fluxfem_demo(
         contact = cached_setup["contact"]
         _mark("boundary facets")
         _mark("contact setup")
-    if verbose and contact_backend == "numpy":
-        print("[contact] numpy backend uses FD for Jacobian (non-differentiable)", flush=True)
-
     dx_top, dy_top, dz_top = _mesh_spacing(box_top)
     dx_bot, dy_bot, dz_bot = _mesh_spacing(box_bot)
     h = min(dx_top, dy_top, dz_top, dx_bot, dy_bot, dz_bot)
@@ -790,12 +776,8 @@ def run_fluxfem_demo(
         traction -= 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
         return (penalty + traction) * h_wf.ds()
 
-    if contact_backend == "numpy":
-        u_top0 = np.zeros(space_top.n_dofs)
-        u_bot0 = np.zeros(space_bot.n_dofs)
-    else:
-        u_top0 = jnp.zeros(space_top.n_dofs)
-        u_bot0 = jnp.zeros(space_bot.n_dofs)
+    u_top0 = jnp.zeros(space_top.n_dofs)
+    u_bot0 = jnp.zeros(space_bot.n_dofs)
     params_contact = ff.Params(alpha=float(alpha), inv_h=float(1.0 / h), lam=float(lam), mu=float(mu))
     if debug_contact:
         print("n_contact_facets_top =", int(contact_facets_top.shape[0]))

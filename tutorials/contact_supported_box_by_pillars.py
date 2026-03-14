@@ -59,16 +59,21 @@ def _facet_dofs(facets: np.ndarray, *, dim: int) -> np.ndarray:
 
 def _nitsche_residual_form():
     def res_a(v, u, p):
-        u2 = ff.unknown_ref("b")
+        u2 = ff.unknown_ref("b", space="B")
         ju = u.val - u2.val
         return (p.alpha * p.inv_h) * h_wf.dot(v, ju) * h_wf.ds()
 
     def res_b(v, u, p):
-        u1 = ff.unknown_ref("a")
+        u1 = ff.unknown_ref("a", space="A")
         ju = u1.val - u.val
         return -(p.alpha * p.inv_h) * h_wf.dot(v, ju) * h_wf.ds()
 
-    return ff.compile_mixed_surface_residual({"a": res_a, "b": res_b})
+    return ff.compile_mixed_surface_residual(
+        {
+            "a": ff.bind_mixed_residual("a", res_a, space="A"),
+            "b": ff.bind_mixed_residual("b", res_b, space="B"),
+        }
+    )
 
 
 def main():
@@ -128,7 +133,7 @@ def main():
         value_dim_master=1,
         value_dim_slave=1,
         quad_order=1,
-        backend="numpy",
+        backend="jax",
     )
 
     # Penalty-family contact operators
@@ -144,7 +149,7 @@ def main():
         state=u_if,
         params=params_if,
         normal_source="master",
-        backend="numpy",
+        backend="jax",
     )
 
     # Build structural block and coupled solve

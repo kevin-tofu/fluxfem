@@ -51,9 +51,9 @@ class WeakFormContext(Protocol):
     v: FormFieldLike
     unknown: FormFieldLike | None
     fields: Mapping[str, Any] | None
-    test_fields: Mapping[str, FormFieldLike] | None
-    trial_fields: Mapping[str, FormFieldLike] | None
-    unknown_fields: Mapping[str, FormFieldLike] | None
+    bindings: Mapping[str, Any] | None
+    spaces: Mapping[str, Any] | None
+    default_space: str | None
 
 
 UElement: TypeAlias = ArrayLike | Mapping[str, ArrayLike]

@@ -37,7 +37,7 @@ def _integrate_q_named_fields(
         if use_measure:
             out[name] = jnp.einsum("qa->a", val)
         else:
-            wJ = ctx.w * ctx.fields[name].test.detJ
+            wJ = ctx.w * ctx.bindings[name].test.detJ
             out[name] = jnp.einsum("qa,q->a", val, wJ)
     return out
 
@@ -112,7 +112,7 @@ def element_residual(res_form, ctx: FormContext, u_elem, params):
     if isinstance(integrand, jnp.ndarray):
         wJ = ctx.w * ctx.test.detJ
         return _integrate_q_linear(integrand, wJ, includes_measure=bool(includes_measure))
-    if hasattr(ctx, "fields") and ctx.fields is not None:
+    if hasattr(ctx, "bindings") and ctx.bindings is not None:
         return _integrate_q_named_fields(cast(Mapping[str, jnp.ndarray], integrand), ctx, includes_measure)
     return _integrate_q_tree(
         integrand,

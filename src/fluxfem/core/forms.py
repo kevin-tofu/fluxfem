@@ -242,6 +242,8 @@ class FormContext:
     x_q: jnp.ndarray       # (n_q, 3)
     w: jnp.ndarray         # (n_q,)
     elem_id: jnp.ndarray | int = 0
+    spaces: dict[str, "FieldPair"] | None = None
+    default_space: str | None = None
 
     @property
     def u(self) -> FormFieldLike:
@@ -258,8 +260,9 @@ class FormContext:
             self.x_q,
             self.w,
             self.elem_id,
+            self.spaces,
         )
-        return children, {}
+        return children, {"default_space": self.default_space}
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
@@ -269,6 +272,7 @@ class FormContext:
             x_q,
             w,
             elem_id,
+            spaces,
         ) = children
         return cls(
             test,
@@ -276,6 +280,8 @@ class FormContext:
             x_q,
             w,
             elem_id,
+            spaces,
+            aux_data.get("default_space"),
         )
 
 
@@ -341,6 +347,8 @@ class NumpyFormContext:
     x_q: np.ndarray
     w: np.ndarray
     elem_id: np.ndarray | int = 0
+    spaces: dict[str, "FieldPair"] | None = None
+    default_space: str | None = None
 
     @property
     def u(self):
@@ -372,28 +380,25 @@ class FieldPair:
 @jax.tree_util.register_pytree_node_class
 @dataclass(eq=False)
 class MixedFormContext:
-    """FormContext for mixed formulations keyed by field name."""
-    fields: dict[str, FieldPair]
+    """FormContext for mixed formulations keyed by binding/field name."""
+    bindings: dict[str, FieldPair]
     x_q: jnp.ndarray       # (n_q, 3)
     w: jnp.ndarray         # (n_q,)
     elem_id: jnp.ndarray | int = 0
     unknown: FormFieldLike | None = None
-    trial_fields: dict[str, FormFieldLike] | None = None
-    test_fields: dict[str, FormFieldLike] | None = None
-    unknown_fields: dict[str, FormFieldLike] | None = None
+    spaces: dict[str, FieldPair] | None = None
+    default_space: str | None = None
 
     def tree_flatten(self):
         children = (
-            self.fields,
+            self.bindings,
             self.x_q,
             self.w,
             self.elem_id,
             self.unknown,
-            self.trial_fields,
-            self.test_fields,
-            self.unknown_fields,
+            self.spaces,
         )
-        return children, {}
+        return children, {"default_space": self.default_space}
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
@@ -403,8 +408,14 @@ class MixedFormContext:
             w,
             elem_id,
             unknown,
-            trial_fields,
-            test_fields,
-            unknown_fields,
+            spaces,
         ) = children
-        return cls(fields, x_q, w, elem_id, unknown, trial_fields, test_fields, unknown_fields)
+        return cls(
+            fields,
+            x_q,
+            w,
+            elem_id,
+            unknown,
+            spaces,
+            aux_data.get("default_space"),
+        )

@@ -96,3 +96,82 @@ def test_mixed_residual_matches_single_field():
     R_single = space.assemble_residual(single_form.get_compiled(), u_field, params)
 
     assert np.allclose(R_u, np.asarray(R_single))
+
+
+def test_mixed_residual_explicit_space_refs_match_default_resolution():
+    """Explicit space= refs resolve through ctx.spaces and match default mixed refs."""
+    mixed = _make_mixed_space()
+    params = {"alpha": 0.25, "beta": -0.5}
+    rng = np.random.default_rng(3)
+    u_vec = jnp.asarray(rng.standard_normal(mixed.n_dofs))
+
+    residuals_default = _mixed_residuals()
+
+    def res_u(v, u, p):
+        p_ref = ff.unknown_ref("pressure", space="p")
+        return (v * (u.val + p.alpha * p_ref.val)) * h_wf.dOmega()
+
+    def res_p(q, p_field, p):
+        u_ref = ff.unknown_ref("disp", space="u")
+        return (q * (p_field.val + p.beta * u_ref.val)) * h_wf.dOmega()
+
+    residuals_space = {"u": res_u, "p": res_p}
+
+    r_default = assemble_mixed_residual_wf(mixed, residuals_default, u_vec, params)
+    r_space = assemble_mixed_residual_wf(mixed, residuals_space, u_vec, params)
+
+    assert np.allclose(np.asarray(r_default), np.asarray(r_space))
+
+
+def test_mixed_space_key_mapping_decouples_field_name_from_space_key():
+    """Field bindings can keep field names while resolving refs through distinct space keys."""
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    mixed = MixedFESpace(
+        {"disp": space, "press": space},
+        field_to_space_key={"disp": "V", "press": "Q"},
+    )
+
+    params = {"alpha": 0.5, "beta": -0.2}
+    rng = np.random.default_rng(4)
+    u_vec = jnp.asarray(rng.standard_normal(mixed.n_dofs))
+
+    def res_disp(v, u, p):
+        press = ff.unknown_ref("pressure", space="Q")
+        return (v * (u.val + p.alpha * press.val)) * h_wf.dOmega()
+
+    def res_press(q, press, p):
+        disp = ff.unknown_ref("displacement", space="V")
+        return (q * (press.val + p.beta * disp.val)) * h_wf.dOmega()
+
+    residuals = {"disp": res_disp, "press": res_press}
+    result = assemble_mixed_residual_wf(mixed, residuals, u_vec, params)
+
+    assert np.asarray(result).shape == (mixed.n_dofs,)
+
+
+def test_mixed_residual_binding_decouples_residual_label_from_target_field():
+    """Residual labels can differ from assembled target fields via explicit bindings."""
+    mixed = _make_mixed_space()
+    params = {"alpha": 1.0, "beta": -0.25}
+    rng = np.random.default_rng(5)
+    u_vec = jnp.asarray(rng.standard_normal(mixed.n_dofs))
+
+    default = _mixed_residuals()
+    bound = ff.make_mixed_residuals(
+        momentum=ff.bind_mixed_residual("u", default["u"], space="u"),
+        continuity=ff.bind_mixed_residual("p", default["p"], space="p"),
+    )
+
+    r_default = assemble_mixed_residual_wf(mixed, default, u_vec, params)
+    r_bound = assemble_mixed_residual_wf(mixed, bound, u_vec, params)
+
+    assert np.allclose(np.asarray(r_default), np.asarray(r_bound))
+
+
+def test_mixed_form_context_uses_bindings():
+    """Mixed contexts expose bindings directly."""
+    mixed = _make_mixed_space()
+    ctx = mixed.build_form_contexts()
+    assert "u" in ctx.bindings
+    assert not hasattr(ctx, "fields")

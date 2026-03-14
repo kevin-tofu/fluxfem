@@ -32,10 +32,10 @@ def ch_residual(ctx: ff.MixedFormContext, u_elem: dict, params) -> dict[str, jnp
     mu_elem = u_elem["mu"]
     c_old_elem = params["c_old_elems"][ctx.elem_id]
 
-    c_field = ctx.fields["c"].trial
-    mu_field = ctx.fields["mu"].trial
-    v = ctx.fields["c"].test
-    q = ctx.fields["mu"].test
+    c_field = ctx.bindings["c"].trial
+    mu_field = ctx.bindings["mu"].trial
+    v = ctx.bindings["c"].test
+    q = ctx.bindings["mu"].test
 
     c_q = c_field.eval(c_elem)
     mu_q = mu_field.eval(mu_elem)
@@ -59,10 +59,15 @@ def run_ch_3d():
     n_steps = 200
     plot_interval = 1
     order = 1
+    phase_space = "C"
+    chemical_space = "MU"
 
     mesh = ff.StructuredHexBox(nx=16, ny=16, nz=16, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2 * order)
-    mixed = MixedFESpace({"c": space, "mu": space})
+    mixed = MixedFESpace(
+        {"c": space, "mu": space},
+        field_to_space_key={"c": phase_space, "mu": chemical_space},
+    )
 
     rng = np.random.default_rng(0)
     mean_c0 = 0.0
@@ -91,8 +96,8 @@ def run_ch_3d():
         b = -R0
 
         u_new, _info = solver.solve(K, b)
-        fields = mixed.unpack_fields(u_new)
-        c_vec = np.asarray(fields["c"])
+        solution_fields = mixed.unpack_fields(u_new)
+        c_vec = np.asarray(solution_fields["c"])
 
         if (step % plot_interval == 0) or (step == n_steps):
             fname = f"ch_{step:04d}.vtu"

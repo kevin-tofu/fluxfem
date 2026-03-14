@@ -80,6 +80,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    disp_space = "U"
+    temp_space = "T"
 
     mesh = build_bar_mesh(
         nx=args.nx,
@@ -90,7 +92,10 @@ def main():
         lz=args.lz,
     )
     space = ff.make_hex_space(mesh, dim=1, intorder=args.intorder)
-    mixed = MixedFESpace({"u": space, "T": space})
+    mixed = MixedFESpace(
+        {"u": space, "T": space},
+        field_to_space_key={"u": disp_space, "T": temp_space},
+    )
 
     xmin, xmax, coords = x_bounds(mesh)
     left_dofs = mesh.boundary_dofs_where(
@@ -111,14 +116,17 @@ def main():
         return (p.kappa * h_wf.gaction(v, h_wf.grad(T)) - v * p.q) * h_wf.dOmega()
 
     def res_u(v, u, p):
-        T_ref = ff.unknown_ref("T")
+        T_ref = ff.unknown_ref("T", space=temp_space)
         e_x = einsum("q,i->qi", T_ref.val, p.ex)
         return (
             p.E * h_wf.gaction(v, h_wf.grad(u))
             - p.E * p.alpha * h_wf.gaction(v, e_x)
         ) * h_wf.dOmega()
 
-    residuals = ff.make_mixed_residuals(u=res_u, T=res_T)
+    residuals = ff.make_mixed_residuals(
+        u=ff.bind_mixed_residual("u", res_u, space=disp_space),
+        T=ff.bind_mixed_residual("T", res_T, space=temp_space),
+    )
     params = ff.Params(
         kappa=args.kappa,
         q=args.source,
@@ -141,9 +149,9 @@ def main():
         dirichlet=bc.as_dirichlet_bc(),
         dirichlet_mode="condense",
     )
-    fields = mixed.unpack_fields(sol)
-    u_nodes = np.asarray(fields["u"])
-    T_nodes = np.asarray(fields["T"])
+    solution_fields = mixed.unpack_fields(sol)
+    u_nodes = np.asarray(solution_fields["u"])
+    T_nodes = np.asarray(solution_fields["T"])
 
     x_coords = coords[:, 0]
     uL = float(np.max(u_nodes[np.isclose(x_coords, xmax, atol=1e-8)]))

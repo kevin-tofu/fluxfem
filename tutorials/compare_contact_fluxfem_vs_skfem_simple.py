@@ -167,7 +167,7 @@ def build_fluxfem_contact(
 
     def res_a(v, u, p):
         n = h_wf.normal()
-        u_b = ff.unknown_ref("b")
+        u_b = ff.unknown_ref("b", space="B")
         ju = u.val - u_b.val
         t_u = 0.5 * (h_wf.traction(u, n, p) + h_wf.traction(u_b, n, p))
         t_v = h_wf.traction(v, n, p)
@@ -177,7 +177,7 @@ def build_fluxfem_contact(
 
     def res_b(v, u, p):
         n = h_wf.normal()
-        u_a = ff.unknown_ref("a")
+        u_a = ff.unknown_ref("a", space="A")
         ju = u_a.val - u.val
         t_u = 0.5 * (h_wf.traction(u_a, n, p) + h_wf.traction(u, n, p))
         t_v = h_wf.traction(v, n, p)
@@ -197,12 +197,43 @@ def build_fluxfem_contact(
     )
     ops = ff.assemble_contact_penalty_operators(
         contact,
-        weak_form=ff.compile_mixed_surface_residual({"a": res_a, "b": res_b}),
+        weak_form=ff.compile_mixed_surface_residual(
+            {
+                "a": ff.bind_mixed_residual("a", res_a, space="A"),
+                "b": ff.bind_mixed_residual("b", res_b, space="B"),
+            }
+        ),
         state={"a": u_a, "b": u_b},
         params=params,
-        backend="numpy",
+        backend="jax",
     )
     return np.asarray(ops.jacobian)
+
+
+def build_fluxfem_surface_penalty_mass_hex8(*, alpha: float, h: float, quad_order: int) -> np.ndarray:
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, order=1).build()
+    space = ff.make_hex_space(mesh, dim=3, intorder=max(quad_order, 2))
+    facets = np.asarray(mesh.facets_on_plane(axis=2, value=0.0), dtype=int)
+    surface = ff.SurfaceMesh.from_hex_mesh(mesh, facets)
+    pattern = space.get_sparsity_pattern(with_idx=True)
+
+    def form(ctx, p):
+        N = ctx.test.N
+        n_q, n_nodes = N.shape
+        dim = int(ctx.test.value_dim)
+        mass = jnp.einsum("qi,qj->qij", N, N)
+        eye = jnp.eye(dim, dtype=N.dtype)
+        return (p.alpha * p.inv_h) * jnp.einsum("qij,ab->qiajb", mass, eye).reshape(
+            n_q, n_nodes * dim, n_nodes * dim
+        )
+
+    K = surface.assemble_bilinear_form_on_space(
+        space,
+        form,
+        params=ff.Params(alpha=float(alpha), inv_h=float(1.0 / h)),
+        pattern=pattern,
+    )
+    return np.asarray(K.to_dense())
 
 
 def build_skfem_contact(
@@ -338,6 +369,49 @@ def _rel_err(a: float, b: float) -> float:
     return abs(a - b) / max(1.0, abs(b))
 
 
+def _print_block_diagnostics(K_ff: np.ndarray, K_sf: np.ndarray, *, label: str) -> None:
+    if K_ff.shape != K_sf.shape or K_ff.shape[0] != K_ff.shape[1] or K_ff.shape[0] % 2 != 0:
+        return
+    n = K_ff.shape[0] // 2
+    blocks = (
+        ("aa", (slice(0, n), slice(0, n))),
+        ("ab", (slice(0, n), slice(n, 2 * n))),
+        ("ba", (slice(n, 2 * n), slice(0, n))),
+        ("bb", (slice(n, 2 * n), slice(n, 2 * n))),
+    )
+    for name, (rs, cs) in blocks:
+        B_ff = K_ff[rs, cs]
+        B_sf = K_sf[rs, cs]
+        d = B_ff - B_sf
+        n_ff = float(np.linalg.norm(B_ff))
+        n_sf = float(np.linalg.norm(B_sf))
+        d_rel = float(np.linalg.norm(d) / max(1.0, n_sf))
+        d_max = float(np.max(np.abs(d))) if d.size else 0.0
+        print(
+            f"[{label}/{name}] norm_ff={n_ff:.3e} norm_sf={n_sf:.3e} "
+            f"rel_diff_2={d_rel:.3e} diff_max={d_max:.3e}"
+        )
+
+
+def _print_entry_ratio_diagnostics(K_ff: np.ndarray, K_sf: np.ndarray, *, label: str) -> None:
+    mask = np.abs(K_sf) > 1.0e-12
+    if not np.any(mask):
+        return
+    ratios = np.asarray(K_ff[mask] / K_sf[mask], dtype=float).reshape(-1)
+    print(
+        f"[{label}/ratio] min={float(np.min(ratios)):.6e} max={float(np.max(ratios)):.6e} "
+        f"mean={float(np.mean(ratios)):.6e} median={float(np.median(ratios)):.6e}"
+    )
+    nz = np.argwhere(mask)
+    take = min(8, nz.shape[0])
+    for i in range(take):
+        r, c = nz[i]
+        print(
+            f"[{label}/ratio] ({int(r)},{int(c)}) ff={float(K_ff[r, c]):.6e} "
+            f"sf={float(K_sf[r, c]):.6e} ff/sf={float(K_ff[r, c] / K_sf[r, c]):.6e}"
+        )
+
+
 if __name__ == "__main__":
     alpha = float(os.getenv("ALPHA", "10.0"))
     h = float(os.getenv("H_REF", "1.0"))
@@ -406,3 +480,16 @@ if __name__ == "__main__":
                 f"[{elem}/{name}/n={normal_sign:+.0f}] rel_diff_inf={rel_diff_inf:.3e} "
                 f"rel_diff_2={rel_diff_2:.3e} rel_diff_max={rel_diff_max:.3e}"
             )
+            if os.getenv("COMPARE_BLOCKS", "1").strip().lower() not in {"0", "false", "no"}:
+                _print_block_diagnostics(K_ff, K_sf, label=f"{elem}/{name}/n={normal_sign:+.0f}")
+            if os.getenv("COMPARE_RATIOS", "1").strip().lower() not in {"0", "false", "no"}:
+                _print_entry_ratio_diagnostics(K_ff, K_sf, label=f"{elem}/{name}/n={normal_sign:+.0f}")
+            if elem == "hex8" and use_penalty and not use_traction:
+                n = K_ff.shape[0] // 2
+                K_surf = build_fluxfem_surface_penalty_mass_hex8(alpha=alpha, h=h_use, quad_order=quad_order)
+                diff_surf = K_ff[:n, :n] - K_surf
+                print(
+                    f"[{elem}/{name}/n={normal_sign:+.0f}/surf-aa] "
+                    f"rel_diff_2={float(np.linalg.norm(diff_surf) / max(1.0, np.linalg.norm(K_surf))):.3e} "
+                    f"diff_max={float(np.max(np.abs(diff_surf))):.3e}"
+                )

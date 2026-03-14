@@ -1,9 +1,10 @@
 import numpy as np
+import pytest
 
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 from fluxfem.core.weakform import (
-    compile_mixed_surface_residual_numpy,
+    compile_mixed_surface_residual,
     einsum as wf_einsum,
     param_ref,
     test_ref as wf_test_ref,
@@ -104,7 +105,7 @@ def _nitsche_residuals_numpy():
     traction_b = h_wf.dot(v2, t_u) - 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
     expr_a = (penalty_a + traction_a) * h_wf.ds()
     expr_b = (penalty_b + traction_b) * h_wf.ds()
-    return compile_mixed_surface_residual_numpy({"a": expr_a, "b": expr_b})
+    return compile_mixed_surface_residual({"a": expr_a, "b": expr_b})
 
 
 def _zeros_u(space):
@@ -119,7 +120,7 @@ def _assert_finite(arr, name: str):
     assert np.isfinite(np.asarray(arr)).all(), f"{name} contains non-finite values"
 
 
-def test_contact_two_sided_tet_hex_numpy():
+def test_contact_two_sided_tet_hex_numpy_not_implemented():
     for elem in ("tet", "hex"):
         box_top, box_bot, mesh_top, mesh_bot, space_top, space_bot = _build_meshes(elem, elem)
         contact_facets_top, contact_facets_bot = _contact_facets(
@@ -132,18 +133,13 @@ def test_contact_two_sided_tet_hex_numpy():
             side_bot,
             quad_order=1,
             backend="numpy",
-            fd_mode="forward",
-            fd_eps=1e-6,
-            fd_block_size=4,
             batch_jac=False,
         )
         params = _contact_params(box_top, box_bot)
-        K = contact.assemble_bilinear(
-            _nitsche_bilinear, (_zeros_u(space_top), _zeros_u(space_bot)), params, sparse=False
-        )
-        K = np.asarray(K)
-        assert K.shape[0] == K.shape[1]
-        _assert_finite(K, f"two_sided_{elem}_K")
+        with pytest.raises(NotImplementedError, match="backend='numpy'"):
+            contact.assemble_bilinear(
+                _nitsche_bilinear, (_zeros_u(space_top), _zeros_u(space_bot)), params, sparse=False
+            )
 
 
 def test_contact_onesided_tet_hex_numpy():
@@ -178,10 +174,7 @@ def test_contact_two_sided_hex_tet_numpy():
         side_top,
         side_bot,
         quad_order=1,
-        backend="numpy",
-        fd_mode="forward",
-        fd_eps=1e-6,
-        fd_block_size=4,
+        backend="jax",
         batch_jac=False,
     )
     params = _contact_params(box_top, box_bot)
@@ -191,9 +184,124 @@ def test_contact_two_sided_hex_tet_numpy():
         (_zeros_u(space_top), _zeros_u(space_bot)),
         params,
         sparse=False,
-        backend="numpy",
+        backend="jax",
         batch_jac=False,
     )
     K = np.asarray(K)
     assert K.shape[0] == K.shape[1]
     _assert_finite(K, "two_sided_hex_tet_K")
+
+
+def test_contact_two_sided_hex_batch_jac_matches_nonbatch():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, origin=(0.0, 0.0, 0.0), order=1).build()
+    space = ff.make_hex_space(mesh, dim=3)
+    conn = np.asarray(mesh.conn, dtype=int)
+    facets = np.array([[int(conn[0, i]) for i in (0, 1, 2, 3)]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        np.asarray(mesh.coords, dtype=float),
+        facets,
+        np.asarray(mesh.coords, dtype=float),
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=3,
+        value_dim_slave=3,
+        quad_order=1,
+        backend="jax",
+        batch_jac=True,
+    )
+    params = ff.Params(alpha=10.0, inv_h=1.0, lam=0.0, mu=0.0, use_penalty=1.0, use_traction=0.0)
+
+    def res_a(v, u, p):
+        u_b = ff.unknown_ref("b", space="B")
+        return ((p.alpha * p.inv_h) * h_wf.dot(v, u.val - u_b.val)) * h_wf.ds()
+
+    def res_b(v, u, p):
+        u_a = ff.unknown_ref("a", space="A")
+        return (-(p.alpha * p.inv_h) * h_wf.dot(v, u_a.val - u.val)) * h_wf.ds()
+
+    res_form = compile_mixed_surface_residual(
+        {
+            "a": ff.bind_mixed_residual("a", res_a, space="A"),
+            "b": ff.bind_mixed_residual("b", res_b, space="B"),
+        }
+    )
+    u = np.zeros(space.n_dofs, dtype=float)
+    K_batch = np.asarray(
+        contact.assemble_jacobian(
+            res_form,
+            (u, u),
+            params,
+            sparse=False,
+            backend="jax",
+            batch_jac=True,
+        )
+    )
+    K_ref = np.asarray(
+        contact.assemble_jacobian(
+            res_form,
+            (u, u),
+            params,
+            sparse=False,
+            backend="jax",
+            batch_jac=False,
+        )
+    )
+    assert np.allclose(K_batch, K_ref, atol=1e-10)
+
+
+def test_contact_two_sided_hex_batch_jac_sparse_matches_dense():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, origin=(0.0, 0.0, 0.0), order=1).build()
+    space = ff.make_hex_space(mesh, dim=3)
+    conn = np.asarray(mesh.conn, dtype=int)
+    facets = np.array([[int(conn[0, i]) for i in (0, 1, 2, 3)]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        np.asarray(mesh.coords, dtype=float),
+        facets,
+        np.asarray(mesh.coords, dtype=float),
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=3,
+        value_dim_slave=3,
+        quad_order=4,
+        backend="jax",
+        batch_jac=True,
+    )
+    params = ff.Params(alpha=10.0, inv_h=1.0, lam=0.0, mu=0.0, use_penalty=1.0, use_traction=0.0)
+
+    def res_a(v, u, p):
+        u_b = ff.unknown_ref("b", space="B")
+        return ((p.alpha * p.inv_h) * h_wf.dot(v, u.val - u_b.val)) * h_wf.ds()
+
+    def res_b(v, u, p):
+        u_a = ff.unknown_ref("a", space="A")
+        return (-(p.alpha * p.inv_h) * h_wf.dot(v, u_a.val - u.val)) * h_wf.ds()
+
+    res_form = compile_mixed_surface_residual(
+        {
+            "a": ff.bind_mixed_residual("a", res_a, space="A"),
+            "b": ff.bind_mixed_residual("b", res_b, space="B"),
+        }
+    )
+    u = np.zeros(space.n_dofs, dtype=float)
+    K_dense = np.asarray(
+        contact.assemble_jacobian(
+            res_form,
+            (u, u),
+            params,
+            sparse=False,
+            backend="jax",
+            batch_jac=True,
+        )
+    )
+    K_sparse = contact.assemble_jacobian(
+        res_form,
+        (u, u),
+        params,
+        sparse=True,
+        backend="jax",
+        batch_jac=True,
+    )
+    K_sparse_dense = np.asarray(K_sparse.to_dense()) if hasattr(K_sparse, "to_dense") else np.asarray(K_sparse)
+    assert np.allclose(K_sparse_dense, K_dense, atol=1e-10)

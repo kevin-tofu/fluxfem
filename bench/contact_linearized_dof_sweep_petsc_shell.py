@@ -56,7 +56,6 @@ def parse_args():
     p.add_argument("--intorder", type=int, default=env_default("INTORDER", 1, int))
     p.add_argument("--E", type=float, default=env_default("E", 210_000.0, float))
     p.add_argument("--nu", type=float, default=env_default("NU", 0.3, float))
-    p.add_argument("--contact-backend", choices=["jax", "numpy"], default=os.environ.get("CONTACT_BACKEND", "jax"))
     p.add_argument("--quad-order", type=int, default=env_default("QUAD_ORDER", 2, int))
     p.add_argument("--alpha", type=float, default=env_default("ALPHA", 1.0, float))
     p.add_argument("--total-force", type=float, default=env_default("TOTAL_FORCE", -1.0, float))
@@ -170,7 +169,7 @@ def assemble_contact_system(n: int, args):
         side_top,
         side_bot,
         quad_order=int(args.quad_order),
-        backend=args.contact_backend,
+        backend="jax",
     )
 
     dx_top, dy_top, dz_top = _mesh_spacing(box_top)
@@ -191,12 +190,8 @@ def assemble_contact_system(n: int, args):
         traction -= 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
         return (penalty + traction) * h_wf.ds()
 
-    if args.contact_backend == "numpy":
-        u_top0 = np.zeros(space_top.n_dofs)
-        u_bot0 = np.zeros(space_bot.n_dofs)
-    else:
-        u_top0 = jnp.zeros(space_top.n_dofs)
-        u_bot0 = jnp.zeros(space_bot.n_dofs)
+    u_top0 = jnp.zeros(space_top.n_dofs)
+    u_bot0 = jnp.zeros(space_bot.n_dofs)
 
     contact_coo = contact.assemble_bilinear(bilin, (u_top0, u_bot0), params_contact, sparse=True)
     K_contact = ff.FluxSparseMatrix.from_bilinear(contact_coo)
