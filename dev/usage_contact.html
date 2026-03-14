@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Contact Interface Usage &#8212; FluxFEM 0.2.7 documentation</title>
+    <title>Contact Interface Usage &#8212; FluxFEM 0.2.8 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=7dc55c04"></script>
+    <script src="_static/documentation_options.js?v=dfb2ad43"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'usage_contact';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.7 documentation</p>
+    <p class="title logo__title">FluxFEM 0.2.8 documentation</p>
   
 </a></div>
     
@@ -381,6 +381,8 @@
   <section id="contact-interface-usage">
 <h1>Contact Interface Usage<a class="headerlink" href="#contact-interface-usage" title="Link to this heading">#</a></h1>
 <p>This page shows the recommended high-level API for contact assembly.</p>
+<p>For terminology/ownership/scope (<code class="docutils literal notranslate"><span class="pre">contact</span></code>, <code class="docutils literal notranslate"><span class="pre">multiplier</span></code>, <code class="docutils literal notranslate"><span class="pre">formulation</span></code>, <code class="docutils literal notranslate"><span class="pre">ops</span></code>),
+see <span class="xref std std-doc">contact_api_boundaries</span>.</p>
 <section id="one-to-many-contact-from-meshes">
 <h2>One-To-Many Contact From Meshes<a class="headerlink" href="#one-to-many-contact-from-meshes" title="Link to this heading">#</a></h2>
 <p>Use <code class="xref py py-class docutils literal notranslate"><span class="pre">fluxfem.OneToManyContactSurfaceSpace</span></code> with mesh objects and facet selectors.
@@ -435,12 +437,18 @@ You do not need to manually pass surface coordinates/connectivity.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">assemble_contact_constraint_operators</span></code>: coupling/B/Kuu.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">assemble_contact_penalty_operators</span></code>: residual/jacobian from weak form.</p></li>
 </ul>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Constraint path: returns coupling/B/Kuu operators</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">lm_space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactMultiplierSpace</span><span class="o">.</span><span class="n">from_contact</span><span class="p">(</span>
+    <span class="n">contact</span><span class="p">,</span>
+    <span class="n">family</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>
+    <span class="n">side</span><span class="o">=</span><span class="s2">&quot;master&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Constraint path: returns coupling/B/Kuu operators</span>
 <span class="n">ops</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactOperators</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_constraint_operators</span><span class="p">(</span>
     <span class="n">contact</span><span class="p">,</span>
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
-    <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>   <span class="c1"># or &quot;nodal&quot;</span>
-    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">,</span>
+    <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span>
+    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
     <span class="c1"># Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.</span>
     <span class="n">weak_form</span><span class="o">=</span><span class="n">res_form</span><span class="p">,</span>
     <span class="n">state</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;master&quot;</span><span class="p">:</span> <span class="n">u_master</span><span class="p">,</span> <span class="s2">&quot;slaves&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">u_s1</span><span class="p">,</span> <span class="n">u_s2</span><span class="p">]},</span>
@@ -473,9 +481,9 @@ The default output is <code class="docutils literal notranslate"><span class="pr
     <span class="n">ops</span><span class="o">.</span><span class="n">coupling_aa</span><span class="p">,</span>
     <span class="n">ops</span><span class="o">.</span><span class="n">coupling_ab</span><span class="p">,</span>
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
-    <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>
+    <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span>
     <span class="n">facet_conn_master</span><span class="o">=</span><span class="n">ops</span><span class="o">.</span><span class="n">facet_conn_master</span><span class="p">,</span>
-    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">,</span>
+    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="n">KKT_bcoo</span> <span class="o">=</span> <span class="n">KKT_flux</span><span class="o">.</span><span class="n">to_bcoo</span><span class="p">()</span>
@@ -486,7 +494,7 @@ The default output is <code class="docutils literal notranslate"><span class="pr
     <span class="n">ops</span><span class="o">.</span><span class="n">coupling_aa</span><span class="p">,</span>
     <span class="n">ops</span><span class="o">.</span><span class="n">coupling_ab</span><span class="p">,</span>
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
-    <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>
+    <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span>
     <span class="n">facet_conn_master</span><span class="o">=</span><span class="n">ops</span><span class="o">.</span><span class="n">facet_conn_master</span><span class="p">,</span>
     <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
     <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;dense&quot;</span><span class="p">,</span>
@@ -496,7 +504,7 @@ The default output is <code class="docutils literal notranslate"><span class="pr
     <span class="n">ops</span><span class="o">.</span><span class="n">coupling_aa</span><span class="p">,</span>
     <span class="n">ops</span><span class="o">.</span><span class="n">coupling_ab</span><span class="p">,</span>
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
-    <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span>
+    <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span>
     <span class="n">facet_conn_master</span><span class="o">=</span><span class="n">ops</span><span class="o">.</span><span class="n">facet_conn_master</span><span class="p">,</span>
     <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
     <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;bcoo&quot;</span><span class="p">,</span>
@@ -517,7 +525,7 @@ The default output is <code class="docutils literal notranslate"><span class="pr
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">master_facet_selector</span></code> and <code class="docutils literal notranslate"><span class="pre">slave_facet_selectors</span></code> are recommended for robust workflows.</p></li>
 <li><p>For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">multiplier_space=&quot;p0&quot;</span></code> gives facet-wise constant multipliers (common for constraint-family coupling).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ContactMultiplierSpace(family=&quot;p0&quot;)</span></code> gives facet-wise constant multipliers (common for constraint-family coupling).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">assemble_contact_kkt</span></code> is a low-level API. In most cases, prefer <code class="docutils literal notranslate"><span class="pre">CoupledSystemBuilder.add_contact(...)</span></code>.</p></li>
 </ul>
 </section>
@@ -544,12 +552,13 @@ The default output is <code class="docutils literal notranslate"><span class="pr
 <h2>Constraint with Builder<a class="headerlink" href="#constraint-with-builder" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">assemble_contact_constraint_operators(...)</span></code> and builder are consistent:
 assemble operators first, then pass them to <code class="docutils literal notranslate"><span class="pre">add_contact</span></code> (or <code class="docutils literal notranslate"><span class="pre">add_contact_mortar</span></code>).</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ops_mortar</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_constraint_operators</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">multiplier_space</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">lm_space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactMultiplierSpace</span><span class="o">.</span><span class="n">from_contact</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">family</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span> <span class="n">side</span><span class="o">=</span><span class="s2">&quot;master&quot;</span><span class="p">)</span>
+<span class="n">ops_mortar</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_constraint_operators</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">)</span>
 <span class="n">builder</span><span class="o">.</span><span class="n">add_contact</span><span class="p">(</span><span class="n">ops_mortar</span><span class="p">,</span> <span class="n">master</span><span class="o">=</span><span class="s2">&quot;top&quot;</span><span class="p">,</span> <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support&quot;</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>When <code class="docutils literal notranslate"><span class="pre">ops_mortar</span></code> comes from <code class="docutils literal notranslate"><span class="pre">assemble_contact_constraint_operators(...)</span></code>,
-<code class="docutils literal notranslate"><span class="pre">rho</span></code> and <code class="docutils literal notranslate"><span class="pre">multiplier_space</span></code> are inherited automatically. Override only when needed.</p>
+<code class="docutils literal notranslate"><span class="pre">rho</span></code> and <code class="docutils literal notranslate"><span class="pre">multiplier</span></code> are inherited automatically. Override only when needed.</p>
 </section>
 <section id="embedding-map-with-unmapped-report">
 <h2>Embedding Map (With Unmapped Report)<a class="headerlink" href="#embedding-map-with-unmapped-report" title="Link to this heading">#</a></h2>
