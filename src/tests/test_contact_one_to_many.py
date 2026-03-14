@@ -15,13 +15,6 @@ def _params():
     return ff.Params(alpha=10.0, inv_h=1.0)
 
 
-def _as_dense_sparse_triplet(rows, cols, data, n):
-    K = np.zeros((int(n), int(n)), dtype=float)
-    for r, c, v in zip(np.asarray(rows, dtype=int), np.asarray(cols, dtype=int), np.asarray(data, dtype=float)):
-        K[r, c] += v
-    return K
-
-
 def test_one_to_many_contact_bilinear_matches_pair_sum():
     coords = np.array(
         [
@@ -79,15 +72,14 @@ def test_one_to_many_contact_bilinear_matches_pair_sum():
     assert K_otm.shape == K_ref.shape
     assert np.allclose(K_otm, K_ref, atol=1e-10)
 
-    rows, cols, data, n_total = otm.assemble_bilinear(
+    K_sparse = otm.assemble_bilinear(
         _penalty_bilinear,
         u_m,
         [u_s1, u_s2],
         params,
         sparse=True,
     )
-    K_sparse = _as_dense_sparse_triplet(rows, cols, data, n_total)
-    assert np.allclose(K_sparse, K_ref, atol=1e-10)
+    assert np.allclose(np.asarray(K_sparse.to_dense()), K_ref, atol=1e-10)
 
 
 def test_one_to_many_from_meshes_with_selectors():
