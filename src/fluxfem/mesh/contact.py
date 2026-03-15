@@ -81,6 +81,119 @@ class ContactOperators:
 
 
 @dataclass(frozen=True)
+class ContactSpaces:
+    """Public spec that binds contact roles to contact sides."""
+
+    master: "ContactSide"
+    slave: "ContactSide"
+    field_master: str = "a"
+    field_slave: str = "b"
+
+    def __post_init__(self) -> None:
+        if not str(self.field_master):
+            raise ValueError("ContactSpaces.field_master must be non-empty.")
+        if not str(self.field_slave):
+            raise ValueError("ContactSpaces.field_slave must be non-empty.")
+
+    def to_contact_surface_space(
+        self,
+        *,
+        quad_order: int = 0,
+        tol: float = 1e-8,
+        backend: str = "jax",
+        batch_jac: bool = False,
+    ) -> "ContactSurfaceSpace":
+        return ContactSurfaceSpace.from_sides(
+            self.master,
+            self.slave,
+            field_master=str(self.field_master),
+            field_slave=str(self.field_slave),
+            quad_order=int(quad_order),
+            tol=float(tol),
+            backend=str(backend),
+            batch_jac=bool(batch_jac),
+        )
+
+
+@dataclass(frozen=True)
+class ContactGroupSpaces:
+    """Public spec that binds one-master/many-slave contact roles."""
+
+    master: "ContactSide"
+    slaves: Sequence["ContactSide"]
+    field_master: str = "master"
+    field_slave: str = "slave"
+
+    def __post_init__(self) -> None:
+        if len(self.slaves) == 0:
+            raise ValueError("ContactGroupSpaces.slaves must contain at least one ContactSide.")
+        if not str(self.field_master):
+            raise ValueError("ContactGroupSpaces.field_master must be non-empty.")
+        if not str(self.field_slave):
+            raise ValueError("ContactGroupSpaces.field_slave must be non-empty.")
+
+    def to_contact_surface_space(
+        self,
+        *,
+        quad_order: int = 1,
+        space_mode_master: str = "nodal",
+        space_mode_slave: str = "nodal",
+        facet_dofs_master: np.ndarray | None = None,
+        facet_dofs_slave: np.ndarray | None = None,
+        normal_sign: float | None = None,
+        tol: float = 1e-8,
+        backend: str = "jax",
+        batch_jac: bool | None = None,
+        setup_cache_enabled: bool | None = None,
+        setup_cache_trace: bool | None = None,
+    ) -> "OneToManyContactSurfaceSpace":
+        return OneToManyContactSurfaceSpace.from_sides(
+            self.master,
+            list(self.slaves),
+            field_master=str(self.field_master),
+            field_slave=str(self.field_slave),
+            quad_order=int(quad_order),
+            space_mode_master=str(space_mode_master),
+            space_mode_slave=str(space_mode_slave),
+            facet_dofs_master=facet_dofs_master,
+            facet_dofs_slave=facet_dofs_slave,
+            normal_sign=normal_sign,
+            tol=float(tol),
+            backend=str(backend),
+            batch_jac=batch_jac,
+            setup_cache_enabled=setup_cache_enabled,
+            setup_cache_trace=setup_cache_trace,
+        )
+
+
+@dataclass(frozen=True)
+class OneSidedContactSpaces:
+    """Public spec that binds one-sided contact roles to a contact side."""
+
+    side: "ContactSide"
+    surface_master: SurfaceMesh | None = None
+    elem_conn_master: np.ndarray | None = None
+    facet_to_elem_master: np.ndarray | None = None
+
+    def to_contact_surface_space(
+        self,
+        *,
+        quad_order: int = 2,
+        normal_sign: float = 1.0,
+        tol: float = 1e-8,
+    ) -> "OneSidedContactSurfaceSpace":
+        return OneSidedContactSurfaceSpace.from_side(
+            self.side,
+            surface_master=self.surface_master,
+            elem_conn_master=self.elem_conn_master,
+            facet_to_elem_master=self.facet_to_elem_master,
+            quad_order=int(quad_order),
+            normal_sign=float(normal_sign),
+            tol=float(tol),
+        )
+
+
+@dataclass(frozen=True)
 class ContactMultiplierSpace:
     """Discrete LM-space description used by constraint-family contact assembly."""
 

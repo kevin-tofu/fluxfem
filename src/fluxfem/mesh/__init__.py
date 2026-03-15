@@ -23,6 +23,9 @@ from .contact_interface import (
 )
 from .contact import (
     ContactOperators,
+    ContactSpaces,
+    ContactGroupSpaces,
+    OneSidedContactSpaces,
     ContactMultiplierSpace,
     ContactKKTSolveConfig,
     EmbeddingMap,
@@ -86,6 +89,9 @@ __all__ = [
     "quad9_shape_values",
     "hex27_gradN",
     "ContactSurfaceSpace",
+    "ContactSpaces",
+    "ContactGroupSpaces",
+    "OneSidedContactSpaces",
     "ContactSide",
     "ContactOperators",
     "ContactMultiplierSpace",
