@@ -124,6 +124,28 @@ but the weak-form mapping looks like this (PK2 form):
    residual_form = ff.ResidualForm.volume(neo_hookean_residual_wf)
    R = space.assemble_residual(residual_form.get_compiled(), u, params=params)
 
+The role-explicit equivalent keeps the same weak form but binds test/unknown
+roles through ``NamedSpace``:
+
+.. code-block:: python
+
+   U = ff.NamedSpace("U", space)
+   V = ff.NamedSpace("V", space)
+   residual = ff.compile_residual(neo_hookean_residual_wf)
+
+   R = ff.assemble_residual(
+       ff.ResidualSpaces(test=V, unknown=U),
+       residual,
+       u,
+       params,
+   )
+   J = ff.assemble_jacobian(
+       ff.JacobianSpaces(test=V, trial=U),
+       residual,
+       u,
+       params,
+   )
+
 In FluxFEM, ``ff.neo_hookean_residual_form`` uses the PK2 stress ``S`` internally,
 and the weak-form expression above is consistent with that choice.
 

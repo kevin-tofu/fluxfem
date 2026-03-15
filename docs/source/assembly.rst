@@ -17,6 +17,88 @@ When to use which?
 - Weak-form-based: concise and expressive; good for rapid prototyping and for
   matching equations in papers.
 
+Single-Space vs Role-Explicit Assembly
+--------------------------------------
+
+FluxFEM supports two complementary calling styles for the same core assembly
+machinery:
+
+- ``space.assemble_*``: the shortest path when test/trial/unknown all live on
+  the same space.
+- ``ff.assemble_*(*Spaces(...), ...)``: the explicit path when you want to bind
+  named roles such as ``test`` and ``trial`` directly in the public API.
+
+Deprecated compatibility paths:
+
+- ``assemble_bilinear_form_pg(...)`` is deprecated in favor of
+  ``assemble_bilinear_form(BilinearSpaces(...), ...)``.
+- dict-based role passing such as ``{"test": V, "trial": U}`` is deprecated in
+  favor of ``BilinearSpaces(test=V, trial=U)``.
+
+For standard Galerkin problems, the single-space form remains the simplest:
+
+.. code-block:: python
+
+   import fluxfem as ff
+
+   K = space.assemble_bilinear_form(ff.diffusion_form, params=1.0)
+   F = space.assemble_linear_form(ff.make_scalar_body_force_form(lambda x: 1.0), params=None)
+
+The paired helper ``space.assemble_bilinear_linear_pair(...)`` remains
+supported for the common same-space case, but it is only convenience sugar over
+the separate bilinear and linear assembly calls. There is no separate
+role-explicit ``PairSpaces`` abstraction; the underlying public building blocks
+are still ``BilinearSpaces`` and ``LinearSpaces``.
+
+For role-explicit assembly, use the ``*Spaces`` family:
+
+.. code-block:: python
+
+   import fluxfem as ff
+   import fluxfem.helpers_wf as wf
+
+   U = ff.NamedSpace("U", trial_space)
+   V = ff.NamedSpace("V", test_space)
+
+   bilinear = ff.compile_bilinear(
+       lambda v, u, p: p.kappa * wf.gaction(v, wf.grad(u)) * wf.dOmega()
+   )
+   linear = ff.compile_linear(
+       lambda v, p: wf.dot(v, p.force) * wf.dOmega()
+   )
+
+   A = ff.assemble_bilinear_form(
+       ff.BilinearSpaces(test=V, trial=U),
+       bilinear,
+       ff.Params(kappa=1.0),
+   )
+   b = ff.assemble_linear_form(
+       ff.LinearSpaces(test=V),
+       linear,
+       ff.Params(force=1.0),
+   )
+
+The same pattern extends to nonlinear volume assembly:
+
+.. code-block:: python
+
+   residual = ff.compile_residual(
+       lambda v, u, p: p.kappa * wf.gaction(v, wf.grad(u)) * wf.dOmega()
+   )
+
+   R = ff.assemble_residual(
+       ff.ResidualSpaces(test=V, unknown=U),
+       residual,
+       u_vec,
+       ff.Params(kappa=1.0),
+   )
+   J = ff.assemble_jacobian(
+       ff.JacobianSpaces(test=V, trial=U),
+       residual,
+       u_vec,
+       ff.Params(kappa=1.0),
+   )
+
 Measure handling (weak form vs tensor vs kernel)
 ------------------------------------------------
 

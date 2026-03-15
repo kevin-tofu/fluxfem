@@ -30,7 +30,6 @@ jax.config.update("jax_enable_x64", True)
 
 import fluxfem as ff  # noqa: E402
 import fluxfem.helpers_wf as h_wf  # noqa: E402
-from fluxfem.core.mixed_space import MixedFESpace  # noqa: E402
 from fluxfem.core.weakform import einsum  # noqa: E402
 
 
@@ -92,10 +91,12 @@ def main():
         lz=args.lz,
     )
     space = ff.make_hex_space(mesh, dim=1, intorder=args.intorder)
-    mixed = MixedFESpace(
-        {"u": space, "T": space},
-        field_to_space_key={"u": disp_space, "T": temp_space},
-    )
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace(disp_space, space),
+            "T": ff.NamedSpace(temp_space, space),
+        }
+    ).to_fe_space()
 
     xmin, xmax, coords = x_bounds(mesh)
     left_dofs = mesh.boundary_dofs_where(

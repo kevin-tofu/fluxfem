@@ -123,15 +123,9 @@ def main():
     master_facets = np.asarray(top_mesh.facets_on_plane(axis=2, value=z_top_min, tol=1e-8), dtype=int)
     slave_facets = np.asarray(support_mesh.facets_on_plane(axis=2, value=z_support_max, tol=1e-8), dtype=int)
 
-    contact = ff.ContactSurfaceSpace.from_facets(
-        np.asarray(top_mesh.coords),
-        master_facets,
-        np.asarray(support_mesh.coords),
-        slave_facets,
-        elem_conn_master=np.asarray(top_mesh.conn, dtype=int),
-        elem_conn_slave=np.asarray(support_mesh.conn, dtype=int),
-        value_dim_master=1,
-        value_dim_slave=1,
+    master_side = ff.ContactSide.from_facets(top_mesh, master_facets, top_space)
+    slave_side = ff.ContactSide.from_facets(support_mesh, slave_facets, support_space)
+    contact = ff.ContactSpaces(master=master_side, slave=slave_side).to_contact_surface_space(
         quad_order=1,
         backend="jax",
     )

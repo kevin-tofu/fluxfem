@@ -722,9 +722,10 @@ def run_fluxfem_demo(
         if timing:
             print(f"[timing] contact setup: side_bot {time.perf_counter() - t_setup:.3f}s", flush=True)
             t_setup = time.perf_counter()
-        contact = ff.ContactSurfaceSpace.from_sides(
-            side_top,
-            side_bot,
+        contact = ff.ContactSpaces(
+            master=side_top,
+            slave=side_bot,
+        ).to_contact_surface_space(
             quad_order=int(params.quad_order),
             backend="jax",
             batch_jac=batch_jac,
@@ -1085,8 +1086,9 @@ def run_fluxfem_oneside_demo(
     _mark("boundary facets")
 
     side_top = ff.ContactSide.from_facets(mesh_top, contact_facets_top, space_top)
-    contact_space = ff.OneSidedContactSurfaceSpace.from_side(
-        side_top,
+    contact_space = ff.OneSidedContactSpaces(
+        side=side_top,
+    ).to_contact_surface_space(
         quad_order=int(params.quad_order),
     )
     _mark("contact setup")

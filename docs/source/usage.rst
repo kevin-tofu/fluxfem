@@ -6,6 +6,7 @@ Usage
    :caption: Usage
 
    assembly
+   migration_role_spaces
    usage_chunked_assembly
    solver
    space

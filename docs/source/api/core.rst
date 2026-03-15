@@ -4,6 +4,10 @@ Core
 Spaces
 ------
 
+For new public-facing mixed setups, prefer ``MixedSpaces(...).to_fe_space()``.
+``MixedFESpace`` remains available as a lower-level constructor for advanced
+or internal usage.
+
 .. autoclass:: fluxfem.core.FESpaceBase
 .. autoclass:: fluxfem.core.FESpace
 .. autoclass:: fluxfem.core.FESpacePytree
@@ -72,10 +76,12 @@ Example (MixedProblem)
 
 .. code-block:: python
 
-   mixed = ff.MixedFESpace(
-       {"u": space, "p": space},
-       field_to_space_key={"u": "U", "p": "P"},
-   )
+   mixed = ff.MixedSpaces(
+       {
+           "u": ff.NamedSpace("U", space),
+           "p": ff.NamedSpace("P", space),
+       }
+   ).to_fe_space()
    residuals = ff.make_mixed_residuals(
        u=ff.bind_mixed_residual("u", res_u, space="U"),
        p=ff.bind_mixed_residual("p", res_p, space="P"),

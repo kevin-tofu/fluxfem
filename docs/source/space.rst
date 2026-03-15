@@ -53,3 +53,9 @@ Notes
 - ``FESpacePytree`` shares the same API as ``FESpace``; only the pytree behavior
   differs.
 - Prefer ``FESpace`` unless you need the mesh/basis to be part of a JAX pytree.
+- For same-space Galerkin problems, ``space.assemble_*`` remains the shortest
+  entry point.
+- For role-explicit assembly, prefer the top-level ``ff.assemble_*`` helpers
+  with ``ff.NamedSpace`` and the ``*Spaces`` family, such as
+  ``ff.LinearSpaces``, ``ff.BilinearSpaces``, ``ff.ResidualSpaces``, and
+  ``ff.JacobianSpaces``.

@@ -33,7 +33,7 @@ where variational forms are treated as first-class, differentiable programs.
 - Two assembly approaches: tensor-based (scikit-fem–style) assembly and weak-form-based assembly.
 - Handles both linear and nonlinear analyses with AD in JAX.
 - Optional PETSc/PETSc-shell solvers via `petsc4py` for scalable linear solves (add `fluxfem[petsc]`).
-- Contact interface support for penalty/constraint contact formulations, including one-to-many contact spaces (`OneToManyContactSurfaceSpace.from_meshes`) and KKT assembly utilities (`assemble_contact_coupling_matrices`, `assemble_contact_kkt`, `solve_contact_kkt`).
+- Contact interface support for penalty/constraint contact formulations, including role-explicit contact specs (`ContactSpaces`, `ContactGroupSpaces`, `OneSidedContactSpaces`) and KKT assembly utilities (`assemble_contact_coupling_matrices`, `assemble_contact_kkt`, `solve_contact_kkt`).
 
 ## Usage 
 
@@ -201,6 +201,10 @@ Current boundary:
 - there is not yet a dedicated public "shape derivative" API layer; shape sensitivity is currently expressed as ordinary JAX differentiation through assembly/solve code
 - `backend="numpy"` is not part of this differentiable path
 
+For same-space Galerkin assembly, `space.assemble_*` remains the shortest path.
+When you want the roles to be explicit, prefer top-level assembly with
+`LinearSpaces`, `BilinearSpaces`, `ResidualSpaces`, and `JacobianSpaces`.
+
 ### Mixed systems
 
 Mixed problems can be assembled from residual blocks and solved as a coupled system.
@@ -209,7 +213,12 @@ Mixed problems can be assembled from residual blocks and solved as a coupled sys
 import fluxfem as ff
 import jax.numpy as jnp
 
-mixed = ff.MixedFESpace({"u": space_u, "p": space_p})
+mixed = ff.MixedSpaces(
+    {
+        "u": ff.NamedSpace("U", space_u),
+        "p": ff.NamedSpace("Q", space_p),
+    }
+).to_fe_space()
 residuals = ff.make_mixed_residuals(
     u=res_u,  # (v, u, params) -> Expr
     p=res_p,  # (q, u, params) -> Expr
@@ -274,25 +283,37 @@ K = blocks.assemble()
 FluxFEM also provides high-level contact utilities:
 
 ```python
-# Minimal one-to-many contact setup
-contact = ff.OneToManyContactSurfaceSpace.from_meshes(
-    master_mesh=mesh_master,
-    slave_meshes=[mesh_slave],
-    master_space=space_master,      # optional
-    slave_spaces=[space_slave],     # optional
-    master_facet_selector=select_master,
-    slave_facet_selectors=[select_slave],
+# Pair contact
+side_master = ff.ContactSide.from_surfaces(surf_master, elem_conn=conn_master, value_dim=3)
+side_slave = ff.ContactSide.from_surfaces(surf_slave, elem_conn=conn_slave, value_dim=3)
+contact = ff.ContactSpaces(master=side_master, slave=side_slave).to_contact_surface_space(
+    quad_order=4,
+    backend="jax",
+)
+
+# One-to-many contact
+contact_group = ff.ContactGroupSpaces(
+    master=side_master,
+    slaves=[side_slave],
+).to_contact_surface_space(
+    quad_order=4,
+    backend="jax",
+)
+
+# One-sided contact
+floor_contact = ff.OneSidedContactSpaces(side=side_slave).to_contact_surface_space(
+    quad_order=4,
 )
 
 # 1) Assemble constraint operators (B, Kuu, ...)
 lm_space = ff.ContactMultiplierSpace.from_contact(
-    contact,
+    contact_group,
     family="p0",
     side="master",
 )
 
 ops: ff.ContactOperators = ff.assemble_contact_constraint_operators(
-    contact,
+    contact_group,
     rho=1.0,
     multiplier=lm_space,
     backend="numpy",

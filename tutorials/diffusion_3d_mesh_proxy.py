@@ -124,9 +124,19 @@ def solve_poisson(
     intorder: int,
 ):
     space = build_space(coords, conn, intorder)
-    K = space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense()
+    U = ff.NamedSpace("U", space)
+    V = ff.NamedSpace("V", space)
+    K = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=V, trial=U),
+        ff.diffusion_form,
+        1.0,
+    ).to_dense()
     rhs_form = ff.make_scalar_body_force_form(body_force)
-    F = space.assemble_linear_form(rhs_form, params=None)
+    F = ff.assemble_linear_form(
+        ff.LinearSpaces(test=V),
+        rhs_form,
+        None,
+    )
     bc = ff.DirichletBC(dir_dofs, dir_vals)
     K_bc, F_bc = bc.enforce_system(K, F)
     u = jnp.linalg.solve(K_bc, F_bc)

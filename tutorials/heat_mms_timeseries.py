@@ -154,7 +154,13 @@ def make_space(mesh, intorder: int):
 def assemble_weak_forms(
     space, kappa: float
 ) -> tuple[ff.FluxSparseMatrix, ff.FluxSparseMatrix]:
-    stiffness = space.assemble_bilinear_form(ff.diffusion_form, params=kappa)
+    U = ff.NamedSpace("U", space)
+    V = ff.NamedSpace("V", space)
+    stiffness = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=V, trial=U),
+        ff.diffusion_form,
+        kappa,
+    )
     mass = space.assemble_mass_matrix()
     return stiffness, mass
 

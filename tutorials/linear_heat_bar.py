@@ -50,16 +50,26 @@ def main():
         lz=args.lz,
     ).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=args.intorder)
+    U = ff.NamedSpace("U", space)
+    V = ff.NamedSpace("V", space)
 
-    bilinear = ff.BilinearForm.volume(
-        lambda u, v, p: p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega()
+    bilinear = ff.compile_bilinear(
+        lambda v, u, p: p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega()
     )
-    linear = ff.LinearForm.volume(
+    linear = ff.compile_linear(
         lambda v, p: (v * p.q) * h_wf.dOmega()
     )
 
-    K = space.assemble_bilinear_form(bilinear.bilinear_form(), params=ff.Params(kappa=args.kappa))
-    F = space.assemble_linear_form(linear.linear_form(), params=ff.Params(q=args.source))
+    K = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=V, trial=U),
+        bilinear,
+        ff.Params(kappa=args.kappa),
+    )
+    F = ff.assemble_linear_form(
+        ff.LinearSpaces(test=V),
+        linear,
+        ff.Params(q=args.source),
+    )
 
     coords = np.asarray(mesh.coords)
     xmin = float(coords[:, 0].min())

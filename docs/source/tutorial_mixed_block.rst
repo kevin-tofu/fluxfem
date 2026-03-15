@@ -16,10 +16,12 @@ Define a mixed space, write per-field residuals, and solve in a single system:
 
    mesh = ff.StructuredHexBox(nx=2, ny=1, nz=1, lx=1.0, ly=0.1, lz=0.1).build()
    space = ff.make_hex_space(mesh, dim=1, intorder=2)
-   mixed = ff.MixedFESpace(
-       {"u": space, "T": space},
-       field_to_space_key={"u": "U", "T": "THETA"},
-   )
+   mixed = ff.MixedSpaces(
+       {
+           "u": ff.NamedSpace("U", space),
+           "T": ff.NamedSpace("THETA", space),
+       }
+   ).to_fe_space()
 
    def res_T(v, T, p):
        return (p.kappa * h_wf.gaction(v, h_wf.grad(T)) - v * p.q) * h_wf.dOmega()
@@ -133,5 +135,5 @@ where the diagonal entries come from the self-residuals (``res_u`` / ``res_T``)
 and the off-diagonal blocks arise from cross-couplings.  The block helpers above
 let you construct this matrix explicitly: ``diag`` supplies ``K_{uu}``/``K_{TT}``
 and ``rel`` inserts pairs such as ``K_{uT}``.  Passing the resulting ``blocks``
-dictionary into ``MixedFESpace.build_block_system`` makes it easy to swap in
+dictionary into ``mixed.build_block_system`` makes it easy to swap in
 Schur-complement solvers, block preconditioners, or other multiphysics strategies.

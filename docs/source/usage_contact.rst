@@ -6,11 +6,37 @@ This page shows the recommended high-level API for contact assembly.
 For terminology/ownership/scope (``contact``, ``multiplier``, ``formulation``, ``ops``),
 see :doc:`contact_api_boundaries`.
 
-One-To-Many Contact From Meshes
--------------------------------
+Role Specs
+----------
 
-Use :class:`fluxfem.OneToManyContactSurfaceSpace` with mesh objects and facet selectors.
-You do not need to manually pass surface coordinates/connectivity.
+For new code, prefer explicit role specs over ad-hoc positional wiring.
+
+Pair contact:
+
+.. code-block:: python
+
+   pair_spec = ff.ContactSpaces(master=master_side, slave=slave_side)
+   contact = pair_spec.to_contact_surface_space(quad_order=1, backend="jax")
+
+One-sided contact:
+
+.. code-block:: python
+
+   one_sided_spec = ff.OneSidedContactSpaces(side=slave_side)
+   contact = one_sided_spec.to_contact_surface_space(quad_order=2)
+
+One-to-many contact:
+
+.. code-block:: python
+
+   group_spec = ff.ContactGroupSpaces(master=master_side, slaves=[slave_side_1, slave_side_2])
+   contact = group_spec.to_contact_surface_space(quad_order=1, backend="jax")
+
+One-To-Many Contact
+-------------------
+
+For new code, prefer explicit role specs and build the one-to-many contact space
+from ``ContactGroupSpaces``.
 
 .. code-block:: python
 
@@ -26,13 +52,26 @@ You do not need to manually pass surface coordinates/connectivity.
    def select_contact(mesh):
        return mesh.facets_on_plane(axis=2, value=0.0)
 
-   contact = ff.OneToManyContactSurfaceSpace.from_meshes(
-       master_mesh=mesh_master,
-       slave_meshes=[mesh_s1, mesh_s2],
-       master_facet_selector=select_contact,
-       slave_facet_selectors=select_contact,
-       value_dim_master=3,
-       value_dim_slaves=3,
+   master_side = ff.ContactSide.from_facets(
+       mesh_master,
+       select_contact(mesh_master),
+       value_dim=3,
+   )
+   slave_side_1 = ff.ContactSide.from_facets(
+       mesh_s1,
+       select_contact(mesh_s1),
+       value_dim=3,
+   )
+   slave_side_2 = ff.ContactSide.from_facets(
+       mesh_s2,
+       select_contact(mesh_s2),
+       value_dim=3,
+   )
+
+   contact = ff.ContactGroupSpaces(
+       master=master_side,
+       slaves=[slave_side_1, slave_side_2],
+   ).to_contact_surface_space(
        quad_order=1,
        backend="jax",
    )
@@ -46,6 +85,10 @@ You do not need to manually pass surface coordinates/connectivity.
    u = jnp.zeros(n)
    K = contact.assemble_bilinear(bilin, u, [u, u], params)
 
+Low-level constructors such as
+``OneToManyContactSurfaceSpace.from_meshes(...)`` remain available for advanced
+setups, but they are no longer the preferred public tutorial path.
+
 Penalty-Style Jacobian Assembly
 -------------------------------
 
@@ -54,6 +97,18 @@ After building contact space, call ``assemble_bilinear`` with your weak form.
 .. code-block:: python
 
    K = contact.assemble_bilinear(bilin, u, [u, u], params, sparse=False)
+
+Volume vs Contact API Style
+---------------------------
+
+The recommended split is:
+
+- volume single-space shortcut: ``space.assemble_*``
+- volume role-explicit path: ``ff.assemble_*(*Spaces(...), ...)``
+- contact role-explicit path: ``ContactSpaces`` / ``ContactGroupSpaces`` / ``OneSidedContactSpaces``
+
+This keeps the short path for simple problems while making master/slave intent
+explicit when contact wiring matters.
 
 Contact Operators API (Recommended)
 -----------------------------------

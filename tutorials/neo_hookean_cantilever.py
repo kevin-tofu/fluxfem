@@ -37,6 +37,11 @@ def parse_args():
     p.add_argument("--atol", type=float, default=1e-10)
     p.add_argument("--line-search", action="store_true")
     p.add_argument(
+        "--check-initial-operator",
+        action="store_true",
+        help="Assemble the initial residual/Jacobian through ResidualSpaces/JacobianSpaces.",
+    )
+    p.add_argument(
         "--linear-solver",
         type=str,
         default="cg_matfree",
@@ -109,12 +114,19 @@ def main():
     )
 
     space = ff.make_hex_space(mesh, dim=3, intorder=intorder)
+    U = ff.NamedSpace("U", space)
+    V = ff.NamedSpace("V", space)
 
     # --------------------
     # External force vector
     # --------------------
     f_body = jnp.array(body_force, dtype=dtype)
-    F_ext = space.assemble_linear_form(ff.vector_body_force_form, params=f_body, sparse=False)
+    F_ext = ff.assemble_linear_form(
+        ff.LinearSpaces(test=V),
+        ff.vector_body_force_form,
+        f_body,
+    )
+    F_ext = jnp.asarray(F_ext, dtype=dtype)
 
     # traction on x = xmax
     coords_np = np.asarray(mesh.coords)
@@ -140,6 +152,26 @@ def main():
         lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
         components="xyz",
     ).dofs
+
+    if args.check_initial_operator:
+        u0_check = jnp.zeros(space.n_dofs, dtype=dtype)
+        R0 = ff.assemble_residual(
+            ff.ResidualSpaces(test=V, unknown=U),
+            ff.neo_hookean_residual_form,
+            u0_check,
+            params,
+        )
+        J0 = ff.assemble_jacobian(
+            ff.JacobianSpaces(test=V, trial=U),
+            ff.neo_hookean_residual_form,
+            u0_check,
+            params,
+        )
+        print(
+            "Initial operator check:",
+            f"||R_int(u0)||={float(jnp.linalg.norm(jnp.asarray(R0))):.6e}",
+            f"J_shape={np.asarray(J0.to_dense()).shape}",
+        )
 
     # --------------------
     # Nonlinear analysis (Neo-Hookean)

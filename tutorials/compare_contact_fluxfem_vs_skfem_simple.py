@@ -149,18 +149,40 @@ def build_fluxfem_contact(
         facets = _build_hex_facets(conn, order)
     else:
         facets = _build_tet_facets(conn, order)
-    contact = ff.ContactSurfaceSpace.from_facets(
-        coords,
-        facets,
-        coords,
-        facets,
-        elem_conn_master=conn,
-        elem_conn_slave=conn,
-        value_dim_master=3,
-        value_dim_slave=3,
-        quad_order=quad_order,
-        normal_sign=normal_sign,
-    )
+    if normal_sign is None:
+        surface = ff.SurfaceMesh.from_facets(coords, facets)
+        side_master = ff.ContactSide.from_surfaces(
+            surface,
+            elem_conn=conn,
+            value_dim=3,
+        )
+        side_slave = ff.ContactSide.from_surfaces(
+            surface,
+            elem_conn=conn,
+            value_dim=3,
+        )
+        contact = ff.ContactSpaces(
+            master=side_master,
+            slave=side_slave,
+            field_master="a",
+            field_slave="b",
+        ).to_contact_surface_space(
+            quad_order=quad_order,
+            backend="jax",
+        )
+    else:
+        contact = ff.ContactSurfaceSpace.from_facets(
+            coords,
+            facets,
+            coords,
+            facets,
+            elem_conn_master=conn,
+            elem_conn_slave=conn,
+            value_dim_master=3,
+            value_dim_slave=3,
+            quad_order=quad_order,
+            normal_sign=normal_sign,
+        )
 
     E, nu = 210e9, 0.3
     lam, mu = ff.lame_parameters(E, nu)

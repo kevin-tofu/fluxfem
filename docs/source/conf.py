@@ -18,9 +18,11 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.mathjax",
-    "sphinx_sitemap",
     "myst_parser",
 ]
+
+if os.environ.get("FLUXFEM_DOCS_DISABLE_SITEMAP") != "1":
+    extensions.append("sphinx_sitemap")
 
 napoleon_use_ivar = True
 

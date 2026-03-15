@@ -42,15 +42,21 @@ def main():
     # --------------------
     mesh = ff.StructuredHexBox(nx=nx, ny=ny, nz=nz, lx=lx, ly=ly, lz=lz).build()
     space = ff.make_hex_space(mesh, dim=3, intorder=intorder)
+    U = ff.NamedSpace("U", space)
+    V = ff.NamedSpace("V", space)
 
     # --------------------
     # Bilinear form (weak-form)
     # --------------------
-    bilinear_form = ff.BilinearForm.volume(
-        lambda u, v, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
+    bilinear_form = ff.compile_bilinear(
+        lambda v, u, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
         * h_wf.dOmega()
     )
-    K = space.assemble_bilinear_form(bilinear_form.get_compiled(), params=D)
+    K = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=V, trial=U),
+        bilinear_form,
+        D,
+    )
 
     # --------------------
     # Surface traction on x = xmax (weak-form)

@@ -30,7 +30,6 @@ jax.config.update("jax_enable_x64", True)
 
 import fluxfem as ff  # noqa: E402
 import fluxfem.helpers_wf as h_wf  # noqa: E402
-from fluxfem.core.assembly import assemble_linear_form  # noqa: E402
 
 
 def build_bar_mesh(*, nx: int, ny: int, nz: int, lx: float, ly: float, lz: float):
@@ -89,6 +88,8 @@ def main():
         lz=args.lz,
     )
     space = ff.make_hex_space(mesh, dim=1, intorder=args.intorder)
+    U = ff.NamedSpace("U", space)
+    V = ff.NamedSpace("V", space)
 
     xmin, xmax, coords = x_bounds(mesh)
     dir_left = ff.DirichletBC.from_boundary_dofs(
@@ -109,8 +110,16 @@ def main():
     )
     linear_T = ff.LinearForm.volume(lambda v, p: (v * p.q) * h_wf.dOmega())
 
-    K_T = space.assemble_bilinear_form(bilinear_T.get_compiled(), params=ff.Params(kappa=args.kappa))
-    F_T = space.assemble_linear_form(linear_T.get_compiled(), params=ff.Params(q=args.source))
+    K_T = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=V, trial=U),
+        bilinear_T.get_compiled(),
+        ff.Params(kappa=args.kappa),
+    )
+    F_T = ff.assemble_linear_form(
+        ff.LinearSpaces(test=V),
+        linear_T.get_compiled(),
+        ff.Params(q=args.source),
+    )
 
     solver = ff.LinearSolver(method="spsolve")
     T_vec, _ = solver.solve(
@@ -133,13 +142,21 @@ def main():
         flux = flux.at[:, 0].set(params["E"] * params["alpha"] * T_q)
         return jnp.einsum("qaj,qj->qa", ctx.test.gradN, flux)
 
-    K_u = space.assemble_bilinear_form(bilinear_u.get_compiled(), params=ff.Params(E=args.E))
+    K_u = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=V, trial=U),
+        bilinear_u.get_compiled(),
+        ff.Params(E=args.E),
+    )
     params_u = {
         "E": args.E,
         "alpha": args.alpha,
         "T_elem": jnp.asarray(T_nodes)[space.elem_dofs],
     }
-    F_u = assemble_linear_form(space, thermal_rhs, params_u)
+    F_u = ff.assemble_linear_form(
+        ff.LinearSpaces(test=V),
+        thermal_rhs,
+        params_u,
+    )
 
     u_vec, _ = solver.solve(
         K_u,

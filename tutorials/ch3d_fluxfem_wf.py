@@ -12,7 +12,6 @@ import numpy as np
 import jax.numpy as jnp
 
 import fluxfem as ff
-from fluxfem.core.mixed_space import MixedFESpace
 import fluxfem.helpers_wf as h_wf
 
 
@@ -39,10 +38,12 @@ def run_ch_3d():
 
     mesh = ff.StructuredHexBox(nx=16, ny=16, nz=16, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2 * order)
-    mixed = MixedFESpace(
-        {"c": space, "mu": space},
-        field_to_space_key={"c": phase_space, "mu": chemical_space},
-    )
+    mixed = ff.MixedSpaces(
+        {
+            "c": ff.NamedSpace(phase_space, space),
+            "mu": ff.NamedSpace(chemical_space, space),
+        }
+    ).to_fe_space()
 
     rng = np.random.default_rng(0)
     mean_c0 = 0.0

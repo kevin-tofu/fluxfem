@@ -21,6 +21,8 @@ def main():
     nx, ny, nz = 8, 4, 1
     mesh = ff.StructuredHexBox(nx=nx, ny=ny, nz=nz, lx=1.0, ly=0.5, lz=0.1).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    U = ff.NamedSpace("U", space)
+    V = ff.NamedSpace("V", space)
 
     coords = np.asarray(mesh.coords)
     xmin = float(coords[:, 0].min())
@@ -43,7 +45,13 @@ def main():
 
     surface_form = ff.LinearForm.surface(lambda v, p: v * p * h_wf.ds())
 
-    K0 = jnp.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense())
+    K0 = jnp.asarray(
+        ff.assemble_bilinear_form(
+            ff.BilinearSpaces(test=V, trial=U),
+            ff.diffusion_form,
+            1.0,
+        ).to_dense()
+    )
     F_base = surface.assemble_linear_form_on_space(
         space, surface_form.get_compiled(), params=1.0
     )
