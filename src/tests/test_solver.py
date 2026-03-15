@@ -68,7 +68,12 @@ def test_dirichlet_bc_from_bbox():
 def test_mixed_dirichlet_check_equal():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=1)
-    mixed = ff.MixedFESpace({"u": space, "v": space})
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("U", space),
+            "v": ff.NamedSpace("V", space),
+        }
+    ).to_fe_space()
 
     bc_u = ff.DirichletBC([0], [1.0])
     bc_v = ff.DirichletBC([0], [1.0])
@@ -83,7 +88,12 @@ def test_mixed_dirichlet_check_equal():
 def test_mixed_problem_solve_condense():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=1)
-    mixed = ff.MixedFESpace({"u": space, "v": space})
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("U", space),
+            "v": ff.NamedSpace("V", space),
+        }
+    ).to_fe_space()
     K = np.eye(mixed.n_dofs, dtype=float)
     b = np.arange(mixed.n_dofs, dtype=float)
     bc = mixed.make_dirichlet(u=([0], [0.0]))
@@ -102,7 +112,12 @@ def test_mixed_problem_solve_condense():
 def test_mixed_build_block_system_zero_blocks():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=1)
-    mixed = ff.MixedFESpace({"u": space, "v": space})
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("U", space),
+            "v": ff.NamedSpace("V", space),
+        }
+    ).to_fe_space()
     n = int(space.n_dofs)
 
     Kuu = np.eye(n, dtype=float)
@@ -126,7 +141,12 @@ def test_mixed_build_block_system_zero_blocks():
 def test_mixed_build_block_system_constraints_check_equal():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=1)
-    mixed = ff.MixedFESpace({"u": space, "v": space})
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("U", space),
+            "v": ff.NamedSpace("V", space),
+        }
+    ).to_fe_space()
     n = int(space.n_dofs)
 
     rhs = {"u": np.zeros(n, dtype=float), "v": np.zeros(n, dtype=float)}

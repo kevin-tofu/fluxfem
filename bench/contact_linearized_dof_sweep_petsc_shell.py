@@ -144,10 +144,22 @@ def assemble_contact_system(n: int, args):
 
     space_top = ff.make_tet_space(mesh_top, dim=3, intorder=args.intorder)
     space_bot = ff.make_tet_space(mesh_bot, dim=3, intorder=args.intorder)
+    top_trial = ff.NamedSpace("U_top", space_top)
+    top_test = ff.NamedSpace("V_top", space_top)
+    bot_trial = ff.NamedSpace("U_bot", space_bot)
+    bot_test = ff.NamedSpace("V_bot", space_bot)
 
     D = ff.isotropic_3d_D(args.E, args.nu)
-    K1 = space_top.assemble_bilinear_form(ff.linear_elasticity_form, params=D)
-    K2 = space_bot.assemble_bilinear_form(ff.linear_elasticity_form, params=D)
+    K1 = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=top_test, trial=top_trial),
+        ff.linear_elasticity_form,
+        D,
+    )
+    K2 = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=bot_test, trial=bot_trial),
+        ff.linear_elasticity_form,
+        D,
+    )
 
     contact_facets_bot = mesh_bot.facets_on_plane(axis=2, value=0.0)
     x0, y0, _ = box_bot.origin
@@ -165,9 +177,10 @@ def assemble_contact_system(n: int, args):
 
     side_top = ff.ContactSide.from_facets(mesh_top, contact_facets_top, space_top)
     side_bot = ff.ContactSide.from_facets(mesh_bot, contact_facets_bot, space_bot)
-    contact = ff.ContactSurfaceSpace.from_sides(
-        side_top,
-        side_bot,
+    contact = ff.ContactSpaces(
+        master=side_top,
+        slave=side_bot,
+    ).to_contact_surface_space(
         quad_order=int(args.quad_order),
         backend="jax",
     )

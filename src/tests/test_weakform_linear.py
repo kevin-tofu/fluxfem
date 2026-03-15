@@ -154,6 +154,7 @@ def test_linearform_named_spaces_matches_single_space():
 
 
 def test_linearform_dict_compat_matches_linear_spaces():
+    """Deprecated dict role passing still warns and matches the canonical path."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 

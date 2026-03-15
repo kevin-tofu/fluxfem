@@ -52,6 +52,8 @@ def _block_ready(out):
 
 def _build_assemble_fn(space, kind: str, n_chunks: int | None, params: dict):
     policy = ff.AssemblyPolicy(n_chunks=n_chunks)
+    # This benchmark intentionally targets the single-space shortcut APIs to
+    # measure chunking behavior in the shortest common path.
     if kind == "bilinear":
         pattern = space.get_sparsity_pattern(with_idx=True)
 

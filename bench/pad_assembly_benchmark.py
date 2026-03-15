@@ -97,7 +97,6 @@ def main() -> int:
 
     import fluxfem as ff
     import fluxfem.helpers_wf as h_wf
-    from fluxfem.core.mixed_space import MixedFESpace
 
     jax.config.update("jax_enable_x64", True)
 
@@ -263,10 +262,12 @@ def main() -> int:
             mixed_u = None
             mixed_params = None
         else:
-            mixed = MixedFESpace(
-                {"u": space, "p": space},
-                field_to_space_key={"u": "U", "p": "P"},
-            )
+            mixed = ff.MixedSpaces(
+                {
+                    "u": ff.NamedSpace("U", space),
+                    "p": ff.NamedSpace("P", space),
+                }
+            ).to_fe_space()
             mixed_u = jnp.zeros(mixed.n_dofs, dtype=jnp.float64)
             mixed_params = ff.Params(alpha=1.2, beta=-0.4)
 

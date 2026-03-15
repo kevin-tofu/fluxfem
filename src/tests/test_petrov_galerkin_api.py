@@ -48,6 +48,7 @@ def test_assemble_bilinear_form_named_spaces_uses_named_trial_test_spaces():
 
 
 def test_assemble_bilinear_form_pg_remains_compat_alias_for_named_space_path():
+    """Deprecated pg alias is kept only as a compatibility path."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
@@ -72,6 +73,7 @@ def test_assemble_bilinear_form_pg_remains_compat_alias_for_named_space_path():
 
 
 def test_assemble_bilinear_form_dict_compat_matches_bilinear_spaces():
+    """Deprecated dict role passing still warns and matches the canonical path."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 

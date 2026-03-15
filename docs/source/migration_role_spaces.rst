@@ -33,6 +33,24 @@ The short single-space entry points remain supported:
 Use them when the problem is standard same-space Galerkin and no explicit role
 binding is needed.
 
+This also applies to selected performance benchmarks: some benchmark scripts
+intentionally keep ``space.assemble_*`` or
+``space.assemble_bilinear_linear_pair(...)`` as the measured target, even when
+newer role-explicit setup is used elsewhere in the same repository.
+
+Solver and Benchmark Direction
+------------------------------
+
+For new solver tests, mixed setup, and benchmark problem definitions, prefer:
+
+- ``ff.MixedSpaces({...}).to_fe_space()``
+- ``ff.assemble_bilinear_form(ff.BilinearSpaces(...), ...)``
+- ``ff.assemble_linear_form(ff.LinearSpaces(...), ...)``
+- ``ff.ContactSpaces(...)`` / ``ff.ContactGroupSpaces(...)`` / ``ff.OneSidedContactSpaces(...)``
+
+The main exception is benchmark code whose purpose is to measure the
+same-space shortcut API itself.
+
 Deprecated Compatibility Paths
 ------------------------------
 

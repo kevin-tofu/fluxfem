@@ -328,6 +328,8 @@ def fluxfem_cases(args, backend: str):
             )
 
             def assemble_KF():
+                # Intentional same-space benchmark target: this measures the
+                # convenience pair path on top of the current assembly stack.
                 return space.assemble_bilinear_linear_pair(
                     diffusion_form,
                     1.0,
