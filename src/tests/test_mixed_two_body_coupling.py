@@ -4,7 +4,6 @@ import jax.numpy as jnp
 
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
-from fluxfem.core.mixed_space import MixedFESpace
 from fluxfem.core.mixed_weakform import assemble_mixed_jacobian_wf
 
 
@@ -12,7 +11,12 @@ def test_mixed_two_body_coupling_blocks():
     """Mixed Jacobian exposes two trial/test pairs via coupling blocks."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
-    mixed = MixedFESpace({"a": space, "b": space})
+    mixed = ff.MixedSpaces(
+        {
+            "a": ff.NamedSpace("a", space),
+            "b": ff.NamedSpace("b", space),
+        }
+    ).to_fe_space()
 
     def res_a(v, u, p):
         u_b = ff.unknown_ref("b")

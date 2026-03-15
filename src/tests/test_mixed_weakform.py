@@ -4,7 +4,6 @@ import jax.numpy as jnp
 
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
-from fluxfem.core.mixed_space import MixedFESpace
 from fluxfem.core.mixed_weakform import (
     MixedResidualForm,
     assemble_mixed_jacobian_wf,
@@ -15,7 +14,12 @@ from fluxfem.core.mixed_weakform import (
 def _make_mixed_space():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
-    mixed = MixedFESpace({"u": space, "p": space})
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("u", space),
+            "p": ff.NamedSpace("p", space),
+        }
+    ).to_fe_space()
     return mixed
 
 
@@ -73,7 +77,12 @@ def test_mixed_residual_matches_single_field():
     """Mixed residual for one field matches single-field assembly."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
-    mixed = MixedFESpace({"u": space, "t": space})
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("u", space),
+            "t": ff.NamedSpace("t", space),
+        }
+    ).to_fe_space()
 
     def res_u(v, u, p):
         return p.kappa * h_wf.gaction(v, h_wf.grad(u)) * h_wf.dOmega()
@@ -127,10 +136,12 @@ def test_mixed_space_key_mapping_decouples_field_name_from_space_key():
     """Field bindings can keep field names while resolving refs through distinct space keys."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
-    mixed = MixedFESpace(
-        {"disp": space, "press": space},
-        field_to_space_key={"disp": "V", "press": "Q"},
-    )
+    mixed = ff.MixedSpaces(
+        {
+            "disp": ff.NamedSpace("V", space),
+            "press": ff.NamedSpace("Q", space),
+        }
+    ).to_fe_space()
 
     params = {"alpha": 0.5, "beta": -0.2}
     rng = np.random.default_rng(4)
