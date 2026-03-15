@@ -165,6 +165,124 @@ class FESpaceBase(Protocol):
     ) -> FormContext: ...
 
 
+@dataclass(frozen=True)
+class NamedSpace:
+    """Public wrapper that binds a symbolic space name to an FE space."""
+
+    name: str
+    space: "FESpaceClosure"
+
+    def __post_init__(self):
+        object.__setattr__(self, "name", str(self.name))
+        if not self.name:
+            raise ValueError("NamedSpace.name must be a non-empty string.")
+
+
+@dataclass(frozen=True)
+class BilinearSpaces:
+    """Public wrapper for distinct test/trial spaces in bilinear assembly."""
+
+    test: NamedSpace
+    trial: NamedSpace
+
+    def __post_init__(self):
+        if not isinstance(self.test, NamedSpace) or not isinstance(self.trial, NamedSpace):
+            raise TypeError("BilinearSpaces.test and BilinearSpaces.trial must be NamedSpace instances.")
+
+
+@dataclass(frozen=True)
+class LinearSpaces:
+    """Public wrapper for the test space used in linear-form assembly."""
+
+    test: NamedSpace
+
+    def __post_init__(self):
+        if not isinstance(self.test, NamedSpace):
+            raise TypeError("LinearSpaces.test must be a NamedSpace instance.")
+
+
+@dataclass(frozen=True)
+class ResidualSpaces:
+    """Public wrapper for distinct test/unknown spaces in residual assembly."""
+
+    test: NamedSpace
+    unknown: NamedSpace
+
+    def __post_init__(self):
+        if not isinstance(self.test, NamedSpace) or not isinstance(self.unknown, NamedSpace):
+            raise TypeError("ResidualSpaces.test and ResidualSpaces.unknown must be NamedSpace instances.")
+
+
+@dataclass(frozen=True)
+class JacobianSpaces:
+    """Public wrapper for distinct test/trial spaces in Jacobian assembly."""
+
+    test: NamedSpace
+    trial: NamedSpace
+
+    def __post_init__(self):
+        if not isinstance(self.test, NamedSpace) or not isinstance(self.trial, NamedSpace):
+            raise TypeError("JacobianSpaces.test and JacobianSpaces.trial must be NamedSpace instances.")
+
+
+def build_form_contexts_pair(
+    test_space: FESpaceBase,
+    trial_space: FESpaceBase,
+    *,
+    dep_test: jnp.ndarray | None = None,
+    dep_trial: jnp.ndarray | None = None,
+    include_x_q: bool = True,
+    lightweight: bool = False,
+    test_name: str = "V",
+    trial_name: str = "U",
+) -> FormContext:
+    """
+    Build a FormContext with distinct test and trial spaces.
+
+    This is the first building block for Petrov-Galerkin-style bilinear
+    assembly. For now it requires the two spaces to be elementwise aligned
+    and to generate matching quadrature points and weights.
+    """
+    ctx_test = test_space.build_form_contexts(
+        dep=dep_test,
+        include_x_q=include_x_q,
+        lightweight=lightweight,
+    )
+    ctx_trial = trial_space.build_form_contexts(
+        dep=dep_trial,
+        include_x_q=include_x_q,
+        lightweight=lightweight,
+    )
+
+    if ctx_test.x_q.shape != ctx_trial.x_q.shape:
+        raise ValueError(
+            "build_form_contexts_pair requires matching quadrature point shapes for test and trial spaces."
+        )
+    if ctx_test.w.shape != ctx_trial.w.shape:
+        raise ValueError(
+            "build_form_contexts_pair requires matching quadrature weight shapes for test and trial spaces."
+        )
+    if not np.allclose(np.asarray(ctx_test.x_q), np.asarray(ctx_trial.x_q)):
+        raise ValueError("build_form_contexts_pair requires matching physical quadrature points.")
+    if not np.allclose(np.asarray(ctx_test.w), np.asarray(ctx_trial.w)):
+        raise ValueError("build_form_contexts_pair requires matching quadrature weights.")
+
+    spaces = {
+        str(test_name): FieldPair(test=ctx_test.test, trial=ctx_test.trial, unknown=ctx_test.trial),
+        str(trial_name): FieldPair(test=ctx_trial.test, trial=ctx_trial.trial, unknown=ctx_trial.trial),
+        "default": FieldPair(test=ctx_test.test, trial=ctx_trial.trial, unknown=ctx_trial.trial),
+    }
+    return FormContext(
+        test=ctx_test.test,
+        trial=ctx_trial.trial,
+        x_q=ctx_trial.x_q,
+        w=ctx_trial.w,
+        elem_id=ctx_trial.elem_id,
+        spaces=spaces,
+        default_space="default",
+    )
+
+
 @dataclass(eq=False)
 class FESpaceClosure:
     """
@@ -549,13 +667,29 @@ class FESpaceClosure:
         kernel: ElementBilinearKernel | None = None,
         **kwargs,
     ) -> FluxSparseMatrix:
-        """Assemble bilinear form; kernel(ctx) -> (n_ldofs, n_ldofs) if provided."""
+        """
+        Assemble a bilinear form on this single space.
+
+        This is the shortest path for standard ``U == V`` Galerkin assembly.
+        When test/trial roles should be explicit, prefer the top-level
+        ``ff.assemble_bilinear_form(ff.BilinearSpaces(...), ...)`` API.
+        """
         from .assembly import assemble_bilinear_form
         _reject_legacy_policy_kwargs(kwargs)
         if "pattern" not in kwargs or kwargs.get("pattern") is None:
             kwargs["pattern"] = self.get_sparsity_pattern(with_idx=True)
         return assemble_bilinear_form(
-            self, form, params, backend=backend, policy=policy, dep=dep, kernel=kernel, **kwargs
+            BilinearSpaces(
+                test=NamedSpace("V", self),
+                trial=NamedSpace("U", self),
+            ),
+            form,
+            params,
+            backend=backend,
+            policy=policy,
+            dep=dep,
+            kernel=kernel,
+            **kwargs,
         )
 
     def assemble_linear_form(
@@ -570,11 +704,17 @@ class FESpaceClosure:
         vector_accumulation: Literal["segment", "scatter"] = "scatter",
         **kwargs,
     ) -> LinearReturn:
-        """Assemble linear form; kernel(ctx) -> (n_ldofs,) if provided."""
+        """
+        Assemble a linear form on this single space.
+
+        This is the shortest path for standard single-space assembly.
+        When the test role should be explicit, prefer the top-level
+        ``ff.assemble_linear_form(ff.LinearSpaces(...), ...)`` API.
+        """
         from .assembly import assemble_linear_form
         _reject_legacy_policy_kwargs(kwargs)
         return assemble_linear_form(
-            self,
+            LinearSpaces(test=NamedSpace("V", self)),
             form,
             params,
             backend=backend,
@@ -600,24 +740,43 @@ class FESpaceClosure:
         vector_accumulation: Literal["segment", "scatter"] = "segment",
         **kwargs,
     ):
-        from .assembly import assemble_bilinear_linear_pair
+        """
+        Assemble a same-space bilinear operator and linear vector together.
+
+        This remains a convenience wrapper for the common ``U == V`` path.
+        Internally it delegates to role-explicit ``BilinearSpaces`` and
+        ``LinearSpaces`` assembly and returns ``(K, F)``.
+        """
+        from .assembly import assemble_bilinear_form, assemble_linear_form
         _reject_legacy_policy_kwargs(kwargs)
-        if "pattern" not in kwargs or kwargs.get("pattern") is None:
-            kwargs["pattern"] = self.get_sparsity_pattern(with_idx=True)
-        return assemble_bilinear_linear_pair(
-            self,
+        bilinear_kwargs = dict(kwargs)
+        if "pattern" not in bilinear_kwargs or bilinear_kwargs.get("pattern") is None:
+            bilinear_kwargs["pattern"] = self.get_sparsity_pattern(with_idx=True)
+        K = assemble_bilinear_form(
+            BilinearSpaces(
+                test=NamedSpace("V", self),
+                trial=NamedSpace("U", self),
+            ),
             bilinear_form,
             bilinear_params,
+            backend=backend,
+            policy=policy,
+            dep=dep,
+            kernel=bilinear_kernel,
+            **bilinear_kwargs,
+        )
+        F = assemble_linear_form(
+            LinearSpaces(test=NamedSpace("V", self)),
             linear_form,
             linear_params,
             backend=backend,
             policy=policy,
             dep=dep,
-            bilinear_kernel=bilinear_kernel,
-            linear_kernel=linear_kernel,
+            kernel=linear_kernel,
             vector_accumulation=vector_accumulation,
             **kwargs,
         )
+        return K, F
 
     def assemble_functional(
         self,
@@ -660,10 +819,19 @@ class FESpaceClosure:
         vector_accumulation: Literal["segment", "scatter"] = "scatter",
         **kwargs,
     ) -> LinearReturn:
-        """Assemble residual; kernel(ctx, u_elem) -> (n_ldofs,) if provided."""
+        """
+        Assemble a nonlinear residual on this single space.
+
+        This is the shortest path for standard single-space nonlinear assembly.
+        When test/unknown roles should be explicit, prefer the top-level
+        ``ff.assemble_residual(ff.ResidualSpaces(...), ...)`` API.
+        """
         from .assembly import assemble_residual
         return assemble_residual(
-            self,
+            ResidualSpaces(
+                test=NamedSpace("V", self),
+                unknown=NamedSpace("U", self),
+            ),
             res_form,
             u,
             params,
@@ -684,7 +852,13 @@ class FESpaceClosure:
         policy: AssemblyPolicy | None = None,
         **kwargs,
     ) -> JacobianReturn:
-        """Assemble Jacobian; kernel(u_elem, ctx) -> (n_ldofs, n_ldofs) if provided."""
+        """
+        Assemble a Jacobian on this single space.
+
+        This is the shortest path for standard single-space nonlinear assembly.
+        When test/trial roles should be explicit, prefer the top-level
+        ``ff.assemble_jacobian(ff.JacobianSpaces(...), ...)`` API.
+        """
         from .assembly import assemble_jacobian
         _reject_legacy_policy_kwargs(kwargs)
         for removed in ("sparse", "return_flux_matrix", "matrix_accumulation"):
@@ -694,7 +868,10 @@ class FESpaceClosure:
                     "assemble_jacobian now returns FluxSparseMatrix (use .to_dense() when needed)."
                 )
         return assemble_jacobian(
-            self,
+            JacobianSpaces(
+                test=NamedSpace("V", self),
+                trial=NamedSpace("U", self),
+            ),
             res_form,
             u,
             params,

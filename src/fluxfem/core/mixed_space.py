@@ -11,7 +11,7 @@ from .forms import MixedFormContext, FieldPair
 from .weakform import MixedWeakForm, compile_mixed_residual, make_mixed_residuals
 from ..solver.dirichlet import DirichletBC, free_dofs
 from ..solver.sparse import FluxSparseMatrix
-from .space import FESpaceClosure
+from .space import FESpaceClosure, NamedSpace
 
 P = TypeVar("P")
 
@@ -22,6 +22,28 @@ MixedResidualForm: TypeAlias = Callable[
     [MixedFormContext, Mapping[str, jnp.ndarray], P],
     Mapping[str, jnp.ndarray],
 ]
+
+
+@dataclass(frozen=True)
+class MixedSpaces:
+    """Public spec that maps mixed field names to named FE spaces."""
+
+    fields: Mapping[str, NamedSpace]
+
+    def __post_init__(self):
+        normalized = {str(name): spec for name, spec in self.fields.items()}
+        if not normalized:
+            raise ValueError("MixedSpaces requires at least one field.")
+        for name, spec in normalized.items():
+            if not isinstance(spec, NamedSpace):
+                raise TypeError(f"MixedSpaces field '{name}' must be a NamedSpace instance.")
+        object.__setattr__(self, "fields", normalized)
+
+    def to_fe_space(self) -> "MixedFESpace":
+        return MixedFESpace(
+            {name: spec.space for name, spec in self.fields.items()},
+            field_to_space_key={name: spec.name for name, spec in self.fields.items()},
+        )
 
 
 @dataclass(eq=False)

@@ -1,6 +1,7 @@
 from .sparse import (
     SparsityPattern,
     FluxSparseMatrix,
+    FluxSparseOperator,
     coalesce_coo,
     concat_flux,
     block_diag_flux,
@@ -47,6 +48,7 @@ from .coupled_system import CoupledSystem, CoupledSystemBuilder, DirichletSpec, 
 __all__ = [
     "SparsityPattern",
     "FluxSparseMatrix",
+    "FluxSparseOperator",
     "coalesce_coo",
     "concat_flux",
     "block_diag_flux",

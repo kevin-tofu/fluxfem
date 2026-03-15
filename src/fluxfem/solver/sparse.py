@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 else:
     ArrayLike: TypeAlias = np.ndarray
 COOTuple: TypeAlias = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int]
+OperatorCOOTuple: TypeAlias = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, tuple[int, int]]
 INDEX_DTYPE = jnp.int64 if jax.config.read("jax_enable_x64") else jnp.int32
 
 
@@ -321,3 +322,87 @@ class FluxSparseMatrix:
     def tree_unflatten(cls, aux, children):
         pattern, data = children
         return cls(pattern, data)
+
+
+@jax.tree_util.register_pytree_node_class
+class FluxSparseOperator:
+    """
+    Sparse operator wrapper (COO) for rectangular or square operators.
+
+    This is intentionally narrower than FluxSparseMatrix:
+    - stores raw COO rows/cols/data
+    - tracks a general ``shape=(n_rows, n_cols)``
+    - supports dense conversion and forward/adjoint matvec
+
+    It is intended as the first rectangular sparse abstraction for
+    Petrov-Galerkin-style bilinear assembly without destabilizing
+    existing square-matrix solver paths.
+    """
+
+    def __init__(
+        self,
+        rows: ArrayLike,
+        cols: ArrayLike,
+        data: ArrayLike,
+        shape: tuple[int, int],
+        meta: dict | None = None,
+    ):
+        n_rows, n_cols = shape
+        self.rows = jnp.asarray(rows, dtype=INDEX_DTYPE)
+        self.cols = jnp.asarray(cols, dtype=INDEX_DTYPE)
+        self.data = jnp.asarray(data)
+        self.shape = (int(n_rows), int(n_cols))
+        self.meta = dict(meta) if meta is not None else None
+
+    @property
+    def nnz(self) -> int:
+        return int(self.data.shape[0])
+
+    def to_coo(self) -> OperatorCOOTuple:
+        return self.rows, self.cols, self.data, self.shape
+
+    def coalesce(self) -> "FluxSparseOperator":
+        rows_u, cols_u, data_u = coalesce_coo(self.rows, self.cols, self.data)
+        return FluxSparseOperator(rows_u, cols_u, data_u, self.shape, meta=self.meta)
+
+    def to_dense(self) -> jnp.ndarray:
+        dense = jnp.zeros(self.shape, dtype=self.data.dtype)
+        return dense.at[self.rows, self.cols].add(self.data)
+
+    def to_csr(self):
+        if sp is None:
+            raise ImportError("scipy is required for to_csr()")
+        rows = np.asarray(self.rows, dtype=np.int64)
+        cols = np.asarray(self.cols, dtype=np.int64)
+        data = np.asarray(self.data)
+        return sp.csr_matrix((data, (rows, cols)), shape=self.shape)
+
+    def matvec(self, x: ArrayLike) -> jnp.ndarray:
+        xj = jnp.asarray(x)
+        if xj.ndim != 1:
+            raise ValueError("matvec expects a rank-1 input vector.")
+        if int(xj.shape[0]) != self.shape[1]:
+            raise ValueError(f"matvec input length mismatch: got {int(xj.shape[0])}, expected {self.shape[1]}.")
+        contrib = self.data * xj[self.cols]
+        out = jnp.zeros(self.shape[0], dtype=contrib.dtype)
+        return out.at[self.rows].add(contrib)
+
+    def rmatvec(self, y: ArrayLike) -> jnp.ndarray:
+        yj = jnp.asarray(y)
+        if yj.ndim != 1:
+            raise ValueError("rmatvec expects a rank-1 input vector.")
+        if int(yj.shape[0]) != self.shape[0]:
+            raise ValueError(f"rmatvec input length mismatch: got {int(yj.shape[0])}, expected {self.shape[0]}.")
+        contrib = self.data * yj[self.rows]
+        out = jnp.zeros(self.shape[1], dtype=contrib.dtype)
+        return out.at[self.cols].add(contrib)
+
+    def tree_flatten(self):
+        children = (self.rows, self.cols, self.data)
+        aux = {"shape": self.shape, "meta": self.meta}
+        return children, aux
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        rows, cols, data = children
+        return cls(rows, cols, data, aux["shape"], meta=aux["meta"])
