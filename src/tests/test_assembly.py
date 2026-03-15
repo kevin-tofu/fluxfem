@@ -134,6 +134,33 @@ def test_numpy_backend_forward_assembly_matches_jax():
     assert np.allclose(np.asarray(b_jax), np.asarray(b_np))
 
 
+def test_bilinear_linear_pair_matches_separate_explicit_assembly():
+    mesh = ff.StructuredHexBox(nx=3, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    U = ff.NamedSpace("U", space)
+    V = ff.NamedSpace("V", space)
+
+    A_pair, b_pair = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+    )
+    A_sep = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=V, trial=U),
+        ff.diffusion_form,
+        1.0,
+    )
+    b_sep = ff.assemble_linear_form(
+        ff.LinearSpaces(test=V),
+        ff.scalar_body_force_form,
+        2.0,
+    )
+
+    assert np.allclose(np.asarray(A_pair.to_dense()), np.asarray(A_sep.to_dense()))
+    assert np.allclose(np.asarray(b_pair), np.asarray(b_sep))
+
+
 def test_numpy_backend_chunked_pair_matches_nonchunked():
     mesh = ff.StructuredTetTensorBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_tet_space(mesh, dim=1, intorder=2)

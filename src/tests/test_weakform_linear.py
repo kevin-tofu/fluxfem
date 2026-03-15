@@ -138,6 +138,41 @@ def test_linearform_volume_body_force_matches():
     assert np.allclose(np.asarray(F_expr), np.asarray(F_ref))
 
 
+def test_linearform_named_spaces_matches_single_space():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    form = ff.LinearForm.volume(lambda v, p: (v * p) * h_wf.dOmega())
+    F_named = ff.assemble_linear_form(
+        ff.LinearSpaces(test=ff.NamedSpace("V", space)),
+        form.get_compiled(),
+        params=2.0,
+    )
+    F_ref = space.assemble_linear_form(ff.scalar_body_force_form, params=2.0)
+
+    assert np.allclose(np.asarray(F_named), np.asarray(F_ref))
+
+
+def test_linearform_dict_compat_matches_linear_spaces():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    form = ff.LinearForm.volume(lambda v, p: (v * p) * h_wf.dOmega())
+    F_spec = ff.assemble_linear_form(
+        ff.LinearSpaces(test=ff.NamedSpace("V", space)),
+        form.get_compiled(),
+        params=2.0,
+    )
+    with pytest.warns(FutureWarning, match="deprecated"):
+        F_dict = ff.assemble_linear_form(
+            {"test": ff.NamedSpace("V", space)},
+            form.get_compiled(),
+            params=2.0,
+        )
+
+    assert np.allclose(np.asarray(F_spec), np.asarray(F_dict))
+
+
 def test_linearform_surface_matches_tensor():
     """LinearForm.surface matches tensor-based surface traction form."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()

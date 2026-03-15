@@ -175,3 +175,45 @@ def test_mixed_form_context_uses_bindings():
     ctx = mixed.build_form_contexts()
     assert "u" in ctx.bindings
     assert not hasattr(ctx, "fields")
+
+
+def test_mixed_spaces_builds_mixed_fespace_with_named_space_keys():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
+    spec = ff.MixedSpaces(
+        {
+            "disp": ff.NamedSpace("V", scalar),
+            "press": ff.NamedSpace("Q", scalar),
+        }
+    )
+    mixed = spec.to_fe_space()
+
+    assert mixed.field_names == ("disp", "press")
+    assert mixed.space_key_by_field["disp"] == "V"
+    assert mixed.space_key_by_field["press"] == "Q"
+
+
+def test_mixed_spaces_support_explicit_space_refs():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
+    mixed = ff.MixedSpaces(
+        {
+            "disp": ff.NamedSpace("V", scalar),
+            "press": ff.NamedSpace("Q", scalar),
+        }
+    ).to_fe_space()
+
+    params = {"alpha": 0.5, "beta": -0.2}
+    rng = np.random.default_rng(6)
+    u_vec = jnp.asarray(rng.standard_normal(mixed.n_dofs))
+
+    def res_disp(v, u, p):
+        press = ff.unknown_ref("pressure", space="Q")
+        return (v * (u.val + p.alpha * press.val)) * h_wf.dOmega()
+
+    def res_press(q, press, p):
+        disp = ff.unknown_ref("displacement", space="V")
+        return (q * (press.val + p.beta * disp.val)) * h_wf.dOmega()
+
+    result = assemble_mixed_residual_wf(mixed, {"disp": res_disp, "press": res_press}, u_vec, params)
+    assert np.asarray(result).shape == (mixed.n_dofs,)

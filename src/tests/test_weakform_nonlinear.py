@@ -50,6 +50,54 @@ def test_weakform_nonlinear_jacobian_matches_tensor():
     assert np.allclose(np.asarray(J_tensor), np.asarray(J_wf))
 
 
+def test_residual_spaces_matches_single_space():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    wf_residual = ff.ResidualForm.volume(
+        lambda v, u, _p: (v * (u.val**2)) * h_wf.dOmega()
+    )
+
+    rng = np.random.default_rng(2)
+    u = jnp.asarray(rng.standard_normal(space.n_dofs))
+
+    R_ref = space.assemble_residual(wf_residual.get_compiled(), u, params=None)
+    R_named = ff.assemble_residual(
+        ff.ResidualSpaces(test=ff.NamedSpace("V", space), unknown=ff.NamedSpace("U", space)),
+        wf_residual.get_compiled(),
+        u,
+        params=None,
+    )
+
+    assert np.allclose(np.asarray(R_named), np.asarray(R_ref))
+
+
+def test_jacobian_spaces_matches_single_space():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    wf_residual = ff.ResidualForm.volume(
+        lambda v, u, _p: (v * (u.val**2)) * h_wf.dOmega()
+    )
+
+    rng = np.random.default_rng(3)
+    u = jnp.asarray(rng.standard_normal(space.n_dofs))
+
+    J_ref = space.assemble_jacobian(wf_residual.get_compiled(), u, params=None)
+    J_named = ff.assemble_jacobian(
+        ff.JacobianSpaces(test=ff.NamedSpace("V", space), trial=ff.NamedSpace("U", space)),
+        wf_residual.get_compiled(),
+        u,
+        params=None,
+    )
+
+    if hasattr(J_named, "shape"):
+        assert J_named.shape == (space.n_dofs, space.n_dofs)
+    else:
+        assert np.asarray(J_named.to_dense()).shape == (space.n_dofs, space.n_dofs)
+    assert np.allclose(np.asarray(J_named.to_dense()), np.asarray(J_ref.to_dense()))
+
+
 def test_weakform_neo_hookean_residual_matches_tensor():
     """Weak-form Neo-Hookean residual matches tensor-based reference."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
