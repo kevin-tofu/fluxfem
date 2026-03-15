@@ -109,14 +109,14 @@ def add_neumann_load(
     return F_new
 
 
-def vector_surface_load_form(ctx: SurfaceFormContext, load: npt.ArrayLike) -> np.ndarray:
+def vector_surface_load_form(ctx: SurfaceFormContext, load: npt.ArrayLike) -> jnp.ndarray:
     """
     Linear form for vector surface load: v · t on a facet.
     load: (dim,) or (n_q, dim)
     returns: (n_q, n_nodes*dim)
     """
-    load_arr = np.asarray(load, dtype=float)
-    return np.asarray(vector_load_form(ctx.v, load_arr))
+    load_arr = jnp.asarray(load)
+    return vector_load_form(ctx.v, load_arr)
 
 
 vector_surface_load_form._ff_kind = "linear"

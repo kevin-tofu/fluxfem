@@ -28,6 +28,18 @@ import fluxfem as ff
 jax.config.update("jax_enable_x64", True)
 
 
+def _jsonable(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, (np.floating, np.integer)):
+        return obj.item()
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(v) for v in obj]
+    return obj
+
+
 @dataclass
 class BenchConfig:
     nx: int
@@ -143,11 +155,14 @@ def _dir_to_vec(dir_key: str) -> np.ndarray:
 
 def _rbf_load_fn(center: np.ndarray, sigma: float, direction: np.ndarray):
     inv_two_sigma2 = 0.5 / (sigma * sigma)
+    center_j = jnp.asarray(center, dtype=jnp.float64)
+    direction_j = jnp.asarray(direction, dtype=jnp.float64)
 
     def _load_fn(x_q: np.ndarray) -> np.ndarray:
-        r2 = np.sum((x_q - center) ** 2, axis=1)
-        phi = np.exp(-r2 * inv_two_sigma2)
-        return phi[:, None] * direction[None, :]
+        x_q = jnp.asarray(x_q, dtype=center_j.dtype)
+        r2 = jnp.sum((x_q - center_j) ** 2, axis=1)
+        phi = jnp.exp(-r2 * inv_two_sigma2)
+        return phi[:, None] * direction_j[None, :]
 
     return _load_fn
 
@@ -195,11 +210,13 @@ def _bspline_basis_matrix(y: np.ndarray, n_ctrl: int, degree: int, y_min: float,
 
 def _bspline_load_fn(i: int, n_ctrl: int, degree: int, y_min: float, y_max: float, direction: np.ndarray):
     knots = _bspline_knots(n_ctrl, degree, y_min, y_max)
+    direction_j = jnp.asarray(direction, dtype=jnp.float64)
 
     def _load_fn(x_q: np.ndarray) -> np.ndarray:
         y = x_q[:, 1]
         phi = _bspline_basis(y, knots, degree, i)
-        return phi[:, None] * direction[None, :]
+        phi = jnp.asarray(phi, dtype=direction_j.dtype)
+        return phi[:, None] * direction_j[None, :]
 
     return _load_fn
 
@@ -452,7 +469,7 @@ def main() -> None:
         "noise_std_abs": noise_scale,
         "seed": cfg.seed,
     }
-    out_json.write_text(json.dumps(payload, indent=2))
+    out_json.write_text(json.dumps(_jsonable(payload), indent=2))
 
     print(f"[unknown load id] n_basis={n_basis} n_obs={obs_dofs.shape[0]}")
     print(f"  rel coeff error: {rel_a:.3e}")
