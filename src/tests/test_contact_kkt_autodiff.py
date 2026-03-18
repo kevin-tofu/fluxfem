@@ -195,6 +195,156 @@ def test_contact_constraint_operators_default_formulation_is_multiplier():
     assert ops_formulation.law == "one_sided_normal_frictionless"
 
 
+def test_contact_p0_multiplier_vector_value_dim_expands_blocks():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=3,
+        value_dim_slave=3,
+        quad_order=1,
+    )
+    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master", value_dim=3)
+
+    ops = ff.assemble_contact_constraint_operators(
+        contact,
+        rho=0.0,
+        multiplier=mult,
+        backend="numpy",
+    )
+    assert np.asarray(ops.B_a).shape == (3, 12)
+    assert np.asarray(ops.B_b).shape == (3, 12)
+    assert np.asarray(ops.B).shape == (3, 24)
+
+    K_dense = np.asarray(
+        contact.assemble_contact_kkt(
+            rho=0.0,
+            multiplier=mult,
+            backend="numpy",
+            format="dense",
+        )
+    )
+    assert K_dense.shape == (27, 27)
+
+
+def test_contact_p0_multiplier_vector_value_dim_lifts_into_coupled_system():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=3,
+        value_dim_slave=3,
+        quad_order=1,
+    )
+    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master", value_dim=3)
+    ops = ff.assemble_contact_constraint_operators(
+        contact,
+        rho=0.0,
+        multiplier=mult,
+        backend="numpy",
+    )
+
+    builder = ff.CoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
+    builder.register_field("a", n_dofs=12, value_dim=3, n_nodes=4)
+    builder.register_field("b", n_dofs=12, value_dim=3, n_nodes=4)
+    builder.add_contact_mortar(ops, master="a", slave="b", value_dim=3)
+    K, _ = builder.build().assemble(format="csr")
+    assert K.shape == (27, 27)
+
+
+def test_contact_p0_supermesh_multiplier_tracks_supermesh_triangles():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    facets = np.array([[0, 1, 2], [0, 2, 3]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=np.array([[0, 1, 2, 3]], dtype=int),
+        elem_conn_slave=np.array([[0, 1, 2, 3]], dtype=int),
+        value_dim_master=3,
+        value_dim_slave=3,
+        quad_order=1,
+    )
+    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0_supermesh", side="master", value_dim=3)
+    ops = ff.assemble_contact_constraint_operators(
+        contact,
+        rho=0.0,
+        multiplier=mult,
+        backend="numpy",
+    )
+
+    n_tri = int(contact.supermesh_conn.shape[0])
+    assert np.asarray(ops.B_a).shape == (3 * n_tri, 3 * contact.surface_master.n_nodes)
+    assert np.asarray(ops.B_b).shape == (3 * n_tri, 3 * contact.surface_slave.n_nodes)
+    assert np.asarray(ops.B).shape == (3 * n_tri, 3 * (contact.surface_master.n_nodes + contact.surface_slave.n_nodes))
+
+    builder = ff.CoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
+    builder.register_field("a", n_dofs=12, value_dim=3, n_nodes=4)
+    builder.register_field("b", n_dofs=12, value_dim=3, n_nodes=4)
+    builder.add_contact_mortar(ops, master="a", slave="b", value_dim=3)
+    K, _ = builder.build().assemble(format="csr")
+    assert K.shape == (24 + 3 * n_tri, 24 + 3 * n_tri)
+
+
+def test_contact_p0_active_multiplier_tracks_active_master_facets():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    facets = np.array([[0, 1, 2], [0, 2, 3]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=np.array([[0, 1, 2, 3]], dtype=int),
+        elem_conn_slave=np.array([[0, 1, 2, 3]], dtype=int),
+        value_dim_master=3,
+        value_dim_slave=3,
+        quad_order=1,
+    )
+    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0_active", side="master", value_dim=3)
+    ops = ff.assemble_contact_constraint_operators(
+        contact,
+        rho=0.0,
+        multiplier=mult,
+        backend="numpy",
+    )
+
+    n_active_facets = int(np.unique(contact.source_facets_master).shape[0])
+    assert np.asarray(ops.B_a).shape == (3 * n_active_facets, 3 * contact.surface_master.n_nodes)
+    assert np.asarray(ops.B_b).shape == (3 * n_active_facets, 3 * contact.surface_slave.n_nodes)
+
+    builder = ff.CoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
+    builder.register_field("a", n_dofs=12, value_dim=3, n_nodes=4)
+    builder.register_field("b", n_dofs=12, value_dim=3, n_nodes=4)
+    builder.add_contact_mortar(ops, master="a", slave="b", value_dim=3)
+    K, _ = builder.build().assemble(format="csr")
+    assert K.shape == (24 + 3 * n_active_facets, 24 + 3 * n_active_facets)
+
+
 def test_contact_penalty_operators_from_inputs():
     class _ContactStub:
         def assemble_residual(self, res_form, u, params, *, normal_source="master"):

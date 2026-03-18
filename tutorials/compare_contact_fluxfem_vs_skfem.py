@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 from fluxfem.core.weakform import einsum as wf_einsum
+from fluxfem.mesh.contact import compile_tagged_pair_nitsche_penalty_residual
 from fluxfem.mesh import contact_interface as contact_interface_mod
 from fluxfem.solver.bc import facet_normals
 from tutorials._contact_compare_utils import (
@@ -827,11 +828,12 @@ def build_fluxfem_contact(
     )
     ops = ff.assemble_contact_penalty_operators(
         contact,
-        weak_form=ff.compile_mixed_surface_residual(
+        weak_form=compile_tagged_pair_nitsche_penalty_residual(
             {
                 "a": ff.bind_mixed_residual("a", res_a, space="A"),
                 "b": ff.bind_mixed_residual("b", res_b, space="B"),
-            }
+            },
+            backend="jax",
         ),
         state={"a": u_a, "b": u_b},
         params=params,

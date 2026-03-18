@@ -1,5 +1,8 @@
 # Gridap-Style Trial/Test API Plan
 
+See also: `strategy/gridap-style-api-status.md` for the short current-status
+view of the public API.
+
 ## Goal
 
 Add a public API that can express:
@@ -137,11 +140,28 @@ Prefer a layered design:
 
 This keeps internal assembly stable while improving FE semantics at the API boundary.
 
-## Recommended Public API
+## Current Recommended Public API
+
+The current public recommendation is:
+
+- same-space volume problems:
+  keep `space.assemble_*` for the shortest path
+- role-explicit volume problems:
+  prefer `LinearSpaces` / `BilinearSpaces` / `ResidualSpaces` / `JacobianSpaces`
+- mixed problems:
+  prefer `MixedSpaces({...}).to_fe_space()`
+  and allow per-field role specs such as `ResidualSpaces(test=..., unknown=...)`
+- contact problems:
+  prefer `ContactSpaces(...)`, `ContactGroupSpaces(...)`, and `OneSidedContactSpaces(...)`
+
+The remaining work is primarily API cleanup, docs alignment, and future sugar,
+not the initial introduction of named spaces.
+
+## Historical API Evolution
 
 ### Phase 1: Named spaces
 
-Introduce a minimal named-space API:
+The first step was a minimal named-space API:
 
 ```python
 U = ff.NamedSpace("U", trial_space)
@@ -152,16 +172,18 @@ v = ff.test_ref(space="V")
 p = ff.param_ref()
 ```
 
-Assembly should accept an explicit mapping from names to spaces.
+Assembly could accept an explicit mapping from names to spaces.
 
-Possible target shape:
+Historical target shape:
 
 ```python
 form = ff.compile_bilinear(my_form, trial_space="U", test_space="V")
 A = ff.assemble_bilinear_form({"U": U, "V": V}, form, params)
 ```
 
-This is the preferred first step because it aligns with the existing `space=...` mechanism already used in mixed and contact code.
+This explains the original direction, but it is no longer the recommended
+public entry point. The `*Spaces` family is now preferred over raw dict-based
+role passing.
 
 ### Phase 1.5: `*Spaces` family
 
@@ -204,6 +226,244 @@ Do not:
 
 The new API should be additive.
 
+## Contact Geometry Autodiff Note
+
+Coordinate differentiation is already viable on JAX volume paths and on surface
+linear-form paths, but it is not yet a general guarantee for contact.
+
+The main current blockers are in `src/fluxfem/mesh/contact_interface.py`:
+
+- repeated `np.asarray(...coords..., dtype=float)` materialization on pair
+  contact paths
+- facet-area and facet-shape accumulation loops that build NumPy arrays from
+  quadrature-point geometry
+- mixed NumPy/JAX handling in contact geometry prep, residual assembly, and
+  Jacobian assembly
+
+Recommended implementation order:
+
+1. make pair-contact geometry prep tracer-safe
+2. replace NumPy facet-shape/facet-area loops on the pair path
+3. add one small JAX coordinate-gradient regression test for pair contact
+4. only then extend the same treatment to one-to-many and one-sided contact
+
+Until that is done, treat contact coordinate autodiff as future work rather
+than an advertised guarantee.
+
+## Contact NumPy Performance Direction
+
+For contact `backend="numpy"`, the main performance boundary is not
+`mortar` vs `nitsche`. The dominant split is:
+
+- generic weak-form assembly
+- specialized direct local-kernel assembly
+
+Why:
+
+- both mortar and Nitsche currently pay for generic residual evaluation
+- both still spend time in patch-wise Python loops
+- both become slow if local matrices are assembled column-by-column from a
+  generic residual path
+
+So the recommended performance strategy is a two-layer design:
+
+1. keep the generic weak-form NumPy path as the flexible reference path
+2. add specialized fast paths for the most common contact operators
+
+Recommended implementation order:
+
+1. pair Nitsche/penalty bilinear direct local NumPy kernel
+2. pair mortar coupling direct local NumPy kernel
+3. reuse pair fast paths for one-to-many aggregation
+4. only after that, consider specialized residual kernels if needed
+
+Public/API implication:
+
+- do not remove the generic path
+- detect standard formulations internally and route them to specialized kernels
+- fall back to the generic path for arbitrary DSL expressions
+
+In short: optimize by `generic vs specialized`, not by `mortar vs nitsche`
+first.
+
+### First specialized kernel target
+
+The first fast path should target pair contact bilinear assembly for the
+standard penalty/Nitsche form used in tutorials and tests:
+
+```python
+ju = u1.val - u2.val
+t_u = 0.5 * (traction(u1, n, p) + traction(u2, n, p))
+t_v1 = traction(v1, n, p)
+t_v2 = traction(v2, n, p)
+
+(p.alpha * p.inv_h) * (dot(v1, ju) - dot(v2, ju))
+- dot(v1, t_u) + dot(v2, t_u)
+- 0.5 * einsum("qia,qi->qa", t_v1, ju)
+- 0.5 * einsum("qia,qi->qa", t_v2, ju)
+```
+
+This is the highest-value first case because:
+
+- it already appears repeatedly in tests/tutorials
+- it is representative of the common penalty-family contact path
+- one-to-many can reuse it immediately by pair aggregation
+
+### Detection strategy
+
+Do not attempt broad symbolic algebra simplification first.
+
+Prefer one of these two routes:
+
+1. add a small explicit fast-path API for this formulation
+2. add a narrow pattern detector for the exact expression skeleton above
+
+The safer initial choice is:
+
+- keep the generic public API
+- internally detect only the exact known skeleton
+- fall back immediately if the expression differs
+
+Practical note:
+
+- for the current contact DSL, the compiled Nitsche expression expands into a
+  very large expression tree with elasticity/traction internals fully inlined
+- this makes naive `repr(expr)` or string-pattern detection brittle and hard to
+  maintain
+
+Because of that, the preferred near-term direction is:
+
+1. explicit internal tagging for the standard Nitsche/penalty formulation, or
+2. a small dedicated helper/API that constructs the fast-path formulation on
+   purpose
+
+This is more robust than relying on large expanded-expression string matching.
+
+### Preferred hook shape
+
+The codebase already attaches lightweight metadata to compiled forms
+(`_ff_kind`, `_ff_domain`, `_includes_measure`, `_space_by_target`).
+
+So the preferred fast-path hook is:
+
+1. construct the standard pair Nitsche/penalty form through a helper
+2. attach an internal tag such as:
+   - `_ff_contact_formulation = "pair_nitsche_penalty"`
+   - `_ff_contact_backend_fastpath = "numpy_local_kernel"`
+3. let `ContactSurfaceSpace.assemble_bilinear(...)` check that tag before
+   falling back to the generic path
+
+This keeps the public API small and avoids brittle expression matching.
+
+### Implementation sketch
+
+For the pair Nitsche/penalty fast path:
+
+1. build `Na`, `Nb`, `gradNa`, `gradNb`, `normal`, `w`, `detJ` as today
+2. assemble the four local blocks directly:
+   - `K_aa`
+   - `K_ab`
+   - `K_ba`
+   - `K_bb`
+3. scatter those local blocks into the global matrix
+4. reuse the existing sparse/dense return path
+
+The important design point is:
+
+- do not go through generic residual evaluation
+- do not assemble by basis-vector columns
+
+### Immediate follow-up after the first kernel
+
+Once pair Nitsche/penalty is direct-kernel based:
+
+1. route one-to-many bilinear through the same pair fast path
+2. benchmark against the current generic NumPy path
+3. then implement pair mortar coupling direct assembly
+
+### Non-goal for the first pass
+
+Do not try to optimize all arbitrary surface weak forms.
+
+The first pass should only speed up the dominant standard contact formulation
+while preserving the generic weak-form path as a correctness/reference route.
+
+### Current status
+
+The metadata hook is now in place:
+
+- `make_tagged_pair_nitsche_penalty_bilinear(...)` attaches
+  `_ff_contact_formulation = "pair_nitsche_penalty"`
+  and `_ff_contact_backend_fastpath = "numpy_local_kernel"`
+- `ContactSurfaceSpace.assemble_bilinear(...)` propagates those tags onto the
+  compiled form
+- the NumPy contact Jacobian assembly path can branch on that metadata
+
+Current validation status:
+
+- targeted pair and one-to-many contact tests pass with the fast-path branch
+  enabled
+- a small pair-contact benchmark gives identical matrices for tagged and
+  untagged forms (`relative error = 0.0`)
+
+Current performance status:
+
+- the fast-path infrastructure is working
+- the observed speedup on a small pair case is still negligible
+- this means the present direct-kernel branch is correct, but not yet far
+  enough from the generic path to deliver a large practical gain
+- the helper benchmark `bench/contact_numpy_fastpath_compare.py` currently
+  shows near-1.0x speedup on small tet/tet pair cases (`nxy=2,4`)
+
+So the next optimization step is still the same:
+
+- keep the current tag-based routing
+- push more of the standard pair Nitsche/penalty work into true direct local
+  block assembly
+- measure again on larger patch counts, where Python/generic-path overhead is
+  more visible
+
+Interpretation of the current measurements:
+
+- replacing only the local Jacobian build is not enough
+- a substantial part of the cost is still in patch preparation:
+  supermesh iteration, basis/gradient evaluation, and local geometry setup
+- meaningful speedups will require moving more of that standard-form work into
+  the direct kernel path, not just the final block fill
+
+### What the current traces show
+
+Using the existing contact-interface timing trace on a small tet/tet pair case:
+
+- generic path:
+  `jac_done ~= 5.6e-2 s / supermesh triangle`
+- tagged fast path:
+  `jac_done ~= 3.5e-4 s / supermesh triangle`
+
+So the direct local Jacobian kernel is working and is much cheaper than the
+generic local Jacobian path.
+
+However, end-to-end assembly timings are still almost unchanged on small cases.
+That means the current global cost is dominated by overhead outside the local
+Jacobian block fill, most likely:
+
+- `assemble_bilinear(...)` form construction / compile overhead
+- fixed per-call contact assembly overhead
+- patch preparation that still runs before the fast-path branch
+
+### Practical conclusion
+
+The fast path is correct and locally effective, but the current benchmark is
+still dominated by higher-level overhead.
+
+So the next high-value optimizations are:
+
+1. reduce or bypass bilinear-form compile overhead for standard tagged contact
+   operators
+2. move more standard pair Nitsche preparation into the fast path before the
+   generic mixed-surface context is built
+3. re-measure on larger patch counts after those changes
+
 ## Internal Constraints
 
 The implementation should reuse existing structures where possible:
@@ -225,7 +485,7 @@ The following already exist:
 
 So the gap is no longer symbolic expression support. The gap is public assembly over distinct test/trial spaces.
 
-## Proposed Implementation Order
+## Historical Implementation Order
 
 1. Add a named-space container type.
 2. Add a volume bilinear assembly path that accepts separate test/trial spaces.
@@ -233,7 +493,7 @@ So the gap is no longer symbolic expression support. The gap is public assembly 
 4. Add rectangular-operator tests.
 5. Only after that, consider sugar such as `space.test()` / `space.trial()`.
 
-## Concrete Task Breakdown
+## Implemented Foundation
 
 ### Task 0: Confirm assumptions in code
 
@@ -404,6 +664,15 @@ Suggested targets:
 - one small tutorial or test-as-example
 - release note / changelog note if this becomes public
 
+Current status:
+
+- volume `*Spaces` public APIs are implemented
+- rectangular bilinear assembly uses `FluxSparseOperator`
+- mixed public specs exist and now accept per-field role specs such as
+  `ResidualSpaces(test=..., unknown=...)` when the field still uses one FE space
+- contact public specs exist for pair, one-to-many, and one-sided setup
+- tutorials/docs are being aligned to the role-explicit family
+
 ## Priority Order
 
 Recommended order for implementation work:
@@ -423,9 +692,10 @@ Updated priority after current implementation:
 4. decide whether `assemble_bilinear_form_pg(...)` should remain public long-term
 5. add sugar only after mixed/contact direction is stable
 
-## Decision Points
+## Design Decisions
 
-These decisions should be made before coding too far:
+The main initial design decisions are now settled. The remaining questions are
+about long-term cleanup and future extensions.
 
 ### Decision A: Sparse matrix representation
 
@@ -519,10 +789,10 @@ Choose one:
 - a new explicit Petrov-Galerkin assembly function
 - overload the current `assemble_bilinear_form(...)`
 
-Recommendation:
+Current outcome:
 
-- start with a new explicit function
-- only overload the current one after semantics are stable
+- the main public direction is `assemble_bilinear_form(BilinearSpaces(...), ...)`
+- `assemble_bilinear_form_pg(...)` remains only as a compatibility helper
 
 ### Decision C: Scope of first implementation
 
@@ -532,10 +802,11 @@ Choose one:
 - scalar + vector volume
 - include surfaces/contact immediately
 
-Recommendation:
+Current outcome:
 
-- start with scalar/vector volume only
-- reuse the same abstraction for surfaces later
+- initial implementation landed on volume first
+- mixed/contact reuse is happening through aligned public specs rather than a
+  single forced abstraction
 
 ## Milestone Plan
 
@@ -694,7 +965,8 @@ This preserves conceptual unity without forcing unnatural abstractions onto cont
 
 ### Mixed
 
-Introduce a public `MixedSpaces` spec that wraps per-field specs rather than exposing bare dicts.
+Keep `MixedSpaces` as the public naming/spec layer and continue aligning
+examples/docs around it.
 
 Candidate direction:
 
@@ -705,14 +977,17 @@ ff.MixedSpaces({
 })
 ```
 
-First implementation target:
+Implemented so far:
 
 - same-space parity with current mixed assembly
 - preserve current `compile_mixed_residual(...)` and binding semantics
+- accept per-field role specs such as
+  `ResidualSpaces(test=..., unknown=...)` for same-space mixed fields
 
 Status:
 
 - basic public spec implemented
+- per-field role-spec support implemented for same-space mixed fields
 - deeper mixed assembly-family integration remains future work
 
 ### Contact

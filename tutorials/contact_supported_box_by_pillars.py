@@ -17,6 +17,7 @@ import scipy.sparse as sp
 
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
+from fluxfem.mesh.contact import compile_tagged_pair_nitsche_penalty_residual
 
 
 def _translate_mesh(mesh, shift_xyz):
@@ -68,11 +69,12 @@ def _nitsche_residual_form():
         ju = u1.val - u.val
         return -(p.alpha * p.inv_h) * h_wf.dot(v, ju) * h_wf.ds()
 
-    return ff.compile_mixed_surface_residual(
+    return compile_tagged_pair_nitsche_penalty_residual(
         {
             "a": ff.bind_mixed_residual("a", res_a, space="A"),
             "b": ff.bind_mixed_residual("b", res_b, space="B"),
-        }
+        },
+        backend="jax",
     )
 
 
@@ -110,8 +112,8 @@ def main():
     )
     # Use scalar stiffness for this coupled tutorial path (value_dim=1).
     kappa = float(D[0, 0])
-    K_top = top_space.assemble_bilinear_form(bilinear.get_compiled(), params=kappa)
-    K_support = support_space.assemble_bilinear_form(bilinear.get_compiled(), params=kappa)
+    K_top = top_space.assemble_bilinear_form(bilinear, params=kappa)
+    K_support = support_space.assemble_bilinear_form(bilinear, params=kappa)
 
     # Gravity force (top only)
     F_top = np.asarray(top_space.assemble_linear_form(ff.scalar_body_force_form, params=body_force_top[2]))

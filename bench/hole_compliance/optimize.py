@@ -127,7 +127,7 @@ def main():
     traction_vec = np.array([args.traction, 0.0, 0.0], dtype=float)
     surface_base = ff.make_surface_from_facets(coords_np, facets)
     F_base = surface_base.assemble_linear_form_on_space(
-        base_space, surface_form.get_compiled(), params=traction_vec
+        base_space, surface_form, params=traction_vec
     )
     F_base = jnp.asarray(F_base, dtype=dtype)
 
@@ -161,7 +161,7 @@ def main():
         if rebuild_force:
             surface = ff.make_surface_from_facets(coords, facets)
             F = surface.assemble_linear_form_on_space(
-                space, surface_form.get_compiled(), params=traction_vec
+                space, surface_form, params=traction_vec
             )
             F = jnp.asarray(F, dtype=dtype)
         else:
@@ -183,7 +183,7 @@ def main():
         if rebuild_force:
             surface = ff.make_surface_from_facets(coords, facets)
             F = surface.assemble_linear_form_on_space(
-                space, surface_form.get_compiled(), params=traction_vec
+                space, surface_form, params=traction_vec
             )
             F = jnp.asarray(F, dtype=dtype)
         else:
@@ -220,7 +220,7 @@ def main():
         if rebuild_force:
             surface = ff.make_surface_from_facets(coords, facets)
             F = surface.assemble_linear_form_on_space(
-                space, surface_form.get_compiled(), params=traction_vec
+                space, surface_form, params=traction_vec
             )
             F = jnp.asarray(F, dtype=dtype)
         else:

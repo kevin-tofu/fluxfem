@@ -132,6 +132,28 @@ def _unique_points(points: Iterable[np.ndarray], *, tol: float):
     return np.asarray(coords, dtype=float), indices
 
 
+def _clean_polygon_vertices(poly: np.ndarray, *, tol: float) -> np.ndarray:
+    pts = np.asarray(poly, dtype=float)
+    if pts.shape[0] == 0:
+        return pts
+
+    cleaned: list[np.ndarray] = []
+    for p in pts:
+        if not cleaned or np.linalg.norm(p - cleaned[-1]) > tol:
+            cleaned.append(np.asarray(p, dtype=float))
+    if len(cleaned) > 1 and np.linalg.norm(cleaned[0] - cleaned[-1]) <= tol:
+        cleaned.pop()
+
+    deduped: list[np.ndarray] = []
+    for p in cleaned:
+        if any(np.linalg.norm(p - q) <= tol for q in deduped):
+            continue
+        deduped.append(p)
+    if len(deduped) < 3:
+        return np.zeros((0, 2), dtype=float)
+    return np.asarray(deduped, dtype=float)
+
+
 def _facet_polygon_coords(coords: np.ndarray, facet: np.ndarray) -> np.ndarray:
     n = int(len(facet))
     if n == 9:
@@ -160,6 +182,36 @@ def _triangulate_polygon(indices: list[int], poly2d: np.ndarray) -> list[tuple[i
         return []
     if n == 3:
         return [(indices[0], indices[1], indices[2])]
+    try:
+        from shapely.geometry import Polygon
+        from shapely.ops import triangulate as _shapely_triangulate
+
+        poly = Polygon(np.asarray(poly2d, dtype=float))
+        tris: list[tuple[int, int, int]] = []
+        seen: set[tuple[int, int, int]] = set()
+        for tri in _shapely_triangulate(poly):
+            coords = np.asarray(tri.exterior.coords[:-1], dtype=float)
+            if coords.shape[0] != 3:
+                continue
+            tri_idx: list[int] = []
+            for p in coords:
+                d = np.linalg.norm(np.asarray(poly2d, dtype=float) - p[None, :], axis=1)
+                hit = int(np.argmin(d))
+                if d[hit] > 1e-8:
+                    tri_idx = []
+                    break
+                tri_idx.append(indices[hit])
+            if len(tri_idx) != 3 or len(set(tri_idx)) != 3:
+                continue
+            key = tuple(sorted(tri_idx))
+            if key in seen:
+                continue
+            seen.add(key)
+            tris.append(tuple(tri_idx))
+        if tris:
+            return tris
+    except Exception:
+        pass
     if n == 4:
         p = poly2d
         diag_pref = os.getenv("FLUXFEM_SUPERMESH_QUAD_DIAG", "alt").lower()
@@ -263,7 +315,9 @@ def build_surface_supermesh(
             )
             if len(inter) < 3:
                 continue
-            inter_np = np.asarray(inter)
+            inter_np = _clean_polygon_vertices(np.asarray(inter, dtype=float), tol=tol)
+            if inter_np.shape[0] < 3:
+                continue
             if abs(_polygon_area_2d(inter_np)) <= tol:
                 continue
             center = np.mean(inter_np, axis=0)

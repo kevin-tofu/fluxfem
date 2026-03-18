@@ -63,3 +63,26 @@ def test_surface_linear_form_jax_tri():
 
     g = jax.grad(loss)(coords)
     assert g.shape == coords.shape
+
+
+def test_vector_surface_load_form_accepts_traced_callable_load():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=3, intorder=2)
+    coords = jnp.asarray(mesh.coords, dtype=jnp.float32)
+    facets = jnp.asarray(mesh.facets_on_plane(axis=0, value=1.0), dtype=jnp.int32)
+    surface = ff.SurfaceMesh.from_facets(coords, facets)
+
+    center = jnp.asarray([1.0, 0.5, 0.5], dtype=jnp.float32)
+    direction = jnp.asarray([0.0, 1.0, 0.0], dtype=jnp.float32)
+
+    def load_fn(x_q):
+        r2 = jnp.sum((x_q - center) ** 2, axis=1)
+        mag = jnp.exp(-5.0 * r2)
+        return mag[:, None] * direction[None, :]
+
+    form = ff.make_vector_surface_load_form(load_fn)
+    F = surface.assemble_linear_form_on_space(space, form, params=None)
+
+    F_np = np.asarray(F)
+    assert F_np.shape == (space.n_dofs,)
+    assert np.linalg.norm(F_np) > 0.0

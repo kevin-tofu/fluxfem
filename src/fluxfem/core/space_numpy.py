@@ -6,6 +6,7 @@ import jax
 import numpy as np
 
 from .forms import (
+    FieldPair,
     NumpyFormContext,
     NumpyPrecomputedScalarFormField,
     NumpyPrecomputedVectorFormField,
@@ -161,3 +162,60 @@ def build_form_contexts_numpy_chunked(
                 )
             )
         yield ctxs
+
+
+def build_form_contexts_pair_numpy(
+    test_space: "FESpaceClosure",
+    trial_space: "FESpaceClosure",
+    *,
+    include_x_q: bool = True,
+    lightweight: bool = True,
+    test_name: str = "V",
+    trial_name: str = "U",
+) -> list[NumpyFormContext]:
+    ctx_test = build_form_contexts_numpy(
+        test_space,
+        dep=None,
+        include_x_q=include_x_q,
+        lightweight=lightweight,
+    )
+    ctx_trial = build_form_contexts_numpy(
+        trial_space,
+        dep=None,
+        include_x_q=include_x_q,
+        lightweight=lightweight,
+    )
+    if len(ctx_test) != len(ctx_trial):
+        raise ValueError("build_form_contexts_pair_numpy requires the same number of elements in test and trial spaces.")
+
+    out: list[NumpyFormContext] = []
+    for c_test, c_trial in zip(ctx_test, ctx_trial, strict=True):
+        if c_test.x_q.shape != c_trial.x_q.shape:
+            raise ValueError(
+                "build_form_contexts_pair_numpy requires matching quadrature point shapes for test and trial spaces."
+            )
+        if c_test.w.shape != c_trial.w.shape:
+            raise ValueError(
+                "build_form_contexts_pair_numpy requires matching quadrature weight shapes for test and trial spaces."
+            )
+        if not np.allclose(c_test.x_q, c_trial.x_q):
+            raise ValueError("build_form_contexts_pair_numpy requires matching physical quadrature points.")
+        if not np.allclose(c_test.w, c_trial.w):
+            raise ValueError("build_form_contexts_pair_numpy requires matching quadrature weights.")
+        spaces = {
+            str(test_name): FieldPair(test=c_test.test, trial=c_test.trial, unknown=c_test.trial),
+            str(trial_name): FieldPair(test=c_trial.test, trial=c_trial.trial, unknown=c_trial.trial),
+            "default": FieldPair(test=c_test.test, trial=c_trial.trial, unknown=c_trial.trial),
+        }
+        out.append(
+            NumpyFormContext(
+                test=c_test.test,
+                trial=c_trial.trial,
+                x_q=c_trial.x_q,
+                w=c_trial.w,
+                elem_id=c_trial.elem_id,
+                spaces=spaces,
+                default_space="default",
+            )
+        )
+    return out

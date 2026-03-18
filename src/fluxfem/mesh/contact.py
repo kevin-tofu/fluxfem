@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Sequence, TYPE_CHECKING, TypeAlias, Union
+from dataclasses import dataclass, field
+from typing import Any, Callable, Mapping, Protocol, Sequence, TYPE_CHECKING, TypeAlias, Union, cast
 import warnings
 
 import numpy as np
@@ -39,6 +39,10 @@ from .contact_interface import (
     volume_shape_values_at_points as _volume_shape_values_at_points,
     map_surface_facets_to_tet_elements,
     map_surface_facets_to_hex_elements,
+    build_supermesh_triangle_quadrature_cache,
+    _facet_shape_values,
+    _tri_centroid,
+    _tri_area,
 )
 from .supermesh import build_surface_supermesh
 from .surface import SurfaceMesh
@@ -48,16 +52,202 @@ if TYPE_CHECKING:
     from .contact_interface import ContactCouplingMatrix
     from ..core.weakform import Params as WeakParams
     from .contact_interface import SurfaceMixedFormContext
-    from ..solver import FluxSparseMatrix
+    from ..solver import FluxSparseMatrix, FluxSparseOperator
 
-ContactJacobianReturn: TypeAlias = Union[np.ndarray, "FluxSparseMatrix"]
+ContactJacobianReturn: TypeAlias = Union[np.ndarray, "FluxSparseMatrix", "FluxSparseOperator"]
 MixedSurfaceResidualForm: TypeAlias = Callable[
     ["SurfaceMixedFormContext", Mapping[str, npt.ArrayLike], Any],
     Mapping[str, npt.ArrayLike],
 ]
 SurfaceHatFn: TypeAlias = Callable[[np.ndarray], npt.ArrayLike]
 
+
+class ContactBilinear(Protocol):
+    """Structural protocol for contact interface bilinear DSL callables."""
+
+    def __call__(self, v1: Any, v2: Any, u1: Any, u2: Any, p: Any) -> Any: ...
+
+
+class RoleCompiledContactBilinear(Protocol):
+    """Contact bilinear compiled to role slots, but not yet bound to a concrete contact."""
+
+    fn: ContactBilinear
+    _ff_kind: str
+    _ff_domain: str
+
+
+ContactBilinearLike: TypeAlias = Union[ContactBilinear, MixedSurfaceResidualForm, RoleCompiledContactBilinear]
+
+
+def _is_compiled_contact_bilinear(obj: Any) -> bool:
+    return callable(obj) and hasattr(obj, "_includes_measure")
+
+
+def _is_role_compiled_contact_bilinear(obj: Any) -> bool:
+    return (
+        getattr(obj, "_ff_kind", None) == "bilinear"
+        and getattr(obj, "_ff_domain", None) == "contact"
+        and callable(getattr(obj, "fn", None))
+    )
+
+
+def _ensure_role_compiled_contact_bilinear(bilin: ContactBilinearLike) -> ContactBilinearLike:
+    """Normalize raw contact bilinear DSL callables to role-slot compiled contact forms."""
+    if _is_compiled_contact_bilinear(bilin) or _is_role_compiled_contact_bilinear(bilin):
+        return bilin
+    from ..core.weakform import BilinearForm
+
+    return cast(ContactBilinearLike, BilinearForm.contact(cast(ContactBilinear, bilin)).get_compiled())
+
+
+def _compile_contact_bilinear(
+    bilin: ContactBilinearLike,
+    *,
+    field_master: str = "a",
+    field_slave: str = "b",
+    backend: str = "jax",
+) -> MixedSurfaceResidualForm:
+    """Compile a contact bilinear callable into a reusable mixed-surface residual form."""
+    normalized = _ensure_role_compiled_contact_bilinear(bilin)
+    if _is_compiled_contact_bilinear(normalized):
+        return cast(MixedSurfaceResidualForm, normalized)
+    source = normalized.fn if _is_role_compiled_contact_bilinear(normalized) else normalized
+    role_test_spaces = getattr(normalized, "_ff_contact_test_space_by_role", {})
+    role_unknown_spaces = getattr(normalized, "_ff_contact_unknown_space_by_role", {})
+    test_space_by_target = {
+        str(field_master): role_test_spaces.get("a", str(field_master)),
+        str(field_slave): role_test_spaces.get("b", str(field_slave)),
+    }
+    unknown_space_by_target = {
+        str(field_master): role_unknown_spaces.get("a", test_space_by_target[str(field_master)]),
+        str(field_slave): role_unknown_spaces.get("b", test_space_by_target[str(field_slave)]),
+    }
+
+    resolved_formulation = getattr(source, _FF_CONTACT_FORMULATION_ATTR, None)
+    resolved_fastpath = getattr(source, _FF_CONTACT_FASTPATH_ATTR, None)
+    if resolved_formulation == "pair_nitsche_penalty" and resolved_fastpath is None:
+        resolved_fastpath = "numpy_local_kernel"
+
+    if (
+        backend == "numpy"
+        and resolved_formulation == "pair_nitsche_penalty"
+        and resolved_fastpath == "numpy_local_kernel"
+    ):
+        # The tagged NumPy fast path only needs metadata; keep a stub so the
+        # Jacobian path can branch before evaluating any residual callback.
+        def _fastpath_stub(_ctx, _u_elem, _params):
+            raise RuntimeError("Tagged NumPy contact fast-path stub should not be evaluated.")
+
+        res_form = _fastpath_stub
+        setattr(res_form, "_includes_measure", {str(field_master): True, str(field_slave): True})
+        setattr(res_form, "_space_by_target", {})
+        setattr(res_form, "_test_space_by_target", dict(test_space_by_target))
+        setattr(res_form, "_unknown_space_by_target", dict(unknown_space_by_target))
+    else:
+        from ..core.weakform import (
+            compile_mixed_surface_residual,
+            compile_mixed_surface_residual_numpy,
+            unknown_ref,
+            test_ref,
+            param_ref,
+            zero_ref,
+        )
+
+        v1 = test_ref(str(field_master), space=test_space_by_target[str(field_master)])
+        v2 = test_ref(str(field_slave), space=test_space_by_target[str(field_slave)])
+        u1 = unknown_ref(str(field_master), space=unknown_space_by_target[str(field_master)])
+        u2 = unknown_ref(str(field_slave), space=unknown_space_by_target[str(field_slave)])
+        z1 = zero_ref(str(field_master), space=test_space_by_target[str(field_master)])
+        z2 = zero_ref(str(field_slave), space=test_space_by_target[str(field_slave)])
+        p = param_ref()
+
+        expr_a = cast(ContactBilinear, source)(v1, z2, u1, u2, p)
+        expr_b = cast(ContactBilinear, source)(z1, v2, u1, u2, p)
+        if backend == "jax":
+            res_form = compile_mixed_surface_residual({str(field_master): expr_a, str(field_slave): expr_b})
+        elif backend == "numpy":
+            res_form = compile_mixed_surface_residual_numpy({str(field_master): expr_a, str(field_slave): expr_b})
+        else:
+            raise ValueError("backend must be 'jax' or 'numpy'")
+
+    setattr(res_form, "_test_space_by_target", dict(test_space_by_target))
+    setattr(res_form, "_unknown_space_by_target", dict(unknown_space_by_target))
+    if test_space_by_target == unknown_space_by_target:
+        setattr(res_form, "_space_by_target", dict(test_space_by_target))
+    if resolved_formulation is not None:
+        setattr(res_form, _FF_CONTACT_FORMULATION_ATTR, resolved_formulation)
+    if resolved_fastpath is not None:
+        setattr(res_form, _FF_CONTACT_FASTPATH_ATTR, resolved_fastpath)
+    return res_form
+
 _CONTACT_SETUP_CACHE: dict[tuple, "ContactSurfaceSpace"] = {}
+
+_FF_CONTACT_FORMULATION_ATTR = "_ff_contact_formulation"
+_FF_CONTACT_FASTPATH_ATTR = "_ff_contact_backend_fastpath"
+
+
+def _tag_contact_bilinear(
+    fn: ContactBilinear,
+    *,
+    formulation: str,
+    backend_fastpath: str | None = None,
+) -> ContactBilinear:
+    """Attach lightweight internal metadata to a contact bilinear callable."""
+    setattr(fn, _FF_CONTACT_FORMULATION_ATTR, str(formulation))
+    if backend_fastpath is not None:
+        setattr(fn, _FF_CONTACT_FASTPATH_ATTR, str(backend_fastpath))
+    return fn
+
+
+def _tag_contact_residual_form(
+    res_form: Callable[..., Any],
+    *,
+    formulation: str,
+    backend_fastpath: str | None = None,
+) -> Callable[..., Any]:
+    """Attach lightweight internal metadata to a compiled contact residual form."""
+    setattr(res_form, _FF_CONTACT_FORMULATION_ATTR, str(formulation))
+    if backend_fastpath is not None:
+        setattr(res_form, _FF_CONTACT_FASTPATH_ATTR, str(backend_fastpath))
+    return res_form
+
+
+def make_tagged_pair_nitsche_penalty_bilinear(
+    fn: ContactBilinear,
+    *,
+    backend_fastpath: str = "numpy_local_kernel",
+) -> ContactBilinear:
+    """Internal helper for comparison/debug code that needs the pair-Nitsche fast path."""
+    return _tag_contact_bilinear(
+        fn,
+        formulation="pair_nitsche_penalty",
+        backend_fastpath=backend_fastpath,
+    )
+
+
+def compile_tagged_pair_nitsche_penalty_residual(
+    residuals: Mapping[str, Callable[..., Any]],
+    *,
+    backend: str = "jax",
+    backend_fastpath: str = "numpy_local_kernel",
+) -> Callable[..., Any]:
+    """Internal helper for comparison/debug code that needs a tagged pair-Nitsche residual."""
+    from ..core.weakform import (
+        compile_mixed_surface_residual,
+        compile_mixed_surface_residual_numpy,
+    )
+
+    if backend == "jax":
+        res_form = compile_mixed_surface_residual(residuals)
+    elif backend == "numpy":
+        res_form = compile_mixed_surface_residual_numpy(residuals)
+    else:
+        raise ValueError("backend must be 'jax' or 'numpy'")
+    return _tag_contact_residual_form(
+        res_form,
+        formulation="pair_nitsche_penalty",
+        backend_fastpath=backend_fastpath,
+    )
 
 
 @dataclass(frozen=True)
@@ -101,7 +291,7 @@ class ContactSpaces:
         quad_order: int = 0,
         tol: float = 1e-8,
         backend: str = "jax",
-        batch_jac: bool = False,
+        batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
         return ContactSurfaceSpace.from_sides(
             self.master,
@@ -111,7 +301,7 @@ class ContactSpaces:
             quad_order=int(quad_order),
             tol=float(tol),
             backend=str(backend),
-            batch_jac=bool(batch_jac),
+            batch_jac=batch_jac,
         )
 
 
@@ -135,7 +325,7 @@ class ContactGroupSpaces:
     def to_contact_surface_space(
         self,
         *,
-        quad_order: int = 1,
+        quad_order: int = 0,
         space_mode_master: str = "nodal",
         space_mode_slave: str = "nodal",
         facet_dofs_master: np.ndarray | None = None,
@@ -197,15 +387,17 @@ class OneSidedContactSpaces:
 class ContactMultiplierSpace:
     """Discrete LM-space description used by constraint-family contact assembly."""
 
-    family: str = "nodal"  # "nodal" | "p0"
-    side: str = "master"  # For family="p0", current implementation supports only "master".
+    family: str = "nodal"  # "nodal" | "p0" | "p0_active" | "p0_supermesh"
+    side: str = "master"  # For p0-like families, current implementation supports only "master".
     value_dim: int = 1
     facet_conn: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         fam = str(self.family).lower()
-        if fam not in {"nodal", "p0"}:
-            raise ValueError("ContactMultiplierSpace.family must be 'nodal' or 'p0'.")
+        if fam not in {"nodal", "p0", "p0_active", "p0_supermesh"}:
+            raise ValueError(
+                "ContactMultiplierSpace.family must be 'nodal', 'p0', 'p0_active', or 'p0_supermesh'."
+            )
         side = str(self.side).lower()
         if side not in {"master", "slave"}:
             raise ValueError("ContactMultiplierSpace.side must be 'master' or 'slave'.")
@@ -223,7 +415,7 @@ class ContactMultiplierSpace:
         facet_conn: np.ndarray | None = None,
     ) -> "ContactMultiplierSpace":
         fc = None if facet_conn is None else np.asarray(facet_conn, dtype=int)
-        if str(family).lower() == "p0" and fc is None:
+        if str(family).lower() in {"p0", "p0_active", "p0_supermesh"} and fc is None:
             fc = _infer_contact_side_facets(contact, side=str(side))
         return cls(
             family=str(family).lower(),
@@ -235,12 +427,18 @@ class ContactMultiplierSpace:
 
 def _contact_sparse_to_coo(jacobian: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     if hasattr(jacobian, "to_coo"):
-        rows, cols, data, n_dofs = jacobian.to_coo()
+        rows, cols, data, shape_or_n_dofs = jacobian.to_coo()
+        if isinstance(shape_or_n_dofs, tuple):
+            if int(shape_or_n_dofs[0]) != int(shape_or_n_dofs[1]):
+                raise ValueError("Rectangular contact operators are not supported in this path.")
+            n_dofs = int(shape_or_n_dofs[0])
+        else:
+            n_dofs = int(shape_or_n_dofs)
         return (
             np.asarray(rows, dtype=int),
             np.asarray(cols, dtype=int),
             np.asarray(data, dtype=float),
-            int(n_dofs),
+            n_dofs,
         )
     rows, cols, data, n_dofs = jacobian
     return (
@@ -723,6 +921,42 @@ def _p0_reduction_matrix_from_facets(facet_conn: np.ndarray, n_nodes: int):
     return S
 
 
+def _expand_scalar_constraint_dense(B_scalar, *, value_dim: int, backend: str):
+    vd = int(value_dim)
+    if vd <= 1:
+        return B_scalar
+    B_np = np.asarray(B_scalar, dtype=float)
+    out = np.zeros((vd * B_np.shape[0], vd * B_np.shape[1]), dtype=B_np.dtype)
+    for comp in range(vd):
+        out[comp::vd, comp::vd] = B_np
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        return jnp.asarray(out)
+    return out
+
+
+def _expand_scalar_constraint_coo(
+    rows: np.ndarray,
+    cols: np.ndarray,
+    data: np.ndarray,
+    *,
+    n_rows: int,
+    n_cols: int,
+    value_dim: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, int]:
+    vd = int(value_dim)
+    if vd <= 1:
+        return rows, cols, data, int(n_rows), int(n_cols)
+    rows = np.asarray(rows, dtype=int)
+    cols = np.asarray(cols, dtype=int)
+    data = np.asarray(data, dtype=float)
+    rows_exp = np.concatenate([vd * rows + comp for comp in range(vd)], axis=0)
+    cols_exp = np.concatenate([vd * cols + comp for comp in range(vd)], axis=0)
+    data_exp = np.concatenate([data for _ in range(vd)], axis=0)
+    return rows_exp, cols_exp, data_exp, vd * int(n_rows), vd * int(n_cols)
+
+
 def _infer_contact_side_facets(contact, *, side: str) -> np.ndarray | None:
     side_norm = str(side).lower()
     if side_norm not in {"master", "slave"}:
@@ -752,9 +986,9 @@ def _resolve_multiplier_spec(
     if multiplier is None:
         raise TypeError("multiplier is required (ContactMultiplierSpace).")
     fam = str(multiplier.family).lower()
-    if fam == "p0" and str(multiplier.side).lower() != "master":
+    if fam in {"p0", "p0_active", "p0_supermesh"} and str(multiplier.side).lower() != "master":
         raise NotImplementedError(
-            "p0 multiplier currently supports only side='master' "
+            "p0-like multipliers currently support only side='master' "
             "(current implementation limitation)."
         )
     facet = multiplier.facet_conn
@@ -762,10 +996,10 @@ def _resolve_multiplier_spec(
         facet = _infer_contact_side_facets(contact, side=str(multiplier.side))
     if facet is None:
         facet = facet_conn_master
-    if fam not in {"nodal", "p0"}:
-        raise ValueError("multiplier.family must be 'nodal' or 'p0'")
-    if fam == "p0" and facet is None:
-        raise ValueError("facet_conn_master is required when multiplier.family='p0'.")
+    if fam not in {"nodal", "p0", "p0_active", "p0_supermesh"}:
+        raise ValueError("multiplier.family must be 'nodal', 'p0', 'p0_active', or 'p0_supermesh'")
+    if fam in {"p0", "p0_active"} and facet is None:
+        raise ValueError(f"facet_conn_master is required when multiplier.family='{fam}'.")
     facet_arr = None if facet is None else np.asarray(facet, dtype=int)
     resolved_multiplier = ContactMultiplierSpace(
         family=fam,
@@ -790,7 +1024,12 @@ def _kkt_coo_from_coupling(
     rho: float,
     multiplier_space: str,
     facet_conn_master: np.ndarray | None,
+    multiplier_value_dim: int = 1,
 ):
+    if multiplier_space == "p0_supermesh":
+        raise NotImplementedError(
+            "multiplier_space='p0_supermesh' requires direct B/Kuu assembly from contact operators."
+        )
     rows_aa, cols_aa, data_aa = _coalesce_int_coo(coupling_aa.rows, coupling_aa.cols, coupling_aa.data)
     rows_ab, cols_ab, data_ab = _coalesce_int_coo(coupling_ab.rows, coupling_ab.cols, coupling_ab.data)
     n_a = int(coupling_aa.shape[0])
@@ -840,6 +1079,14 @@ def _kkt_coo_from_coupling(
             b_data = np.zeros((0,), dtype=float)
     else:
         raise ValueError("multiplier_space must be 'nodal' or 'p0'")
+    b_rows, b_cols, b_data, n_l, n_u = _expand_scalar_constraint_coo(
+        b_rows,
+        b_cols,
+        b_data,
+        n_rows=n_l,
+        n_cols=n_u,
+        value_dim=int(multiplier_value_dim),
+    )
 
     # Build Kuu = rho * B^T B from row-wise products.
     by_row: dict[int, list[int]] = {}
@@ -892,6 +1139,107 @@ def _kkt_coo_from_coupling(
         data = np.zeros((0,), dtype=float)
     n_total = int(n_u + n_l)
     return rows, cols, data, n_total
+
+
+def _assemble_supermesh_triangle_p0_blocks(contact, *, backend: str, value_dim: int):
+    if not all(
+        hasattr(contact, name)
+        for name in (
+            "supermesh_coords",
+            "supermesh_conn",
+            "source_facets_master",
+            "source_facets_slave",
+            "surface_master",
+            "surface_slave",
+            "tol",
+        )
+    ):
+        raise TypeError("contact must expose supermesh geometry for multiplier.family='p0_supermesh'.")
+
+    supermesh_coords = np.asarray(contact.supermesh_coords, dtype=float)
+    supermesh_conn = np.asarray(contact.supermesh_conn, dtype=int)
+    source_facets_master = np.asarray(contact.source_facets_master, dtype=int)
+    source_facets_slave = np.asarray(contact.source_facets_slave, dtype=int)
+    facet_conn_master = np.asarray(contact.surface_master.conn, dtype=int)
+    facet_conn_slave = np.asarray(contact.surface_slave.conn, dtype=int)
+    coords_master = np.asarray(contact.surface_master.coords, dtype=float)
+    coords_slave = np.asarray(contact.surface_slave.coords, dtype=float)
+    tol = float(contact.tol)
+
+    n_tri = int(supermesh_conn.shape[0])
+    n_master_dofs = int(contact.surface_master.n_nodes)
+    n_slave_dofs = int(contact.surface_slave.n_nodes)
+    B_a = np.zeros((n_tri, n_master_dofs), dtype=float)
+    B_b = np.zeros((n_tri, n_slave_dofs), dtype=float)
+
+    for tri_id, (tri, fa, fb) in enumerate(zip(supermesh_conn, source_facets_master, source_facets_slave)):
+        a = supermesh_coords[int(tri[0])]
+        b = supermesh_coords[int(tri[1])]
+        c = supermesh_coords[int(tri[2])]
+        centroid = _tri_centroid(a, b, c)
+        area = _tri_area(a, b, c)
+
+        facet_master = facet_conn_master[int(fa)]
+        facet_slave = facet_conn_slave[int(fb)]
+        N_master = _facet_shape_values(centroid, facet_master, coords_master, tol=tol)
+        N_slave = _facet_shape_values(centroid, facet_slave, coords_slave, tol=tol)
+        B_a[tri_id, facet_master] += area * N_master
+        B_b[tri_id, facet_slave] += area * N_slave
+
+    B_a = _expand_scalar_constraint_dense(B_a, value_dim=int(value_dim), backend=backend)
+    B_b = _expand_scalar_constraint_dense(B_b, value_dim=int(value_dim), backend=backend)
+    return B_a, B_b
+
+
+def _assemble_active_master_facet_p0_blocks(contact, *, backend: str, value_dim: int):
+    if not all(
+        hasattr(contact, name)
+        for name in (
+            "supermesh_coords",
+            "supermesh_conn",
+            "source_facets_master",
+            "source_facets_slave",
+            "surface_master",
+            "surface_slave",
+            "tol",
+        )
+    ):
+        raise TypeError("contact must expose supermesh geometry for multiplier.family='p0_active'.")
+
+    supermesh_coords = np.asarray(contact.supermesh_coords, dtype=float)
+    supermesh_conn = np.asarray(contact.supermesh_conn, dtype=int)
+    source_facets_master = np.asarray(contact.source_facets_master, dtype=int)
+    source_facets_slave = np.asarray(contact.source_facets_slave, dtype=int)
+    active_facets = np.unique(source_facets_master)
+    facet_row = {int(f): i for i, f in enumerate(active_facets.tolist())}
+
+    facet_conn_master_all = np.asarray(contact.surface_master.conn, dtype=int)
+    facet_conn_slave_all = np.asarray(contact.surface_slave.conn, dtype=int)
+    coords_master = np.asarray(contact.surface_master.coords, dtype=float)
+    coords_slave = np.asarray(contact.surface_slave.coords, dtype=float)
+    tol = float(contact.tol)
+
+    B_a = np.zeros((int(active_facets.shape[0]), int(contact.surface_master.n_nodes)), dtype=float)
+    B_b = np.zeros((int(active_facets.shape[0]), int(contact.surface_slave.n_nodes)), dtype=float)
+
+    for tri, fa, fb in zip(supermesh_conn, source_facets_master, source_facets_slave):
+        row = facet_row[int(fa)]
+        a = supermesh_coords[int(tri[0])]
+        b = supermesh_coords[int(tri[1])]
+        c = supermesh_coords[int(tri[2])]
+        centroid = _tri_centroid(a, b, c)
+        area = _tri_area(a, b, c)
+
+        facet_master = facet_conn_master_all[int(fa)]
+        facet_slave = facet_conn_slave_all[int(fb)]
+        N_master = _facet_shape_values(centroid, facet_master, coords_master, tol=tol)
+        N_slave = _facet_shape_values(centroid, facet_slave, coords_slave, tol=tol)
+        B_a[row, facet_master] += area * N_master
+        B_b[row, facet_slave] += area * N_slave
+
+    B_a = _expand_scalar_constraint_dense(B_a, value_dim=int(value_dim), backend=backend)
+    B_b = _expand_scalar_constraint_dense(B_b, value_dim=int(value_dim), backend=backend)
+    return B_a, B_b, facet_conn_master_all[active_facets]
 
 
 def assemble_contact_constraint_operators(
@@ -969,6 +1317,33 @@ def assemble_contact_constraint_operators(
         S = xp.asarray(S_np)
         B_a = S @ M_aa
         B_b = S @ M_ab
+        B_a = _expand_scalar_constraint_dense(
+            B_a,
+            value_dim=int(multiplier_resolved.value_dim),
+            backend=backend,
+        )
+        B_b = _expand_scalar_constraint_dense(
+            B_b,
+            value_dim=int(multiplier_resolved.value_dim),
+            backend=backend,
+        )
+    elif mult_space == "p0_active":
+        B_a, B_b, facet_conn_master = _assemble_active_master_facet_p0_blocks(
+            contact,
+            backend=backend,
+            value_dim=int(multiplier_resolved.value_dim),
+        )
+    elif mult_space == "p0_supermesh":
+        B_a, B_b = _assemble_supermesh_triangle_p0_blocks(
+            contact,
+            backend=backend,
+            value_dim=int(multiplier_resolved.value_dim),
+        )
+        if backend == "jax":
+            B_a = xp.asarray(B_a)
+            B_b = xp.asarray(B_b)
+    else:
+        raise ValueError("multiplier.family must be 'nodal', 'p0', 'p0_active', or 'p0_supermesh'.")
 
     B = xp.concatenate([B_a, -B_b], axis=1)
     Kuu = xp.asarray(rho) * (B.T @ B)
@@ -1090,6 +1465,7 @@ def assemble_contact_kkt(
     multiplier:
     - ``family="nodal"``: lambda lives on interface nodal basis (B_a=M_aa, B_b=M_ab)
     - ``family="p0"``: lambda is facet-wise constant on master side (B_* = S * M_*)
+    - ``family="p0_active"``/``family="p0_supermesh"``: use ``assemble_contact_constraint_operators`` and pass ``ops`` to the builder
     """
     if backend not in {"numpy", "jax"}:
         raise ValueError("backend must be 'numpy' or 'jax'")
@@ -1098,6 +1474,11 @@ def assemble_contact_kkt(
         multiplier=multiplier,
         facet_conn_master=facet_conn_master,
     )
+    if mult_space in {"p0_active", "p0_supermesh"}:
+        raise NotImplementedError(
+            "assemble_contact_kkt(..., multiplier.family in {'p0_active', 'p0_supermesh'}) is not supported; "
+            "use assemble_contact_constraint_operators(...) and CoupledSystemBuilder.add_contact_mortar(...)."
+        )
     if format not in {"dense", "fluxsparse", "bcoo"}:
         raise ValueError("format must be 'dense', 'fluxsparse', or 'bcoo'")
     if return_blocks and format != "dense":
@@ -1114,6 +1495,7 @@ def assemble_contact_kkt(
             rho=float(rho),
             multiplier_space=mult_space,
             facet_conn_master=facet_conn_master,
+            multiplier_value_dim=int(getattr(multiplier, "value_dim", 1)),
         )
         if format == "fluxsparse":
             from ..solver import FluxSparseMatrix
@@ -1144,6 +1526,16 @@ def assemble_contact_kkt(
         S = xp.asarray(S_np)
         B_a = S @ M_aa
         B_b = S @ M_ab
+    B_a = _expand_scalar_constraint_dense(
+        B_a,
+        value_dim=int(getattr(multiplier, "value_dim", 1)),
+        backend=backend,
+    )
+    B_b = _expand_scalar_constraint_dense(
+        B_b,
+        value_dim=int(getattr(multiplier, "value_dim", 1)),
+        backend=backend,
+    )
 
     B = xp.concatenate([B_a, -B_b], axis=1)
     Kuu = xp.asarray(rho) * (B.T @ B)
@@ -1635,11 +2027,23 @@ class ContactSurfaceSpace:
     space_mode_slave: str = "nodal"
     facet_dofs_master: np.ndarray | None = None
     facet_dofs_slave: np.ndarray | None = None
-    quad_order: int = 1
+    trial_value_dim_master: int | None = None
+    trial_value_dim_slave: int | None = None
+    trial_space_mode_master: str | None = None
+    trial_space_mode_slave: str | None = None
+    trial_facet_dofs_master: np.ndarray | None = None
+    trial_facet_dofs_slave: np.ndarray | None = None
+    quad_order: int = 0
     normal_sign: float | None = None
     tol: float = 1e-8
     backend: str = "jax"
     batch_jac: bool | None = None
+    supermesh_quad_cache: Any | None = None
+    _compiled_bilinear_cache: dict[tuple[int, str], MixedSurfaceResidualForm] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
 
     @classmethod
     def from_surfaces(
@@ -1657,7 +2061,13 @@ class ContactSurfaceSpace:
         space_mode_slave: str = "nodal",
         facet_dofs_master: np.ndarray | None = None,
         facet_dofs_slave: np.ndarray | None = None,
-        quad_order: int = 1,
+        trial_value_dim_master: int | None = None,
+        trial_value_dim_slave: int | None = None,
+        trial_space_mode_master: str | None = None,
+        trial_space_mode_slave: str | None = None,
+        trial_facet_dofs_master: np.ndarray | None = None,
+        trial_facet_dofs_slave: np.ndarray | None = None,
+        quad_order: int = 0,
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
@@ -1699,6 +2109,12 @@ class ContactSurfaceSpace:
                 str(space_mode_slave),
                 None if facet_dofs_master is None else _array_sig(np.asarray(facet_dofs_master)),
                 None if facet_dofs_slave is None else _array_sig(np.asarray(facet_dofs_slave)),
+                None if trial_value_dim_master is None else int(trial_value_dim_master),
+                None if trial_value_dim_slave is None else int(trial_value_dim_slave),
+                None if trial_space_mode_master is None else str(trial_space_mode_master),
+                None if trial_space_mode_slave is None else str(trial_space_mode_slave),
+                None if trial_facet_dofs_master is None else _array_sig(np.asarray(trial_facet_dofs_master)),
+                None if trial_facet_dofs_slave is None else _array_sig(np.asarray(trial_facet_dofs_slave)),
                 int(quad_order),
                 float(normal_sign) if normal_sign is not None else None,
                 float(tol),
@@ -1750,11 +2166,23 @@ class ContactSurfaceSpace:
             space_mode_slave=space_mode_slave,
             facet_dofs_master=None if facet_dofs_master is None else np.asarray(facet_dofs_master, dtype=int),
             facet_dofs_slave=None if facet_dofs_slave is None else np.asarray(facet_dofs_slave, dtype=int),
+            trial_value_dim_master=None if trial_value_dim_master is None else int(trial_value_dim_master),
+            trial_value_dim_slave=None if trial_value_dim_slave is None else int(trial_value_dim_slave),
+            trial_space_mode_master=None if trial_space_mode_master is None else str(trial_space_mode_master),
+            trial_space_mode_slave=None if trial_space_mode_slave is None else str(trial_space_mode_slave),
+            trial_facet_dofs_master=None if trial_facet_dofs_master is None else np.asarray(trial_facet_dofs_master, dtype=int),
+            trial_facet_dofs_slave=None if trial_facet_dofs_slave is None else np.asarray(trial_facet_dofs_slave, dtype=int),
             quad_order=quad_order,
             normal_sign=normal_sign,
             tol=tol,
             backend=backend,
             batch_jac=batch_jac,
+            supermesh_quad_cache=build_supermesh_triangle_quadrature_cache(
+                sm.coords,
+                sm.conn,
+                quad_order=int(quad_order),
+                tol=float(tol),
+            ),
         )
         if setup_cache_enabled:
             _CONTACT_SETUP_CACHE[key] = obj
@@ -1775,7 +2203,7 @@ class ContactSurfaceSpace:
         value_dim: int = 1,
         space_mode: str = "nodal",
         facet_dofs: np.ndarray | None = None,
-        quad_order: int = 1,
+        quad_order: int = 0,
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
@@ -1822,7 +2250,7 @@ class ContactSurfaceSpace:
         space_mode_slave: str = "nodal",
         facet_dofs_master: np.ndarray | None = None,
         facet_dofs_slave: np.ndarray | None = None,
-        quad_order: int = 1,
+        quad_order: int = 0,
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
@@ -1860,7 +2288,7 @@ class ContactSurfaceSpace:
         *,
         field_master: str = "a",
         field_slave: str = "b",
-        quad_order: int = 1,
+        quad_order: int = 0,
         space_mode_master: str = "nodal",
         space_mode_slave: str = "nodal",
         facet_dofs_master: np.ndarray | None = None,
@@ -1912,7 +2340,7 @@ class ContactSurfaceSpace:
         space_mode_slave: str = "nodal",
         facet_dofs_master: np.ndarray | None = None,
         facet_dofs_slave: np.ndarray | None = None,
-        quad_order: int = 1,
+        quad_order: int = 0,
         normal_sign: float | None = None,
         tol: float = 1e-8,
         backend: str = "jax",
@@ -1975,6 +2403,30 @@ class ContactSurfaceSpace:
             raise ValueError("backend must be 'jax' or 'numpy'")
         return use_backend
 
+    def _trial_layout(self, *, side: str) -> tuple[int, str, np.ndarray | None]:
+        if side == "master":
+            value_dim = int(self.trial_value_dim_master or self.value_dim_master)
+            space_mode = str(self.trial_space_mode_master or self.space_mode_master)
+            facet_dofs = self.trial_facet_dofs_master if self.trial_facet_dofs_master is not None else self.facet_dofs_master
+            return value_dim, space_mode, facet_dofs
+        if side == "slave":
+            value_dim = int(self.trial_value_dim_slave or self.value_dim_slave)
+            space_mode = str(self.trial_space_mode_slave or self.space_mode_slave)
+            facet_dofs = self.trial_facet_dofs_slave if self.trial_facet_dofs_slave is not None else self.facet_dofs_slave
+            return value_dim, space_mode, facet_dofs
+        raise ValueError("side must be 'master' or 'slave'")
+
+    def _validate_square_trial_layout(self) -> None:
+        test_master = _contact_space_side_n_dofs(self, side="master", role="test")
+        test_slave = _contact_space_side_n_dofs(self, side="slave", role="test")
+        trial_master = _contact_space_side_n_dofs(self, side="master", role="trial")
+        trial_slave = _contact_space_side_n_dofs(self, side="slave", role="trial")
+        if test_master != trial_master or test_slave != trial_slave:
+            raise NotImplementedError(
+                "Distinct contact trial layouts currently require the same total DOF counts as the test layouts. "
+                "Rectangular contact operators are not enabled yet."
+            )
+
     def assemble_contact_coupling_matrices(self) -> tuple["ContactCouplingMatrix", "ContactCouplingMatrix"]:
         """Return (M_aa, M_ab) coupling matrices on this contact interface."""
         return _assemble_contact_coupling_matrices(
@@ -1984,6 +2436,8 @@ class ContactSurfaceSpace:
             self.source_facets_slave,
             self.surface_master,
             self.surface_slave,
+            tol=self.tol,
+            quad_order=self.quad_order,
         )
 
     def assemble_contact_kkt(
@@ -2080,11 +2534,14 @@ class ContactSurfaceSpace:
         normal_sign: float | None = None,
         normal_source: str = "master",
     ) -> np.ndarray:
+        self._validate_square_trial_layout()
         u_master, u_slave = self._split_fields(u)
         if normal_sign is None:
             normal_sign = self.normal_sign
         if normal_sign is None:
             normal_sign = self._auto_normal_sign()
+        trial_value_dim_master, trial_space_mode_master, trial_facet_dofs_master = self._trial_layout(side="master")
+        trial_value_dim_slave, trial_space_mode_slave, trial_facet_dofs_slave = self._trial_layout(side="slave")
         return _assemble_contact_interface_residual(
             self.supermesh_coords,
             self.supermesh_conn,
@@ -2098,10 +2555,16 @@ class ContactSurfaceSpace:
             params,
             value_dim_a=self.value_dim_master,
             value_dim_b=self.value_dim_slave,
+            trial_value_dim_a=trial_value_dim_master,
+            trial_value_dim_b=trial_value_dim_slave,
             space_mode_a=self.space_mode_master,
             space_mode_b=self.space_mode_slave,
+            trial_space_mode_a=trial_space_mode_master,
+            trial_space_mode_b=trial_space_mode_slave,
             facet_dofs_a=self.facet_dofs_master,
             facet_dofs_b=self.facet_dofs_slave,
+            trial_facet_dofs_a=trial_facet_dofs_master,
+            trial_facet_dofs_b=trial_facet_dofs_slave,
             field_a=self.field_master,
             field_b=self.field_slave,
             elem_conn_a=self.elem_conn_master,
@@ -2126,10 +2589,11 @@ class ContactSurfaceSpace:
         *,
         normal_sign: float | None = None,
         normal_source: str = "master",
-        sparse: bool = False,
+        sparse: bool = True,
         backend: str | None = None,
         batch_jac: bool | None = None,
     ) -> ContactJacobianReturn:
+        self._validate_square_trial_layout()
         u_master, u_slave = self._split_fields(u)
         if normal_sign is None:
             normal_sign = self.normal_sign
@@ -2137,6 +2601,8 @@ class ContactSurfaceSpace:
             normal_sign = self._auto_normal_sign()
         use_backend = self._resolve_backend(backend)
         use_batch_jac = self.batch_jac if batch_jac is None else batch_jac
+        trial_value_dim_master, trial_space_mode_master, trial_facet_dofs_master = self._trial_layout(side="master")
+        trial_value_dim_slave, trial_space_mode_slave, trial_facet_dofs_slave = self._trial_layout(side="slave")
         return _assemble_contact_interface_jacobian(
             self.supermesh_coords,
             self.supermesh_conn,
@@ -2150,10 +2616,16 @@ class ContactSurfaceSpace:
             params,
             value_dim_a=self.value_dim_master,
             value_dim_b=self.value_dim_slave,
+            trial_value_dim_a=trial_value_dim_master,
+            trial_value_dim_b=trial_value_dim_slave,
             space_mode_a=self.space_mode_master,
             space_mode_b=self.space_mode_slave,
+            trial_space_mode_a=trial_space_mode_master,
+            trial_space_mode_b=trial_space_mode_slave,
             facet_dofs_a=self.facet_dofs_master,
             facet_dofs_b=self.facet_dofs_slave,
+            trial_facet_dofs_a=trial_facet_dofs_master,
+            trial_facet_dofs_b=trial_facet_dofs_slave,
             field_a=self.field_master,
             field_b=self.field_slave,
             elem_conn_a=self.elem_conn_master,
@@ -2171,16 +2643,43 @@ class ContactSurfaceSpace:
             sparse=sparse,
             backend=use_backend,
             batch_jac=use_batch_jac,
+            supermesh_quad_cache=self.supermesh_quad_cache,
         )
+
+    def compile_bilinear(
+        self,
+        bilin: ContactBilinearLike,
+        *,
+        backend: str | None = None,
+        use_cache: bool = True,
+    ) -> MixedSurfaceResidualForm:
+        """Compile a contact bilinear callable to a reusable mixed-surface residual form."""
+        if _is_compiled_contact_bilinear(bilin):
+            return cast(MixedSurfaceResidualForm, bilin)
+        use_backend = self._resolve_backend(backend)
+        cache_key = (id(bilin), use_backend)
+        if use_cache:
+            cached = self._compiled_bilinear_cache.get(cache_key)
+            if cached is not None:
+                return cached
+        res_form = _compile_contact_bilinear(
+            bilin,
+            field_master=self.field_master,
+            field_slave=self.field_slave,
+            backend=use_backend,
+        )
+        if use_cache:
+            self._compiled_bilinear_cache[cache_key] = res_form
+        return res_form
 
     def assemble_bilinear(
         self,
-        bilin: Callable[..., Any],
+        bilin: ContactBilinearLike,
         u_master: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | npt.ArrayLike,
         u_slave: npt.ArrayLike | None = None,
         params: "WeakParams" | None = None,
         *,
-        sparse: bool = False,
+        sparse: bool = True,
         normal_source: str = "master",
     ) -> ContactJacobianReturn:
         """
@@ -2194,14 +2693,6 @@ class ContactSurfaceSpace:
         - u_master/u_slave can be passed as a single mapping/length-2 sequence; in that case,
           pass params as the next positional arg or a keyword.
         """
-        from ..core.weakform import (
-            compile_mixed_surface_residual,
-            unknown_ref,
-            test_ref,
-            param_ref,
-            zero_ref,
-        )
-
         def _is_field_pair(obj) -> bool:
             if isinstance(obj, Mapping):
                 return True
@@ -2218,23 +2709,8 @@ class ContactSurfaceSpace:
         elif u_slave is None:
             u_master, u_slave = self._split_fields(u_master)
 
-        v1 = test_ref(self.field_master)
-        v2 = test_ref(self.field_slave)
-        u1 = unknown_ref(self.field_master)
-        u2 = unknown_ref(self.field_slave)
-        z1 = zero_ref(self.field_master)
-        z2 = zero_ref(self.field_slave)
-        p = param_ref()
-
-        expr_a = bilin(v1, z2, u1, u2, p)
-        expr_b = bilin(z1, v2, u1, u2, p)
         use_backend = self._resolve_backend(None)
-        if use_backend != "jax":
-            raise NotImplementedError(
-                "ContactSurfaceSpace.assemble_bilinear requires backend='jax'; "
-                "backend='numpy' weak-form Jacobians have been removed."
-            )
-        res_form = compile_mixed_surface_residual({self.field_master: expr_a, self.field_slave: expr_b})
+        res_form = self.compile_bilinear(bilin, backend=use_backend)
         return self.assemble_jacobian(
             res_form,
             {self.field_master: u_master, self.field_slave: u_slave},
@@ -2243,6 +2719,28 @@ class ContactSurfaceSpace:
             normal_source=normal_source,
             sparse=sparse,
             backend=use_backend,
+        )
+
+    def assemble_bilinear_form(
+        self,
+        bilin: ContactBilinearLike,
+        params: "WeakParams",
+        *,
+        sparse: bool = True,
+        normal_source: str = "master",
+    ) -> ContactJacobianReturn:
+        """Assemble an interface bilinear form without requiring a state vector."""
+        n_master = _contact_space_side_n_dofs(self, side="master", role="trial")
+        n_slave = _contact_space_side_n_dofs(self, side="slave", role="trial")
+        u_master = np.zeros((n_master,), dtype=float)
+        u_slave = np.zeros((n_slave,), dtype=float)
+        return self.assemble_bilinear(
+            bilin,
+            u_master,
+            u_slave,
+            params,
+            sparse=sparse,
+            normal_source=normal_source,
         )
 
 
@@ -2266,22 +2764,32 @@ def _field_n_dofs(
     return int(n_nodes) * int(value_dim)
 
 
-def _contact_space_side_n_dofs(space: "ContactSurfaceSpace", *, side: str) -> int:
+def _contact_space_side_n_dofs(space: "ContactSurfaceSpace", *, side: str, role: str = "test") -> int:
+    if role not in {"test", "trial"}:
+        raise ValueError("role must be 'test' or 'trial'")
     if side == "master":
+        if role == "trial":
+            value_dim, space_mode, facet_dofs = space._trial_layout(side="master")
+        else:
+            value_dim, space_mode, facet_dofs = int(space.value_dim_master), space.space_mode_master, space.facet_dofs_master
         return _field_n_dofs(
             n_nodes=int(np.asarray(space.surface_master.coords).shape[0]),
             n_facets=int(np.asarray(space.surface_master.conn).shape[0]),
-            value_dim=int(space.value_dim_master),
-            space_mode=space.space_mode_master,
-            facet_dofs=space.facet_dofs_master,
+            value_dim=int(value_dim),
+            space_mode=space_mode,
+            facet_dofs=facet_dofs,
         )
     if side == "slave":
+        if role == "trial":
+            value_dim, space_mode, facet_dofs = space._trial_layout(side="slave")
+        else:
+            value_dim, space_mode, facet_dofs = int(space.value_dim_slave), space.space_mode_slave, space.facet_dofs_slave
         return _field_n_dofs(
             n_nodes=int(np.asarray(space.surface_slave.coords).shape[0]),
             n_facets=int(np.asarray(space.surface_slave.conn).shape[0]),
-            value_dim=int(space.value_dim_slave),
-            space_mode=space.space_mode_slave,
-            facet_dofs=space.facet_dofs_slave,
+            value_dim=int(value_dim),
+            space_mode=space_mode,
+            facet_dofs=facet_dofs,
         )
     raise ValueError("side must be 'master' or 'slave'")
 
@@ -2293,6 +2801,11 @@ class OneToManyContactSurfaceSpace:
     contacts: tuple[ContactSurfaceSpace, ...]
     field_master: str = "master"
     field_slave: str = "slave"
+    _compiled_bilinear_cache: dict[tuple[int, str], MixedSurfaceResidualForm] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
 
     @classmethod
     def from_meshes(
@@ -2312,7 +2825,7 @@ class OneToManyContactSurfaceSpace:
         mode_slave: str = "touching",
         field_master: str = "master",
         field_slave: str = "slave",
-        quad_order: int = 1,
+        quad_order: int = 0,
         space_mode_master: str = "nodal",
         space_mode_slave: str = "nodal",
         facet_dofs_master: np.ndarray | None = None,
@@ -2415,7 +2928,7 @@ class OneToManyContactSurfaceSpace:
         *,
         field_master: str = "master",
         field_slave: str = "slave",
-        quad_order: int = 1,
+        quad_order: int = 0,
         space_mode_master: str = "nodal",
         space_mode_slave: str = "nodal",
         facet_dofs_master: np.ndarray | None = None,
@@ -2463,7 +2976,7 @@ class OneToManyContactSurfaceSpace:
         value_dim_slave: int = 1,
         field_master: str = "master",
         field_slave: str = "slave",
-        quad_order: int = 1,
+        quad_order: int = 0,
         space_mode_master: str = "nodal",
         space_mode_slave: str = "nodal",
         facet_dofs_master: np.ndarray | None = None,
@@ -2536,6 +3049,39 @@ class OneToManyContactSurfaceSpace:
         total = int(n_master + sum(slave_sizes))
         return n_master, slave_sizes, total
 
+    def _resolve_backend(self, backend: str | None) -> str:
+        if backend is not None:
+            return str(backend)
+        if len(self.contacts) == 0:
+            return "jax"
+        return str(self.contacts[0].backend)
+
+    def compile_bilinear(
+        self,
+        bilin: ContactBilinearLike,
+        *,
+        backend: str | None = None,
+        use_cache: bool = True,
+    ) -> MixedSurfaceResidualForm:
+        """Compile a one-to-many contact bilinear once and reuse it across all pair contacts."""
+        use_backend = self._resolve_backend(backend)
+        if _is_compiled_contact_bilinear(bilin):
+            return cast(MixedSurfaceResidualForm, bilin)
+        cache_key = (id(bilin), use_backend)
+        if use_cache:
+            cached = self._compiled_bilinear_cache.get(cache_key)
+            if cached is not None:
+                return cached
+        res_form = _compile_contact_bilinear(
+            bilin,
+            field_master=self.field_master,
+            field_slave=self.field_slave,
+            backend=use_backend,
+        )
+        if use_cache:
+            self._compiled_bilinear_cache[cache_key] = res_form
+        return res_form
+
     @staticmethod
     def _scatter_pair_indices(local_idx: np.ndarray, *, n_master: int, slave_offset: int) -> np.ndarray:
         idx = np.asarray(local_idx, dtype=int)
@@ -2586,7 +3132,7 @@ class OneToManyContactSurfaceSpace:
         params: "WeakParams",
         *,
         normal_source: str = "master",
-        sparse: bool = False,
+        sparse: bool = True,
         backend: str | None = None,
         batch_jac: bool | None = None,
     ) -> ContactJacobianReturn:
@@ -2658,12 +3204,12 @@ class OneToManyContactSurfaceSpace:
 
     def assemble_bilinear(
         self,
-        bilin: Callable[..., Any],
+        bilin: ContactBilinearLike,
         u_master: Mapping[str, npt.ArrayLike] | Sequence[Any] | npt.ArrayLike,
         u_slaves: Sequence[npt.ArrayLike] | None = None,
         params: "WeakParams" | None = None,
         *,
-        sparse: bool = False,
+        sparse: bool = True,
         normal_source: str = "master",
     ) -> ContactJacobianReturn:
         if params is None:
@@ -2678,6 +3224,7 @@ class OneToManyContactSurfaceSpace:
             u_master, u_slaves = self._split_fields(u_master)  # type: ignore[arg-type]
         assert params is not None
         assert u_slaves is not None
+        res_form = self.compile_bilinear(bilin)
 
         n_master, slave_sizes, n_total = self._dof_layout()
         slave_offset = 0
@@ -2689,7 +3236,7 @@ class OneToManyContactSurfaceSpace:
             data_all: list[np.ndarray] = []
             for contact, u_slave, n_slave in zip(self.contacts, u_slaves, slave_sizes):
                 j_local = contact.assemble_bilinear(
-                    bilin,
+                    res_form,
                     u_master,
                     u_slave,
                     params,
@@ -2721,7 +3268,7 @@ class OneToManyContactSurfaceSpace:
         for contact, u_slave, n_slave in zip(self.contacts, u_slaves, slave_sizes):
             j_local = np.asarray(
                 contact.assemble_bilinear(
-                    bilin,
+                    res_form,
                     u_master,
                     u_slave,
                     params,
@@ -2741,6 +3288,27 @@ class OneToManyContactSurfaceSpace:
             K[np.ix_(idx, idx)] += j_local
             slave_offset += n_slave
         return K
+
+    def assemble_bilinear_form(
+        self,
+        bilin: ContactBilinearLike,
+        params: "WeakParams",
+        *,
+        sparse: bool = True,
+        normal_source: str = "master",
+    ) -> ContactJacobianReturn:
+        """Assemble a one-to-many interface bilinear form without requiring states."""
+        n_master, slave_sizes, _ = self._dof_layout()
+        u_master = np.zeros((n_master,), dtype=float)
+        u_slaves = [np.zeros((n_slave,), dtype=float) for n_slave in slave_sizes]
+        return self.assemble_bilinear(
+            bilin,
+            u_master,
+            u_slaves,
+            params,
+            sparse=sparse,
+            normal_source=normal_source,
+        )
 
     def assemble_contact_coupling_matrices(self):
         from .contact_interface import ContactCouplingMatrix

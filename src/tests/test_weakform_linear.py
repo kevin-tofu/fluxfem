@@ -18,6 +18,19 @@ def test_weakform_mass_matches():
     assert np.allclose(np.asarray(K_expr), np.asarray(K_mass))
 
 
+def test_bilinearform_volume_single_space_accepts_wrapper():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    form = ff.BilinearForm.volume(lambda u, v, p: p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega())
+    params = ff.Params(kappa=2.0)
+
+    direct = space.assemble_bilinear_form(form, params).to_dense()
+    compiled = space.assemble_bilinear_form(form.get_compiled(), params).to_dense()
+
+    assert np.allclose(np.asarray(direct), np.asarray(compiled))
+
+
 def test_weakform_diffusion_matches():
     """grad(v)·grad(u) expression matches diffusion_form."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
@@ -138,6 +151,18 @@ def test_linearform_volume_body_force_matches():
     assert np.allclose(np.asarray(F_expr), np.asarray(F_ref))
 
 
+def test_linearform_volume_single_space_accepts_wrapper():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    form = ff.LinearForm.volume(lambda v, p: (v * p) * h_wf.dOmega())
+
+    direct = space.assemble_linear_form(form, params=2.0)
+    compiled = space.assemble_linear_form(form.get_compiled(), params=2.0)
+
+    assert np.allclose(np.asarray(direct), np.asarray(compiled))
+
+
 def test_linearform_named_spaces_matches_single_space():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
@@ -153,25 +178,29 @@ def test_linearform_named_spaces_matches_single_space():
     assert np.allclose(np.asarray(F_named), np.asarray(F_ref))
 
 
-def test_linearform_dict_compat_matches_linear_spaces():
-    """Deprecated dict role passing still warns and matches the canonical path."""
+def test_bilinearform_named_spaces_accept_wrapper():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    form = ff.BilinearForm.volume(lambda u, v, p: p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega())
+    params = ff.Params(kappa=2.0)
 
+    spaces = ff.BilinearSpaces(test=ff.NamedSpace("V", space), trial=ff.NamedSpace("U", space))
+    direct = ff.assemble_bilinear_form(spaces, form, params).to_dense()
+    compiled = ff.assemble_bilinear_form(spaces, form.get_compiled(), params).to_dense()
+
+    assert np.allclose(np.asarray(direct), np.asarray(compiled))
+
+
+def test_linearform_named_spaces_accept_wrapper():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
     form = ff.LinearForm.volume(lambda v, p: (v * p) * h_wf.dOmega())
-    F_spec = ff.assemble_linear_form(
-        ff.LinearSpaces(test=ff.NamedSpace("V", space)),
-        form.get_compiled(),
-        params=2.0,
-    )
-    with pytest.warns(FutureWarning, match="deprecated"):
-        F_dict = ff.assemble_linear_form(
-            {"test": ff.NamedSpace("V", space)},
-            form.get_compiled(),
-            params=2.0,
-        )
 
-    assert np.allclose(np.asarray(F_spec), np.asarray(F_dict))
+    spaces = ff.LinearSpaces(test=ff.NamedSpace("V", space))
+    direct = ff.assemble_linear_form(spaces, form, params=2.0)
+    compiled = ff.assemble_linear_form(spaces, form.get_compiled(), params=2.0)
+
+    assert np.allclose(np.asarray(direct), np.asarray(compiled))
 
 
 def test_linearform_surface_matches_tensor():
@@ -201,3 +230,52 @@ def test_linearform_surface_matches_tensor():
     )
 
     assert np.allclose(np.asarray(F_tensor), np.asarray(F_wf))
+
+
+def test_linearform_surface_on_space_accepts_wrapper():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=3, intorder=2)
+    coords = np.asarray(mesh.coords)
+    xmax = float(coords[:, 0].max())
+
+    def on_xmax(face: np.ndarray) -> bool:
+        return np.allclose(face[:, 0], xmax, atol=1e-8)
+
+    facets = mesh.boundary_facets_where(on_xmax)
+    surface = ff.SurfaceMesh.from_hex_mesh(mesh, facets)
+    traction = np.array([1.0, 0.0, 0.0], dtype=float)
+    surface_form = ff.LinearForm.surface(lambda v, p: h_wf.dot(v, p) * h_wf.ds())
+
+    direct = surface.assemble_linear_form_on_space(space, surface_form, params=traction)
+    compiled = surface.assemble_linear_form_on_space(space, surface_form.get_compiled(), params=traction)
+
+    assert np.allclose(np.asarray(direct), np.asarray(compiled))
+
+
+def test_linearform_surface_domain_matches_surface_entrypoint():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=3, intorder=2)
+    V = ff.NamedSpace("V", space)
+    coords = np.asarray(mesh.coords)
+    xmax = float(coords[:, 0].max())
+
+    def on_xmax(face: np.ndarray) -> bool:
+        return np.allclose(face[:, 0], xmax, atol=1e-8)
+
+    facets = mesh.boundary_facets_where(on_xmax)
+    surface = ff.SurfaceMesh.from_hex_mesh(mesh, facets)
+
+    surface_form = ff.LinearForm.surface(
+        lambda v, p: h_wf.dot(v, p.pressure * h_wf.normal()) * h_wf.ds()
+    )
+    params = ff.Params(pressure=1.0)
+
+    F_surface = surface.assemble_linear_form_on_space(space, surface_form.get_compiled(), params=params)
+    F_domain = ff.assemble_linear_form(
+        ff.LinearSpaces(test=V),
+        surface_form.get_compiled(),
+        params,
+        domain=surface,
+    )
+
+    assert np.allclose(np.asarray(F_surface), np.asarray(F_domain))

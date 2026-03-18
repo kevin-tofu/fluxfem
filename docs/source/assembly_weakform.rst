@@ -9,6 +9,9 @@ assembly.
 This page explains the **recommended way to build weak forms**, with examples that
 match the reference test suite.
 
+For the current split between plain surface forms, mixed surface residuals, and
+contact-specific surface assembly, see :doc:`surface_api_status`.
+
 .. contents::
    :local:
    :depth: 2

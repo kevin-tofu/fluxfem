@@ -9,6 +9,7 @@ import pytest
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 from fluxfem.core.weakform import einsum as wf_einsum
+from fluxfem.mesh.contact import make_tagged_pair_nitsche_penalty_bilinear
 
 
 def _tet4_coords() -> np.ndarray:
@@ -77,7 +78,12 @@ def _vector_perm_for_skfem(
     )
 
 
-def test_nitsche_contact_interface_jacobian_matches_skfem_tet4():
+def _assemble_nitsche_blocks_tet4(
+    *,
+    inv_h: float,
+    use_penalty: float = 1.0,
+    use_traction: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     skfem = pytest.importorskip("skfem", reason="scikit-fem not installed")
     from skfem import MeshTet, Basis, FacetBasis, ElementTetP1, ElementVectorH1, asm
     from skfem.helpers import dot, sym_grad, mul
@@ -105,26 +111,37 @@ def test_nitsche_contact_interface_jacobian_matches_skfem_tet4():
         value_dim_slaves=3,
         quad_order=quad_order,
         normal_sign=-1.0,
+        backend="numpy",
     )
 
     E, nu = 210e9, 0.3
     lam, mu = ff.lame_parameters(E, nu)
 
-    def bilin(v1, v2, u1, u2, p):
+    def _bilin(v1, v2, u1, u2, p):
         n = h_wf.normal()
         ju = u1.val - u2.val
         t_u = 0.5 * (h_wf.traction(u1, n, p) + h_wf.traction(u2, n, p))
         t_v1 = h_wf.traction(v1, n, p)
         t_v2 = h_wf.traction(v2, n, p)
-        penalty = (p.alpha * p.inv_h) * (h_wf.dot(v1, ju) - h_wf.dot(v2, ju))
-        traction = -h_wf.dot(v1, t_u) + h_wf.dot(v2, t_u)
-        traction -= 0.5 * wf_einsum("qia,qi->qa", t_v1, ju)
-        traction -= 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
+        penalty = p.use_penalty * (p.alpha * p.inv_h) * (h_wf.dot(v1, ju) - h_wf.dot(v2, ju))
+        traction = p.use_traction * (-h_wf.dot(v1, t_u) + h_wf.dot(v2, t_u))
+        traction -= p.use_traction * 0.5 * wf_einsum("qia,qi->qa", t_v1, ju)
+        traction -= p.use_traction * 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
         return (penalty + traction) * h_wf.ds()
 
+    bilin_direct = make_tagged_pair_nitsche_penalty_bilinear(_bilin)
+
     u0 = jnp.zeros(coords.shape[0] * 3)
-    params = ff.Params(alpha=alpha, inv_h=1.0, lam=float(lam), mu=float(mu))
-    K_ff = np.asarray(contact.assemble_bilinear(bilin, u0, [u0], params, sparse=False), dtype=float)
+    params = ff.Params(
+        alpha=alpha,
+        inv_h=float(inv_h),
+        lam=float(lam),
+        mu=float(mu),
+        use_penalty=float(use_penalty),
+        use_traction=float(use_traction),
+    )
+    K_ff_symbolic = np.asarray(contact.assemble_bilinear(_bilin, u0, [u0], params, sparse=False), dtype=float)
+    K_ff_direct = np.asarray(contact.assemble_bilinear(bilin_direct, u0, [u0], params, sparse=False), dtype=float)
 
     mesh_a = MeshTet(coords.T, conn.T).with_boundaries({"contact": lambda x: np.isclose(x[2], 0.0)})
     mesh_b = MeshTet(coords.T, conn.T).with_boundaries({"contact": lambda x: np.isclose(x[2], 0.0)})
@@ -157,7 +174,9 @@ def test_nitsche_contact_interface_jacobian_matches_skfem_tet4():
         t_u = 0.5 * (mul(C(sym_grad(u1)), w.n) + mul(C(sym_grad(u2)), w.n))
         t_v1 = mul(C(sym_grad(v1)), w.n)
         t_v2 = mul(C(sym_grad(v2)), w.n)
-        return (alpha / w.h) * dot(v1 - v2, ju) - dot(v1, t_u) + dot(v2, t_u) - 0.5 * dot(t_v1, ju) - 0.5 * dot(t_v2, ju)
+        penalty = use_penalty * (alpha / w.h) * dot(v1 - v2, ju)
+        traction = use_traction * (-dot(v1, t_u) + dot(v2, t_u) - 0.5 * dot(t_v1, ju) - 0.5 * dot(t_v2, ju))
+        return penalty + traction
 
     K_sf = asm(bilin_sf, fbasis, h=fb_u_a.mesh_parameters()).toarray()
     perm_a = _vector_perm_for_skfem(coords, np.asarray(basis_scalar_a.doflocs), np.asarray(basis_vec_a.doflocs), 3)
@@ -165,7 +184,53 @@ def test_nitsche_contact_interface_jacobian_matches_skfem_tet4():
     perm = np.concatenate([perm_a, perm_b])
     K_sf = K_sf[np.ix_(perm, perm)]
 
-    assert K_ff.shape == K_sf.shape
-    diff = K_ff - K_sf
+    return K_ff_symbolic, K_ff_direct, K_sf
+
+
+def test_nitsche_contact_interface_jacobian_matches_skfem_tet4():
+    K_ff_symbolic, K_ff_direct, K_sf = _assemble_nitsche_blocks_tet4(inv_h=1.0)
+
+    assert K_ff_symbolic.shape == K_sf.shape
+    assert K_ff_direct.shape == K_sf.shape
+    diff = K_ff_symbolic - K_sf
     rel_inf = float(np.linalg.norm(diff, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf)))
     assert rel_inf < 1e-5
+    diff_direct = K_ff_direct - K_sf
+    rel_inf_direct = float(np.linalg.norm(diff_direct, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf)))
+    assert rel_inf_direct < 1e-5
+
+
+def test_nitsche_contact_interface_fixed_inv_h_is_no_worse_than_skfem_top_h_tet4():
+    K_ff_fixed1, _, K_sf = _assemble_nitsche_blocks_tet4(inv_h=1.0)
+    K_ff_top_h, _, _ = _assemble_nitsche_blocks_tet4(inv_h=2.0)
+
+    rel_inf_fixed1 = float(
+        np.linalg.norm(K_ff_fixed1 - K_sf, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf))
+    )
+    rel_inf_top_h = float(
+        np.linalg.norm(K_ff_top_h - K_sf, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf))
+    )
+
+    assert rel_inf_fixed1 <= rel_inf_top_h
+
+
+def test_nitsche_contact_interface_average_traction_block_matches_skfem_tet4():
+    K_ff_symbolic, K_ff_direct, K_sf = _assemble_nitsche_blocks_tet4(inv_h=1.0, use_penalty=0.0, use_traction=1.0)
+
+    assert K_ff_symbolic.shape == K_sf.shape
+    assert K_ff_direct.shape == K_sf.shape
+    diff = K_ff_symbolic - K_sf
+    rel_inf = float(np.linalg.norm(diff, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf)))
+    assert rel_inf < 1e-5
+    diff_direct = K_ff_direct - K_sf
+    rel_inf_direct = float(np.linalg.norm(diff_direct, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf)))
+    assert rel_inf_direct < 1e-5
+
+
+def test_nitsche_contact_interface_direct_bilinear_matches_symbolic_jacobian_tet4():
+    K_ff_symbolic, K_ff_direct, _ = _assemble_nitsche_blocks_tet4(inv_h=1.0)
+
+    assert K_ff_symbolic.shape == K_ff_direct.shape
+    diff = K_ff_direct - K_ff_symbolic
+    rel_inf = float(np.linalg.norm(diff, ord=np.inf) / max(1.0, np.linalg.norm(K_ff_symbolic, ord=np.inf)))
+    assert rel_inf < 1e-12

@@ -1031,6 +1031,57 @@ def compile_bilinear(fn):
     return _tag_form(_form, kind="bilinear", domain="volume")
 
 
+class CompiledContactForm:
+    """Contact bilinear lowered to role slots, but not yet bound to a concrete contact interface."""
+
+    def __init__(
+        self,
+        fn,
+        *,
+        test_space_by_role: Mapping[str, str] | None = None,
+        unknown_space_by_role: Mapping[str, str] | None = None,
+    ):
+        self.fn = fn
+        self._ff_spec = KernelSpec(kind="bilinear", domain="contact")
+        self._ff_kind = "bilinear"
+        self._ff_domain = "contact"
+        self._ff_contact_test_space_by_role = dict(test_space_by_role or {})
+        self._ff_contact_unknown_space_by_role = dict(unknown_space_by_role or {})
+        update_wrapper(self, fn)
+        self.__wrapped__ = fn
+
+    @property
+    def spec(self) -> KernelSpec:
+        return self._ff_spec
+
+    @property
+    def kind(self) -> str:
+        return self._ff_kind
+
+    @property
+    def domain(self) -> str:
+        return self._ff_domain
+
+    def __repr__(self) -> str:
+        return "CompiledContactForm(kind='bilinear', domain='contact')"
+
+
+def compile_contact_bilinear_form(
+    fn,
+    *,
+    test_space_by_role: Mapping[str, str] | None = None,
+    unknown_space_by_role: Mapping[str, str] | None = None,
+):
+    """Compile a contact bilinear into a role-based form that is bound to a contact during assembly."""
+    if isinstance(fn, CompiledContactForm):
+        return fn
+    return CompiledContactForm(
+        fn,
+        test_space_by_role=test_space_by_role,
+        unknown_space_by_role=unknown_space_by_role,
+    )
+
+
 def compile_linear(fn):
     """get_compiled a linear weak form (v, params) -> Expr into a kernel."""
     if isinstance(fn, Expr):
@@ -1800,17 +1851,23 @@ class BilinearForm:
     def surface(cls, fn):
         return cls(fn, kind="surface")
 
+    @classmethod
+    def contact(cls, fn):
+        return cls(fn, kind="contact")
+
     def get_compiled(self, *, ctx_kind: str | None = None):
         kind = self.kind if ctx_kind is None else ctx_kind
         if kind == "volume":
             return compile_bilinear(self.fn)
         if kind == "surface":
             return compile_surface_bilinear(self.fn)
+        if kind == "contact":
+            return compile_contact_bilinear_form(self.fn)
         raise ValueError(f"Unknown bilinear form kind: {kind}")
 
 
 class ResidualForm:
-    """Residual form wrapper (volume only for now)."""
+    """Residual form wrapper."""
 
     def __init__(self, fn):
         self.fn = fn
@@ -1818,6 +1875,10 @@ class ResidualForm:
     @classmethod
     def volume(cls, fn):
         return cls(fn)
+
+    @classmethod
+    def mixed(cls, residuals: Mapping[str, Callable | Expr | MixedResidualBinding]):
+        return MixedWeakForm(residuals=dict(residuals))
 
     def get_compiled(self):
         return compile_residual(self.fn)
@@ -2178,6 +2239,7 @@ __all__ = [
     "MixedResidualBinding",
     "bind_mixed_residual",
     "compile_bilinear",
+    "compile_contact_bilinear_form",
     "compile_linear",
     "compile_residual",
     "compile_surface_bilinear",
@@ -2201,4 +2263,5 @@ __all__ = [
     "matmul",
     "matmul_std",
     "einsum",
+    "CompiledContactForm",
 ]

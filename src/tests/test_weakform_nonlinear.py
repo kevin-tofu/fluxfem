@@ -1,7 +1,6 @@
 """Nonlinear weak-form residual tests."""
 import numpy as np
 import jax.numpy as jnp
-
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 
@@ -50,6 +49,38 @@ def test_weakform_nonlinear_jacobian_matches_tensor():
     assert np.allclose(np.asarray(J_tensor), np.asarray(J_wf))
 
 
+def test_space_assemble_residual_accepts_residual_form_wrapper():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    form = ff.ResidualForm.volume(
+        lambda v, u, p: (v * (u.val + p.alpha)) * h_wf.dOmega()
+    )
+    u = jnp.zeros(space.n_dofs)
+    params = ff.Params(alpha=2.0)
+
+    direct = space.assemble_residual(form, u, params)
+    compiled = space.assemble_residual(form.get_compiled(), u, params)
+
+    assert np.allclose(np.asarray(direct), np.asarray(compiled))
+
+
+def test_space_assemble_jacobian_accepts_residual_form_wrapper():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    form = ff.ResidualForm.volume(
+        lambda v, u, p: (v * (u.val + p.alpha)) * h_wf.dOmega()
+    )
+    u = jnp.zeros(space.n_dofs)
+    params = ff.Params(alpha=2.0)
+
+    direct = space.assemble_jacobian(form, u, params)
+    compiled = space.assemble_jacobian(form.get_compiled(), u, params)
+
+    assert np.allclose(np.asarray(direct.to_dense()), np.asarray(compiled.to_dense()))
+
+
 def test_residual_spaces_matches_single_space():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
@@ -96,6 +127,62 @@ def test_jacobian_spaces_matches_single_space():
     else:
         assert np.asarray(J_named.to_dense()).shape == (space.n_dofs, space.n_dofs)
     assert np.allclose(np.asarray(J_named.to_dense()), np.asarray(J_ref.to_dense()))
+
+
+def test_named_residual_spaces_accept_residual_form_wrapper():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    form = ff.ResidualForm.volume(
+        lambda v, u, p: (v * (u.val + p.alpha)) * h_wf.dOmega()
+    )
+    u = jnp.zeros(space.n_dofs)
+    params = ff.Params(alpha=3.0)
+
+    spaces = ff.ResidualSpaces(test=ff.NamedSpace("V", space), unknown=ff.NamedSpace("U", space))
+    direct = ff.assemble_residual(spaces, form, u, params)
+    compiled = ff.assemble_residual(spaces, form.get_compiled(), u, params)
+
+    assert np.allclose(np.asarray(direct), np.asarray(compiled))
+
+
+def test_named_jacobian_spaces_accept_residual_form_wrapper():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    form = ff.ResidualForm.volume(
+        lambda v, u, p: (v * (u.val + p.alpha)) * h_wf.dOmega()
+    )
+    u = jnp.zeros(space.n_dofs)
+    params = ff.Params(alpha=3.0)
+
+    spaces = ff.JacobianSpaces(test=ff.NamedSpace("V", space), trial=ff.NamedSpace("U", space))
+    direct = ff.assemble_jacobian(spaces, form, u, params)
+    compiled = ff.assemble_jacobian(spaces, form.get_compiled(), u, params)
+
+    assert np.allclose(np.asarray(direct.to_dense()), np.asarray(compiled.to_dense()))
+
+
+def test_distinct_residual_spaces_numpy_backend_matches_jax():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    test_space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    unknown_space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    wf_residual = ff.ResidualForm.volume(
+        lambda v, u, p: (v * (p.alpha * u.val)) * h_wf.dOmega()
+    )
+
+    rng = np.random.default_rng(4)
+    u = jnp.asarray(rng.standard_normal(unknown_space.n_dofs))
+    spaces = ff.ResidualSpaces(
+        test=ff.NamedSpace("V", test_space),
+        unknown=ff.NamedSpace("U", unknown_space),
+    )
+
+    r_jax = ff.assemble_residual(spaces, wf_residual.get_compiled(), u, ff.Params(alpha=2.0), backend="jax")
+    r_np = ff.assemble_residual(spaces, wf_residual.get_compiled(), u, ff.Params(alpha=2.0), backend="numpy")
+
+    assert np.asarray(r_jax).shape == (test_space.n_dofs,)
+    assert np.asarray(r_np).shape == (test_space.n_dofs,)
+    assert np.allclose(np.asarray(r_np), np.asarray(r_jax))
 
 
 def test_weakform_neo_hookean_residual_matches_tensor():

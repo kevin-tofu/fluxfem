@@ -42,9 +42,11 @@ from .space import (
 from .assembly_numpy import (
     assemble_numpy_scalar_diffusion_body_force_data as _assemble_numpy_scalar_diffusion_body_force_data,
     assemble_numpy_scalar_diffusion_pair_fast as _assemble_numpy_scalar_diffusion_pair_fast,
+    assemble_numpy_scalar_diffusion_rectangular_operator as _assemble_numpy_scalar_diffusion_rectangular_operator,
     is_numpy_scalar_body_force_fast_path as _is_numpy_scalar_body_force_fast_path,
     is_numpy_scalar_diffusion_body_force_pair_fast_path as _is_numpy_scalar_diffusion_body_force_pair_fast_path,
     is_numpy_scalar_diffusion_fast_path as _is_numpy_scalar_diffusion_fast_path,
+    is_numpy_scalar_diffusion_pair_fast_path as _is_numpy_scalar_diffusion_pair_fast_path,
 )
 
 # Shared call signatures for kernels/forms
@@ -128,7 +130,25 @@ def _resolve_named_residual_spaces(
 ) -> tuple[NamedSpace, NamedSpace] | None:
     if isinstance(space, ResidualSpaces):
         return space.test, space.unknown
-    return None
+    if not isinstance(space, Mapping):
+        return None
+    warnings.warn(
+        "Passing named residual roles as a dict is deprecated; "
+        "use ResidualSpaces(test=..., unknown=...) instead.",
+        FutureWarning,
+        stacklevel=3,
+    )
+    if "test" not in space or "unknown" not in space:
+        raise ValueError(
+            "Named-space residual assembly expects a mapping with keys 'test' and 'unknown'."
+        )
+    test_space = space["test"]
+    unknown_space = space["unknown"]
+    if not isinstance(test_space, NamedSpace) or not isinstance(unknown_space, NamedSpace):
+        raise TypeError(
+            "Named-space residual assembly requires 'test' and 'unknown' values to be NamedSpace instances."
+        )
+    return test_space, unknown_space
 
 
 def _resolve_named_jacobian_spaces(
@@ -136,7 +156,25 @@ def _resolve_named_jacobian_spaces(
 ) -> tuple[NamedSpace, NamedSpace] | None:
     if isinstance(space, JacobianSpaces):
         return space.test, space.trial
-    return None
+    if not isinstance(space, Mapping):
+        return None
+    warnings.warn(
+        "Passing named jacobian roles as a dict is deprecated; "
+        "use JacobianSpaces(test=..., trial=...) instead.",
+        FutureWarning,
+        stacklevel=3,
+    )
+    if "test" not in space or "trial" not in space:
+        raise ValueError(
+            "Named-space jacobian assembly expects a mapping with keys 'test' and 'trial'."
+        )
+    test_space = space["test"]
+    trial_space = space["trial"]
+    if not isinstance(test_space, NamedSpace) or not isinstance(trial_space, NamedSpace):
+        raise TypeError(
+            "Named-space jacobian assembly requires 'test' and 'trial' values to be NamedSpace instances."
+        )
+    return test_space, trial_space
 
 
 @dataclass(frozen=True)
@@ -606,6 +644,9 @@ def assemble_bilinear_form(
     policy: AssemblyPolicy | None = None,
 ) -> FluxSparseMatrix | FluxSparseOperator:
     warn_float32_assembly_once(context="volume assembly")
+    get_compiled = getattr(form, "get_compiled", None)
+    if callable(get_compiled):
+        form = get_compiled()
     """
     Assemble a sparse bilinear form into a FluxSparseMatrix.
 
@@ -820,9 +861,6 @@ def _assemble_bilinear_form_pg_impl(
     warn_float32_assembly_once(context="volume assembly")
     from ..solver import FluxSparseOperator
 
-    if backend != "jax":
-        raise NotImplementedError("assemble_bilinear_form_pg currently supports backend='jax' only.")
-
     test_name = test_space.name if isinstance(test_space, NamedSpace) else "V"
     trial_name = trial_space.name if isinstance(trial_space, NamedSpace) else "U"
     test_space_obj = test_space.space if isinstance(test_space, NamedSpace) else test_space
@@ -830,6 +868,12 @@ def _assemble_bilinear_form_pg_impl(
 
     include_x_q_eff = False if include_x_q is None else bool(include_x_q)
     lightweight_eff = True if lightweight_context is None else bool(lightweight_context)
+    if backend == "numpy" and kernel is None and _is_numpy_scalar_diffusion_pair_fast_path(test_space_obj, trial_space_obj, form):
+        return _assemble_numpy_scalar_diffusion_rectangular_operator(
+            test_space_obj,
+            trial_space_obj,
+            bilinear_params=float(params),
+        )
     ctxs = build_form_contexts_pair(
         test_space_obj,
         trial_space_obj,
@@ -841,9 +885,24 @@ def _assemble_bilinear_form_pg_impl(
         trial_name=trial_name,
     )
     if kernel is None:
-        kernel = make_element_bilinear_kernel(form, params, jit=jit)
+        kernel = make_element_bilinear_kernel(form, params, jit=(jit if backend == "jax" else False))
 
-    K_e_all = jax.vmap(kernel)(ctxs)
+    if backend == "jax":
+        K_e_all = jax.vmap(kernel)(ctxs)
+    elif backend == "numpy":
+        n_elems = int(test_space_obj.elem_dofs.shape[0])
+        parts: list[np.ndarray] = []
+        for i in range(n_elems):
+            ctx_e = jax.tree_util.tree_map(lambda x: x[i], ctxs)
+            ke = np.asarray(kernel(ctx_e), dtype=float)
+            parts.append(ke.reshape(-1))
+        if parts:
+            K_e_all = np.concatenate(parts, axis=0)
+        else:
+            K_e_all = np.zeros((0,), dtype=float)
+    else:
+        raise ValueError("backend must be 'jax' or 'numpy'")
+
     test_elem_dofs = jnp.asarray(test_space_obj.elem_dofs, dtype=INDEX_DTYPE)
     trial_elem_dofs = jnp.asarray(trial_space_obj.elem_dofs, dtype=INDEX_DTYPE)
     if test_elem_dofs.shape[0] != trial_elem_dofs.shape[0]:
@@ -853,7 +912,7 @@ def _assemble_bilinear_form_pg_impl(
     n_trial_ldofs = int(trial_elem_dofs.shape[1])
     rows = jnp.repeat(test_elem_dofs, n_trial_ldofs, axis=1).reshape(-1)
     cols = jnp.tile(trial_elem_dofs, (1, n_test_ldofs)).reshape(-1)
-    data = K_e_all.reshape(-1)
+    data = jnp.asarray(K_e_all.reshape(-1))
     return FluxSparseOperator(
         rows,
         cols,
@@ -1048,6 +1107,7 @@ def assemble_linear_form(
     form: FormKernel[P],
     params: P,
     *,
+    domain=None,
     backend: str = "jax",
     kernel: ElementLinearKernel | None = None,
     sparse: bool = False,
@@ -1062,16 +1122,43 @@ def assemble_linear_form(
     policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
     warn_float32_assembly_once(context="linear-form assembly")
+    get_compiled = getattr(form, "get_compiled", None)
+    if callable(get_compiled):
+        form = get_compiled()
     """
     Expects form(ctx, params) -> (n_q, n_ldofs) and integrates Σ_q form * wJ for RHS.
     If kernel is provided: kernel(ctx) -> (n_ldofs,).
     """
+    if domain is not None:
+        form_domain = getattr(form, "_ff_domain", None)
+        if form_domain not in {None, "surface"}:
+            raise ValueError(
+                "assemble_linear_form(..., domain=surface) requires a surface linear form."
+            )
+        if any(
+            arg is not None
+            for arg in (kernel, n_chunks, dep, elem_data, include_x_q, lightweight_context, chunk_build_context, pad_trace, policy)
+        ) or sparse:
+            raise ValueError(
+                "assemble_linear_form(..., domain=surface) currently does not support "
+                "kernel/sparse/n_chunks/dep/elem_data/include_x_q/lightweight_context/"
+                "chunk_build_context/pad_trace/policy overrides."
+            )
+        if backend != "jax":
+            raise ValueError("assemble_linear_form(..., domain=surface) currently supports backend='jax' only.")
+        if not hasattr(domain, "assemble_linear_form_on_space"):
+            raise TypeError("domain must provide assemble_linear_form_on_space(space, form, params, ...).")
+        named_test_space = _resolve_named_linear_space(space)
+        surface_space = named_test_space.space if named_test_space is not None else space
+        return domain.assemble_linear_form_on_space(surface_space, form, params)
+
     named_test_space = _resolve_named_linear_space(space)
     if named_test_space is not None:
         return assemble_linear_form(
             named_test_space.space,
             form,
             params,
+            domain=domain,
             backend=backend,
             sparse=sparse,
             vector_accumulation=vector_accumulation,
@@ -1751,6 +1838,9 @@ def assemble_residual(
     policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
     warn_float32_assembly_once(context="residual assembly")
+    get_compiled = getattr(form, "get_compiled", None)
+    if callable(get_compiled):
+        form = get_compiled()
     named_spaces = _resolve_named_residual_spaces(space)
     if named_spaces is not None:
         test_space, unknown_space = named_spaces
@@ -1774,25 +1864,51 @@ def assemble_residual(
             raise ValueError(
                 "Distinct-space assemble_residual currently does not support kernel/n_chunks/pad_trace/policy overrides."
             )
-        if backend != "jax":
-            raise NotImplementedError("Named-space assemble_residual currently supports backend='jax' only.")
-        ctxs = build_form_contexts_pair(
-            test_space.space,
-            unknown_space.space,
-            include_x_q=False,
-            lightweight=True,
-            test_name=test_space.name,
-            trial_name=unknown_space.name,
-        )
-        u_elems = u[unknown_space.space.elem_dofs]
-        ker = make_element_residual_kernel(form, params)
-        elem_res = jax.vmap(ker)(ctxs, u_elems)
-        rows = jnp.asarray(test_space.space.elem_dofs, dtype=INDEX_DTYPE).reshape(-1)
-        data = elem_res.reshape(-1)
-        n_dofs = int(test_space.space.n_dofs)
-        if sparse:
-            return rows, data, n_dofs
-        return jax.ops.segment_sum(data, rows, n_dofs)
+        if backend == "jax":
+            ctxs = build_form_contexts_pair(
+                test_space.space,
+                unknown_space.space,
+                include_x_q=False,
+                lightweight=True,
+                test_name=test_space.name,
+                trial_name=unknown_space.name,
+            )
+            u_elems = u[unknown_space.space.elem_dofs]
+            ker = make_element_residual_kernel(form, params)
+            elem_res = jax.vmap(ker)(ctxs, u_elems)
+            rows = jnp.asarray(test_space.space.elem_dofs, dtype=INDEX_DTYPE).reshape(-1)
+            data = elem_res.reshape(-1)
+            n_dofs = int(test_space.space.n_dofs)
+            if sparse:
+                return rows, data, n_dofs
+            return jax.ops.segment_sum(data, rows, n_dofs)
+        if backend == "numpy":
+            from .space_numpy import build_form_contexts_pair_numpy
+
+            ctxs = build_form_contexts_pair_numpy(
+                test_space.space,
+                unknown_space.space,
+                include_x_q=False,
+                lightweight=True,
+                test_name=test_space.name,
+                trial_name=unknown_space.name,
+            )
+            elem_dofs_np = np.asarray(unknown_space.space.elem_dofs, dtype=int)
+            u_np = np.asarray(u)
+            parts: list[np.ndarray] = []
+            for e, ctx_e in enumerate(ctxs):
+                fe = np.asarray(element_residual(form, ctx_e, u_np[elem_dofs_np[e]], params), dtype=float).reshape(-1)
+                parts.append(fe)
+            data = np.concatenate(parts, axis=0) if parts else np.zeros((0,), dtype=float)
+            rows = np.asarray(test_space.space.elem_dofs, dtype=int).reshape(-1)
+            n_dofs = int(test_space.space.n_dofs)
+            if sparse:
+                return rows, data, n_dofs
+            F = np.zeros((n_dofs,), dtype=float)
+            if data.size:
+                np.add.at(F, rows, data)
+            return F
+        raise ValueError("backend must be 'jax' or 'numpy'")
     from .assembly_residual import assemble_residual as _impl
     return _impl(
         space,
@@ -1822,6 +1938,9 @@ def assemble_jacobian(
     policy: AssemblyPolicy | None = None,
 ) -> JacobianReturn:
     warn_float32_assembly_once(context="jacobian assembly")
+    get_compiled = getattr(res_form, "get_compiled", None)
+    if callable(get_compiled):
+        res_form = get_compiled()
     named_spaces = _resolve_named_jacobian_spaces(space)
     if named_spaces is not None:
         test_space, trial_space = named_spaces

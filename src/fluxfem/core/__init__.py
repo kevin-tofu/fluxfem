@@ -23,7 +23,18 @@ from .space import (
     make_hex27_space,
     make_hex27_space_pytree,
 )
-from .mixed_space import MixedFESpace, MixedSpaces, MixedProblem, MixedDirichletBC, MixedBlockSystem
+from .mixed_space import (
+    MixedFESpace,
+    MixedSpaces,
+    MixedRoleFESpace,
+    MixedRoleSpaces,
+    build_mixed_role_block_system,
+    MixedProblem,
+    MixedDirichletBC,
+    MixedBlockSystem,
+    MixedRoleBlockSystem,
+    MixedRoleCondensedSystem,
+)
 from .data import MeshData, BasisData, SpaceData
 from .basis import (
     make_hex_basis,
@@ -273,6 +284,8 @@ __all__ = [
     "build_form_contexts_pair",
     "MixedFESpace",
     "MixedSpaces",
+    "MixedRoleFESpace",
+    "MixedRoleSpaces",
     "MixedProblem",
     "MixedDirichletBC",
     "MixedBlockSystem",

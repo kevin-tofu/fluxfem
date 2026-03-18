@@ -122,7 +122,7 @@ but the weak-form mapping looks like this (PK2 form):
        return h_wf.ddot(S, dE) * h_wf.dOmega()
 
    residual_form = ff.ResidualForm.volume(neo_hookean_residual_wf)
-   R = space.assemble_residual(residual_form.get_compiled(), u, params=params)
+   R = space.assemble_residual(residual_form, u, params=params)
 
 The role-explicit equivalent keeps the same weak form but binds test/unknown
 roles through ``NamedSpace``:
@@ -131,7 +131,7 @@ roles through ``NamedSpace``:
 
    U = ff.NamedSpace("U", space)
    V = ff.NamedSpace("V", space)
-   residual = ff.compile_residual(neo_hookean_residual_wf)
+   residual = ff.ResidualForm.volume(neo_hookean_residual_wf)
 
    R = ff.assemble_residual(
        ff.ResidualSpaces(test=V, unknown=U),

@@ -78,13 +78,19 @@ Example (MixedProblem)
 
    mixed = ff.MixedSpaces(
        {
-           "u": ff.NamedSpace("U", space),
-           "p": ff.NamedSpace("P", space),
+           "u": ff.ResidualSpaces(
+               test=ff.NamedSpace("V", space),
+               unknown=ff.NamedSpace("U", space),
+           ),
+           "p": ff.ResidualSpaces(
+               test=ff.NamedSpace("Qv", space),
+               unknown=ff.NamedSpace("Q", space),
+           ),
        }
    ).to_fe_space()
    residuals = ff.make_mixed_residuals(
        u=ff.bind_mixed_residual("u", res_u, space="U"),
-       p=ff.bind_mixed_residual("p", res_p, space="P"),
+       p=ff.bind_mixed_residual("p", res_p, space="Q"),
    )
    params = ff.Params(alpha=1.2, beta=-0.4)
    pattern = mixed.get_sparsity_pattern(with_idx=True)
@@ -99,9 +105,15 @@ Mixed naming convention:
 - ``ctx.test`` / ``ctx.trial`` for simple single-space code
 - ``ctx.bindings["u"]`` for named mixed-field lookup
 - ``ctx.spaces["U"]`` for explicit space-key lookup
+- alias keys such as ``ctx.spaces["V"]`` can point to the same mixed field when
+  a field was declared through ``ResidualSpaces`` / ``JacobianSpaces``
 
 Example (MixedBlockSystem)
 --------------------------
+
+This helper currently applies to ``MixedSpaces(...).to_fe_space()`` /
+``MixedFESpace`` style layouts. It does not yet support
+``MixedRoleSpaces(...).to_fe_space()``.
 
 .. code-block:: python
 

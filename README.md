@@ -115,12 +115,21 @@ params = ff.Params(kappa=1.0)
 
 # u, v are symbolic trial/test fields (weak-form DSL objects).
 # u.grad / v.grad are symbolic nodes (expression tree), not numeric arrays.
-# dOmega() is the integral measure; the whole expression is compiled before assembly.
 form_wf = ff.BilinearForm.volume(
+    lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
+)
+
+K_wf = space.assemble(form_wf, params=params)
+```
+
+If you want to compile once and reuse explicitly:
+
+```Python
+compiled = ff.BilinearForm.volume(
     lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
 ).get_compiled()
 
-K_wf = space.assemble(form_wf, params=params)
+K_wf = space.assemble(compiled, params=params)
 ```
 
 ### Linear Elasticity assembly (weak-form based assembly)
@@ -134,7 +143,7 @@ D = ff.isotropic_3d_D(1.0, 0.3)
 
 form_wf = ff.BilinearForm.volume(
     lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
-).get_compiled()
+)
 
 K = space.assemble(form_wf, params=D)
 ```
@@ -157,7 +166,7 @@ def neo_hookean_residual_wf(v, u, params):
     dE = 0.5 * (h_wf.matmul(h_wf.grad(v), F) + h_wf.transpose(h_wf.matmul(h_wf.grad(v), F)))
     return h_wf.ddot(S, dE) * h_wf.dOmega()
 
-res_form = ff.ResidualForm.volume(neo_hookean_residual_wf).get_compiled()
+res_form = ff.ResidualForm.volume(neo_hookean_residual_wf)
 ```
 
 
@@ -228,6 +237,30 @@ problem = ff.MixedProblem(mixed, residuals, params=ff.Params(alpha=1.0))
 u0 = jnp.zeros(mixed.n_dofs)
 R = problem.assemble_residual(u0)
 J = problem.assemble_jacobian(u0, return_flux_matrix=True)
+```
+
+The same flow can be written in the same form-then-assemble style used elsewhere:
+
+```Python
+res_form = ff.ResidualForm.mixed(residuals)
+R = mixed.assemble_residual(res_form, u0, ff.Params(alpha=1.0))
+J = mixed.assemble_jacobian(res_form, u0, ff.Params(alpha=1.0))
+```
+
+### Contact weak forms
+
+Contact bilinear forms use the same pattern:
+
+```Python
+contact_form = ff.BilinearForm.contact(a_contact)
+B = contact.assemble_bilinear_form(contact_form, params)
+```
+
+If you want an explicit compiled object for reuse:
+
+```Python
+compiled = ff.BilinearForm.contact(a_contact).get_compiled()
+B = contact.assemble_bilinear_form(compiled, params)
 ```
 
 Mixed weak-form naming follows this convention:

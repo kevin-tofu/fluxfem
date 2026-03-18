@@ -8,6 +8,7 @@ import scipy.sparse as sp
 
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
+from fluxfem.mesh.contact import compile_tagged_pair_nitsche_penalty_residual
 
 
 def _translate_mesh(mesh, shift_xyz):
@@ -32,7 +33,7 @@ def _penalty_residual_form():
         ju = u_a.val - u.val
         return -(p.alpha * p.inv_h) * h_wf.dot(v, ju) * h_wf.ds()
 
-    return ff.compile_mixed_surface_residual({"a": res_a, "b": res_b})
+    return compile_tagged_pair_nitsche_penalty_residual({"a": res_a, "b": res_b}, backend="jax")
 
 
 def test_contact_solve_box_12x12x12_vs_2x2x2():

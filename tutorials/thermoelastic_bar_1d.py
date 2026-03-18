@@ -112,12 +112,12 @@ def main():
 
     K_T = ff.assemble_bilinear_form(
         ff.BilinearSpaces(test=V, trial=U),
-        bilinear_T.get_compiled(),
+        bilinear_T,
         ff.Params(kappa=args.kappa),
     )
     F_T = ff.assemble_linear_form(
         ff.LinearSpaces(test=V),
-        linear_T.get_compiled(),
+        linear_T,
         ff.Params(q=args.source),
     )
 
@@ -144,7 +144,7 @@ def main():
 
     K_u = ff.assemble_bilinear_form(
         ff.BilinearSpaces(test=V, trial=U),
-        bilinear_u.get_compiled(),
+        bilinear_u,
         ff.Params(E=args.E),
     )
     params_u = {

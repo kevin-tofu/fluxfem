@@ -53,7 +53,7 @@ def main():
         ).to_dense()
     )
     F_base = surface.assemble_linear_form_on_space(
-        space, surface_form.get_compiled(), params=1.0
+        space, surface_form, params=1.0
     )
     F_base = jnp.asarray(F_base)
 

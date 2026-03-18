@@ -788,29 +788,21 @@ def run_fluxfem_demo(
     if timing:
         print("[timing] K_contact assemble: start", flush=True)
         t_contact = time.perf_counter()
-    contact_coo = contact.assemble_bilinear(
+    K_contact = contact.assemble_bilinear(
         bilin,
         (u_top0, u_bot0),
         params_contact,
-        sparse=True,
     )
     if timing:
         print(f"[timing] K_contact assemble: bilinear {time.perf_counter() - t_contact:.3f}s", flush=True)
-        t_sparse = time.perf_counter()
-    K_contact = ff.FluxSparseMatrix.from_bilinear(contact_coo)
-    if timing:
-        print(f"[timing] K_contact assemble: to_sparse {time.perf_counter() - t_sparse:.3f}s", flush=True)
     if debug_contact:
         print("K_contact nnz =", int(K_contact.data.shape[0]))
     _mark("K_contact assemble")
     if bench_contact:
-        K_contact_2 = ff.FluxSparseMatrix.from_bilinear(
-            contact.assemble_bilinear(
-                bilin,
-                (u_top0, u_bot0),
-                params_contact,
-                sparse=True,
-            )
+        K_contact_2 = contact.assemble_bilinear(
+            bilin,
+            (u_top0, u_bot0),
+            params_contact,
         )
         if timing:
             try:

@@ -1,6 +1,4 @@
 import numpy as np
-import pytest
-
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 
@@ -47,53 +45,32 @@ def test_assemble_bilinear_form_named_spaces_uses_named_trial_test_spaces():
     assert np.asarray(A.to_dense()).shape == (V_space.n_dofs, U_space.n_dofs)
 
 
-def test_assemble_bilinear_form_pg_remains_compat_alias_for_named_space_path():
-    """Deprecated pg alias is kept only as a compatibility path."""
+def test_assemble_bilinear_form_named_spaces_numpy_backend_matches_jax():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    V_space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    U_space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
-    def form(u, v, p):
-        return p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega()
+    u = ff.trial_ref(space="U")
+    v = ff.test_ref(space="V")
+    p = ff.param_ref()
+    expr = p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega()
+    compiled = ff.compile_bilinear(expr)
 
-    compiled = ff.compile_bilinear(form)
-    A_named = ff.assemble_bilinear_form(
-        ff.BilinearSpaces(test=ff.NamedSpace("V", space), trial=ff.NamedSpace("U", space)),
+    A_jax = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=ff.NamedSpace("V", V_space), trial=ff.NamedSpace("U", U_space)),
         compiled,
-        ff.Params(kappa=0.75),
+        ff.Params(kappa=1.5),
+        backend="jax",
     )
-    with pytest.warns(FutureWarning, match="assemble_bilinear_form_pg"):
-        A_pg = ff.assemble_bilinear_form_pg(
-            ff.NamedSpace("V", space),
-            ff.NamedSpace("U", space),
-            compiled,
-            ff.Params(kappa=0.75),
-        )
-
-    assert np.allclose(np.asarray(A_named.to_dense()), np.asarray(A_pg.to_dense()))
-
-
-def test_assemble_bilinear_form_dict_compat_matches_bilinear_spaces():
-    """Deprecated dict role passing still warns and matches the canonical path."""
-    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    space = ff.make_hex_space(mesh, dim=1, intorder=2)
-
-    def form(u, v, p):
-        return p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega()
-
-    compiled = ff.compile_bilinear(form)
-    A_spec = ff.assemble_bilinear_form(
-        ff.BilinearSpaces(test=ff.NamedSpace("V", space), trial=ff.NamedSpace("U", space)),
+    A_np = ff.assemble_bilinear_form(
+        ff.BilinearSpaces(test=ff.NamedSpace("V", V_space), trial=ff.NamedSpace("U", U_space)),
         compiled,
-        ff.Params(kappa=1.25),
+        ff.Params(kappa=1.5),
+        backend="numpy",
     )
-    with pytest.warns(FutureWarning, match="deprecated"):
-        A_dict = ff.assemble_bilinear_form(
-            {"test": ff.NamedSpace("V", space), "trial": ff.NamedSpace("U", space)},
-            compiled,
-            ff.Params(kappa=1.25),
-        )
 
-    assert np.allclose(np.asarray(A_spec.to_dense()), np.asarray(A_dict.to_dense()))
+    assert A_np.shape == (V_space.n_dofs, U_space.n_dofs)
+    assert np.allclose(np.asarray(A_np.to_dense()), np.asarray(A_jax.to_dense()), atol=1e-6)
 
 
 def test_assemble_jacobian_named_spaces_matches_standard_galerkin_for_same_space():

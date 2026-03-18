@@ -53,12 +53,10 @@ def main():
     U = ff.NamedSpace("U", space)
     V = ff.NamedSpace("V", space)
 
-    bilinear = ff.compile_bilinear(
-        lambda v, u, p: p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega()
+    bilinear = ff.BilinearForm.volume(
+        lambda u, v, p: p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega()
     )
-    linear = ff.compile_linear(
-        lambda v, p: (v * p.q) * h_wf.dOmega()
-    )
+    linear = ff.LinearForm.volume(lambda v, p: (v * p.q) * h_wf.dOmega())
 
     K = ff.assemble_bilinear_form(
         ff.BilinearSpaces(test=V, trial=U),

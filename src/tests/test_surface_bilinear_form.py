@@ -71,3 +71,25 @@ def test_surface_bilinear_form_jax_grad_and_jit():
     assert np.isfinite(float(val))
     assert np.isfinite(float(jit_val))
     assert np.isclose(float(grad), 1.0, rtol=1e-7, atol=1e-7)
+
+
+def test_surface_bilinear_form_on_space_accepts_wrapper():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    coords = np.asarray(mesh.coords)
+    xmax = float(coords[:, 0].max())
+
+    def on_xmax(face: np.ndarray) -> bool:
+        return np.allclose(face[:, 0], xmax, atol=1e-8)
+
+    facets = mesh.boundary_facets_where(on_xmax)
+    surface = ff.SurfaceMesh.from_hex_mesh(mesh, facets)
+    pattern = space.get_sparsity_pattern(with_idx=True)
+    form = ff.BilinearForm.surface(
+        lambda u, v, p: p.alpha * h_wf.outer(v, u) * h_wf.ds()
+    )
+
+    direct = surface.assemble_bilinear_form_on_space(space, form, params=ff.Params(alpha=2.0), pattern=pattern)
+    compiled = surface.assemble_bilinear_form_on_space(space, form.get_compiled(), params=ff.Params(alpha=2.0), pattern=pattern)
+
+    assert np.allclose(np.asarray(direct.to_dense()), np.asarray(compiled.to_dense()))

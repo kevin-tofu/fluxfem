@@ -18,8 +18,14 @@ Define a mixed space, write per-field residuals, and solve in a single system:
    space = ff.make_hex_space(mesh, dim=1, intorder=2)
    mixed = ff.MixedSpaces(
        {
-           "u": ff.NamedSpace("U", space),
-           "T": ff.NamedSpace("THETA", space),
+           "u": ff.ResidualSpaces(
+               test=ff.NamedSpace("V", space),
+               unknown=ff.NamedSpace("U", space),
+           ),
+           "T": ff.ResidualSpaces(
+               test=ff.NamedSpace("PSI", space),
+               unknown=ff.NamedSpace("THETA", space),
+           ),
        }
    ).to_fe_space()
 
@@ -56,6 +62,8 @@ The standard mixed lookup rules are:
 - use ``ctx.test`` / ``ctx.trial`` for the local residual arguments
 - use ``ctx.bindings["u"]`` when you want a named mixed field from the full mixed context
 - use ``ctx.spaces["U"]`` when the discrete space itself must be selected explicitly
+- if a mixed field was declared with ``ResidualSpaces``, alias keys such as
+  ``ctx.spaces["V"]`` or ``ctx.spaces["PSI"]`` resolve to the same field
 
 Related mixed tutorials:
 

@@ -59,8 +59,10 @@ def parse_args():
 
 def run_ch_3d():
     args = parse_args()
-    phase_space = "C"
-    chemical_space = "MU"
+    phase_unknown_space = "C"
+    phase_test_space = "W"
+    chemical_unknown_space = "MU"
+    chemical_test_space = "Q"
 
     mesh = ff.StructuredHexBox(
         nx=args.nx,
@@ -73,8 +75,14 @@ def run_ch_3d():
     space = ff.make_hex_space(mesh, dim=1, intorder=2 * args.order)
     mixed = ff.MixedSpaces(
         {
-            "phase": ff.NamedSpace(phase_space, space),
-            "chem_potential": ff.NamedSpace(chemical_space, space),
+            "phase": ff.ResidualSpaces(
+                test=ff.NamedSpace(phase_test_space, space),
+                unknown=ff.NamedSpace(phase_unknown_space, space),
+            ),
+            "chem_potential": ff.ResidualSpaces(
+                test=ff.NamedSpace(chemical_test_space, space),
+                unknown=ff.NamedSpace(chemical_unknown_space, space),
+            ),
         }
     ).to_fe_space()
 
@@ -93,19 +101,19 @@ def run_ch_3d():
     times.append(0.0)
 
     def res_c(v, u, p):
-        mu = ff.unknown_ref("chemical_potential", space=chemical_space)
+        mu = ff.unknown_ref("chemical_potential", space=chemical_unknown_space)
         return (v * (u.val - p.c_old) + p.dt * h_wf.gaction(v, h_wf.grad(mu))) * h_wf.dOmega()
 
     def res_mu(q, u, p):
-        c = ff.unknown_ref("concentration", space=phase_space)
+        c = ff.unknown_ref("concentration", space=phase_unknown_space)
         return (
             q * (u.val - (p.c_old**3 - p.c_old))
             - p.kappa * h_wf.gaction(q, h_wf.grad(c))
         ) * h_wf.dOmega()
 
     residuals = ff.make_mixed_residuals(
-        phase_balance=ff.bind_mixed_residual("phase", res_c, space=phase_space),
-        chemical_equilibrium=ff.bind_mixed_residual("chem_potential", res_mu, space=chemical_space),
+        phase_balance=ff.bind_mixed_residual("phase", res_c, space=phase_unknown_space),
+        chemical_equilibrium=ff.bind_mixed_residual("chem_potential", res_mu, space=chemical_unknown_space),
     )
 
     solver = ff.LinearSolver(method="spsolve")
@@ -118,7 +126,7 @@ def run_ch_3d():
             c_old_elem = c_old_elems[ctx.elem_id]
             # This is the place where the explicit mixed-space lookup is useful:
             # params_fn receives the full mixed context, not one local residual view.
-            c_old_q = ctx.spaces[phase_space].trial.eval(c_old_elem)
+            c_old_q = ctx.spaces[phase_unknown_space].trial.eval(c_old_elem)
             return {"kappa": kappa, "dt": dt, "c_old": c_old_q}
 
         u0 = jnp.zeros(mixed.n_dofs)

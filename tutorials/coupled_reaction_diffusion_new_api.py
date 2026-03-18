@@ -50,8 +50,10 @@ def parse_args():
 
 def main():
     args = parse_args()
-    space_u_key = "U"
-    space_v_key = "V"
+    space_u_unknown = "U"
+    space_u_test = "W"
+    space_v_unknown = "V"
+    space_v_test = "Z"
 
     mesh = ff.StructuredHexBox(
         nx=args.nx,
@@ -64,14 +66,20 @@ def main():
     space = ff.make_hex_space(mesh, dim=1, intorder=args.intorder)
     mixed = ff.MixedSpaces(
         {
-            "species_u": ff.NamedSpace(space_u_key, space),
-            "species_v": ff.NamedSpace(space_v_key, space),
+            "species_u": ff.ResidualSpaces(
+                test=ff.NamedSpace(space_u_test, space),
+                unknown=ff.NamedSpace(space_u_unknown, space),
+            ),
+            "species_v": ff.ResidualSpaces(
+                test=ff.NamedSpace(space_v_test, space),
+                unknown=ff.NamedSpace(space_v_unknown, space),
+            ),
         }
     ).to_fe_space()
 
     def res_u(v, u, p):
         # The local field `u` is the short-form trial/unknown on space U.
-        other = ff.unknown_ref("other_species", space=space_v_key)
+        other = ff.unknown_ref("other_species", space=space_v_unknown)
         return (
             p.k1 * h_wf.gaction(v, h_wf.grad(u))
             + v * (p.alpha * (u.val - other.val))
@@ -80,7 +88,7 @@ def main():
 
     def res_v(q, v, p):
         # Cross-coupling is where the explicit space key pays off.
-        other = ff.unknown_ref("other_species", space=space_u_key)
+        other = ff.unknown_ref("other_species", space=space_u_unknown)
         return (
             p.k2 * h_wf.gaction(q, h_wf.grad(v))
             + q * (p.alpha * (v.val - other.val))
@@ -88,8 +96,8 @@ def main():
         ) * h_wf.dOmega()
 
     residuals = ff.make_mixed_residuals(
-        balance_u=ff.bind_mixed_residual("species_u", res_u, space=space_u_key),
-        balance_v=ff.bind_mixed_residual("species_v", res_v, space=space_v_key),
+        balance_u=ff.bind_mixed_residual("species_u", res_u, space=space_u_unknown),
+        balance_v=ff.bind_mixed_residual("species_v", res_v, space=space_v_unknown),
     )
     params = ff.Params(k1=args.k1, k2=args.k2, alpha=args.alpha, f1=args.f1, f2=args.f2)
 

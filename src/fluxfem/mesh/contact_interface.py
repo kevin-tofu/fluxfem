@@ -41,6 +41,36 @@ class SurfaceMixedFormContext:
     spaces: dict[str, "FieldPair"] | None = None
 
 
+def _make_surface_field_pair(
+    *,
+    test_N: np.ndarray,
+    test_gradN: np.ndarray | None,
+    trial_N: np.ndarray,
+    trial_gradN: np.ndarray | None,
+    test_value_dim: int,
+    trial_value_dim: int,
+) -> "FieldPair":
+    from ..core.forms import FieldPair
+
+    test_field = SurfaceMixedFormField(
+        N=test_N,
+        gradN=test_gradN,
+        value_dim=test_value_dim,
+        basis=_SurfaceBasis(dofs_per_node=test_value_dim),
+    )
+    trial_field = SurfaceMixedFormField(
+        N=trial_N,
+        gradN=trial_gradN,
+        value_dim=trial_value_dim,
+        basis=_SurfaceBasis(dofs_per_node=trial_value_dim),
+    )
+    return FieldPair(
+        test=cast("FormFieldLike", test_field),
+        trial=cast("FormFieldLike", trial_field),
+        unknown=cast("FormFieldLike", trial_field),
+    )
+
+
 @dataclass(eq=False)
 class _SupermeshPairBasisData:
     elem_id_a: int
@@ -55,6 +85,45 @@ class _SupermeshPairBasisData:
     nodes_b: np.ndarray
     local_a: np.ndarray | None
     local_b: np.ndarray | None
+    test_Na: np.ndarray | None = None
+    test_Nb: np.ndarray | None = None
+    trial_Na: np.ndarray | None = None
+    trial_Nb: np.ndarray | None = None
+    test_gradNa: np.ndarray | None = None
+    test_gradNb: np.ndarray | None = None
+    trial_gradNa: np.ndarray | None = None
+    trial_gradNb: np.ndarray | None = None
+    test_dofs_local_a: np.ndarray | None = None
+    test_dofs_local_b: np.ndarray | None = None
+    trial_dofs_local_a: np.ndarray | None = None
+    trial_dofs_local_b: np.ndarray | None = None
+    test_nodes_a: np.ndarray | None = None
+    test_nodes_b: np.ndarray | None = None
+    trial_nodes_a: np.ndarray | None = None
+    trial_nodes_b: np.ndarray | None = None
+
+
+def _merge_trial_pair_basis_data(
+    base: _SupermeshPairBasisData,
+    trial: _SupermeshPairBasisData,
+) -> _SupermeshPairBasisData:
+    base.trial_Na = trial.Na
+    base.trial_Nb = trial.Nb
+    base.trial_gradNa = trial.gradNa
+    base.trial_gradNb = trial.gradNb
+    base.trial_dofs_local_a = trial.dofs_local_a
+    base.trial_dofs_local_b = trial.dofs_local_b
+    base.trial_nodes_a = trial.nodes_a
+    base.trial_nodes_b = trial.nodes_b
+    return base
+
+
+def _same_optional_int_array(a: np.ndarray | None, b: np.ndarray | None) -> bool:
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    return np.array_equal(np.asarray(a, dtype=int), np.asarray(b, dtype=int))
 
 
 @dataclass(eq=False)
@@ -66,6 +135,14 @@ class _JacobianTriangleGeometryData:
     facet_a: np.ndarray
     facet_b: np.ndarray
     x_q: np.ndarray
+
+
+@dataclass(eq=False)
+class _SupermeshTriangleQuadratureCache:
+    detJ: np.ndarray
+    x_q: np.ndarray
+    quad_pts: np.ndarray
+    quad_w: np.ndarray
 
 
 _DEBUG_SURFACE_GRADN = os.getenv("FLUXFEM_DEBUG_SURFACE_GRADN")
@@ -83,6 +160,7 @@ _DEBUG_PROJ_QP_DUMPED = False
 _PROJ_DIAG_STATS: dict[str, Any] | None = None
 _PROJ_DIAG_COUNT = 0
 _PROJ_DIAG_CONTEXT: dict[str, int | str] = {}
+_DIRECT_PAIR_NITSCHE_BATCH_FUN_CACHE: dict[bool, Callable[..., jnp.ndarray]] = {}
 
 
 def _contact_interface_dbg_enabled() -> bool:
@@ -110,13 +188,316 @@ class ContactCouplingMatrix:
     shape: tuple[int, int]
 
 
+def _is_jax_value(x: Any) -> bool:
+    return isinstance(x, jax.core.Tracer)
+
+
+def _uses_jax_geometry(*xs: Any) -> bool:
+    for x in xs:
+        if _is_jax_value(x):
+            return True
+    return False
+
+
 def _tri_area(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
     return 0.5 * float(np.linalg.norm(np.cross(b - a, c - a)))
+
+
+def _numpy_shape_matrix(N: np.ndarray, value_dim: int) -> np.ndarray:
+    n_nodes = int(N.shape[0])
+    out = np.zeros((int(value_dim), n_nodes * int(value_dim)), dtype=float)
+    for a in range(n_nodes):
+        col = int(value_dim) * a
+        for i in range(int(value_dim)):
+            out[i, col + i] = float(N[a])
+    return out
+
+
+def _numpy_sym_grad_matrix(gradN: np.ndarray, dofs_per_node: int = 3) -> np.ndarray:
+    n_nodes = int(gradN.shape[0])
+    n_dofs = int(dofs_per_node) * n_nodes
+    B = np.zeros((6, n_dofs), dtype=float)
+    for a in range(n_nodes):
+        dNdx, dNdy, dNdz = float(gradN[a, 0]), float(gradN[a, 1]), float(gradN[a, 2])
+        col = int(dofs_per_node) * a
+        B[0, col + 0] = dNdx
+        B[1, col + 1] = dNdy
+        B[2, col + 2] = dNdz
+        B[3, col + 0] = dNdy
+        B[3, col + 1] = dNdx
+        B[4, col + 1] = dNdz
+        B[4, col + 2] = dNdy
+        B[5, col + 0] = dNdz
+        B[5, col + 2] = dNdx
+    return B
+
+
+def _numpy_isotropic_D(lam: float, mu: float) -> np.ndarray:
+    return np.array(
+        [
+            [lam + 2.0 * mu, lam, lam, 0.0, 0.0, 0.0],
+            [lam, lam + 2.0 * mu, lam, 0.0, 0.0, 0.0],
+            [lam, lam, lam + 2.0 * mu, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, mu, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, mu, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0, mu],
+        ],
+        dtype=float,
+    )
+
+
+def _numpy_voigt_traction_matrix(normal: np.ndarray) -> np.ndarray:
+    nx, ny, nz = float(normal[0]), float(normal[1]), float(normal[2])
+    return np.array(
+        [
+            [nx, 0.0, 0.0, ny, 0.0, nz],
+            [0.0, ny, 0.0, nx, nz, 0.0],
+            [0.0, 0.0, nz, 0.0, ny, nx],
+        ],
+        dtype=float,
+    )
+
+
+def _jax_shape_matrix(N: jnp.ndarray, value_dim: int) -> jnp.ndarray:
+    eye = jnp.eye(int(value_dim), dtype=N.dtype)
+    return jnp.einsum("a,ij->iaj", N, eye).reshape(int(value_dim), int(N.shape[0]) * int(value_dim))
+
+
+def _jax_sym_grad_matrix(gradN: jnp.ndarray, dofs_per_node: int = 3) -> jnp.ndarray:
+    if int(dofs_per_node) != 3:
+        raise NotImplementedError("JAX fast pair Nitsche kernel currently supports only dofs_per_node=3.")
+    gx = gradN[:, 0]
+    gy = gradN[:, 1]
+    gz = gradN[:, 2]
+    zeros = jnp.zeros_like(gx)
+    rows = [
+        jnp.stack([gx, zeros, zeros], axis=1),
+        jnp.stack([zeros, gy, zeros], axis=1),
+        jnp.stack([zeros, zeros, gz], axis=1),
+        jnp.stack([gy, gx, zeros], axis=1),
+        jnp.stack([zeros, gz, gy], axis=1),
+        jnp.stack([gz, zeros, gx], axis=1),
+    ]
+    return jnp.stack(rows, axis=0).reshape(6, int(gradN.shape[0]) * int(dofs_per_node))
+
+
+def _jax_isotropic_D(lam: Any, mu: Any, *, dtype: Any) -> jnp.ndarray:
+    lam_j = jnp.asarray(lam, dtype=dtype)
+    mu_j = jnp.asarray(mu, dtype=dtype)
+    return jnp.array(
+        [
+            [lam_j + 2.0 * mu_j, lam_j, lam_j, 0.0, 0.0, 0.0],
+            [lam_j, lam_j + 2.0 * mu_j, lam_j, 0.0, 0.0, 0.0],
+            [lam_j, lam_j, lam_j + 2.0 * mu_j, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, mu_j, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, mu_j, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0, mu_j],
+        ],
+        dtype=dtype,
+    )
+
+
+def _jax_voigt_traction_matrix(normal: jnp.ndarray) -> jnp.ndarray:
+    nx, ny, nz = normal[0], normal[1], normal[2]
+    zeros = jnp.asarray(0.0, dtype=normal.dtype)
+    return jnp.array(
+        [
+            [nx, zeros, zeros, ny, zeros, nz],
+            [zeros, ny, zeros, nx, nz, zeros],
+            [zeros, zeros, nz, zeros, ny, nx],
+        ],
+        dtype=normal.dtype,
+    )
+
+
+def _fast_pair_nitsche_penalty_local_matrix(
+    *,
+    Na: np.ndarray,
+    Nb: np.ndarray,
+    gradNa: np.ndarray,
+    gradNb: np.ndarray,
+    normal_q: np.ndarray,
+    w: np.ndarray,
+    detJ: np.ndarray,
+    alpha: float,
+    inv_h: float,
+    lam: float,
+    mu: float,
+    use_penalty: float,
+    use_traction: float,
+    value_dim_a: int,
+    value_dim_b: int,
+) -> np.ndarray:
+    if int(value_dim_a) != 3 or int(value_dim_b) != 3:
+        raise NotImplementedError("Fast pair Nitsche kernel currently supports only value_dim=3.")
+
+    D = _numpy_isotropic_D(float(lam), float(mu))
+    n_dofs_a = int(Na.shape[1] * value_dim_a)
+    n_dofs_b = int(Nb.shape[1] * value_dim_b)
+    Kaa = np.zeros((n_dofs_a, n_dofs_a), dtype=float)
+    Kab = np.zeros((n_dofs_a, n_dofs_b), dtype=float)
+    Kba = np.zeros((n_dofs_b, n_dofs_a), dtype=float)
+    Kbb = np.zeros((n_dofs_b, n_dofs_b), dtype=float)
+
+    wJ = np.asarray(w, dtype=float) * np.asarray(detJ, dtype=float)
+    penalty_scale = float(use_penalty) * float(alpha * inv_h)
+    traction_scale = float(use_traction)
+    for q in range(int(Na.shape[0])):
+        Nma = _numpy_shape_matrix(Na[q], value_dim_a)
+        Nmb = _numpy_shape_matrix(Nb[q], value_dim_b)
+        Ba = _numpy_sym_grad_matrix(gradNa[q], dofs_per_node=value_dim_a)
+        Bb = _numpy_sym_grad_matrix(gradNb[q], dofs_per_node=value_dim_b)
+        Pn = _numpy_voigt_traction_matrix(normal_q[q])
+        Ta = Pn @ D @ Ba
+        Tb = Pn @ D @ Bb
+        s = float(wJ[q])
+
+        # penalty
+        Kaa += s * penalty_scale * (Nma.T @ Nma)
+        Kab += -s * penalty_scale * (Nma.T @ Nmb)
+        Kba += -s * penalty_scale * (Nmb.T @ Nma)
+        Kbb += s * penalty_scale * (Nmb.T @ Nmb)
+
+        # consistency and symmetry terms
+        Kaa += traction_scale * s * (-0.5 * (Nma.T @ Ta) - 0.5 * (Ta.T @ Nma))
+        Kab += traction_scale * s * (-0.5 * (Nma.T @ Tb) + 0.5 * (Ta.T @ Nmb))
+        Kba += traction_scale * s * (0.5 * (Nmb.T @ Ta) - 0.5 * (Tb.T @ Nma))
+        Kbb += traction_scale * s * (0.5 * (Nmb.T @ Tb) + 0.5 * (Tb.T @ Nmb))
+
+    top = np.concatenate([Kaa, Kab], axis=1)
+    bot = np.concatenate([Kba, Kbb], axis=1)
+    return np.concatenate([top, bot], axis=0)
+
+
+def _fast_pair_nitsche_penalty_local_matrix_jax(
+    *,
+    Na: jnp.ndarray,
+    Nb: jnp.ndarray,
+    gradNa: jnp.ndarray,
+    gradNb: jnp.ndarray,
+    normal_q: jnp.ndarray,
+    w: jnp.ndarray,
+    detJ: jnp.ndarray,
+    alpha: float,
+    inv_h: float,
+    lam: float,
+    mu: float,
+    use_penalty: float,
+    use_traction: float,
+    value_dim_a: int,
+    value_dim_b: int,
+) -> jnp.ndarray:
+    if int(value_dim_a) != 3 or int(value_dim_b) != 3:
+        raise NotImplementedError("Fast pair Nitsche kernel currently supports only value_dim=3.")
+
+    dtype = Na.dtype
+    D = _jax_isotropic_D(lam, mu, dtype=dtype)
+    n_dofs_a = int(Na.shape[1] * value_dim_a)
+    n_dofs_b = int(Nb.shape[1] * value_dim_b)
+    wJ = jnp.asarray(w, dtype=dtype) * jnp.asarray(detJ, dtype=dtype).reshape(-1)
+    alpha_inv_h = jnp.asarray(use_penalty, dtype=dtype) * jnp.asarray(alpha, dtype=dtype) * jnp.asarray(inv_h, dtype=dtype)
+    traction_scale = jnp.asarray(use_traction, dtype=dtype)
+    half = jnp.asarray(0.5, dtype=dtype)
+
+    def _q_local_matrix(Na_q, Nb_q, gradNa_q, gradNb_q, normal_qi, wJ_q):
+        Nma = _jax_shape_matrix(Na_q, value_dim_a)
+        Nmb = _jax_shape_matrix(Nb_q, value_dim_b)
+        Ba = _jax_sym_grad_matrix(gradNa_q, dofs_per_node=value_dim_a)
+        Bb = _jax_sym_grad_matrix(gradNb_q, dofs_per_node=value_dim_b)
+        Pn = _jax_voigt_traction_matrix(normal_qi)
+        Ta = Pn @ D @ Ba
+        Tb = Pn @ D @ Bb
+        Kaa = alpha_inv_h * (Nma.T @ Nma)
+        Kab = -alpha_inv_h * (Nma.T @ Nmb)
+        Kba = -alpha_inv_h * (Nmb.T @ Nma)
+        Kbb = alpha_inv_h * (Nmb.T @ Nmb)
+
+        Kaa = Kaa + traction_scale * (-half * (Nma.T @ Ta) - half * (Ta.T @ Nma))
+        Kab = Kab + traction_scale * (-half * (Nma.T @ Tb) + half * (Ta.T @ Nmb))
+        Kba = Kba + traction_scale * (half * (Nmb.T @ Ta) - half * (Tb.T @ Nma))
+        Kbb = Kbb + traction_scale * (half * (Nmb.T @ Tb) + half * (Tb.T @ Nmb))
+
+        top = jnp.concatenate([Kaa, Kab], axis=1)
+        bot = jnp.concatenate([Kba, Kbb], axis=1)
+        return wJ_q * jnp.concatenate([top, bot], axis=0)
+
+    return jnp.sum(
+        jax.vmap(_q_local_matrix)(Na, Nb, gradNa, gradNb, normal_q, wJ),
+        axis=0,
+    )
+
+
+def _get_direct_pair_nitsche_batch_fun(*, jit: bool) -> Callable[..., jnp.ndarray]:
+    cached = _DIRECT_PAIR_NITSCHE_BATCH_FUN_CACHE.get(bool(jit))
+    if cached is not None:
+        return cached
+
+    def _local_matrix_batch(Na, Nb, gradNa, gradNb, w, detJ, normal, alpha, inv_h, lam, mu, use_penalty, use_traction):
+        normal_q = jnp.repeat(normal[None, :], Na.shape[0], axis=0)
+        return _fast_pair_nitsche_penalty_local_matrix_jax(
+            Na=Na,
+            Nb=Nb,
+            gradNa=gradNa,
+            gradNb=gradNb,
+            normal_q=normal_q,
+            w=w,
+            detJ=detJ,
+            alpha=alpha,
+            inv_h=inv_h,
+            lam=lam,
+            mu=mu,
+            use_penalty=use_penalty,
+            use_traction=use_traction,
+            value_dim_a=3,
+            value_dim_b=3,
+        )
+
+    fun = jax.vmap(
+        _local_matrix_batch,
+        in_axes=(0, 0, 0, 0, 0, 0, 0, None, None, None, None, None, None),
+    )
+    if jit:
+        fun = jax.jit(fun)
+    _DIRECT_PAIR_NITSCHE_BATCH_FUN_CACHE[bool(jit)] = fun
+    return fun
 
 
 def tri_area(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
     """Public wrapper for triangle area (used in contact diagnostics)."""
     return _tri_area(a, b, c)
+
+
+def build_supermesh_triangle_quadrature_cache(
+    supermesh_coords: np.ndarray,
+    supermesh_conn: np.ndarray,
+    *,
+    quad_order: int,
+    tol: float,
+) -> _SupermeshTriangleQuadratureCache:
+    if quad_order <= 0:
+        quad_pts = np.array([[1.0 / 3.0, 1.0 / 3.0]], dtype=float)
+        quad_w = np.array([0.5], dtype=float)
+    else:
+        quad_pts, quad_w = _tri_quadrature(quad_order)
+    conn = np.asarray(supermesh_conn, dtype=int)
+    coords = np.asarray(supermesh_coords, dtype=float)
+    n_tri = int(conn.shape[0])
+    n_q = int(quad_pts.shape[0])
+    detJ = np.zeros((n_tri,), dtype=float)
+    x_q = np.zeros((n_tri, n_q, 3), dtype=float)
+    for i, tri in enumerate(conn):
+        a, b, c = coords[tri]
+        area = _tri_area(a, b, c)
+        if area <= tol:
+            continue
+        detJ[i] = 2.0 * area
+        x_q[i] = np.array([a + r * (b - a) + s * (c - a) for r, s in quad_pts], dtype=float)
+    return _SupermeshTriangleQuadratureCache(
+        detJ=detJ,
+        x_q=x_q,
+        quad_pts=quad_pts,
+        quad_w=quad_w,
+    )
 
 
 def tri_quadrature(order: int) -> tuple[np.ndarray, np.ndarray]:
@@ -230,6 +611,32 @@ def _facet_triangles(coords: np.ndarray, facet_nodes: np.ndarray) -> list[tuple[
 
 def _tri_centroid(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
     return (a + b + c) / 3.0
+
+
+def _tri3_shape_values_jax(
+    point: jnp.ndarray,
+    facet_nodes: np.ndarray,
+    coords: jnp.ndarray,
+) -> jnp.ndarray:
+    pts = coords[facet_nodes]
+    a = pts[0]
+    b = pts[1]
+    c = pts[2]
+    v0 = b - a
+    v1 = c - a
+    v2 = point - a
+    d00 = jnp.dot(v0, v0)
+    d01 = jnp.dot(v0, v1)
+    d11 = jnp.dot(v1, v1)
+    d20 = jnp.dot(v2, v0)
+    d21 = jnp.dot(v2, v1)
+    denom = d00 * d11 - d01 * d01
+    denom_safe = jnp.where(jnp.abs(denom) < 1e-14, 1.0, denom)
+    v = (d11 * d20 - d01 * d21) / denom_safe
+    w = (d00 * d21 - d01 * d20) / denom_safe
+    u = 1.0 - v - w
+    lam = jnp.stack([u, v, w])
+    return jnp.where(jnp.abs(denom) < 1e-14, jnp.zeros_like(lam), lam)
 
 
 def _tri_quadrature(order: int) -> tuple[np.ndarray, np.ndarray]:
@@ -1292,42 +1699,52 @@ def _build_mixed_surface_context(
     *,
     field_a: str,
     field_b: str,
-    space_key_a: str | None,
-    space_key_b: str | None,
-    Na: np.ndarray,
-    Nb: np.ndarray,
-    gradNa: np.ndarray | None,
-    gradNb: np.ndarray | None,
-    value_dim_a: int,
-    value_dim_b: int,
+    test_space_key_a: str | None,
+    test_space_key_b: str | None,
+    unknown_space_key_a: str | None,
+    unknown_space_key_b: str | None,
+    test_Na: np.ndarray,
+    test_Nb: np.ndarray,
+    trial_Na: np.ndarray,
+    trial_Nb: np.ndarray,
+    test_gradNa: np.ndarray | None,
+    test_gradNb: np.ndarray | None,
+    trial_gradNa: np.ndarray | None,
+    trial_gradNb: np.ndarray | None,
+    test_value_dim_a: int,
+    test_value_dim_b: int,
+    trial_value_dim_a: int,
+    trial_value_dim_b: int,
     x_q: np.ndarray,
     w: np.ndarray,
     detJ: np.ndarray,
     normal_q: np.ndarray | None,
 ) -> SurfaceMixedFormContext:
-    from ..core.forms import FieldPair
-
-    field_a_obj = SurfaceMixedFormField(
-        N=Na,
-        gradN=gradNa,
-        value_dim=value_dim_a,
-        basis=_SurfaceBasis(dofs_per_node=value_dim_a),
-    )
-    field_b_obj = SurfaceMixedFormField(
-        N=Nb,
-        gradN=gradNb,
-        value_dim=value_dim_b,
-        basis=_SurfaceBasis(dofs_per_node=value_dim_b),
-    )
     fields = {
-        field_a: FieldPair(test=cast("FormFieldLike", field_a_obj), trial=cast("FormFieldLike", field_a_obj)),
-        field_b: FieldPair(test=cast("FormFieldLike", field_b_obj), trial=cast("FormFieldLike", field_b_obj)),
+        field_a: _make_surface_field_pair(
+            test_N=test_Na,
+            test_gradN=test_gradNa,
+            trial_N=trial_Na,
+            trial_gradN=trial_gradNa,
+            test_value_dim=test_value_dim_a,
+            trial_value_dim=trial_value_dim_a,
+        ),
+        field_b: _make_surface_field_pair(
+            test_N=test_Nb,
+            test_gradN=test_gradNb,
+            trial_N=trial_Nb,
+            trial_gradN=trial_gradNb,
+            test_value_dim=test_value_dim_b,
+            trial_value_dim=trial_value_dim_b,
+        ),
     }
     spaces = dict(fields)
-    if space_key_a is not None:
-        spaces[space_key_a] = fields[field_a]
-    if space_key_b is not None:
-        spaces[space_key_b] = fields[field_b]
+    for key in (test_space_key_a, unknown_space_key_a):
+        if key is not None:
+            spaces[key] = fields[field_a]
+    for key in (test_space_key_b, unknown_space_key_b):
+        if key is not None:
+            spaces[key] = fields[field_b]
     return SurfaceMixedFormContext(
         bindings=fields,
         x_q=x_q,
@@ -1342,8 +1759,8 @@ def _surface_u_elem_with_space_aliases(
     *,
     field_a: str,
     field_b: str,
-    space_key_a: str | None,
-    space_key_b: str | None,
+    unknown_space_key_a: str | None,
+    unknown_space_key_b: str | None,
     u_local_a: np.ndarray,
     u_local_b: np.ndarray,
 ) -> dict[str, np.ndarray]:
@@ -1351,10 +1768,10 @@ def _surface_u_elem_with_space_aliases(
         field_a: u_local_a,
         field_b: u_local_b,
     }
-    if space_key_a is not None:
-        u_elem[space_key_a] = u_elem[field_a]
-    if space_key_b is not None:
-        u_elem[space_key_b] = u_elem[field_b]
+    if unknown_space_key_a is not None:
+        u_elem[unknown_space_key_a] = u_elem[field_a]
+    if unknown_space_key_b is not None:
+        u_elem[unknown_space_key_b] = u_elem[field_b]
     return u_elem
 
 
@@ -1376,6 +1793,22 @@ def _surface_local_u_dict(
             elif pair is ctx.bindings[field_b]:
                 u_dict[key] = u_dict[field_b]
     return u_dict
+
+
+def _mixed_surface_space_aliases(
+    res_form: Callable[..., Any],
+    *,
+    field_a: str,
+    field_b: str,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    test_space_keys = getattr(res_form, "_test_space_by_target", {})
+    unknown_space_keys = getattr(res_form, "_unknown_space_by_target", {})
+    legacy_space_keys = getattr(res_form, "_space_by_target", {})
+    test_space_key_a = test_space_keys.get(field_a, legacy_space_keys.get(field_a))
+    test_space_key_b = test_space_keys.get(field_b, legacy_space_keys.get(field_b))
+    unknown_space_key_a = unknown_space_keys.get(field_a, legacy_space_keys.get(field_a))
+    unknown_space_key_b = unknown_space_keys.get(field_b, legacy_space_keys.get(field_b))
+    return test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b
 
 
 def _reduce_surface_residual_jax(
@@ -1483,12 +1916,31 @@ def _compute_mixed_surface_local_jacobian(
     params: Any,
     includes_measure: dict[str, bool],
 ) -> np.ndarray:
-    if backend != "jax":
-        raise NotImplementedError("backend='numpy' for contact weak-form Jacobians has been removed.")
+    if backend == "jax":
+        def _res_local(u_vec):
+            return _mixed_surface_local_residual_jax(
+                u_vec=jnp.asarray(u_vec),
+                slices=slices,
+                field_a=field_a,
+                field_b=field_b,
+                res_form=res_form,
+                ctx=ctx,
+                params=params,
+                includes_measure=includes_measure,
+            )
 
-    def _res_local(u_vec):
-        return _mixed_surface_local_residual_jax(
-            u_vec=jnp.asarray(u_vec),
+        J_local = jax.jacrev(_res_local)(jnp.asarray(u_local))
+        return np.asarray(J_local)
+    if backend != "numpy":
+        raise ValueError("backend must be 'jax' or 'numpy'")
+
+    n_u = int(u_local.shape[0])
+    J = np.zeros((n_u, n_u), dtype=float)
+    for j in range(n_u):
+        u_col = np.zeros((n_u,), dtype=float)
+        u_col[j] = 1.0
+        J[:, j] = _mixed_surface_local_residual_numpy(
+            u_vec=u_col,
             slices=slices,
             field_a=field_a,
             field_b=field_b,
@@ -1497,9 +1949,7 @@ def _compute_mixed_surface_local_jacobian(
             params=params,
             includes_measure=includes_measure,
         )
-
-    J_local = jax.jacrev(_res_local)(jnp.asarray(u_local))
-    return np.asarray(J_local)
+    return J
 
 
 def _accumulate_supermesh_residual_triangle(
@@ -1525,10 +1975,17 @@ def _accumulate_supermesh_residual_triangle(
     facets_a: np.ndarray,
     facets_b: np.ndarray,
     pair_basis_builder: Callable[..., _SupermeshPairBasisData],
+    trial_pair_basis_builder: Callable[..., _SupermeshPairBasisData],
     value_dim_a: int,
     value_dim_b: int,
+    trial_value_dim_a: int,
+    trial_value_dim_b: int,
     dof_source: str,
     grad_source: str,
+    space_mode_a: str,
+    space_mode_b: str,
+    trial_space_mode_a: str,
+    trial_space_mode_b: str,
     use_elem_a: bool,
     use_elem_b: bool,
     elem_conn_a: np.ndarray | None,
@@ -1537,6 +1994,8 @@ def _accumulate_supermesh_residual_triangle(
     facet_to_elem_b: np.ndarray | None,
     facet_dofs_a: np.ndarray | None,
     facet_dofs_b: np.ndarray | None,
+    trial_facet_dofs_a: np.ndarray | None,
+    trial_facet_dofs_b: np.ndarray | None,
     proj_diag: bool,
     normal_source: str,
     normal_sign: float,
@@ -1604,6 +2063,39 @@ def _accumulate_supermesh_residual_triangle(
         facet_dofs_b=facet_dofs_b,
         tol=tol,
     )
+    if (
+        int(trial_value_dim_a) != int(value_dim_a)
+        or int(trial_value_dim_b) != int(value_dim_b)
+        or str(trial_space_mode_a) != str(space_mode_a)
+        or str(trial_space_mode_b) != str(space_mode_b)
+        or not _same_optional_int_array(trial_facet_dofs_a, facet_dofs_a)
+        or not _same_optional_int_array(trial_facet_dofs_b, facet_dofs_b)
+    ):
+        trial_pair = trial_pair_basis_builder(
+            fa=int(fa),
+            fb=int(fb),
+            facet_a=facet_a,
+            facet_b=facet_b,
+            x_q=x_q,
+            coords_a=coords_a,
+            coords_b=coords_b,
+            facets_a=facets_a,
+            facets_b=facets_b,
+            value_dim_a=trial_value_dim_a,
+            value_dim_b=trial_value_dim_b,
+            dof_source=dof_source,
+            grad_source=grad_source,
+            use_elem_a=use_elem_a,
+            use_elem_b=use_elem_b,
+            elem_conn_a=elem_conn_a,
+            elem_conn_b=elem_conn_b,
+            facet_to_elem_a=facet_to_elem_a,
+            facet_to_elem_b=facet_to_elem_b,
+            facet_dofs_a=trial_facet_dofs_a,
+            facet_dofs_b=trial_facet_dofs_b,
+            tol=tol,
+        )
+        pair_data = _merge_trial_pair_basis_data(pair_data, trial_pair)
     elem_id_a = pair_data.elem_id_a
     elem_id_b = pair_data.elem_id_b
     if proj_diag:
@@ -1616,12 +2108,18 @@ def _accumulate_supermesh_residual_triangle(
             elem_b=elem_id_b,
         )
 
-    Na = pair_data.Na
-    Nb = pair_data.Nb
-    gradNa = pair_data.gradNa
-    gradNb = pair_data.gradNb
-    dofs_local_a = pair_data.dofs_local_a
-    dofs_local_b = pair_data.dofs_local_b
+    test_Na = pair_data.test_Na if pair_data.test_Na is not None else pair_data.Na
+    test_Nb = pair_data.test_Nb if pair_data.test_Nb is not None else pair_data.Nb
+    trial_Na = pair_data.trial_Na if pair_data.trial_Na is not None else pair_data.Na
+    trial_Nb = pair_data.trial_Nb if pair_data.trial_Nb is not None else pair_data.Nb
+    test_gradNa = pair_data.test_gradNa if pair_data.test_gradNa is not None else pair_data.gradNa
+    test_gradNb = pair_data.test_gradNb if pair_data.test_gradNb is not None else pair_data.gradNb
+    trial_gradNa = pair_data.trial_gradNa if pair_data.trial_gradNa is not None else pair_data.gradNa
+    trial_gradNb = pair_data.trial_gradNb if pair_data.trial_gradNb is not None else pair_data.gradNb
+    test_dofs_local_a = pair_data.test_dofs_local_a if pair_data.test_dofs_local_a is not None else pair_data.dofs_local_a
+    test_dofs_local_b = pair_data.test_dofs_local_b if pair_data.test_dofs_local_b is not None else pair_data.dofs_local_b
+    trial_dofs_local_a = pair_data.trial_dofs_local_a if pair_data.trial_dofs_local_a is not None else pair_data.dofs_local_a
+    trial_dofs_local_b = pair_data.trial_dofs_local_b if pair_data.trial_dofs_local_b is not None else pair_data.dofs_local_b
     nodes_a = pair_data.nodes_a
     nodes_b = pair_data.nodes_b
 
@@ -1635,16 +2133,16 @@ def _accumulate_supermesh_residual_triangle(
         tol=tol,
     )
     if diag_force:
-        dofs_a = int(offset_a) + np.asarray(dofs_local_a, dtype=int)
-        dofs_b = int(offset_b) + np.asarray(dofs_local_b, dtype=int)
+        dofs_a = int(offset_a) + np.asarray(test_dofs_local_a, dtype=int)
+        dofs_b = int(offset_b) + np.asarray(test_dofs_local_b, dtype=int)
         _diag_contact_projection(
             fa=int(fa),
             fb=int(fb),
             quad_pts=quad_pts,
             quad_w=quad_w,
             x_q=x_q,
-            Na=Na,
-            Nb=Nb,
+            Na=test_Na,
+            Nb=test_Nb,
             nodes_a=nodes_a,
             nodes_b=nodes_b,
             dofs_a=dofs_a,
@@ -1663,21 +2161,31 @@ def _accumulate_supermesh_residual_triangle(
             tol=tol,
         )
 
-    space_keys = getattr(res_form, "_space_by_target", {})
-    space_key_a = space_keys.get(field_a)
-    space_key_b = space_keys.get(field_b)
+    test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b = _mixed_surface_space_aliases(
+        res_form,
+        field_a=field_a,
+        field_b=field_b,
+    )
     normal_q = None if normal is None else np.repeat(normal[None, :], quad_pts.shape[0], axis=0)
     ctx = _build_mixed_surface_context(
         field_a=field_a,
         field_b=field_b,
-        space_key_a=space_key_a,
-        space_key_b=space_key_b,
-        Na=Na,
-        Nb=Nb,
-        gradNa=gradNa,
-        gradNb=gradNb,
-        value_dim_a=value_dim_a,
-        value_dim_b=value_dim_b,
+        test_space_key_a=test_space_key_a,
+        test_space_key_b=test_space_key_b,
+        unknown_space_key_a=unknown_space_key_a,
+        unknown_space_key_b=unknown_space_key_b,
+        test_Na=test_Na,
+        test_Nb=test_Nb,
+        trial_Na=trial_Na,
+        trial_Nb=trial_Nb,
+        test_gradNa=test_gradNa,
+        test_gradNb=test_gradNb,
+        trial_gradNa=trial_gradNa,
+        trial_gradNb=trial_gradNb,
+        test_value_dim_a=value_dim_a,
+        test_value_dim_b=value_dim_b,
+        trial_value_dim_a=value_dim_a,
+        trial_value_dim_b=value_dim_b,
         x_q=x_q,
         w=quad_w,
         detJ=np.array([detJ], dtype=float),
@@ -1687,15 +2195,15 @@ def _accumulate_supermesh_residual_triangle(
     u_elem = _surface_u_elem_with_space_aliases(
         field_a=field_a,
         field_b=field_b,
-        space_key_a=space_key_a,
-        space_key_b=space_key_b,
-        u_local_a=np.asarray(u_a, dtype=float)[np.asarray(dofs_local_a, dtype=int)],
-        u_local_b=np.asarray(u_b, dtype=float)[np.asarray(dofs_local_b, dtype=int)],
+        unknown_space_key_a=unknown_space_key_a,
+        unknown_space_key_b=unknown_space_key_b,
+        u_local_a=np.asarray(u_a, dtype=float)[np.asarray(trial_dofs_local_a, dtype=int)],
+        u_local_b=np.asarray(u_b, dtype=float)[np.asarray(trial_dofs_local_b, dtype=int)],
     )
     fe_q = res_form(ctx, u_elem, params)
     for name, dofs_local, offset in (
-        (field_a, dofs_local_a, offset_a),
-        (field_b, dofs_local_b, offset_b),
+        (field_a, test_dofs_local_a, offset_a),
+        (field_b, test_dofs_local_b, offset_b),
     ):
         fe_field = fe_q[name]
         if fe_field.ndim != 2 or fe_field.shape[0] != ctx.x_q.shape[0]:
@@ -1810,14 +2318,21 @@ def _accumulate_supermesh_jacobian_triangle_core(
     detJ: float,
     tol: float,
     pair_basis_builder: Callable[..., _SupermeshPairBasisData],
+    trial_pair_basis_builder: Callable[..., _SupermeshPairBasisData],
     coords_a: np.ndarray,
     coords_b: np.ndarray,
     facets_a: np.ndarray,
     facets_b: np.ndarray,
     value_dim_a: int,
     value_dim_b: int,
+    trial_value_dim_a: int,
+    trial_value_dim_b: int,
     dof_source: str,
     grad_source: str,
+    space_mode_a: str,
+    space_mode_b: str,
+    trial_space_mode_a: str,
+    trial_space_mode_b: str,
     use_elem_a: bool,
     use_elem_b: bool,
     elem_conn_a: np.ndarray | None,
@@ -1826,6 +2341,8 @@ def _accumulate_supermesh_jacobian_triangle_core(
     facet_to_elem_b: np.ndarray | None,
     facet_dofs_a: np.ndarray | None,
     facet_dofs_b: np.ndarray | None,
+    trial_facet_dofs_a: np.ndarray | None,
+    trial_facet_dofs_b: np.ndarray | None,
     proj_diag: bool,
     diag_map: bool,
     diag_n: bool,
@@ -1884,6 +2401,39 @@ def _accumulate_supermesh_jacobian_triangle_core(
         facet_dofs_b=facet_dofs_b,
         tol=tol,
     )
+    if (
+        int(trial_value_dim_a) != int(value_dim_a)
+        or int(trial_value_dim_b) != int(value_dim_b)
+        or str(trial_space_mode_a) != str(space_mode_a)
+        or str(trial_space_mode_b) != str(space_mode_b)
+        or not _same_optional_int_array(trial_facet_dofs_a, facet_dofs_a)
+        or not _same_optional_int_array(trial_facet_dofs_b, facet_dofs_b)
+    ):
+        trial_pair = trial_pair_basis_builder(
+            fa=int(fa),
+            fb=int(fb),
+            facet_a=facet_a,
+            facet_b=facet_b,
+            x_q=x_q,
+            coords_a=coords_a,
+            coords_b=coords_b,
+            facets_a=facets_a,
+            facets_b=facets_b,
+            value_dim_a=trial_value_dim_a,
+            value_dim_b=trial_value_dim_b,
+            dof_source=dof_source,
+            grad_source=grad_source,
+            use_elem_a=use_elem_a,
+            use_elem_b=use_elem_b,
+            elem_conn_a=elem_conn_a,
+            elem_conn_b=elem_conn_b,
+            facet_to_elem_a=facet_to_elem_a,
+            facet_to_elem_b=facet_to_elem_b,
+            facet_dofs_a=trial_facet_dofs_a,
+            facet_dofs_b=trial_facet_dofs_b,
+            tol=tol,
+        )
+        pair_data = _merge_trial_pair_basis_data(pair_data, trial_pair)
     elem_id_a = pair_data.elem_id_a
     elem_id_b = pair_data.elem_id_b
     local_a = pair_data.local_a
@@ -1899,15 +2449,21 @@ def _accumulate_supermesh_jacobian_triangle_core(
         )
 
     t_basis = time.perf_counter()
-    Na = pair_data.Na
-    Nb = pair_data.Nb
-    gradNa = pair_data.gradNa
-    gradNb = pair_data.gradNb
-    dofs_local_a = pair_data.dofs_local_a
-    dofs_local_b = pair_data.dofs_local_b
+    test_Na = pair_data.test_Na if pair_data.test_Na is not None else pair_data.Na
+    test_Nb = pair_data.test_Nb if pair_data.test_Nb is not None else pair_data.Nb
+    trial_Na = pair_data.trial_Na if pair_data.trial_Na is not None else pair_data.Na
+    trial_Nb = pair_data.trial_Nb if pair_data.trial_Nb is not None else pair_data.Nb
+    test_gradNa = pair_data.test_gradNa if pair_data.test_gradNa is not None else pair_data.gradNa
+    test_gradNb = pair_data.test_gradNb if pair_data.test_gradNb is not None else pair_data.gradNb
+    trial_gradNa = pair_data.trial_gradNa if pair_data.trial_gradNa is not None else pair_data.gradNa
+    trial_gradNb = pair_data.trial_gradNb if pair_data.trial_gradNb is not None else pair_data.gradNb
+    test_dofs_local_a = pair_data.test_dofs_local_a if pair_data.test_dofs_local_a is not None else pair_data.dofs_local_a
+    test_dofs_local_b = pair_data.test_dofs_local_b if pair_data.test_dofs_local_b is not None else pair_data.dofs_local_b
+    trial_dofs_local_a = pair_data.trial_dofs_local_a if pair_data.trial_dofs_local_a is not None else pair_data.dofs_local_a
+    trial_dofs_local_b = pair_data.trial_dofs_local_b if pair_data.trial_dofs_local_b is not None else pair_data.dofs_local_b
     nodes_a = pair_data.nodes_a
     nodes_b = pair_data.nodes_b
-    if guard and (not np.isfinite(Na).all() or not np.isfinite(Nb).all()):
+    if guard and (not np.isfinite(test_Na).all() or not np.isfinite(test_Nb).all()):
         if log_tri:
             trace_fn(f"[CONTACT] tri {it} N non-finite; skip")
         if skip_nonfinite:
@@ -1951,14 +2507,14 @@ def _accumulate_supermesh_jacobian_triangle_core(
 
     global _DEBUG_CONTACT_N_ONCE
     if diag_n and not _DEBUG_CONTACT_N_ONCE:
-        dofs_a = int(offset_a) + np.asarray(dofs_local_a, dtype=int)
-        dofs_b = int(offset_b) + np.asarray(dofs_local_b, dtype=int)
+        dofs_a = int(offset_a) + np.asarray(test_dofs_local_a, dtype=int)
+        dofs_b = int(offset_b) + np.asarray(test_dofs_local_b, dtype=int)
         samples = min(3, Na.shape[0])
         print("[fluxfem][diag][contact-n] first facet q-points")
         print(f"  nodes_a={nodes_a.tolist()} nodes_b={nodes_b.tolist()}")
         print(f"  dofs_a={dofs_a.tolist()} dofs_b={dofs_b.tolist()}")
         for qi in range(samples):
-            print(f"  q{qi} x={x_q[qi].tolist()} Na={Na[qi].tolist()} Nb={Nb[qi].tolist()}")
+            print(f"  q{qi} x={x_q[qi].tolist()} Na={test_Na[qi].tolist()} Nb={test_Nb[qi].tolist()}")
         _DEBUG_CONTACT_N_ONCE = True
 
     normal = None
@@ -1978,67 +2534,103 @@ def _accumulate_supermesh_jacobian_triangle_core(
     if normal is not None:
         normal = normal_sign * normal
 
-    space_keys = getattr(res_form, "_space_by_target", {})
-    space_key_a = space_keys.get(field_a)
-    space_key_b = space_keys.get(field_b)
     normal_q = None if normal is None else np.repeat(normal[None, :], quad_pts.shape[0], axis=0)
-    ctx = _build_mixed_surface_context(
-        field_a=field_a,
-        field_b=field_b,
-        space_key_a=space_key_a,
-        space_key_b=space_key_b,
-        Na=Na,
-        Nb=Nb,
-        gradNa=gradNa,
-        gradNb=gradNb,
-        value_dim_a=value_dim_a,
-        value_dim_b=value_dim_b,
-        x_q=x_q,
-        w=quad_w,
-        detJ=np.array([detJ], dtype=float),
-        normal_q=normal_q,
-    )
-
-    u_elem = _surface_u_elem_with_space_aliases(
-        field_a=field_a,
-        field_b=field_b,
-        space_key_a=space_key_a,
-        space_key_b=space_key_b,
-        u_local_a=np.asarray(u_a, dtype=float)[np.asarray(dofs_local_a, dtype=int)],
-        u_local_b=np.asarray(u_b, dtype=float)[np.asarray(dofs_local_b, dtype=int)],
-    )
-    u_local = np.concatenate([u_elem[field_a], u_elem[field_b]], axis=0)
-    sizes = (u_elem[field_a].shape[0], u_elem[field_b].shape[0])
-    slices = {
-        field_a: slice(0, sizes[0]),
-        field_b: slice(sizes[0], sizes[0] + sizes[1]),
-    }
-
     t_jac = time.perf_counter()
-    if log_tri and backend == "numpy":
-        trace_fn(
-            f"[CONTACT] tri {it} fd_start n_ldofs={int(u_local.shape[0])} fd_mode={fd_mode} block={int(fd_block_size)}"
-        )
-    J_local_np = _compute_mixed_surface_local_jacobian(
-        u_local=np.asarray(u_local, dtype=float),
-        backend=backend,
-        fd_eps=fd_eps,
-        fd_mode=fd_mode,
-        fd_block_size=fd_block_size,
-        field_a=field_a,
-        field_b=field_b,
-        slices=slices,
-        res_form=res_form,
-        ctx=ctx,
-        params=params,
-        includes_measure=includes_measure,
+    formulation_tag = getattr(res_form, "_ff_contact_formulation", None)
+    fastpath_tag = getattr(res_form, "_ff_contact_backend_fastpath", None)
+    use_fast_pair_nitsche = (
+        backend == "numpy"
+        and formulation_tag == "pair_nitsche_penalty"
+        and fastpath_tag == "numpy_local_kernel"
     )
+    if use_fast_pair_nitsche:
+        if normal_q is None:
+            raise ValueError("pair_nitsche_penalty fast path requires surface normals.")
+        J_local_np = _fast_pair_nitsche_penalty_local_matrix(
+            Na=np.asarray(test_Na, dtype=float),
+            Nb=np.asarray(test_Nb, dtype=float),
+            gradNa=np.asarray(test_gradNa, dtype=float),
+            gradNb=np.asarray(test_gradNb, dtype=float),
+            normal_q=np.asarray(normal_q, dtype=float),
+            w=np.asarray(quad_w, dtype=float),
+            detJ=np.array([detJ], dtype=float),
+            alpha=float(getattr(params, "alpha")),
+            inv_h=float(getattr(params, "inv_h")),
+            lam=float(getattr(params, "lam")),
+            mu=float(getattr(params, "mu")),
+            use_penalty=float(getattr(params, "use_penalty", 1.0)),
+            use_traction=float(getattr(params, "use_traction", 1.0)),
+            value_dim_a=int(value_dim_a),
+            value_dim_b=int(value_dim_b),
+        )
+    else:
+        test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b = (
+            _mixed_surface_space_aliases(
+                res_form,
+                field_a=field_a,
+                field_b=field_b,
+            )
+        )
+        ctx = _build_mixed_surface_context(
+            field_a=field_a,
+            field_b=field_b,
+            test_space_key_a=test_space_key_a,
+            test_space_key_b=test_space_key_b,
+            unknown_space_key_a=unknown_space_key_a,
+            unknown_space_key_b=unknown_space_key_b,
+            test_Na=test_Na,
+            test_Nb=test_Nb,
+            trial_Na=trial_Na,
+            trial_Nb=trial_Nb,
+            test_gradNa=test_gradNa,
+            test_gradNb=test_gradNb,
+            trial_gradNa=trial_gradNa,
+            trial_gradNb=trial_gradNb,
+            test_value_dim_a=value_dim_a,
+            test_value_dim_b=value_dim_b,
+            trial_value_dim_a=value_dim_a,
+            trial_value_dim_b=value_dim_b,
+            x_q=x_q,
+            w=quad_w,
+            detJ=np.array([detJ], dtype=float),
+            normal_q=normal_q,
+        )
+        u_elem = _surface_u_elem_with_space_aliases(
+            field_a=field_a,
+            field_b=field_b,
+            unknown_space_key_a=unknown_space_key_a,
+            unknown_space_key_b=unknown_space_key_b,
+            u_local_a=np.asarray(u_a, dtype=float)[np.asarray(trial_dofs_local_a, dtype=int)],
+            u_local_b=np.asarray(u_b, dtype=float)[np.asarray(trial_dofs_local_b, dtype=int)],
+        )
+        u_local = np.concatenate([u_elem[field_a], u_elem[field_b]], axis=0)
+        sizes = (u_elem[field_a].shape[0], u_elem[field_b].shape[0])
+        slices = {
+            field_a: slice(0, sizes[0]),
+            field_b: slice(sizes[0], sizes[0] + sizes[1]),
+        }
+        J_local_np = _compute_mixed_surface_local_jacobian(
+            u_local=np.asarray(u_local, dtype=float),
+            backend=backend,
+            fd_eps=fd_eps,
+            fd_mode=fd_mode,
+            fd_block_size=fd_block_size,
+            field_a=field_a,
+            field_b=field_b,
+            slices=slices,
+            res_form=res_form,
+            ctx=ctx,
+            params=params,
+            includes_measure=includes_measure,
+        )
     if log_tri:
         trace_time_fn(f"[CONTACT] tri {it} jac_done", t_jac)
     tri_check("jac_done")
 
-    dofs_a = int(offset_a) + np.asarray(dofs_local_a, dtype=int)
-    dofs_b = int(offset_b) + np.asarray(dofs_local_b, dtype=int)
+    row_dofs_a = int(offset_a) + np.asarray(test_dofs_local_a, dtype=int)
+    row_dofs_b = int(offset_b) + np.asarray(test_dofs_local_b, dtype=int)
+    col_dofs_a = int(offset_a) + np.asarray(trial_dofs_local_a, dtype=int)
+    col_dofs_b = int(offset_b) + np.asarray(trial_dofs_local_b, dtype=int)
     if diag_force:
         _diag_contact_projection(
             fa=int(fa),
@@ -2046,12 +2638,12 @@ def _accumulate_supermesh_jacobian_triangle_core(
             quad_pts=quad_pts,
             quad_w=quad_w,
             x_q=x_q,
-            Na=Na,
-            Nb=Nb,
+            Na=test_Na,
+            Nb=test_Nb,
             nodes_a=nodes_a,
             nodes_b=nodes_b,
-            dofs_a=dofs_a,
-            dofs_b=dofs_b,
+            dofs_a=row_dofs_a,
+            dofs_b=row_dofs_b,
             elem_coords_a=None,
             elem_coords_b=None,
             na=na,
@@ -2066,15 +2658,17 @@ def _accumulate_supermesh_jacobian_triangle_core(
             tol=tol,
         )
     t_scatter = time.perf_counter()
-    dofs = np.concatenate([dofs_a, dofs_b], axis=0)
+    row_dofs = np.concatenate([row_dofs_a, row_dofs_b], axis=0)
+    col_dofs = np.concatenate([col_dofs_a, col_dofs_b], axis=0)
     if sparse:
-        n_ldofs = int(dofs.shape[0])
-        rows.extend(np.repeat(dofs, n_ldofs).tolist())
-        cols.extend(np.tile(dofs, n_ldofs).tolist())
+        n_row_ldofs = int(row_dofs.shape[0])
+        n_col_ldofs = int(col_dofs.shape[0])
+        rows.extend(np.repeat(row_dofs, n_col_ldofs).tolist())
+        cols.extend(np.tile(col_dofs, n_row_ldofs).tolist())
         data.extend(J_local_np.reshape(-1).tolist())
     else:
         assert K_dense is not None
-        K_dense[np.ix_(dofs, dofs)] += J_local_np
+        K_dense[np.ix_(row_dofs, col_dofs)] += J_local_np
     if log_tri:
         trace_time_fn(f"[CONTACT] tri {it} scatter_done", t_scatter)
     tri_check("scatter_done")
@@ -2104,9 +2698,11 @@ def _accumulate_projection_jacobian_batch(
     data: list[float],
     K_dense: np.ndarray | None,
 ) -> None:
-    space_keys = getattr(res_form, "_space_by_target", {})
-    space_key_a = space_keys.get(field_a)
-    space_key_b = space_keys.get(field_b)
+    test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b = _mixed_surface_space_aliases(
+        res_form,
+        field_a=field_a,
+        field_b=field_b,
+    )
     Na = batch["Na"]
     Nb = batch["Nb"]
     gradNa = batch["gradNa"]
@@ -2118,14 +2714,22 @@ def _accumulate_projection_jacobian_batch(
     ctx = _build_mixed_surface_context(
         field_a=field_a,
         field_b=field_b,
-        space_key_a=space_key_a,
-        space_key_b=space_key_b,
-        Na=Na,
-        Nb=Nb,
-        gradNa=gradNa,
-        gradNb=gradNb,
-        value_dim_a=value_dim_a,
-        value_dim_b=value_dim_b,
+        test_space_key_a=test_space_key_a,
+        test_space_key_b=test_space_key_b,
+        unknown_space_key_a=unknown_space_key_a,
+        unknown_space_key_b=unknown_space_key_b,
+        test_Na=Na,
+        test_Nb=Nb,
+        trial_Na=Na,
+        trial_Nb=Nb,
+        test_gradNa=gradNa,
+        test_gradNb=gradNb,
+        trial_gradNa=gradNa,
+        trial_gradNb=gradNb,
+        test_value_dim_a=value_dim_a,
+        test_value_dim_b=value_dim_b,
+        trial_value_dim_a=value_dim_a,
+        trial_value_dim_b=value_dim_b,
         x_q=batch["x_q"],
         w=batch["w"],
         detJ=batch["detJ"],
@@ -2135,8 +2739,8 @@ def _accumulate_projection_jacobian_batch(
     u_elem = _surface_u_elem_with_space_aliases(
         field_a=field_a,
         field_b=field_b,
-        space_key_a=space_key_a,
-        space_key_b=space_key_b,
+        unknown_space_key_a=unknown_space_key_a,
+        unknown_space_key_b=unknown_space_key_b,
         u_local_a=_gather_u_local(u_a, nodes_a, value_dim_a),
         u_local_b=_gather_u_local(u_b, nodes_b, value_dim_b),
     )
@@ -2321,6 +2925,22 @@ def _prepare_supermesh_pair_basis_data(
         nodes_b=nodes_b,
         local_a=local_a,
         local_b=local_b,
+        test_Na=Na,
+        test_Nb=Nb,
+        trial_Na=Na,
+        trial_Nb=Nb,
+        test_gradNa=gradNa,
+        test_gradNb=gradNb,
+        trial_gradNa=gradNa,
+        trial_gradNb=gradNb,
+        test_dofs_local_a=dofs_local_a,
+        test_dofs_local_b=dofs_local_b,
+        trial_dofs_local_a=dofs_local_a,
+        trial_dofs_local_b=dofs_local_b,
+        test_nodes_a=nodes_a,
+        test_nodes_b=nodes_b,
+        trial_nodes_a=nodes_a,
+        trial_nodes_b=nodes_b,
     )
 
 
@@ -3653,10 +4273,76 @@ def assemble_contact_coupling_matrices(
     surface_b: SurfaceMesh,
     *,
     tol: float = 1e-8,
+    quad_order: int = 0,
 ) -> tuple[ContactCouplingMatrix, ContactCouplingMatrix]:
     """
-    Assemble contact coupling matrices M_aa and M_ab using centroid quadrature.
+    Assemble contact coupling matrices M_aa and M_ab on the supermesh.
     """
+    if quad_order <= 0:
+        quad_pts = np.array([[1.0 / 3.0, 1.0 / 3.0]], dtype=float)
+        quad_w = np.array([0.5], dtype=float)
+    else:
+        quad_pts, quad_w = _tri_quadrature(int(quad_order))
+    use_jax_geometry = _uses_jax_geometry(supermesh_coords, surface_a.coords, surface_b.coords)
+    if use_jax_geometry:
+        facets_a = np.asarray(surface_a.conn, dtype=int)
+        facets_b = np.asarray(surface_b.conn, dtype=int)
+        if facets_a.shape[1] != 3 or facets_b.shape[1] != 3:
+            raise NotImplementedError(
+                "JAX-traced contact coupling matrices are currently implemented only for tri3 facets."
+            )
+        coords_a_j = jnp.asarray(surface_a.coords)
+        coords_b_j = jnp.asarray(surface_b.coords)
+        supermesh_coords_j = jnp.asarray(supermesh_coords)
+
+        rows_aa: list[int] = []
+        cols_aa: list[int] = []
+        data_aa: list[jnp.ndarray] = []
+        rows_ab: list[int] = []
+        cols_ab: list[int] = []
+        data_ab: list[jnp.ndarray] = []
+
+        for tri, fa, fb in zip(np.asarray(supermesh_conn, dtype=int), source_facets_a, source_facets_b):
+            a = supermesh_coords_j[tri[0]]
+            b = supermesh_coords_j[tri[1]]
+            c = supermesh_coords_j[tri[2]]
+            detJ = jnp.linalg.norm(jnp.cross(b - a, c - a))
+            facet_a = facets_a[int(fa)]
+            facet_b = facets_b[int(fb)]
+            for (r, s), w_ref in zip(quad_pts, quad_w):
+                x_q = a + float(r) * (b - a) + float(s) * (c - a)
+                weight = detJ * float(w_ref)
+                Na = _tri3_shape_values_jax(x_q, facet_a, coords_a_j)
+                Nb = _tri3_shape_values_jax(x_q, facet_b, coords_b_j)
+
+                for i, node_i in enumerate(facet_a):
+                    for j, node_j in enumerate(facet_a):
+                        rows_aa.append(int(node_i))
+                        cols_aa.append(int(node_j))
+                        data_aa.append(weight * Na[i] * Na[j])
+
+                for i, node_i in enumerate(facet_a):
+                    for j, node_j in enumerate(facet_b):
+                        rows_ab.append(int(node_i))
+                        cols_ab.append(int(node_j))
+                        data_ab.append(weight * Na[i] * Nb[j])
+
+        n_a = int(coords_a_j.shape[0])
+        n_b = int(coords_b_j.shape[0])
+        M_aa = ContactCouplingMatrix(
+            rows=np.asarray(rows_aa, dtype=int),
+            cols=np.asarray(cols_aa, dtype=int),
+            data=jnp.stack(data_aa) if data_aa else jnp.zeros((0,), dtype=coords_a_j.dtype),
+            shape=(n_a, n_a),
+        )
+        M_ab = ContactCouplingMatrix(
+            rows=np.asarray(rows_ab, dtype=int),
+            cols=np.asarray(cols_ab, dtype=int),
+            data=jnp.stack(data_ab) if data_ab else jnp.zeros((0,), dtype=coords_b_j.dtype),
+            shape=(n_a, n_b),
+        )
+        return M_aa, M_ab
+
     coords_a = np.asarray(surface_a.coords, dtype=float)
     coords_b = np.asarray(surface_b.coords, dtype=float)
     facets_a = np.asarray(surface_a.conn, dtype=int)
@@ -3675,27 +4361,29 @@ def assemble_contact_coupling_matrices(
         source_facets_a,
         source_facets_b,
     ):
-        centroid = _tri_centroid(a, b, c)
-        weight = _tri_area(a, b, c)
-        if weight <= tol:
+        detJ = 2.0 * _tri_area(a, b, c)
+        if detJ <= tol:
             continue
 
         facet_a = facets_a[int(fa)]
         facet_b = facets_b[int(fb)]
-        Na = _facet_shape_values(centroid, facet_a, coords_a, tol=tol)
-        Nb = _facet_shape_values(centroid, facet_b, coords_b, tol=tol)
+        for (r, s), w_ref in zip(quad_pts, quad_w):
+            x_q = a + float(r) * (b - a) + float(s) * (c - a)
+            weight = detJ * float(w_ref)
+            Na = _facet_shape_values(x_q, facet_a, coords_a, tol=tol)
+            Nb = _facet_shape_values(x_q, facet_b, coords_b, tol=tol)
 
-        for i, node_i in enumerate(facet_a):
-            for j, node_j in enumerate(facet_a):
-                rows_aa.append(int(node_i))
-                cols_aa.append(int(node_j))
-                data_aa.append(weight * float(Na[i]) * float(Na[j]))
+            for i, node_i in enumerate(facet_a):
+                for j, node_j in enumerate(facet_a):
+                    rows_aa.append(int(node_i))
+                    cols_aa.append(int(node_j))
+                    data_aa.append(weight * float(Na[i]) * float(Na[j]))
 
-        for i, node_i in enumerate(facet_a):
-            for j, node_j in enumerate(facet_b):
-                rows_ab.append(int(node_i))
-                cols_ab.append(int(node_j))
-                data_ab.append(weight * float(Na[i]) * float(Nb[j]))
+            for i, node_i in enumerate(facet_a):
+                for j, node_j in enumerate(facet_b):
+                    rows_ab.append(int(node_i))
+                    cols_ab.append(int(node_j))
+                    data_ab.append(weight * float(Na[i]) * float(Nb[j]))
 
     n_a = int(np.asarray(surface_a.coords).shape[0])
     n_b = int(np.asarray(surface_b.coords).shape[0])
@@ -3728,6 +4416,8 @@ def assemble_contact_interface_residual(
     *,
     value_dim_a: int = 1,
     value_dim_b: int = 1,
+    trial_value_dim_a: int | None = None,
+    trial_value_dim_b: int | None = None,
     offset_a: int = 0,
     offset_b: int | None = None,
     field_a: str = "a",
@@ -3744,8 +4434,12 @@ def assemble_contact_interface_residual(
     dof_source: str = "surface",
     space_mode_a: str = "nodal",
     space_mode_b: str = "nodal",
+    trial_space_mode_a: str | None = None,
+    trial_space_mode_b: str | None = None,
     facet_dofs_a: np.ndarray | None = None,
     facet_dofs_b: np.ndarray | None = None,
+    trial_facet_dofs_a: np.ndarray | None = None,
+    trial_facet_dofs_b: np.ndarray | None = None,
     quad_order: int = 0,
     tol: float = 1e-8,
 ) -> np.ndarray:
@@ -3780,6 +4474,26 @@ def assemble_contact_interface_residual(
     )
     if offset_b is None:
         offset_b = offset_a + n_a
+    if trial_value_dim_a is None:
+        trial_value_dim_a = value_dim_a
+    if trial_value_dim_b is None:
+        trial_value_dim_b = value_dim_b
+    if trial_space_mode_a is None:
+        trial_space_mode_a = space_mode_a
+    if trial_space_mode_b is None:
+        trial_space_mode_b = space_mode_b
+    if trial_facet_dofs_a is None:
+        trial_facet_dofs_a = facet_dofs_a
+    if trial_facet_dofs_b is None:
+        trial_facet_dofs_b = facet_dofs_b
+    distinct_trial_layout = (
+        int(trial_value_dim_a) != int(value_dim_a)
+        or int(trial_value_dim_b) != int(value_dim_b)
+        or str(trial_space_mode_a) != str(space_mode_a)
+        or str(trial_space_mode_b) != str(space_mode_b)
+        or not _same_optional_int_array(trial_facet_dofs_a, facet_dofs_a)
+        or not _same_optional_int_array(trial_facet_dofs_b, facet_dofs_b)
+    )
     n_total = int(offset_b + n_b)
     R: np.ndarray = np.zeros((n_total,), dtype=float)
     u_a_np = np.asarray(u_a, dtype=float)
@@ -3807,8 +4521,14 @@ def assemble_contact_interface_residual(
     facet_area_b = None
     if area_scale > 0.0:
         t_area = time.perf_counter()
-        facet_area_a = np.array([_facet_area_estimate(fa, coords_a) for fa in facets_a], dtype=float)
-        facet_area_b = np.array([_facet_area_estimate(fb, coords_b) for fb in facets_b], dtype=float)
+        if hasattr(surface_a, "facet_areas"):
+            facet_area_a = np.asarray(surface_a.facet_areas(), dtype=float)
+        else:
+            facet_area_a = np.array([_facet_area_estimate(fa, coords_a) for fa in facets_a], dtype=float)
+        if hasattr(surface_b, "facet_areas"):
+            facet_area_b = np.asarray(surface_b.facet_areas(), dtype=float)
+        else:
+            facet_area_b = np.array([_facet_area_estimate(fb, coords_b) for fb in facets_b], dtype=float)
         if trace:
             _trace_time("[CONTACT] facet_area_done", t_area)
 
@@ -3855,7 +4575,7 @@ def assemble_contact_interface_residual(
     )
 
     contact_interface_mode = os.getenv("FLUXFEM_CONTACT_INTERFACE_MODE", "supermesh").lower()
-    if contact_interface_mode == "projection" and not (use_p0_a or use_p0_b):
+    if contact_interface_mode == "projection" and not (use_p0_a or use_p0_b) and not distinct_trial_layout:
         batches, fallback = _projection_surface_batches(
             source_facets_a,
             source_facets_b,
@@ -3873,9 +4593,13 @@ def assemble_contact_interface_residual(
             tol=tol,
         )
         if batches is not None and not fallback:
-            space_keys = getattr(res_form, "_space_by_target", {})
-            space_key_a = space_keys.get(field_a)
-            space_key_b = space_keys.get(field_b)
+            test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b = (
+                _mixed_surface_space_aliases(
+                    res_form,
+                    field_a=field_a,
+                    field_b=field_b,
+                )
+            )
             for batch in batches:
                 Na = batch["Na"]
                 Nb = batch["Nb"]
@@ -3888,14 +4612,22 @@ def assemble_contact_interface_residual(
                 ctx = _build_mixed_surface_context(
                     field_a=field_a,
                     field_b=field_b,
-                    space_key_a=space_key_a,
-                    space_key_b=space_key_b,
-                    Na=Na,
-                    Nb=Nb,
-                    gradNa=gradNa,
-                    gradNb=gradNb,
-                    value_dim_a=value_dim_a,
-                    value_dim_b=value_dim_b,
+                    test_space_key_a=test_space_key_a,
+                    test_space_key_b=test_space_key_b,
+                    unknown_space_key_a=unknown_space_key_a,
+                    unknown_space_key_b=unknown_space_key_b,
+                    test_Na=Na,
+                    test_Nb=Nb,
+                    trial_Na=Na,
+                    trial_Nb=Nb,
+                    test_gradNa=gradNa,
+                    test_gradNb=gradNb,
+                    trial_gradNa=gradNa,
+                    trial_gradNb=gradNb,
+                    test_value_dim_a=value_dim_a,
+                    test_value_dim_b=value_dim_b,
+                    trial_value_dim_a=value_dim_a,
+                    trial_value_dim_b=value_dim_b,
                     x_q=batch["x_q"],
                     w=batch["w"],
                     detJ=batch["detJ"],
@@ -3904,8 +4636,8 @@ def assemble_contact_interface_residual(
                 u_elem = _surface_u_elem_with_space_aliases(
                     field_a=field_a,
                     field_b=field_b,
-                    space_key_a=space_key_a,
-                    space_key_b=space_key_b,
+                    unknown_space_key_a=unknown_space_key_a,
+                    unknown_space_key_b=unknown_space_key_b,
                     u_local_a=_gather_u_local(u_a_np, nodes_a, value_dim_a),
                     u_local_b=_gather_u_local(u_b_np, nodes_b, value_dim_b),
                 )
@@ -3930,6 +4662,12 @@ def assemble_contact_interface_residual(
     pair_basis_builder = _select_supermesh_pair_basis_builder(
         use_p0_a=use_p0_a,
         use_p0_b=use_p0_b,
+    )
+    trial_use_p0_a = str(trial_space_mode_a) == "p0"
+    trial_use_p0_b = str(trial_space_mode_b) == "p0"
+    trial_pair_basis_builder = _select_supermesh_pair_basis_builder(
+        use_p0_a=trial_use_p0_a,
+        use_p0_b=trial_use_p0_b,
     )
     for (tri, a, b, c), fa, fb in zip(
         _iter_supermesh_tris(supermesh_coords, supermesh_conn),
@@ -3958,10 +4696,17 @@ def assemble_contact_interface_residual(
             facets_a=facets_a,
             facets_b=facets_b,
             pair_basis_builder=pair_basis_builder,
+            trial_pair_basis_builder=trial_pair_basis_builder,
             value_dim_a=value_dim_a,
             value_dim_b=value_dim_b,
+            trial_value_dim_a=int(trial_value_dim_a),
+            trial_value_dim_b=int(trial_value_dim_b),
             dof_source=dof_source,
             grad_source=grad_source,
+            space_mode_a=space_mode_a,
+            space_mode_b=space_mode_b,
+            trial_space_mode_a=str(trial_space_mode_a),
+            trial_space_mode_b=str(trial_space_mode_b),
             use_elem_a=use_elem_a,
             use_elem_b=use_elem_b,
             elem_conn_a=elem_conn_a,
@@ -3970,6 +4715,8 @@ def assemble_contact_interface_residual(
             facet_to_elem_b=facet_to_elem_b,
             facet_dofs_a=facet_dofs_a,
             facet_dofs_b=facet_dofs_b,
+            trial_facet_dofs_a=trial_facet_dofs_a,
+            trial_facet_dofs_b=trial_facet_dofs_b,
             proj_diag=proj_diag,
             normal_source=normal_source,
             normal_sign=normal_sign,
@@ -4006,6 +4753,8 @@ def assemble_contact_interface_jacobian(
     *,
     value_dim_a: int = 1,
     value_dim_b: int = 1,
+    trial_value_dim_a: int | None = None,
+    trial_value_dim_b: int | None = None,
     offset_a: int = 0,
     offset_b: int | None = None,
     field_a: str = "a",
@@ -4022,8 +4771,12 @@ def assemble_contact_interface_jacobian(
     dof_source: str = "surface",
     space_mode_a: str = "nodal",
     space_mode_b: str = "nodal",
+    trial_space_mode_a: str | None = None,
+    trial_space_mode_b: str | None = None,
     facet_dofs_a: np.ndarray | None = None,
     facet_dofs_b: np.ndarray | None = None,
+    trial_facet_dofs_a: np.ndarray | None = None,
+    trial_facet_dofs_b: np.ndarray | None = None,
     quad_order: int = 0,
     tol: float = 1e-8,
     sparse: bool = False,
@@ -4032,6 +4785,7 @@ def assemble_contact_interface_jacobian(
     fd_eps: float = 1e-6,
     fd_mode: str = "central",
     fd_block_size: int = 1,
+    supermesh_quad_cache: _SupermeshTriangleQuadratureCache | None = None,
 ):
     """
     Assemble mixed surface Jacobian over a supermesh (centroid quadrature).
@@ -4081,6 +4835,26 @@ def assemble_contact_interface_jacobian(
     )
     if offset_b is None:
         offset_b = offset_a + n_a
+    if trial_value_dim_a is None:
+        trial_value_dim_a = value_dim_a
+    if trial_value_dim_b is None:
+        trial_value_dim_b = value_dim_b
+    if trial_space_mode_a is None:
+        trial_space_mode_a = space_mode_a
+    if trial_space_mode_b is None:
+        trial_space_mode_b = space_mode_b
+    if trial_facet_dofs_a is None:
+        trial_facet_dofs_a = facet_dofs_a
+    if trial_facet_dofs_b is None:
+        trial_facet_dofs_b = facet_dofs_b
+    distinct_trial_layout = (
+        int(trial_value_dim_a) != int(value_dim_a)
+        or int(trial_value_dim_b) != int(value_dim_b)
+        or str(trial_space_mode_a) != str(space_mode_a)
+        or str(trial_space_mode_b) != str(space_mode_b)
+        or not _same_optional_int_array(trial_facet_dofs_a, facet_dofs_a)
+        or not _same_optional_int_array(trial_facet_dofs_b, facet_dofs_b)
+    )
     n_total = int(offset_b + n_b)
     u_a_np = np.asarray(u_a, dtype=float)
     u_b_np = np.asarray(u_b, dtype=float)
@@ -4125,8 +4899,14 @@ def assemble_contact_interface_jacobian(
     facet_area_a = None
     facet_area_b = None
     if area_scale > 0.0:
-        facet_area_a = np.array([_facet_area_estimate(fa, coords_a) for fa in facets_a], dtype=float)
-        facet_area_b = np.array([_facet_area_estimate(fb, coords_b) for fb in facets_b], dtype=float)
+        if hasattr(surface_a, "facet_areas"):
+            facet_area_a = np.asarray(surface_a.facet_areas(), dtype=float)
+        else:
+            facet_area_a = np.array([_facet_area_estimate(fa, coords_a) for fa in facets_a], dtype=float)
+        if hasattr(surface_b, "facet_areas"):
+            facet_area_b = np.asarray(surface_b.facet_areas(), dtype=float)
+        else:
+            facet_area_b = np.array([_facet_area_estimate(fb, coords_b) for fb in facets_b], dtype=float)
 
     includes_measure = getattr(res_form, "_includes_measure", {})
 
@@ -4162,8 +4942,6 @@ def assemble_contact_interface_jacobian(
     diag_abs_detj = os.getenv("FLUXFEM_PROJ_DIAG_ABS_DETJ", "1") == "1"
     if backend not in {"jax", "numpy"}:
         raise ValueError("backend must be 'jax' or 'numpy'")
-    if backend == "numpy":
-        raise NotImplementedError("backend='numpy' for contact weak-form Jacobians has been removed.")
     if batch_jac is None:
         batch_jac = _env_flag("FLUXFEM_CONTACT_INTERFACE_BATCH_JAC", True)
 
@@ -4179,7 +4957,7 @@ def assemble_contact_interface_jacobian(
 
     contact_interface_mode = os.getenv("FLUXFEM_CONTACT_INTERFACE_MODE", "supermesh").lower()
     _contact_interface_dbg(f"[contact-interface] mode={contact_interface_mode}")
-    if contact_interface_mode == "projection" and not (use_p0_a or use_p0_b):
+    if contact_interface_mode == "projection" and not (use_p0_a or use_p0_b) and not distinct_trial_layout:
         batches, fallback = _projection_surface_batches(
             source_facets_a,
             source_facets_b,
@@ -4232,7 +5010,7 @@ def assemble_contact_interface_jacobian(
             assert K_dense is not None
             return K_dense
 
-    if (
+    batch_enabled = (
         batch_jac
         and backend == "jax"
         and dof_source == "volume"
@@ -4241,9 +5019,33 @@ def assemble_contact_interface_jacobian(
         and use_elem_b
         and not use_p0_a
         and not use_p0_b
+        and not distinct_trial_layout
         and not proj_diag
         and not diag_force
-    ):
+    )
+    if trace and batch_jac and not batch_enabled:
+        reasons = []
+        if backend != "jax":
+            reasons.append(f"backend={backend}")
+        if dof_source != "volume":
+            reasons.append(f"dof_source={dof_source}")
+        if grad_source != "volume":
+            reasons.append(f"grad_source={grad_source}")
+        if not use_elem_a:
+            reasons.append("missing_elem_a")
+        if not use_elem_b:
+            reasons.append("missing_elem_b")
+        if use_p0_a:
+            reasons.append("space_mode_a=p0")
+        if use_p0_b:
+            reasons.append("space_mode_b=p0")
+        if proj_diag:
+            reasons.append("projection_diag")
+        if diag_force:
+            reasons.append("diag_force")
+        _trace(f"[CONTACT] batch_jac_disabled {' '.join(reasons)}")
+
+    if batch_enabled:
         if trace:
             _trace("[CONTACT] batch_jac_enter")
         batch_items = []
@@ -4262,34 +5064,53 @@ def assemble_contact_interface_jacobian(
         n_b_local_const = None
         batch_failed = False
         jit_batch = _env_flag("FLUXFEM_CONTACT_INTERFACE_BATCH_JIT", False)
+        direct_jit_batch = _env_flag("FLUXFEM_CONTACT_INTERFACE_DIRECT_BATCH_JIT", True)
+        formulation_tag = getattr(res_form, "_ff_contact_formulation", None)
+        fastpath_tag = getattr(res_form, "_ff_contact_backend_fastpath", None)
+        has_pair_nitsche_params = all(hasattr(params, name) for name in ("alpha", "inv_h", "lam", "mu", "use_penalty", "use_traction"))
+        use_direct_pair_nitsche_batch = (
+            formulation_tag == "pair_nitsche_penalty"
+            and fastpath_tag == "numpy_local_kernel"
+            and has_pair_nitsche_params
+            and int(value_dim_a) == 3
+            and int(value_dim_b) == 3
+        )
 
         def _make_jac_fun(n_a_local: int, n_b_local: int):
-            space_keys = getattr(res_form, "_space_by_target", {})
-            space_key_a = space_keys.get(field_a)
-            space_key_b = space_keys.get(field_b)
+            test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b = (
+                _mixed_surface_space_aliases(
+                    res_form,
+                    field_a=field_a,
+                    field_b=field_b,
+                )
+            )
 
             def _res_local_batch(u_vec, Na, Nb, gradNa, gradNb, x_q, w, detJ, normal):
-                field_a_obj = SurfaceMixedFormField(
-                    N=Na,
-                    gradN=gradNa,
-                    value_dim=value_dim_a,
-                    basis=_SurfaceBasis(dofs_per_node=value_dim_a),
-                )
-                field_b_obj = SurfaceMixedFormField(
-                    N=Nb,
-                    gradN=gradNb,
-                    value_dim=value_dim_b,
-                    basis=_SurfaceBasis(dofs_per_node=value_dim_b),
-                )
                 fields = {
-                    field_a: FieldPair(test=cast("FormFieldLike", field_a_obj), trial=cast("FormFieldLike", field_a_obj)),
-                    field_b: FieldPair(test=cast("FormFieldLike", field_b_obj), trial=cast("FormFieldLike", field_b_obj)),
+                    field_a: _make_surface_field_pair(
+                        test_N=Na,
+                        test_gradN=gradNa,
+                        trial_N=Na,
+                        trial_gradN=gradNa,
+                        test_value_dim=value_dim_a,
+                        trial_value_dim=value_dim_a,
+                    ),
+                    field_b: _make_surface_field_pair(
+                        test_N=Nb,
+                        test_gradN=gradNb,
+                        trial_N=Nb,
+                        trial_gradN=gradNb,
+                        test_value_dim=value_dim_b,
+                        trial_value_dim=value_dim_b,
+                    ),
                 }
                 spaces = dict(fields)
-                if space_key_a is not None:
-                    spaces[space_key_a] = fields[field_a]
-                if space_key_b is not None:
-                    spaces[space_key_b] = fields[field_b]
+                for key in (test_space_key_a, unknown_space_key_a):
+                    if key is not None:
+                        spaces[key] = fields[field_a]
+                for key in (test_space_key_b, unknown_space_key_b):
+                    if key is not None:
+                        spaces[key] = fields[field_b]
                 normal_q = jnp.repeat(normal[None, :], x_q.shape[0], axis=0)
                 ctx = SurfaceMixedFormContext(
                     bindings=fields,
@@ -4303,10 +5124,10 @@ def assemble_contact_interface_jacobian(
                     field_a: u_vec[:n_a_local],
                     field_b: u_vec[n_a_local:],
                 }
-                if space_key_a is not None:
-                    u_dict[space_key_a] = u_dict[field_a]
-                if space_key_b is not None:
-                    u_dict[space_key_b] = u_dict[field_b]
+                if unknown_space_key_a is not None:
+                    u_dict[unknown_space_key_a] = u_dict[field_a]
+                if unknown_space_key_b is not None:
+                    u_dict[unknown_space_key_b] = u_dict[field_b]
                 fe_q = res_form(ctx, u_dict, params)
                 res_parts = []
                 for name in (field_a, field_b):
@@ -4325,6 +5146,7 @@ def assemble_contact_interface_jacobian(
             return jax.jit(jac_fun) if jit_batch else jac_fun
 
         jac_fun_cache: dict[tuple[int, int], Callable[..., jnp.ndarray]] = {}
+        direct_batch_fun = None
 
         def _emit_batch(
             Na_b,
@@ -4343,7 +5165,7 @@ def assemble_contact_interface_jacobian(
         ) -> None:
             if trace:
                 _trace(f"[CONTACT] batch_emit start n={int(Na_b.shape[0])}")
-            if batch_size and batch_n < batch_size:
+            if jit_batch and batch_size and batch_n < batch_size:
                 pad = int(batch_size - batch_n)
                 if trace:
                     _trace(f"[CONTACT] batch_pad n={batch_n} target={batch_size}")
@@ -4361,13 +5183,35 @@ def assemble_contact_interface_jacobian(
                 detJ_b = _pad_batch(detJ_b)
                 normal_b = _pad_batch(normal_b)
                 u_local_b = _pad_batch(u_local_b)
-            key = (n_a_local, n_b_local)
-            jac_fun = jac_fun_cache.get(key)
-            if jac_fun is None:
-                jac_fun = _make_jac_fun(n_a_local, n_b_local)
-                jac_fun_cache[key] = jac_fun
             t_batch = time.perf_counter()
-            J_b = jac_fun(u_local_b, Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b)
+            if use_direct_pair_nitsche_batch:
+                nonlocal direct_batch_fun
+                if direct_batch_fun is None:
+                    if trace:
+                        _trace(f"[CONTACT] batch_direct_build jit={direct_jit_batch}")
+                    direct_batch_fun = _get_direct_pair_nitsche_batch_fun(jit=direct_jit_batch)
+                J_b = direct_batch_fun(
+                    Na_b,
+                    Nb_b,
+                    gradNa_b,
+                    gradNb_b,
+                    w_b,
+                    detJ_b,
+                    normal_b,
+                    float(getattr(params, "alpha")),
+                    float(getattr(params, "inv_h")),
+                    float(getattr(params, "lam")),
+                    float(getattr(params, "mu")),
+                    float(getattr(params, "use_penalty", 1.0)),
+                    float(getattr(params, "use_traction", 1.0)),
+                )
+            else:
+                key = (n_a_local, n_b_local)
+                jac_fun = jac_fun_cache.get(key)
+                if jac_fun is None:
+                    jac_fun = _make_jac_fun(n_a_local, n_b_local)
+                    jac_fun_cache[key] = jac_fun
+                J_b = jac_fun(u_local_b, Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b)
             J_b_np = np.asarray(J_b)[:batch_n]
             if trace:
                 _trace_time("[CONTACT] batch_emit jac_done", t_batch)
@@ -4441,6 +5285,8 @@ def assemble_contact_interface_jacobian(
             if normal is not None:
                 normal = normal_sign * normal
             if normal is None:
+                if trace:
+                    _trace(f"[CONTACT] batch_jac_abort normal_none tri={int(len(dofs_batch))}")
                 batch_failed = True
                 break
 
@@ -4474,6 +5320,15 @@ def assemble_contact_interface_jacobian(
                     or dofs_b.shape[0] != n_b_local_const
                 )
                 if shape_mismatch:
+                    if trace:
+                        _trace(
+                            "[CONTACT] batch_jac_shape_mismatch "
+                            f"nq={Na.shape[0]}/{n_q} "
+                            f"na={Na.shape[1]}/{n_nodes_a} "
+                            f"nb={Nb.shape[1]}/{n_nodes_b} "
+                            f"da={dofs_a.shape[0]}/{n_a_local_const} "
+                            f"db={dofs_b.shape[0]}/{n_b_local_const}"
+                        )
                     if batch_items:
                         Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b = zip(*batch_items)
                         Na_b = jnp.asarray(np.stack(Na_b, axis=0))
@@ -4598,51 +5453,102 @@ def assemble_contact_interface_jacobian(
         use_p0_a=use_p0_a,
         use_p0_b=use_p0_b,
     )
+    trial_use_p0_a = str(trial_space_mode_a) == "p0"
+    trial_use_p0_b = str(trial_space_mode_b) == "p0"
+    trial_pair_basis_builder = _select_supermesh_pair_basis_builder(
+        use_p0_a=trial_use_p0_a,
+        use_p0_b=trial_use_p0_b,
+    )
     if trace:
         _trace("[CONTACT] supermesh_loop_enter")
     _contact_interface_dbg("[contact-interface] step: supermesh loop START")
     t_loop = time.perf_counter()
-    for it, ((tri, a, b, c), fa, fb) in enumerate(
-        zip(
-            _iter_supermesh_tris(supermesh_coords, supermesh_conn),
-            source_facets_a,
-            source_facets_b,
+    use_cached_geom = supermesh_quad_cache is not None and not diag_force
+    if use_cached_geom:
+        assert supermesh_quad_cache is not None
+        quad_pts_cached = np.asarray(supermesh_quad_cache.quad_pts, dtype=float)
+        quad_w_cached = np.asarray(supermesh_quad_cache.quad_w, dtype=float)
+        detJ_cached = np.asarray(supermesh_quad_cache.detJ, dtype=float)
+        x_q_cached = np.asarray(supermesh_quad_cache.x_q, dtype=float)
+        tri_iter = enumerate(zip(source_facets_a, source_facets_b))
+    else:
+        tri_iter = enumerate(
+            zip(
+                _iter_supermesh_tris(supermesh_coords, supermesh_conn),
+                source_facets_a,
+                source_facets_b,
+            )
         )
-    ):
+    for it, tri_item in tri_iter:
         log_tri = trace and (it < trace_max or it % trace_every == 0)
         t_tri0 = time.perf_counter()
         def _tri_check(stage: str) -> None:
             if tri_timeout > 0.0 and (time.perf_counter() - t_tri0) > tri_timeout:
                 raise RuntimeError(f"[CONTACT] tri {it} timeout at {stage}")
-        if log_tri:
-            _trace(f"[CONTACT] tri {it} start fa={int(fa)} fb={int(fb)}")
-        geom = _prepare_supermesh_jacobian_triangle_geometry(
-            it=it,
-            log_tri=log_tri,
-            a=a,
-            b=b,
-            c=c,
-            fa=int(fa),
-            fb=int(fb),
-            tol=tol,
-            skip_small_tri=skip_small_tri,
-            area_scale=area_scale,
-            facet_area_a=facet_area_a,
-            facet_area_b=facet_area_b,
-            diag_force=diag_force,
-            diag_abs_detj=diag_abs_detj,
-            guard=guard,
-            skip_nonfinite=skip_nonfinite,
-            detj_eps=detj_eps,
-            quad_order=quad_order,
-            diag_qp_mode=diag_qp_mode,
-            diag_qp_path=diag_qp_path,
-            facets_a=facets_a,
-            facets_b=facets_b,
-            tri_check=_tri_check,
-            trace_fn=_trace,
-            trace_time_fn=_trace_time,
-        )
+        if use_cached_geom:
+            fa, fb = tri_item
+            if log_tri:
+                _trace(f"[CONTACT] tri {it} start fa={int(fa)} fb={int(fb)} [cached-geom]")
+            detJ = float(detJ_cached[it])
+            if detJ <= 2.0 * tol:
+                continue
+            if skip_small_tri and facet_area_a is not None and facet_area_b is not None:
+                area_ref = max(float(facet_area_a[int(fa)]), float(facet_area_b[int(fb)]))
+                if area_ref > 0.0 and 0.5 * detJ < area_scale * area_ref:
+                    continue
+            if guard:
+                if not np.isfinite(detJ):
+                    if skip_nonfinite:
+                        continue
+                    raise RuntimeError(f"[CONTACT] tri {it} detJ non-finite")
+                if detj_eps > 0.0 and abs(detJ) < detj_eps:
+                    if log_tri:
+                        _trace(f"[CONTACT] tri {it} detJ too small {detJ:.3e}; skip")
+                    continue
+                if not np.isfinite(x_q_cached[it]).all():
+                    if skip_nonfinite:
+                        continue
+                    raise RuntimeError(f"[CONTACT] tri {it} x_q non-finite")
+            geom = _JacobianTriangleGeometryData(
+                detJ=abs(detJ) if diag_abs_detj else detJ,
+                quad_pts=quad_pts_cached,
+                quad_w=quad_w_cached,
+                quad_source="fluxfem-cache",
+                facet_a=facets_a[int(fa)],
+                facet_b=facets_b[int(fb)],
+                x_q=x_q_cached[it],
+            )
+        else:
+            (tri, a, b, c), fa, fb = tri_item
+            if log_tri:
+                _trace(f"[CONTACT] tri {it} start fa={int(fa)} fb={int(fb)}")
+            geom = _prepare_supermesh_jacobian_triangle_geometry(
+                it=it,
+                log_tri=log_tri,
+                a=a,
+                b=b,
+                c=c,
+                fa=int(fa),
+                fb=int(fb),
+                tol=tol,
+                skip_small_tri=skip_small_tri,
+                area_scale=area_scale,
+                facet_area_a=facet_area_a,
+                facet_area_b=facet_area_b,
+                diag_force=diag_force,
+                diag_abs_detj=diag_abs_detj,
+                guard=guard,
+                skip_nonfinite=skip_nonfinite,
+                detj_eps=detj_eps,
+                quad_order=quad_order,
+                diag_qp_mode=diag_qp_mode,
+                diag_qp_path=diag_qp_path,
+                facets_a=facets_a,
+                facets_b=facets_b,
+                tri_check=_tri_check,
+                trace_fn=_trace,
+                trace_time_fn=_trace_time,
+            )
         if geom is None:
             continue
 
@@ -4660,14 +5566,21 @@ def assemble_contact_interface_jacobian(
             detJ=geom.detJ,
             tol=tol,
             pair_basis_builder=pair_basis_builder,
+            trial_pair_basis_builder=trial_pair_basis_builder,
             coords_a=coords_a,
             coords_b=coords_b,
             facets_a=facets_a,
             facets_b=facets_b,
             value_dim_a=value_dim_a,
             value_dim_b=value_dim_b,
+            trial_value_dim_a=int(trial_value_dim_a),
+            trial_value_dim_b=int(trial_value_dim_b),
             dof_source=dof_source,
             grad_source=grad_source,
+            space_mode_a=space_mode_a,
+            space_mode_b=space_mode_b,
+            trial_space_mode_a=str(trial_space_mode_a),
+            trial_space_mode_b=str(trial_space_mode_b),
             use_elem_a=use_elem_a,
             use_elem_b=use_elem_b,
             elem_conn_a=elem_conn_a,
@@ -4676,6 +5589,8 @@ def assemble_contact_interface_jacobian(
             facet_to_elem_b=facet_to_elem_b,
             facet_dofs_a=facet_dofs_a,
             facet_dofs_b=facet_dofs_b,
+            trial_facet_dofs_a=trial_facet_dofs_a,
+            trial_facet_dofs_b=trial_facet_dofs_b,
             proj_diag=proj_diag,
             diag_map=diag_map,
             diag_n=diag_n,

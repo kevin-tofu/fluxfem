@@ -28,12 +28,9 @@ machinery:
 - ``ff.assemble_*(*Spaces(...), ...)``: the explicit path when you want to bind
   named roles such as ``test`` and ``trial`` directly in the public API.
 
-Deprecated compatibility paths:
-
-- ``assemble_bilinear_form_pg(...)`` is deprecated in favor of
-  ``assemble_bilinear_form(BilinearSpaces(...), ...)``.
-- dict-based role passing such as ``{"test": V, "trial": U}`` is deprecated in
-  favor of ``BilinearSpaces(test=V, trial=U)``.
+Deprecated compatibility paths are documented in
+``migration_role_spaces.rst``. The preferred assembly surface shown here uses
+the ``*Spaces`` family directly.
 
 For standard Galerkin problems, the single-space form remains the simplest:
 
@@ -60,10 +57,10 @@ For role-explicit assembly, use the ``*Spaces`` family:
    U = ff.NamedSpace("U", trial_space)
    V = ff.NamedSpace("V", test_space)
 
-   bilinear = ff.compile_bilinear(
-       lambda v, u, p: p.kappa * wf.gaction(v, wf.grad(u)) * wf.dOmega()
+   bilinear = ff.BilinearForm.volume(
+       lambda u, v, p: p.kappa * wf.dot(wf.grad(v), wf.grad(u)) * wf.dOmega()
    )
-   linear = ff.compile_linear(
+   linear = ff.LinearForm.volume(
        lambda v, p: wf.dot(v, p.force) * wf.dOmega()
    )
 
@@ -82,7 +79,7 @@ The same pattern extends to nonlinear volume assembly:
 
 .. code-block:: python
 
-   residual = ff.compile_residual(
+   residual = ff.ResidualForm.volume(
        lambda v, u, p: p.kappa * wf.gaction(v, wf.grad(u)) * wf.dOmega()
    )
 

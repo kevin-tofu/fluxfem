@@ -79,8 +79,10 @@ def parse_args():
 
 def main():
     args = parse_args()
-    disp_space = "U"
-    temp_space = "T"
+    disp_unknown_space = "U"
+    disp_test_space = "V"
+    temp_unknown_space = "T"
+    temp_test_space = "S"
 
     mesh = build_bar_mesh(
         nx=args.nx,
@@ -93,8 +95,14 @@ def main():
     space = ff.make_hex_space(mesh, dim=1, intorder=args.intorder)
     mixed = ff.MixedSpaces(
         {
-            "u": ff.NamedSpace(disp_space, space),
-            "T": ff.NamedSpace(temp_space, space),
+            "u": ff.ResidualSpaces(
+                test=ff.NamedSpace(disp_test_space, space),
+                unknown=ff.NamedSpace(disp_unknown_space, space),
+            ),
+            "T": ff.ResidualSpaces(
+                test=ff.NamedSpace(temp_test_space, space),
+                unknown=ff.NamedSpace(temp_unknown_space, space),
+            ),
         }
     ).to_fe_space()
 
@@ -117,7 +125,7 @@ def main():
         return (p.kappa * h_wf.gaction(v, h_wf.grad(T)) - v * p.q) * h_wf.dOmega()
 
     def res_u(v, u, p):
-        T_ref = ff.unknown_ref("T", space=temp_space)
+        T_ref = ff.unknown_ref("T", space=temp_unknown_space)
         e_x = einsum("q,i->qi", T_ref.val, p.ex)
         return (
             p.E * h_wf.gaction(v, h_wf.grad(u))
@@ -125,8 +133,8 @@ def main():
         ) * h_wf.dOmega()
 
     residuals = ff.make_mixed_residuals(
-        u=ff.bind_mixed_residual("u", res_u, space=disp_space),
-        T=ff.bind_mixed_residual("T", res_T, space=temp_space),
+        u=ff.bind_mixed_residual("u", res_u, space=disp_unknown_space),
+        T=ff.bind_mixed_residual("T", res_T, space=temp_unknown_space),
     )
     params = ff.Params(
         kappa=args.kappa,

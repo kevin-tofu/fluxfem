@@ -5,10 +5,8 @@ These helper specs make test/trial/unknown or master/slave roles explicit in
 the public API while reusing the same underlying assembly and space objects.
 
 For volume assembly, prefer the ``*Spaces`` family over transitional helpers.
-In particular:
-
-- ``assemble_bilinear_form_pg(...)`` is deprecated.
-- dict-based role passing is deprecated.
+Deprecated compatibility paths are summarized in
+``migration_role_spaces.rst``; this page focuses on the preferred public API.
 
 Volume
 ------

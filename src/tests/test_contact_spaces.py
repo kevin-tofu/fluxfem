@@ -34,6 +34,34 @@ def test_contact_spaces_builds_pair_contact_surface_space():
     assert isinstance(contact, ff.ContactSurfaceSpace)
     assert contact.field_master == "master"
     assert contact.field_slave == "slave"
+    assert contact.batch_jac is None
+
+
+def test_contact_spaces_preserves_explicit_batch_jac_flag():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2]], dtype=int)
+
+    surf_m = ff.SurfaceMesh.from_facets(coords, facets)
+    surf_s = ff.SurfaceMesh.from_facets(coords, facets)
+    side_m = ff.ContactSide.from_surfaces(surf_m, elem_conn=conn, value_dim=3)
+    side_s = ff.ContactSide.from_surfaces(surf_s, elem_conn=conn, value_dim=3)
+
+    contact = ff.ContactSpaces(master=side_m, slave=side_s).to_contact_surface_space(
+        quad_order=1,
+        backend="jax",
+        batch_jac=False,
+    )
+
+    assert contact.batch_jac is False
 
 
 def test_contact_spaces_matches_direct_from_sides_bilinear():

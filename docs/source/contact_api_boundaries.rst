@@ -79,3 +79,58 @@ Current tests explicitly target these guarantees:
 - mortar/KKT assembly remains valid when different contacts have different lambda sizes,
 - route consistency for penalty vs constraint contact operators.
 
+Backend Direction
+-----------------
+
+The intended backend direction for contact is ``numpy``/``jax`` parity on the
+main public paths.
+
+The reason is split by use case:
+
+- ``numpy`` is the preferred lightweight reference/debug backend
+- ``jax`` is the preferred backend for autodiff, Jacobians, and nonlinear
+  contact assembly
+
+Implementation priority should follow this order:
+
+1. pair contact
+2. one-to-many contact
+3. one-sided contact
+4. full weak-form Jacobian parity
+
+Until that work is complete, treat ``backend="jax"`` as the default path for
+advanced contact assembly and use ``numpy`` primarily where parity has already
+been validated.
+
+Coordinate Differentiation
+--------------------------
+
+Coordinate differentiation is not yet a general guarantee for contact.
+
+Current practical status:
+
+- volume assembly already has working JAX-based examples of differentiation with
+  respect to coordinates
+- surface linear-form assembly also has direct coordinate-differentiation tests
+- contact assembly still contains several NumPy-only geometry conversion paths,
+  so geometry tracing is not yet robust across the main contact routes
+
+In particular, the current contact interface code still relies on NumPy geometry
+materialization in several places such as:
+
+- ``np.asarray(surface_a.coords, dtype=float)``
+- ``np.asarray(surface_b.coords, dtype=float)``
+- facet-area and facet-shape helper loops that build NumPy arrays from
+  quadrature-point geometry data
+
+So the current rule should be:
+
+- assume coordinate differentiation is available for JAX volume/surface paths
+- do not assume it for contact until the geometry pipeline is made tracer-safe
+
+The natural implementation order is:
+
+1. remove ``np.asarray(...coords...)`` barriers from pair contact geometry prep
+2. replace NumPy facet-shape/facet-area accumulation loops on the pair path
+3. validate JAX coordinate gradients on pair contact before extending to
+   one-to-many and one-sided paths

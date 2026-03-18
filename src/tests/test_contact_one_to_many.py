@@ -105,3 +105,49 @@ def test_one_to_many_from_meshes_with_selectors():
     u = jnp.zeros(n)
     K = np.asarray(otm.assemble_bilinear(_penalty_bilinear, u, [u, u], _params()))
     assert K.shape == (n + n + n, n + n + n)
+
+
+def test_one_to_many_contact_bilinear_numpy_matches_jax():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2]], dtype=int)
+
+    surf_m = ff.SurfaceMesh.from_facets(coords, facets)
+    surf_s1 = ff.SurfaceMesh.from_facets(coords, facets)
+    surf_s2 = ff.SurfaceMesh.from_facets(coords, facets)
+
+    side_m = ff.ContactSide.from_surfaces(surf_m, elem_conn=conn, value_dim=3)
+    side_s1 = ff.ContactSide.from_surfaces(surf_s1, elem_conn=conn, value_dim=3)
+    side_s2 = ff.ContactSide.from_surfaces(surf_s2, elem_conn=conn, value_dim=3)
+
+    otm_np = ff.OneToManyContactSurfaceSpace.from_sides(
+        side_m,
+        [side_s1, side_s2],
+        quad_order=1,
+        backend="numpy",
+    )
+    otm_jax = ff.OneToManyContactSurfaceSpace.from_sides(
+        side_m,
+        [side_s1, side_s2],
+        quad_order=1,
+        backend="jax",
+    )
+
+    n_m = coords.shape[0] * 3
+    n_s = coords.shape[0] * 3
+    u_m = np.zeros(n_m)
+    u_s1 = np.zeros(n_s)
+    u_s2 = np.zeros(n_s)
+
+    K_np = np.asarray(otm_np.assemble_bilinear(_penalty_bilinear, u_m, [u_s1, u_s2], _params()))
+    K_jax = np.asarray(otm_jax.assemble_bilinear(_penalty_bilinear, u_m, [u_s1, u_s2], _params()))
+    assert K_np.shape == K_jax.shape
+    assert np.allclose(K_np, K_jax, atol=1e-6)

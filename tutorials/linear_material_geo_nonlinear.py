@@ -121,7 +121,7 @@ def main():
         )
         K = ff.assemble_bilinear_form(
             ff.BilinearSpaces(test=V, trial=U),
-            bilinear_form.get_compiled(),
+            bilinear_form,
             D,
         )
         solver = ff.LinearSolver(method="spsolve")

@@ -145,3 +145,70 @@ def test_contact_coupling_and_p0_augmented_lagrangian_block_match_skfem_tet4():
     KKT_ff = np.block([[Kuu_ff, B_ff.T], [B_ff, Zll]])
     KKT_sf = np.block([[Kuu_sf, B_sf.T], [B_sf, Zll]])
     assert np.allclose(KKT_ff, KKT_sf, atol=1e-10)
+
+
+def test_contact_p0_supermesh_operators_match_skfem_intersection_triangle_p0_tet4():
+    skfem = pytest.importorskip("skfem", reason="scikit-fem not installed")
+    from skfem import MeshTet, Basis, FacetBasis, ElementTetP1, ElementVector, ElementTetP0, asm
+    from skfem.supermeshing import intersect, elementwise_quadrature
+
+    coords = _tet4_coords()
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    quad_order = 1
+    rho = 5.0
+
+    facets = np.array([[0, 1, 2]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=3,
+        value_dim_slave=3,
+        quad_order=quad_order,
+    )
+    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0_supermesh", side="master", value_dim=3)
+    ops = ff.assemble_contact_constraint_operators(contact, rho=rho, multiplier=mult, backend="numpy")
+    B_ff = np.asarray(ops.B, dtype=float)
+    Kuu_ff = np.asarray(ops.Kuu, dtype=float)
+
+    mesh_a = MeshTet(coords.T, conn.T).with_boundaries({"contact": lambda x: np.isclose(x[2], 0.0)})
+    mesh_b = MeshTet(coords.T, conn.T).with_boundaries({"contact": lambda x: np.isclose(x[2], 0.0)})
+    elem_u = ElementVector(ElementTetP1())
+    m1t, orig1 = mesh_a.trace("contact", mtype=skfem.MeshTri, project=lambda p: p[[0, 1]])
+    m2t, orig2 = mesh_b.trace("contact", mtype=skfem.MeshTri, project=lambda p: p[[0, 1]])
+    m12, t1, t2 = intersect(m1t, m2t)
+    try:
+        quad1 = elementwise_quadrature(m1t, m12, t1, intorder=quad_order)
+        quad2 = elementwise_quadrature(m2t, m12, t2, intorder=quad_order)
+    except TypeError:
+        quad1 = elementwise_quadrature(m1t, m12, t1)
+        quad2 = elementwise_quadrature(m2t, m12, t2)
+
+    fb_u_top = FacetBasis(mesh_a, elem_u, facets=orig1[t1], quadrature=quad1)
+    fb_u_bot = FacetBasis(mesh_b, elem_u, facets=orig2[t2], quadrature=quad2)
+    elem_lam = ElementVector(ElementTetP0())
+    fb_lam = FacetBasis(mesh_a, elem_lam, facets=orig1[t1], quadrature=quad1)
+
+    @skfem.BilinearForm
+    def b_dot(u, v, w):
+        return u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
+
+    B1_sf = asm(b_dot, fb_u_top, fb_lam).toarray()
+    B2_sf = asm(b_dot, fb_u_bot, fb_lam).toarray()
+
+    basis_a = Basis(mesh_a, ElementTetP1())
+    basis_b = Basis(mesh_b, ElementTetP1())
+    perm_a = _perm_by_coords(coords, np.asarray(basis_a.doflocs))
+    perm_b = _perm_by_coords(coords, np.asarray(basis_b.doflocs))
+    perm_u_a = np.array([3 * n + c for n in perm_a for c in range(3)], dtype=int)
+    perm_u_b = np.array([3 * n + c for n in perm_b for c in range(3)], dtype=int)
+    B_sf = np.hstack([B1_sf[:, perm_u_a], -B2_sf[:, perm_u_b]])
+
+    assert B_ff.shape == B_sf.shape
+    assert np.allclose(B_ff, B_sf, atol=1e-10)
+
+    Kuu_sf = rho * (B_sf.T @ B_sf)
+    assert np.allclose(Kuu_ff, Kuu_sf, atol=1e-10)

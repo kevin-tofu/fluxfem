@@ -44,3 +44,22 @@ def test_flux_sparse_operator_to_csr_shape():
     csr = op.to_csr()
     assert csr.shape == (2, 4)
     assert np.allclose(csr.toarray(), np.asarray(op.to_dense()))
+
+
+def test_flux_sparse_matrix_and_operator_support_numpy_asarray():
+    mat = ff.FluxSparseMatrix(
+        np.array([0, 1], dtype=int),
+        np.array([1, 0], dtype=int),
+        np.array([2.0, 3.0], dtype=float),
+        n_dofs=2,
+    )
+    op = ff.FluxSparseOperator(
+        np.array([0, 1], dtype=int),
+        np.array([1, 0], dtype=int),
+        np.array([2.0, 3.0], dtype=float),
+        shape=(2, 2),
+    )
+
+    expected = np.array([[0.0, 2.0], [3.0, 0.0]])
+    assert np.allclose(np.asarray(mat), expected)
+    assert np.allclose(np.asarray(op), expected)

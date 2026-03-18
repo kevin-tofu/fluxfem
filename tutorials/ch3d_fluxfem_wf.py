@@ -33,15 +33,23 @@ def run_ch_3d():
     n_steps = 200
     plot_interval = 1
     order = 1
-    phase_space = "C"
-    chemical_space = "MU"
+    phase_unknown_space = "C"
+    phase_test_space = "W"
+    chemical_unknown_space = "MU"
+    chemical_test_space = "Q"
 
     mesh = ff.StructuredHexBox(nx=16, ny=16, nz=16, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2 * order)
     mixed = ff.MixedSpaces(
         {
-            "c": ff.NamedSpace(phase_space, space),
-            "mu": ff.NamedSpace(chemical_space, space),
+            "c": ff.ResidualSpaces(
+                test=ff.NamedSpace(phase_test_space, space),
+                unknown=ff.NamedSpace(phase_unknown_space, space),
+            ),
+            "mu": ff.ResidualSpaces(
+                test=ff.NamedSpace(chemical_test_space, space),
+                unknown=ff.NamedSpace(chemical_unknown_space, space),
+            ),
         }
     ).to_fe_space()
 
@@ -60,16 +68,16 @@ def run_ch_3d():
     times.append(0.0)
 
     def res_c(v, u, p):
-        mu = ff.unknown_ref("mu", space=chemical_space)
+        mu = ff.unknown_ref("mu", space=chemical_unknown_space)
         return (v * (u.val - p.c_old) + p.dt * h_wf.gaction(v, h_wf.grad(mu))) * h_wf.dOmega()
 
     def res_mu(q, u, p):
-        c = ff.unknown_ref("c", space=phase_space)
+        c = ff.unknown_ref("c", space=phase_unknown_space)
         return (q * (u.val - (p.c_old**3 - p.c_old)) - p.kappa * h_wf.gaction(q, h_wf.grad(c))) * h_wf.dOmega()
 
     residuals = ff.make_mixed_residuals(
-        c=ff.bind_mixed_residual("c", res_c, space=phase_space),
-        mu=ff.bind_mixed_residual("mu", res_mu, space=chemical_space),
+        c=ff.bind_mixed_residual("c", res_c, space=phase_unknown_space),
+        mu=ff.bind_mixed_residual("mu", res_mu, space=chemical_unknown_space),
     )
 
     solver = ff.LinearSolver(method="spsolve")
@@ -80,7 +88,7 @@ def run_ch_3d():
 
         def params_fn(ctx, c_old_elems=c_old_elems, kappa=kappa, dt=dt):
             c_old_elem = c_old_elems[ctx.elem_id]
-            c_old_q = ctx.spaces[phase_space].trial.eval(c_old_elem)
+            c_old_q = ctx.spaces[phase_unknown_space].trial.eval(c_old_elem)
             return {"kappa": kappa, "dt": dt, "c_old": c_old_q}
 
         u0 = jnp.zeros(mixed.n_dofs)

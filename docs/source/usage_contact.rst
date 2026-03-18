@@ -3,6 +3,9 @@ Contact Interface Usage
 
 This page shows the recommended high-level API for contact assembly.
 
+For the broader split between plain surface forms, mixed surface residuals, and
+contact-specific paths, see :doc:`surface_api_status`.
+
 For terminology/ownership/scope (``contact``, ``multiplier``, ``formulation``, ``ops``),
 see :doc:`contact_api_boundaries`.
 
@@ -96,7 +99,21 @@ After building contact space, call ``assemble_bilinear`` with your weak form.
 
 .. code-block:: python
 
-   K = contact.assemble_bilinear(bilin, u, [u, u], params, sparse=False)
+   K = contact.assemble_bilinear(bilin, u, [u, u], params)
+
+Call ``K.to_dense()`` or ``np.asarray(K)`` only when you explicitly need a
+dense matrix for debugging, dense linear algebra, or comparison code.
+
+If you assemble directly from a compiled mixed surface residual form and still
+want the standard pair Nitsche/penalty NumPy fast path, use:
+
+.. code-block:: python
+
+   res_form = ff.compile_tagged_pair_nitsche_penalty_residual(
+       {"a": res_a, "b": res_b},
+       backend="numpy",
+   )
+   J = contact.assemble_jacobian(res_form, {"a": u_a, "b": u_b}, params, backend="numpy")
 
 Volume vs Contact API Style
 ---------------------------

@@ -58,15 +58,23 @@ def run_ch_3d():
     n_steps = 200
     plot_interval = 1
     order = 1
-    phase_space = "C"
-    chemical_space = "MU"
+    phase_unknown_space = "C"
+    phase_test_space = "W"
+    chemical_unknown_space = "MU"
+    chemical_test_space = "Q"
 
     mesh = ff.StructuredHexBox(nx=16, ny=16, nz=16, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2 * order)
     mixed = ff.MixedSpaces(
         {
-            "c": ff.NamedSpace(phase_space, space),
-            "mu": ff.NamedSpace(chemical_space, space),
+            "c": ff.ResidualSpaces(
+                test=ff.NamedSpace(phase_test_space, space),
+                unknown=ff.NamedSpace(phase_unknown_space, space),
+            ),
+            "mu": ff.ResidualSpaces(
+                test=ff.NamedSpace(chemical_test_space, space),
+                unknown=ff.NamedSpace(chemical_unknown_space, space),
+            ),
         }
     ).to_fe_space()
 

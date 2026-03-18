@@ -699,30 +699,50 @@ class CoupledSystemBuilder:
             vd = int(value_dim)
 
         if hasattr(ops_or_kkt, "coupling_aa") and hasattr(ops_or_kkt, "coupling_ab"):
-            coupling_aa = getattr(ops_or_kkt, "coupling_aa")
-            coupling_ab = getattr(ops_or_kkt, "coupling_ab")
-            if coupling_aa is None or coupling_ab is None:
-                raise ValueError("mortar operators must include coupling_aa and coupling_ab.")
-            rho_eff = getattr(ops_or_kkt, "rho", None) if rho is None else float(rho)
-            if rho_eff is None:
-                rho_eff = 0.0
             mult_obj = getattr(ops_or_kkt, "multiplier", None) if multiplier is None else multiplier
-            if mult_obj is None:
-                raise ValueError("Constraint-family contact requires multiplier (ContactMultiplierSpace).")
-            fc = facet_conn_master
-            if fc is None and hasattr(ops_or_kkt, "facet_conn_master"):
-                fc = getattr(ops_or_kkt, "facet_conn_master")
-            from ..mesh.contact import assemble_contact_kkt as _assemble_contact_kkt
+            mult_family = str(getattr(mult_obj, "family", "")).lower() if mult_obj is not None else ""
+            if mult_family in {"p0_active", "p0_supermesh"}:
+                B_obj = getattr(ops_or_kkt, "B", None)
+                if B_obj is None:
+                    raise ValueError(f"{mult_family} mortar operators must include B.")
+                Kuu_obj = getattr(ops_or_kkt, "Kuu", None)
+                if Kuu_obj is None:
+                    raise ValueError(f"{mult_family} mortar operators must include Kuu.")
+                B_csr = B_obj.tocsr() if hasattr(B_obj, "tocsr") else sp.csr_matrix(np.asarray(B_obj, dtype=float))
+                Kuu_csr = (
+                    Kuu_obj.tocsr()
+                    if hasattr(Kuu_obj, "tocsr")
+                    else sp.csr_matrix(np.asarray(Kuu_obj, dtype=float))
+                )
+                Zll = sp.csr_matrix((B_csr.shape[0], B_csr.shape[0]), dtype=Kuu_csr.dtype)
+                K_contact = sp.bmat(
+                    [[Kuu_csr, B_csr.T], [B_csr, Zll]],
+                    format="csr",
+                )
+            else:
+                coupling_aa = getattr(ops_or_kkt, "coupling_aa")
+                coupling_ab = getattr(ops_or_kkt, "coupling_ab")
+                if coupling_aa is None or coupling_ab is None:
+                    raise ValueError("mortar operators must include coupling_aa and coupling_ab.")
+                rho_eff = getattr(ops_or_kkt, "rho", None) if rho is None else float(rho)
+                if rho_eff is None:
+                    rho_eff = 0.0
+                if mult_obj is None:
+                    raise ValueError("Constraint-family contact requires multiplier (ContactMultiplierSpace).")
+                fc = facet_conn_master
+                if fc is None and hasattr(ops_or_kkt, "facet_conn_master"):
+                    fc = getattr(ops_or_kkt, "facet_conn_master")
+                from ..mesh.contact import assemble_contact_kkt as _assemble_contact_kkt
 
-            K_contact = _assemble_contact_kkt(
-                coupling_aa,
-                coupling_ab,
-                rho=float(rho_eff),
-                multiplier=mult_obj,
-                facet_conn_master=fc,
-                backend=backend,
-                format="fluxsparse",
-            )
+                K_contact = _assemble_contact_kkt(
+                    coupling_aa,
+                    coupling_ab,
+                    rho=float(rho_eff),
+                    multiplier=mult_obj,
+                    facet_conn_master=fc,
+                    backend=backend,
+                    format="fluxsparse",
+                )
         else:
             K_contact = ops_or_kkt
 

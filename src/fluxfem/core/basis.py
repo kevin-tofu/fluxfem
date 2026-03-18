@@ -314,7 +314,9 @@ class TetLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
         dN_dxi = self.shape_grads_ref()[0]  # (4,3) constant
         J = jnp.einsum("ia,ik->ak", elem_coords, dN_dxi)  # (3,3)
         J_inv = jnp.linalg.inv(J)
-        detJ = jnp.linalg.det(J)
+        # Volume integration uses the physical Jacobian magnitude; structured
+        # tet meshes can mix element orientations.
+        detJ = jnp.abs(jnp.linalg.det(J))
         dN_dx = jnp.einsum("ik,ka->ia", dN_dxi, J_inv)  # (4,3)
         dN_dx = jnp.tile(dN_dx[None, :, :], (self.n_q, 1, 1))
         detJ = jnp.full((self.n_q,), detJ, dtype=elem_coords.dtype)
@@ -398,7 +400,7 @@ class TetQuadraticBasis10(SmallStrainBMixin, TotalLagrangeBMixin):
         dN_dxi = self.shape_grads_ref()  # (n_q,10,3)
         J = jnp.einsum("ia,qik->qak", elem_coords, dN_dxi)
         J_inv = jnp.linalg.inv(J)
-        detJ = jnp.linalg.det(J)
+        detJ = jnp.abs(jnp.linalg.det(J))
         dN_dx = jnp.einsum("qik,qka->qia", dN_dxi, J_inv)
         return dN_dx, detJ
 
@@ -548,7 +550,7 @@ class HexTriLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
         J = jnp.einsum("ia,qik->qak", elem_coords, dN_dxi)  # (n_q, 3, 3)
 
         J_inv = jnp.linalg.inv(J)           # (n_q, 3, 3)
-        detJ = jnp.linalg.det(J)           # (n_q,)
+        detJ = jnp.abs(jnp.linalg.det(J))  # (n_q,)
 
         # ∇_x N = ∇_ξ N · J^{-1}
         dN_dx = jnp.einsum("qik,qka->qia", dN_dxi, J_inv)  # (n_q, 8, 3)
@@ -752,7 +754,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
         dN_dxi = self.shape_grads_ref()  # (n_q, 20, 3)
         J = jnp.einsum("ia,qik->qak", elem_coords, dN_dxi)  # (n_q, 3, 3)
         J_inv = jnp.linalg.inv(J)
-        detJ = jnp.linalg.det(J)
+        detJ = jnp.abs(jnp.linalg.det(J))
         dN_dx = jnp.einsum("qik,qka->qia", dN_dxi, J_inv)
         return dN_dx, detJ
 
@@ -829,7 +831,7 @@ class HexTriQuadraticBasis27(SmallStrainBMixin, TotalLagrangeBMixin):
         dN_dxi = self.shape_grads_ref()  # (n_q, 27, 3)
         J = jnp.einsum("ia,qik->qak", elem_coords, dN_dxi)
         J_inv = jnp.linalg.inv(J)
-        detJ = jnp.linalg.det(J)
+        detJ = jnp.abs(jnp.linalg.det(J))
         dN_dx = jnp.einsum("qik,qka->qia", dN_dxi, J_inv)
         return dN_dx, detJ
 

@@ -91,39 +91,60 @@ V = ff.NamedSpace("V", space)
 bilinear = ff.BilinearForm.volume(
     lambda u, v, p: p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega()
 )
-linear = ff.LinearForm.volume(
-    lambda v, p: (v * p.f) * h_wf.dOmega()
+traction = ff.LinearForm.surface(
+    lambda v, p: h_wf.dot(v, p.pressure * h_wf.normal()) * h_wf.ds()
 )
 residual = ff.ResidualForm.volume(
     lambda v, u, _p: (v * (u.val**2)) * h_wf.dOmega()
 )
 
+neumann_facets = np.asarray(mesh.facets_on_plane(axis=0, value=1.0), dtype=int)
+surface = ff.make_surface_from_facets(np.asarray(mesh.coords), neumann_facets)
+
 K = ff.assemble_bilinear_form(
     ff.BilinearSpaces(test=V, trial=U),
-    bilinear.get_compiled(),
+    bilinear,
     ff.Params(kappa=1.0),
 )
 F = ff.assemble_linear_form(
     ff.LinearSpaces(test=V),
-    linear.get_compiled(),
-    ff.Params(f=2.0),
+    traction,
+    ff.Params(pressure=1.0),
+    domain=surface,
 )
 R = ff.assemble_residual(
     ff.ResidualSpaces(test=V, unknown=U),
-    residual.get_compiled(),
+    residual,
     jnp.zeros(space.n_dofs),
     params=None,
 )
 J = ff.assemble_jacobian(
     ff.JacobianSpaces(test=V, trial=U),
-    residual.get_compiled(),
+    residual,
     jnp.zeros(space.n_dofs),
     params=None,
 )
 ```
 
-`U == V` の通常 Galerkin でも使えますし、将来的な `U != V` の
-Petrov-Galerkin 的な書き方にもそのまま繋がります。
+構造問題の「外力」は、このような境界 traction の表面積分で入れるほうが
+典型的です。特に圧力のような荷重は `h_wf.normal()` を使って法線方向に
+与えると自然です。`domain=surface` を渡すと、volume 側の `*Spaces`
+family と同じ入口で surface 荷重を assemble できます。`U == V` の通常
+Galerkin でも使えますし、将来的な `U != V` の Petrov-Galerkin 的な
+書き方にもそのまま繋がります。
+体積力を入れたいときは、従来どおり volume linear form を使えます。
+
+```python
+body_force = ff.LinearForm.volume(
+    lambda v, p: h_wf.dot(v, p.f) * h_wf.dOmega()
+)
+
+F_body = ff.assemble_linear_form(
+    ff.LinearSpaces(test=V),
+    body_force,
+    ff.Params(f=np.array([0.0, 0.0, -9.81], dtype=float)),
+)
+```
 
 ## 3. Dirichlet 条件を適用して解く（SciPy）
 
@@ -189,6 +210,150 @@ elasticity solve max |u_flux - u_sf|: 1e-7
 u_flux first 6 dof: [...]
 u_sf   first 6 dof: [...]
 ```
+
+### 複数物体 contact の例
+
+複数の system / 物体を contact でつなぐ例としては、
+[`tutorials/contact_supported_box_by_pillars.py`](/home/kohei/project/physics/fem/tutorials/contact_supported_box_by_pillars.py)
+がいちばん近いです。
+
+- 大きい箱 1 個を上側構造として置く
+- 下側には小さい箱 4 個を support として配置する
+- support 群は「1 つの disconnected mesh」にまとめてから contact を組む
+- `CoupledSystemBuilder` で上側と下側 support を連成して解く
+
+実装の要点は次のとおりです。
+
+```python
+top_space = ff.make_hex_space(top_mesh, dim=1, intorder=2)
+support_space = ff.make_hex_space(support_mesh, dim=1, intorder=2)
+
+master_side = ff.ContactSide.from_facets(top_mesh, master_facets, top_space)
+slave_side = ff.ContactSide.from_facets(support_mesh, slave_facets, support_space)
+contact = ff.ContactSpaces(master=master_side, slave=slave_side).to_contact_surface_space(
+    quad_order=1,
+    backend="jax",
+)
+
+ops = ff.assemble_contact_penalty_operators(
+    contact,
+    weak_form=res_form,
+    state={"a": u_top, "b": u_support},
+    params=params_if,
+    normal_source="master",
+    backend="jax",
+)
+
+builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+builder.register_space("top", top_space, value_dim=1)
+builder.register_space("support", support_space, value_dim=1)
+builder.add_contact(ops, master="top", slave="support", value_dim=1)
+system = builder.build()
+```
+
+「1 master に複数 slave を直接ぶら下げる contact surface」の API だけを見たい場合は
+[`src/tests/test_contact_one_to_many.py`](/home/kohei/project/physics/fem/src/tests/test_contact_one_to_many.py)
+を参照してください。`OneToManyContactSurfaceSpace.from_sides(...)` /
+`from_meshes(...)` の最小例があります。
+
+### 複数物体 contact をどう解くか
+
+API だけだと見えにくいですが、実際には「各物体の変位を 1 本の未知数ベクトルに並べた
+連立方程式」を解いています。
+
+たとえば master 1 個と slave が 2 個あるなら、未知数は次のように並びます。
+
+```text
+u = [u_m, u_s1, u_s2]^T
+
+K_u = block_diag(K_m, K_s1, K_s2)
+```
+
+ここで `K_i` は各物体の内部剛性です。
+
+#### penalty / Nitsche 系
+
+この場合、各接触界面ごとに interface Jacobian `J_c^(i)` と residual
+`R_c^(i)` を組み、全体系へ lift して足し込みます。
+
+```text
+K_global = K_u + sum_i( P_i^T J_c^(i) P_i )
+
+R_global = R_u + sum_i( P_i^T R_c^(i) )
+```
+
+Newton 法では
+
+```text
+K_global * du = -R_global
+```
+
+を解きます。ここで `P_i` は、接触面上の局所 DOF を全体 DOF へ埋め込む射影です。
+
+コード上の対応は次です。
+
+- 接触面を作る: `ContactSpaces(...)` / `ContactGroupSpaces(...)`
+- interface 演算子を作る: `assemble_contact_penalty_operators(...)`
+- 全体系へ足し込む: `CoupledSystemBuilder.add_contact(...)`
+
+実装では [`src/fluxfem/solver/coupled_system.py`](/home/kohei/project/physics/fem/src/fluxfem/solver/coupled_system.py)
+の `add_contact_nitsche(...)` が
+`K_u <- K_u + P^T J_c P` を行っています。
+
+#### mortar / KKT 系
+
+こちらはラグランジュ乗数 `lambda_i` を追加して、鞍点系として解きます。
+
+```text
+[ K_u + sum_i(P_i^T K_uu^(i) P_i)   P_1^T K_uλ^(1)   ...   P_nc^T K_uλ^(nc) ] [ u        ]   [ F_u ]
+[ K_λu^(1) P_1                      K_λλ^(1)         ...   0                 ] [ lambda_1 ] = [ 0   ]
+[ ...                               ...              ...   ...               ] [ ...      ]   [ ... ]
+[ K_λu^(nc) P_nc                    0                ...   K_λλ^(nc)         ] [ lambda_nc]   [ 0   ]
+```
+
+`n_c` は接触界面の数です。複数 contact があると、`lambda` ブロックが横に追加されます。
+
+コード上の対応は次です。
+
+- 接触面を作る: `ContactSpaces(...)` / `ContactGroupSpaces(...)`
+- constraint/KKT 演算子を作る: `assemble_contact_constraint_operators(...)` または `assemble_contact_kkt(...)`
+- 全体系へ lift する: `CoupledSystemBuilder.add_contact(...)`
+
+実装では [`src/fluxfem/solver/coupled_system.py`](/home/kohei/project/physics/fem/src/fluxfem/solver/coupled_system.py)
+の `add_contact_kkt(...)` が、contact 局所ブロックを全体 DOF と `lambda`
+DOF に持ち上げています。
+
+constraint を自前で持っている場合は、contact API を経由せずに
+`C [u_master; u_slave] = 0` をそのまま足すこともできます。
+
+```python
+builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+builder.register_field("top", n_dofs=top_space.n_dofs, value_dim=1)
+builder.register_field("bot", n_dofs=bot_space.n_dofs, value_dim=1)
+
+# C is a DOF-level constraint matrix acting on [u_top; u_bot]
+builder.add_constraint_matrix_dof(
+    C,
+    master="top",
+    slave="bot",
+    rho=0.0,  # or > 0 for AL-like rho * C^T C regularization
+)
+system = builder.build()
+```
+
+この入口は、「自分で作った mortar 行列」「embedding 制約」「節点対応が既知の tied 制約」
+を全体系へ足したいときに便利です。
+
+#### まず何を見ればよいか
+
+- 「2 物体 contact を解く流れ」を追うなら
+  [`tutorials/press_block_contact.py`](/home/kohei/project/physics/fem/tutorials/press_block_contact.py)
+- 「複数 support をまとめて連成する流れ」を追うなら
+  [`tutorials/contact_supported_box_by_pillars.py`](/home/kohei/project/physics/fem/tutorials/contact_supported_box_by_pillars.py)
+- 「1 master + 複数 slave の contact surface API」を見るなら
+  [`src/tests/test_contact_one_to_many.py`](/home/kohei/project/physics/fem/src/tests/test_contact_one_to_many.py)
+- 「制約行列を自前で足す最小 API」を見るなら
+  [`skfem-example/mortar_fluxfem.py`](/home/kohei/project/physics/fem/skfem-example/mortar_fluxfem.py)
 
 ## 6. Mixed WeakForm の標準スタイル
 

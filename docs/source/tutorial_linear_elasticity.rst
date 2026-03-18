@@ -77,8 +77,8 @@ The same operator can also be assembled through explicit test/trial roles:
    U = ff.NamedSpace("U", space)
    V = ff.NamedSpace("V", space)
 
-   bilinear = ff.compile_bilinear(
-       lambda v, u, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
+   bilinear = ff.BilinearForm.volume(
+       lambda u, v, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
        * h_wf.dOmega()
    )
    K = ff.assemble_bilinear_form(
@@ -98,9 +98,7 @@ The same operator can also be assembled through explicit test/trial roles:
 
    surface_form = ff.LinearForm.surface(lambda v, p: (v | p) * h_wf.ds())
    traction_vec = np.array([traction, 0.0, 0.0], dtype=float)
-   F = surface.assemble_linear_form_on_space(
-       space, surface_form.get_compiled(), params=traction_vec
-   )
+   F = surface.assemble_linear_form_on_space(space, surface_form, params=traction_vec)
 
 For volume load vectors, the matching role-explicit entry point is
 ``ff.assemble_linear_form(ff.LinearSpaces(test=V), ...)``.

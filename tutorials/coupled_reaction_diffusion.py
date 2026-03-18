@@ -42,8 +42,10 @@ def parse_args():
 
 def main():
     args = parse_args()
-    space_u_key = "U"
-    space_v_key = "V"
+    space_u_unknown = "U"
+    space_u_test = "W"
+    space_v_unknown = "V"
+    space_v_test = "Z"
 
     mesh = ff.StructuredHexBox(
         nx=args.nx,
@@ -56,13 +58,19 @@ def main():
     space = ff.make_hex_space(mesh, dim=1, intorder=args.intorder)
     mixed = ff.MixedSpaces(
         {
-            "u": ff.NamedSpace(space_u_key, space),
-            "v": ff.NamedSpace(space_v_key, space),
+            "u": ff.ResidualSpaces(
+                test=ff.NamedSpace(space_u_test, space),
+                unknown=ff.NamedSpace(space_u_unknown, space),
+            ),
+            "v": ff.ResidualSpaces(
+                test=ff.NamedSpace(space_v_test, space),
+                unknown=ff.NamedSpace(space_v_unknown, space),
+            ),
         }
     ).to_fe_space()
 
     def res_u(v, u, p):
-        v_ref = ff.unknown_ref("v", space=space_v_key)
+        v_ref = ff.unknown_ref("v", space=space_v_unknown)
         return (
             p.k1 * h_wf.gaction(v, h_wf.grad(u))
             + v * (p.alpha * (u.val - v_ref.val))
@@ -70,7 +78,7 @@ def main():
         ) * h_wf.dOmega()
 
     def res_v(q, v, p):
-        u_ref = ff.unknown_ref("u", space=space_u_key)
+        u_ref = ff.unknown_ref("u", space=space_u_unknown)
         return (
             p.k2 * h_wf.gaction(q, h_wf.grad(v))
             + q * (p.alpha * (v.val - u_ref.val))
@@ -78,8 +86,8 @@ def main():
         ) * h_wf.dOmega()
 
     residuals = ff.make_mixed_residuals(
-        u=ff.bind_mixed_residual("u", res_u, space=space_u_key),
-        v=ff.bind_mixed_residual("v", res_v, space=space_v_key),
+        u=ff.bind_mixed_residual("u", res_u, space=space_u_unknown),
+        v=ff.bind_mixed_residual("v", res_v, space=space_v_unknown),
     )
     params = ff.Params(k1=args.k1, k2=args.k2, alpha=args.alpha, f1=args.f1, f2=args.f2)
 

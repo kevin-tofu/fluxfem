@@ -265,6 +265,12 @@ class FluxSparseMatrix:
         dense = dense.at[self.pattern.rows, self.pattern.cols].add(self.data)
         return dense
 
+    def __array__(self, dtype=None, copy=None):
+        dense = np.asarray(self.to_dense(), dtype=dtype)
+        if copy:
+            return np.array(dense, dtype=dtype, copy=True)
+        return dense
+
     def to_bcoo(self):
         """Construct jax.experimental.sparse.BCOO (requires jax.experimental.sparse)."""
         try:
@@ -368,6 +374,12 @@ class FluxSparseOperator:
     def to_dense(self) -> jnp.ndarray:
         dense = jnp.zeros(self.shape, dtype=self.data.dtype)
         return dense.at[self.rows, self.cols].add(self.data)
+
+    def __array__(self, dtype=None, copy=None):
+        dense = np.asarray(self.to_dense(), dtype=dtype)
+        if copy:
+            return np.array(dense, dtype=dtype, copy=True)
+        return dense
 
     def to_csr(self):
         if sp is None:

@@ -3,13 +3,8 @@ import pytest
 
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
-from fluxfem.core.weakform import (
-    compile_mixed_surface_residual,
-    einsum as wf_einsum,
-    param_ref,
-    test_ref as wf_test_ref,
-    unknown_ref,
-)
+from fluxfem.core.weakform import einsum as wf_einsum, param_ref, test_ref as wf_test_ref, unknown_ref
+from fluxfem.mesh.contact import compile_tagged_pair_nitsche_penalty_residual
 
 
 def _build_meshes(elem_top: str, elem_bot: str):
@@ -105,7 +100,7 @@ def _nitsche_residuals_numpy():
     traction_b = h_wf.dot(v2, t_u) - 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
     expr_a = (penalty_a + traction_a) * h_wf.ds()
     expr_b = (penalty_b + traction_b) * h_wf.ds()
-    return compile_mixed_surface_residual({"a": expr_a, "b": expr_b})
+    return compile_tagged_pair_nitsche_penalty_residual({"a": expr_a, "b": expr_b}, backend="jax")
 
 
 def _zeros_u(space):
@@ -120,7 +115,7 @@ def _assert_finite(arr, name: str):
     assert np.isfinite(np.asarray(arr)).all(), f"{name} contains non-finite values"
 
 
-def test_contact_two_sided_tet_hex_numpy_not_implemented():
+def test_contact_two_sided_tet_hex_numpy_matches_jax():
     for elem in ("tet", "hex"):
         box_top, box_bot, mesh_top, mesh_bot, space_top, space_bot = _build_meshes(elem, elem)
         contact_facets_top, contact_facets_bot = _contact_facets(
@@ -128,18 +123,33 @@ def test_contact_two_sided_tet_hex_numpy_not_implemented():
         )
         side_top = ff.ContactSide.from_facets(mesh_top, contact_facets_top, space_top)
         side_bot = ff.ContactSide.from_facets(mesh_bot, contact_facets_bot, space_bot)
-        contact = ff.ContactSurfaceSpace.from_sides(
+        contact_np = ff.ContactSurfaceSpace.from_sides(
             side_top,
             side_bot,
             quad_order=1,
             backend="numpy",
             batch_jac=False,
         )
+        contact_jax = ff.ContactSurfaceSpace.from_sides(
+            side_top,
+            side_bot,
+            quad_order=1,
+            backend="jax",
+        )
         params = _contact_params(box_top, box_bot)
-        with pytest.raises(NotImplementedError, match="backend='numpy'"):
-            contact.assemble_bilinear(
+        K_np = np.asarray(
+            contact_np.assemble_bilinear(
                 _nitsche_bilinear, (_zeros_u(space_top), _zeros_u(space_bot)), params, sparse=False
             )
+        )
+        K_jax = np.asarray(
+            contact_jax.assemble_bilinear(
+                _nitsche_bilinear, (_zeros_u(space_top), _zeros_u(space_bot)), params, sparse=False
+            )
+        )
+        assert K_np.shape == K_jax.shape
+        rel = np.linalg.norm(K_np - K_jax) / max(np.linalg.norm(K_jax), 1e-30)
+        assert rel < 1e-6
 
 
 def test_contact_onesided_tet_hex_numpy():
@@ -175,7 +185,6 @@ def test_contact_two_sided_hex_tet_numpy():
         side_bot,
         quad_order=1,
         backend="jax",
-        batch_jac=False,
     )
     params = _contact_params(box_top, box_bot)
     res_form = _nitsche_residuals_numpy()
@@ -185,7 +194,6 @@ def test_contact_two_sided_hex_tet_numpy():
         params,
         sparse=False,
         backend="jax",
-        batch_jac=False,
     )
     K = np.asarray(K)
     assert K.shape[0] == K.shape[1]
@@ -220,11 +228,12 @@ def test_contact_two_sided_hex_batch_jac_matches_nonbatch():
         u_a = ff.unknown_ref("a", space="A")
         return (-(p.alpha * p.inv_h) * h_wf.dot(v, u_a.val - u.val)) * h_wf.ds()
 
-    res_form = compile_mixed_surface_residual(
+    res_form = compile_tagged_pair_nitsche_penalty_residual(
         {
             "a": ff.bind_mixed_residual("a", res_a, space="A"),
             "b": ff.bind_mixed_residual("b", res_b, space="B"),
-        }
+        },
+        backend="jax",
     )
     u = np.zeros(space.n_dofs, dtype=float)
     K_batch = np.asarray(
@@ -278,11 +287,12 @@ def test_contact_two_sided_hex_batch_jac_sparse_matches_dense():
         u_a = ff.unknown_ref("a", space="A")
         return (-(p.alpha * p.inv_h) * h_wf.dot(v, u_a.val - u.val)) * h_wf.ds()
 
-    res_form = compile_mixed_surface_residual(
+    res_form = compile_tagged_pair_nitsche_penalty_residual(
         {
             "a": ff.bind_mixed_residual("a", res_a, space="A"),
             "b": ff.bind_mixed_residual("b", res_b, space="B"),
-        }
+        },
+        backend="jax",
     )
     u = np.zeros(space.n_dofs, dtype=float)
     K_dense = np.asarray(
