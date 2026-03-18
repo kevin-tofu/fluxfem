@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Usage &#8212; FluxFEM 0.3.0 documentation</title>
+    <title>Contact API Boundaries &#8212; FluxFEM 0.3.0 documentation</title>
   
   
   
@@ -41,12 +41,12 @@
     <script src="_static/documentation_options.js?v=f129cdf0"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'usage';</script>
-    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/usage.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'contact_api_boundaries';</script>
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/contact_api_boundaries.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Assembly" href="assembly.html" />
-    <link rel="prev" title="Installation" href="installation.html" />
+    <link rel="next" title="Tutorial Page" href="tutorial.html" />
+    <link rel="prev" title="Contact Interface Usage" href="usage_contact.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -133,7 +133,7 @@
 
 
 <li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+  <a class="nav-link nav-internal" href="usage.html">
     Usage
   </a>
 </li>
@@ -249,7 +249,7 @@
 
 
 <li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+  <a class="nav-link nav-internal" href="usage.html">
     Usage
   </a>
 </li>
@@ -312,14 +312,14 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Usage</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="assembly.html">Assembly</a></li>
 <li class="toctree-l1"><a class="reference internal" href="migration_role_spaces.html">Role-Explicit API Migration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_chunked_assembly.html">Chunked Assembly</a></li>
 <li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="space.html">FE Spaces</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_contact.html">Contact Interface Usage</a></li>
-<li class="toctree-l1"><a class="reference internal" href="contact_api_boundaries.html">Contact API Boundaries</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Contact API Boundaries</a></li>
 </ul>
 </div>
 </nav></div>
@@ -360,7 +360,10 @@
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Usage</span></li>
+    
+    <li class="breadcrumb-item"><a href="usage.html" class="nav-link">Usage</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Contact API Boundaries</span></li>
   </ul>
 </nav>
 </div>
@@ -377,74 +380,133 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="usage">
-<h1>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h1>
-<div class="toctree-wrapper compound">
-<p aria-level="2" class="caption" role="heading"><span class="caption-text">Usage</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="assembly.html">Assembly</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="assembly.html#single-space-vs-role-explicit-assembly">Single-Space vs Role-Explicit Assembly</a></li>
-<li class="toctree-l2"><a class="reference internal" href="assembly.html#measure-handling-weak-form-vs-tensor-vs-kernel">Measure handling (weak form vs tensor vs kernel)</a></li>
+  <section id="contact-api-boundaries">
+<h1>Contact API Boundaries<a class="headerlink" href="#contact-api-boundaries" title="Link to this heading">#</a></h1>
+<p>This page fixes terminology, ownership, and scope for contact APIs.</p>
+<section id="object-model">
+<h2>Object Model<a class="headerlink" href="#object-model" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">contact</span></code>:
+geometric and pairing description of the interface.
+It owns master/slave surfaces, trace pairing/supermesh, normals, and interface quadrature.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">multiplier</span></code>:
+discrete LM space definition for constraint-family assembly.
+It owns LM family (<code class="docutils literal notranslate"><span class="pre">nodal</span></code>/<code class="docutils literal notranslate"><span class="pre">p0</span></code>), side, value dimension, and optional facet connectivity.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">formulation</span></code>:
+enforcement/formulation intent used by assembly routing.
+Typical values are multiplier-family (mortar/KKT) and penalty-family (Nitsche-like).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ops</span></code>:
+assembled operator bundle to pass into system builders.
+For constraint-family: coupling/B/Kuu (+ optional residual/jacobian metadata).
+For penalty-family: residual/jacobian (+ metadata).</p></li>
 </ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="migration_role_spaces.html">Role-Explicit API Migration</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="migration_role_spaces.html#recommended-api">Recommended API</a></li>
-<li class="toctree-l2"><a class="reference internal" href="migration_role_spaces.html#experimental-role-aware-mixed-prototype">Experimental Role-Aware Mixed Prototype</a></li>
-<li class="toctree-l2"><a class="reference internal" href="migration_role_spaces.html#still-supported">Still Supported</a></li>
-<li class="toctree-l2"><a class="reference internal" href="migration_role_spaces.html#solver-and-benchmark-direction">Solver and Benchmark Direction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="migration_role_spaces.html#deprecated-compatibility-paths">Deprecated Compatibility Paths</a></li>
-<li class="toctree-l2"><a class="reference internal" href="migration_role_spaces.html#low-level-constructors">Low-Level Constructors</a></li>
-<li class="toctree-l2"><a class="reference internal" href="migration_role_spaces.html#numpy-backend-scope">NumPy Backend Scope</a></li>
-<li class="toctree-l2"><a class="reference internal" href="migration_role_spaces.html#contact-backend-direction">Contact Backend Direction</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="usage_chunked_assembly.html">Chunked Assembly</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="usage_chunked_assembly.html#why-chunked-assembly">Why chunked assembly?</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_chunked_assembly.html#how-to-use-n-chunks">How to use <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_chunked_assembly.html#best-practices">Best practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="solver.html#linear-solves">Linear solves</a></li>
-<li class="toctree-l2"><a class="reference internal" href="solver.html#nonlinear-solves-newton">Nonlinear solves (Newton)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="solver.html#choosing-a-linear-solver">Choosing a linear solver</a></li>
-<li class="toctree-l2"><a class="reference internal" href="solver.html#dirichlet-handling">Dirichlet handling</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="space.html">FE Spaces</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="space.html#when-to-use-which">When to use which</a></li>
-<li class="toctree-l2"><a class="reference internal" href="space.html#building-pytree-spaces">Building pytree spaces</a></li>
-<li class="toctree-l2"><a class="reference internal" href="space.html#notes">Notes</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="usage_contact.html">Contact Interface Usage</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#role-specs">Role Specs</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#one-to-many-contact">One-To-Many Contact</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#penalty-style-jacobian-assembly">Penalty-Style Jacobian Assembly</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#volume-vs-contact-api-style">Volume vs Contact API Style</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#contact-operators-api-recommended">Contact Operators API (Recommended)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#contact-coupling-matrices-constraint">Contact Coupling Matrices (Constraint)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#kkt-assembly-fluxsparse-and-bcoo">KKT Assembly, FluxSparse, and BCOO</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#kkt-solve">KKT Solve</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#notes">Notes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#coupledsystembuilder-penalty">CoupledSystemBuilder (Penalty)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#constraint-with-builder">Constraint with Builder</a></li>
-<li class="toctree-l2"><a class="reference internal" href="usage_contact.html#embedding-map-with-unmapped-report">Embedding Map (With Unmapped Report)</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="contact_api_boundaries.html">Contact API Boundaries</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="contact_api_boundaries.html#object-model">Object Model</a></li>
-<li class="toctree-l2"><a class="reference internal" href="contact_api_boundaries.html#dependency-direction">Dependency Direction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="contact_api_boundaries.html#axes-family-enforcement-formulation">Axes: family / enforcement / formulation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="contact_api_boundaries.html#configuration-scope">Configuration Scope</a></li>
-<li class="toctree-l2"><a class="reference internal" href="contact_api_boundaries.html#known-constraint-p0-side">Known Constraint: <code class="docutils literal notranslate"><span class="pre">p0</span></code> Side</a></li>
-<li class="toctree-l2"><a class="reference internal" href="contact_api_boundaries.html#guarantees-covered-by-tests">Guarantees Covered by Tests</a></li>
-<li class="toctree-l2"><a class="reference internal" href="contact_api_boundaries.html#backend-direction">Backend Direction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="contact_api_boundaries.html#coordinate-differentiation">Coordinate Differentiation</a></li>
-</ul>
-</li>
-</ul>
+</section>
+<section id="dependency-direction">
+<h2>Dependency Direction<a class="headerlink" href="#dependency-direction" title="Link to this heading">#</a></h2>
+<p>The intended dependency chain is:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>contact -&gt; multiplier -&gt; formulation/assembly -&gt; ops -&gt; CoupledSystemBuilder
+</pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">contact</span></code> and <code class="docutils literal notranslate"><span class="pre">multiplier</span></code> are defined separately, but are coupled at assembly time.</p>
+</section>
+<section id="axes-family-enforcement-formulation">
+<h2>Axes: family / enforcement / formulation<a class="headerlink" href="#axes-family-enforcement-formulation" title="Link to this heading">#</a></h2>
+<p>Current public interpretation:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">family</span></code>: high-level route (<code class="docutils literal notranslate"><span class="pre">constraint</span></code> or <code class="docutils literal notranslate"><span class="pre">penalty</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">enforcement</span></code>: concrete route (<code class="docutils literal notranslate"><span class="pre">mortar</span></code> or <code class="docutils literal notranslate"><span class="pre">nitsche</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">formulation</span></code>: variant within the route
+(examples: <code class="docutils literal notranslate"><span class="pre">multiplier</span></code> / <code class="docutils literal notranslate"><span class="pre">augmented_lagrangian</span></code> / <code class="docutils literal notranslate"><span class="pre">penalty_consistent</span></code>)</p></li>
+</ul>
+<p>Rule: keep one meaning per axis and use the same terms in builder/docstrings/tutorials.</p>
+</section>
+<section id="configuration-scope">
+<h2>Configuration Scope<a class="headerlink" href="#configuration-scope" title="Link to this heading">#</a></h2>
+<p>Settings are scoped as follows:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">contact</span></code> scope:
+geometry, pairing/supermesh, quadrature, backend and Jacobian assembly behavior.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">multiplier</span></code> scope:
+LM discretization parameters (family/side/value_dim/facet_conn).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">formulation</span></code> scope:
+enforcement-specific parameters and weak-form variant choices.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">builder.add_contact(...)</span></code> call scope:
+routing choice and per-contact runtime options; each call can use different values.</p></li>
+</ul>
+<p>For multiple contacts:</p>
+<ul class="simple">
+<li><p>Separate <code class="docutils literal notranslate"><span class="pre">add_contact(...)</span></code> calls can use different family/enforcement/formulation/multiplier choices.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">OneToManyContactSurfaceSpace</span></code> groups multiple pair contacts under one contact object; settings passed when creating that object are shared by that object.</p></li>
+</ul>
+</section>
+<section id="known-constraint-p0-side">
+<h2>Known Constraint: <code class="docutils literal notranslate"><span class="pre">p0</span></code> Side<a class="headerlink" href="#known-constraint-p0-side" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">ContactMultiplierSpace(family=&quot;p0&quot;)</span></code> currently supports <code class="docutils literal notranslate"><span class="pre">side=&quot;master&quot;</span></code> only.
+This is an implementation limitation in the current code path, not a mathematical requirement.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">side=&quot;master&quot;</span></code> for now and treat <code class="docutils literal notranslate"><span class="pre">side=&quot;slave&quot;</span></code> for <code class="docutils literal notranslate"><span class="pre">p0</span></code> as future work.</p>
+</section>
+<section id="guarantees-covered-by-tests">
+<h2>Guarantees Covered by Tests<a class="headerlink" href="#guarantees-covered-by-tests" title="Link to this heading">#</a></h2>
+<p>Current tests explicitly target these guarantees:</p>
+<ul class="simple">
+<li><p>multiple contact contributions can be added to one coupled system,</p></li>
+<li><p>mortar/KKT assembly remains valid when different contacts have different lambda sizes,</p></li>
+<li><p>route consistency for penalty vs constraint contact operators.</p></li>
+</ul>
+</section>
+<section id="backend-direction">
+<h2>Backend Direction<a class="headerlink" href="#backend-direction" title="Link to this heading">#</a></h2>
+<p>The intended backend direction for contact is <code class="docutils literal notranslate"><span class="pre">numpy</span></code>/<code class="docutils literal notranslate"><span class="pre">jax</span></code> parity on the
+main public paths.</p>
+<p>The reason is split by use case:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">numpy</span></code> is the preferred lightweight reference/debug backend</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">jax</span></code> is the preferred backend for autodiff, Jacobians, and nonlinear
+contact assembly</p></li>
+</ul>
+<p>Implementation priority should follow this order:</p>
+<ol class="arabic simple">
+<li><p>pair contact</p></li>
+<li><p>one-to-many contact</p></li>
+<li><p>one-sided contact</p></li>
+<li><p>full weak-form Jacobian parity</p></li>
+</ol>
+<p>Until that work is complete, treat <code class="docutils literal notranslate"><span class="pre">backend=&quot;jax&quot;</span></code> as the default path for
+advanced contact assembly and use <code class="docutils literal notranslate"><span class="pre">numpy</span></code> primarily where parity has already
+been validated.</p>
+</section>
+<section id="coordinate-differentiation">
+<h2>Coordinate Differentiation<a class="headerlink" href="#coordinate-differentiation" title="Link to this heading">#</a></h2>
+<p>Coordinate differentiation is not yet a general guarantee for contact.</p>
+<p>Current practical status:</p>
+<ul class="simple">
+<li><p>volume assembly already has working JAX-based examples of differentiation with
+respect to coordinates</p></li>
+<li><p>surface linear-form assembly also has direct coordinate-differentiation tests</p></li>
+<li><p>contact assembly still contains several NumPy-only geometry conversion paths,
+so geometry tracing is not yet robust across the main contact routes</p></li>
+</ul>
+<p>In particular, the current contact interface code still relies on NumPy geometry
+materialization in several places such as:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">np.asarray(surface_a.coords,</span> <span class="pre">dtype=float)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">np.asarray(surface_b.coords,</span> <span class="pre">dtype=float)</span></code></p></li>
+<li><p>facet-area and facet-shape helper loops that build NumPy arrays from
+quadrature-point geometry data</p></li>
+</ul>
+<p>So the current rule should be:</p>
+<ul class="simple">
+<li><p>assume coordinate differentiation is available for JAX volume/surface paths</p></li>
+<li><p>do not assume it for contact until the geometry pipeline is made tracer-safe</p></li>
+</ul>
+<p>The natural implementation order is:</p>
+<ol class="arabic simple">
+<li><p>remove <code class="docutils literal notranslate"><span class="pre">np.asarray(...coords...)</span></code> barriers from pair contact geometry prep</p></li>
+<li><p>replace NumPy facet-shape/facet-area accumulation loops on the pair path</p></li>
+<li><p>validate JAX coordinate gradients on pair contact before extending to
+one-to-many and one-sided paths</p></li>
+</ol>
+</section>
 </section>
 
 
@@ -458,20 +520,20 @@
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="installation.html"
+       href="usage_contact.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Installation</p>
+        <p class="prev-next-title">Contact Interface Usage</p>
       </div>
     </a>
     <a class="right-next"
-       href="assembly.html"
+       href="tutorial.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Assembly</p>
+        <p class="prev-next-title">Tutorial Page</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -487,10 +549,29 @@
 
 
   <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#object-model">Object Model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dependency-direction">Dependency Direction</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#axes-family-enforcement-formulation">Axes: family / enforcement / formulation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-scope">Configuration Scope</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#known-constraint-p0-side">Known Constraint: <code class="docutils literal notranslate"><span class="pre">p0</span></code> Side</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#guarantees-covered-by-tests">Guarantees Covered by Tests</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backend-direction">Backend Direction</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#coordinate-differentiation">Coordinate Differentiation</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="_sources/usage.rst.txt"
+      <li><a href="_sources/contact_api_boundaries.rst.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>

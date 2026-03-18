@@ -46,7 +46,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Mesh" href="mesh.html" />
-    <link rel="prev" title="Top-level API" href="top.html" />
+    <link rel="prev" title="Role-Explicit Specs" href="role_spaces.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -314,6 +314,7 @@
   <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">API</span></p>
 <ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="top.html">Top-level API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="role_spaces.html">Role-Explicit Specs</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Core</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mesh.html">Mesh</a></li>
 <li class="toctree-l1"><a class="reference internal" href="solver.html">Solver</a></li>
@@ -384,6 +385,9 @@
 <h1>Core<a class="headerlink" href="#core" title="Link to this heading">#</a></h1>
 <section id="spaces">
 <h2>Spaces<a class="headerlink" href="#spaces" title="Link to this heading">#</a></h2>
+<p>For new public-facing mixed setups, prefer <code class="docutils literal notranslate"><span class="pre">MixedSpaces(...).to_fe_space()</span></code>.
+<code class="docutils literal notranslate"><span class="pre">MixedFESpace</span></code> remains available as a lower-level constructor for advanced
+or internal usage.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="fluxfem.core.FESpaceBase">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">FESpaceBase</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.FESpaceBase" title="Link to this definition">#</a></dt>
@@ -410,7 +414,7 @@ as children; metadata is preserved as auxiliary data.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="fluxfem.core.MixedFESpace">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">MixedFESpace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fields</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">FESpaceClosure</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">field_order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">field_to_space_key</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.MixedFESpace" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">MixedFESpace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fields</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">FESpaceClosure</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">field_order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">field_to_space_key</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">field_alias_space_keys</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.MixedFESpace" title="Link to this definition">#</a></dt>
 <dd><p>Mixed FE space composed of multiple scalar/vector spaces.</p>
 <dl class="simple">
 <dt>Field DOFs are concatenated in field order:</dt><dd><p>[field0 dofs | field1 dofs | …]</p>
@@ -509,7 +513,7 @@ element=ElementVector(dim) → vector dof per node, value_dim=dim</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="fluxfem.core.ResidualForm">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">ResidualForm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.ResidualForm" title="Link to this definition">#</a></dt>
-<dd><p>Residual form wrapper (volume only for now).</p>
+<dd><p>Residual form wrapper.</p>
 </dd></dl>
 
 <dl class="py class">
@@ -581,13 +585,21 @@ explicit <code class="docutils literal notranslate"><span class="pre">dim</span>
 </section>
 <section id="example-mixedproblem">
 <h2>Example (MixedProblem)<a class="headerlink" href="#example-mixedproblem" title="Link to this heading">#</a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">mixed</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MixedFESpace</span><span class="p">(</span>
-    <span class="p">{</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">space</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="n">space</span><span class="p">},</span>
-    <span class="n">field_to_space_key</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="s2">&quot;U&quot;</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="s2">&quot;P&quot;</span><span class="p">},</span>
-<span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">mixed</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MixedSpaces</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">ResidualSpaces</span><span class="p">(</span>
+            <span class="n">test</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;V&quot;</span><span class="p">,</span> <span class="n">space</span><span class="p">),</span>
+            <span class="n">unknown</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;U&quot;</span><span class="p">,</span> <span class="n">space</span><span class="p">),</span>
+        <span class="p">),</span>
+        <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">ResidualSpaces</span><span class="p">(</span>
+            <span class="n">test</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;Qv&quot;</span><span class="p">,</span> <span class="n">space</span><span class="p">),</span>
+            <span class="n">unknown</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;Q&quot;</span><span class="p">,</span> <span class="n">space</span><span class="p">),</span>
+        <span class="p">),</span>
+    <span class="p">}</span>
+<span class="p">)</span><span class="o">.</span><span class="n">to_fe_space</span><span class="p">()</span>
 <span class="n">residuals</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_mixed_residuals</span><span class="p">(</span>
     <span class="n">u</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">bind_mixed_residual</span><span class="p">(</span><span class="s2">&quot;u&quot;</span><span class="p">,</span> <span class="n">res_u</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">&quot;U&quot;</span><span class="p">),</span>
-    <span class="n">p</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">bind_mixed_residual</span><span class="p">(</span><span class="s2">&quot;p&quot;</span><span class="p">,</span> <span class="n">res_p</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">&quot;P&quot;</span><span class="p">),</span>
+    <span class="n">p</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">bind_mixed_residual</span><span class="p">(</span><span class="s2">&quot;p&quot;</span><span class="p">,</span> <span class="n">res_p</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">&quot;Q&quot;</span><span class="p">),</span>
 <span class="p">)</span>
 <span class="n">params</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">alpha</span><span class="o">=</span><span class="mf">1.2</span><span class="p">,</span> <span class="n">beta</span><span class="o">=-</span><span class="mf">0.4</span><span class="p">)</span>
 <span class="n">pattern</span> <span class="o">=</span> <span class="n">mixed</span><span class="o">.</span><span class="n">get_sparsity_pattern</span><span class="p">(</span><span class="n">with_idx</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -603,10 +615,15 @@ explicit <code class="docutils literal notranslate"><span class="pre">dim</span>
 <li><p><code class="docutils literal notranslate"><span class="pre">ctx.test</span></code> / <code class="docutils literal notranslate"><span class="pre">ctx.trial</span></code> for simple single-space code</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ctx.bindings[&quot;u&quot;]</span></code> for named mixed-field lookup</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ctx.spaces[&quot;U&quot;]</span></code> for explicit space-key lookup</p></li>
+<li><p>alias keys such as <code class="docutils literal notranslate"><span class="pre">ctx.spaces[&quot;V&quot;]</span></code> can point to the same mixed field when
+a field was declared through <code class="docutils literal notranslate"><span class="pre">ResidualSpaces</span></code> / <code class="docutils literal notranslate"><span class="pre">JacobianSpaces</span></code></p></li>
 </ul>
 </section>
 <section id="example-mixedblocksystem">
 <h2>Example (MixedBlockSystem)<a class="headerlink" href="#example-mixedblocksystem" title="Link to this heading">#</a></h2>
+<p>This helper currently applies to <code class="docutils literal notranslate"><span class="pre">MixedSpaces(...).to_fe_space()</span></code> /
+<code class="docutils literal notranslate"><span class="pre">MixedFESpace</span></code> style layouts. It does not yet support
+<code class="docutils literal notranslate"><span class="pre">MixedRoleSpaces(...).to_fe_space()</span></code>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">blocks</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">Kuu</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="n">Kup</span><span class="p">},</span>
     <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">Kpu</span><span class="p">,</span> <span class="s2">&quot;p&quot;</span><span class="p">:</span> <span class="n">Kpp</span><span class="p">},</span>
@@ -642,12 +659,12 @@ explicit <code class="docutils literal notranslate"><span class="pre">dim</span>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="top.html"
+       href="role_spaces.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Top-level API</p>
+        <p class="prev-next-title">Role-Explicit Specs</p>
       </div>
     </a>
     <a class="right-next"

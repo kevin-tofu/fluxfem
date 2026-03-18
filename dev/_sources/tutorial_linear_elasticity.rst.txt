@@ -58,6 +58,8 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
 
    a(u, v) = \int_{\Omega} \varepsilon(v) : D : \varepsilon(u)\, d\Omega
 
+Single-space assembly stays shortest for this standard Galerkin problem:
+
 .. code-block:: python
 
    import fluxfem.helpers_wf as h_wf
@@ -67,6 +69,23 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
        * h_wf.dOmega()
    )
    K = space.assemble(bilinear_form, params=D)
+
+The same operator can also be assembled through explicit test/trial roles:
+
+.. code-block:: python
+
+   U = ff.NamedSpace("U", space)
+   V = ff.NamedSpace("V", space)
+
+   bilinear = ff.BilinearForm.volume(
+       lambda u, v, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
+       * h_wf.dOmega()
+   )
+   K = ff.assemble_bilinear_form(
+       ff.BilinearSpaces(test=V, trial=U),
+       bilinear,
+       D,
+   )
 
 3) Assemble the surface traction
 """"""""""""""""""""""""""""""""
@@ -79,9 +98,10 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
 
    surface_form = ff.LinearForm.surface(lambda v, p: (v | p) * h_wf.ds())
    traction_vec = np.array([traction, 0.0, 0.0], dtype=float)
-   F = surface.assemble_linear_form_on_space(
-       space, surface_form.get_compiled(), params=traction_vec
-   )
+   F = surface.assemble_linear_form_on_space(space, surface_form, params=traction_vec)
+
+For volume load vectors, the matching role-explicit entry point is
+``ff.assemble_linear_form(ff.LinearSpaces(test=V), ...)``.
 
 4) Apply Dirichlet clamp
 """"""""""""""""""""""""

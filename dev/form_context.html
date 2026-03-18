@@ -319,10 +319,12 @@
 <li class="toctree-l2"><a class="reference internal" href="assembly_weakform.html">Weak form Assembly</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="migration_role_spaces.html">Role-Explicit API Migration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_chunked_assembly.html">Chunked Assembly</a></li>
 <li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="space.html">FE Spaces</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_contact.html">Contact Interface Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="contact_api_boundaries.html">Contact API Boundaries</a></li>
 </ul>
 </div>
 </nav></div>
@@ -419,7 +421,11 @@ context and params during compilation/evaluation:</p>
     <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="n">p</span><span class="o">.</span><span class="n">kappa</span> <span class="o">*</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad</span> <span class="o">@</span> <span class="n">u</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
 <span class="p">)</span>
 
-<span class="n">compiled</span> <span class="o">=</span> <span class="n">form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">()</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>If you want to cache and reuse the compiled form explicitly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">compiled</span> <span class="o">=</span> <span class="n">form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">()</span>
 <span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">compiled</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">))</span>
 </pre></div>
 </div>

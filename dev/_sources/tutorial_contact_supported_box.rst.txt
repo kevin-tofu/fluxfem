@@ -24,6 +24,8 @@ What it showcases
 
 - Building contact between a large top box and a merged support mesh
   (multiple disconnected small boxes).
+- Creating the interface through ``ContactSide`` + ``ContactSpaces`` so the
+  master/slave roles are explicit in the public API.
 - Assembling penalty-family operators via ``assemble_contact_penalty_operators(...)``.
 - Lifting interface Jacobian/residual into structural DOFs via ``CoupledSystem.add_contact_nitsche(...)``.
 - Building gravity/body-force vectors and support-bottom Dirichlet DOFs.

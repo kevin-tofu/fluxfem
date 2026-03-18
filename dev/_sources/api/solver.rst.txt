@@ -20,6 +20,8 @@ Sparse
 
 .. autoclass:: fluxfem.solver.SparsityPattern
 .. autoclass:: fluxfem.solver.FluxSparseMatrix
+.. autoclass:: fluxfem.solver.FluxSparseOperator
+   :no-index:
 
 Dirichlet
 ---------

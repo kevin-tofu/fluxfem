@@ -319,10 +319,12 @@
 <li class="toctree-l2"><a class="reference internal" href="assembly_weakform.html">Weak form Assembly</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="migration_role_spaces.html">Role-Explicit API Migration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_chunked_assembly.html">Chunked Assembly</a></li>
 <li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="space.html">FE Spaces</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_contact.html">Contact Interface Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="contact_api_boundaries.html">Contact API Boundaries</a></li>
 </ul>
 </div>
 </nav></div>
@@ -399,6 +401,77 @@ custom kernels, or to follow scikit-fem-like patterns.</p></li>
 <li><p>Weak-form-based: concise and expressive; good for rapid prototyping and for
 matching equations in papers.</p></li>
 </ul>
+<section id="single-space-vs-role-explicit-assembly">
+<h2>Single-Space vs Role-Explicit Assembly<a class="headerlink" href="#single-space-vs-role-explicit-assembly" title="Link to this heading">#</a></h2>
+<p>FluxFEM supports two complementary calling styles for the same core assembly
+machinery:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">space.assemble_*</span></code>: the shortest path when test/trial/unknown all live on
+the same space.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ff.assemble_*(*Spaces(...),</span> <span class="pre">...)</span></code>: the explicit path when you want to bind
+named roles such as <code class="docutils literal notranslate"><span class="pre">test</span></code> and <code class="docutils literal notranslate"><span class="pre">trial</span></code> directly in the public API.</p></li>
+</ul>
+<p>Deprecated compatibility paths are documented in
+<code class="docutils literal notranslate"><span class="pre">migration_role_spaces.rst</span></code>. The preferred assembly surface shown here uses
+the <code class="docutils literal notranslate"><span class="pre">*Spaces</span></code> family directly.</p>
+<p>For standard Galerkin problems, the single-space form remains the simplest:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
+
+<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+<span class="n">F</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_linear_form</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">make_scalar_body_force_form</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">),</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The paired helper <code class="docutils literal notranslate"><span class="pre">space.assemble_bilinear_linear_pair(...)</span></code> remains
+supported for the common same-space case, but it is only convenience sugar over
+the separate bilinear and linear assembly calls. There is no separate
+role-explicit <code class="docutils literal notranslate"><span class="pre">PairSpaces</span></code> abstraction; the underlying public building blocks
+are still <code class="docutils literal notranslate"><span class="pre">BilinearSpaces</span></code> and <code class="docutils literal notranslate"><span class="pre">LinearSpaces</span></code>.</p>
+<p>For role-explicit assembly, use the <code class="docutils literal notranslate"><span class="pre">*Spaces</span></code> family:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem.helpers_wf</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">wf</span>
+
+<span class="n">U</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;U&quot;</span><span class="p">,</span> <span class="n">trial_space</span><span class="p">)</span>
+<span class="n">V</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;V&quot;</span><span class="p">,</span> <span class="n">test_space</span><span class="p">)</span>
+
+<span class="n">bilinear</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">BilinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="n">p</span><span class="o">.</span><span class="n">kappa</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">u</span><span class="p">))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+<span class="p">)</span>
+<span class="n">linear</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="n">wf</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">force</span><span class="p">)</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+<span class="p">)</span>
+
+<span class="n">A</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_bilinear_form</span><span class="p">(</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">BilinearSpaces</span><span class="p">(</span><span class="n">test</span><span class="o">=</span><span class="n">V</span><span class="p">,</span> <span class="n">trial</span><span class="o">=</span><span class="n">U</span><span class="p">),</span>
+    <span class="n">bilinear</span><span class="p">,</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_linear_form</span><span class="p">(</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">LinearSpaces</span><span class="p">(</span><span class="n">test</span><span class="o">=</span><span class="n">V</span><span class="p">),</span>
+    <span class="n">linear</span><span class="p">,</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">force</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>The same pattern extends to nonlinear volume assembly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">residual</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ResidualForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">v</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="n">p</span><span class="o">.</span><span class="n">kappa</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">gaction</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">u</span><span class="p">))</span> <span class="o">*</span> <span class="n">wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
+<span class="p">)</span>
+
+<span class="n">R</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">ResidualSpaces</span><span class="p">(</span><span class="n">test</span><span class="o">=</span><span class="n">V</span><span class="p">,</span> <span class="n">unknown</span><span class="o">=</span><span class="n">U</span><span class="p">),</span>
+    <span class="n">residual</span><span class="p">,</span>
+    <span class="n">u_vec</span><span class="p">,</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">J</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">JacobianSpaces</span><span class="p">(</span><span class="n">test</span><span class="o">=</span><span class="n">V</span><span class="p">,</span> <span class="n">trial</span><span class="o">=</span><span class="n">U</span><span class="p">),</span>
+    <span class="n">residual</span><span class="p">,</span>
+    <span class="n">u_vec</span><span class="p">,</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
 <section id="measure-handling-weak-form-vs-tensor-vs-kernel">
 <h2>Measure handling (weak form vs tensor vs kernel)<a class="headerlink" href="#measure-handling-weak-form-vs-tensor-vs-kernel" title="Link to this heading">#</a></h2>
 <p>All three assembly styles use the same <code class="docutils literal notranslate"><span class="pre">space.assemble(...)</span></code> entry point, but
@@ -509,6 +582,7 @@ most common source of confusion, so the rules are summarized here:</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#single-space-vs-role-explicit-assembly">Single-Space vs Role-Explicit Assembly</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#measure-handling-weak-form-vs-tensor-vs-kernel">Measure handling (weak form vs tensor vs kernel)</a></li>
 </ul>
   </nav></div>

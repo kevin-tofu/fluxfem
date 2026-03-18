@@ -314,10 +314,12 @@
   <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Usage</span></p>
 <ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="assembly.html">Assembly</a></li>
+<li class="toctree-l1"><a class="reference internal" href="migration_role_spaces.html">Role-Explicit API Migration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_chunked_assembly.html">Chunked Assembly</a></li>
 <li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">FE Spaces</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_contact.html">Contact Interface Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="contact_api_boundaries.html">Contact API Boundaries</a></li>
 </ul>
 </div>
 </nav></div>
@@ -427,6 +429,12 @@ mesh and space explicitly:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">FESpacePytree</span></code> shares the same API as <code class="docutils literal notranslate"><span class="pre">FESpace</span></code>; only the pytree behavior
 differs.</p></li>
 <li><p>Prefer <code class="docutils literal notranslate"><span class="pre">FESpace</span></code> unless you need the mesh/basis to be part of a JAX pytree.</p></li>
+<li><p>For same-space Galerkin problems, <code class="docutils literal notranslate"><span class="pre">space.assemble_*</span></code> remains the shortest
+entry point.</p></li>
+<li><p>For role-explicit assembly, prefer the top-level <code class="docutils literal notranslate"><span class="pre">ff.assemble_*</span></code> helpers
+with <code class="docutils literal notranslate"><span class="pre">ff.NamedSpace</span></code> and the <code class="docutils literal notranslate"><span class="pre">*Spaces</span></code> family, such as
+<code class="docutils literal notranslate"><span class="pre">ff.LinearSpaces</span></code>, <code class="docutils literal notranslate"><span class="pre">ff.BilinearSpaces</span></code>, <code class="docutils literal notranslate"><span class="pre">ff.ResidualSpaces</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">ff.JacobianSpaces</span></code>.</p></li>
 </ul>
 </section>
 </section>
