@@ -6,6 +6,7 @@ API Reference
    :caption: API
 
    api/top
+   api/role_spaces
    api/core
    api/mesh
    api/solver

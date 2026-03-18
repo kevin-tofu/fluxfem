@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>MixedForm and Block Utilities &#8212; FluxFEM 0.2.8 documentation</title>
+    <title>MixedForm and Block Utilities &#8212; FluxFEM 0.3.0 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=dfb2ad43"></script>
+    <script src="_static/documentation_options.js?v=f129cdf0"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
@@ -112,7 +112,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.8 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.0 documentation</p>
   
 </a></div>
     
@@ -393,16 +393,30 @@
 
 <span class="n">mesh</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">StructuredHexBox</span><span class="p">(</span><span class="n">nx</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">ny</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">nz</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">lx</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">ly</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">lz</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
 <span class="n">space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_hex_space</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">intorder</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
-<span class="n">mixed</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MixedFESpace</span><span class="p">({</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">space</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">:</span> <span class="n">space</span><span class="p">})</span>
+<span class="n">mixed</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MixedSpaces</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">ResidualSpaces</span><span class="p">(</span>
+            <span class="n">test</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;V&quot;</span><span class="p">,</span> <span class="n">space</span><span class="p">),</span>
+            <span class="n">unknown</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;U&quot;</span><span class="p">,</span> <span class="n">space</span><span class="p">),</span>
+        <span class="p">),</span>
+        <span class="s2">&quot;T&quot;</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">ResidualSpaces</span><span class="p">(</span>
+            <span class="n">test</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;PSI&quot;</span><span class="p">,</span> <span class="n">space</span><span class="p">),</span>
+            <span class="n">unknown</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;THETA&quot;</span><span class="p">,</span> <span class="n">space</span><span class="p">),</span>
+        <span class="p">),</span>
+    <span class="p">}</span>
+<span class="p">)</span><span class="o">.</span><span class="n">to_fe_space</span><span class="p">()</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">res_T</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">p</span><span class="p">):</span>
     <span class="k">return</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">kappa</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">gaction</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">T</span><span class="p">))</span> <span class="o">-</span> <span class="n">v</span> <span class="o">*</span> <span class="n">p</span><span class="o">.</span><span class="n">q</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">res_u</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">p</span><span class="p">):</span>
-    <span class="n">T_ref</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">unknown_ref</span><span class="p">(</span><span class="s2">&quot;T&quot;</span><span class="p">)</span>
+    <span class="n">T_ref</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">unknown_ref</span><span class="p">(</span><span class="s2">&quot;T&quot;</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">&quot;THETA&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">p</span><span class="o">.</span><span class="n">E</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">gaction</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">u</span><span class="p">))</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">gaction</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">T_ref</span><span class="o">.</span><span class="n">val</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
 
-<span class="n">residuals</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_mixed_residuals</span><span class="p">(</span><span class="n">u</span><span class="o">=</span><span class="n">res_u</span><span class="p">,</span> <span class="n">T</span><span class="o">=</span><span class="n">res_T</span><span class="p">)</span>
+<span class="n">residuals</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">make_mixed_residuals</span><span class="p">(</span>
+    <span class="n">u</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">bind_mixed_residual</span><span class="p">(</span><span class="s2">&quot;u&quot;</span><span class="p">,</span> <span class="n">res_u</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">&quot;U&quot;</span><span class="p">),</span>
+    <span class="n">T</span><span class="o">=</span><span class="n">ff</span><span class="o">.</span><span class="n">bind_mixed_residual</span><span class="p">(</span><span class="s2">&quot;T&quot;</span><span class="p">,</span> <span class="n">res_T</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">&quot;THETA&quot;</span><span class="p">),</span>
+<span class="p">)</span>
 <span class="n">params</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">Params</span><span class="p">(</span><span class="n">kappa</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">q</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">E</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">1.0e-3</span><span class="p">)</span>
 
 <span class="n">bc</span> <span class="o">=</span> <span class="n">mixed</span><span class="o">.</span><span class="n">make_dirichlet</span><span class="p">(</span>
@@ -418,9 +432,17 @@
 <span class="n">sol</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">LinearSolver</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="s2">&quot;spsolve&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
     <span class="n">K</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">dirichlet</span><span class="o">=</span><span class="n">bc</span><span class="o">.</span><span class="n">as_dirichlet_bc</span><span class="p">(),</span> <span class="n">dirichlet_mode</span><span class="o">=</span><span class="s2">&quot;condense&quot;</span>
 <span class="p">)</span>
-<span class="n">fields</span> <span class="o">=</span> <span class="n">mixed</span><span class="o">.</span><span class="n">unpack_fields</span><span class="p">(</span><span class="n">sol</span><span class="p">)</span>
+<span class="n">solution_fields</span> <span class="o">=</span> <span class="n">mixed</span><span class="o">.</span><span class="n">unpack_fields</span><span class="p">(</span><span class="n">sol</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>The standard mixed lookup rules are:</p>
+<ul class="simple">
+<li><p>use <code class="docutils literal notranslate"><span class="pre">ctx.test</span></code> / <code class="docutils literal notranslate"><span class="pre">ctx.trial</span></code> for the local residual arguments</p></li>
+<li><p>use <code class="docutils literal notranslate"><span class="pre">ctx.bindings[&quot;u&quot;]</span></code> when you want a named mixed field from the full mixed context</p></li>
+<li><p>use <code class="docutils literal notranslate"><span class="pre">ctx.spaces[&quot;U&quot;]</span></code> when the discrete space itself must be selected explicitly</p></li>
+<li><p>if a mixed field was declared with <code class="docutils literal notranslate"><span class="pre">ResidualSpaces</span></code>, alias keys such as
+<code class="docutils literal notranslate"><span class="pre">ctx.spaces[&quot;V&quot;]</span></code> or <code class="docutils literal notranslate"><span class="pre">ctx.spaces[&quot;PSI&quot;]</span></code> resolve to the same field</p></li>
+</ul>
 <p>Related mixed tutorials:</p>
 <ul class="simple">
 <li><p><cite>tutorials/thermoelastic_bar_1d_mixed.py</cite></p></li>
@@ -487,7 +509,7 @@ tutorial scripts for full examples:</p>
 and the off-diagonal blocks arise from cross-couplings.  The block helpers above
 let you construct this matrix explicitly: <code class="docutils literal notranslate"><span class="pre">diag</span></code> supplies <code class="docutils literal notranslate"><span class="pre">K_{uu}</span></code>/<code class="docutils literal notranslate"><span class="pre">K_{TT}</span></code>
 and <code class="docutils literal notranslate"><span class="pre">rel</span></code> inserts pairs such as <code class="docutils literal notranslate"><span class="pre">K_{uT}</span></code>.  Passing the resulting <code class="docutils literal notranslate"><span class="pre">blocks</span></code>
-dictionary into <code class="docutils literal notranslate"><span class="pre">MixedFESpace.build_block_system</span></code> makes it easy to swap in
+dictionary into <code class="docutils literal notranslate"><span class="pre">mixed.build_block_system</span></code> makes it easy to swap in
 Schur-complement solvers, block preconditioners, or other multiphysics strategies.</p>
 </section>
 </section>

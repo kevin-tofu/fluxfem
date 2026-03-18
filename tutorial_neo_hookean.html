@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Hyper-Elasticity: Hyperelastic Cantilever &#8212; FluxFEM 0.2.8 documentation</title>
+    <title>Hyper-Elasticity: Hyperelastic Cantilever &#8212; FluxFEM 0.3.0 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=dfb2ad43"></script>
+    <script src="_static/documentation_options.js?v=f129cdf0"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
@@ -112,7 +112,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.8 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.0 documentation</p>
   
 </a></div>
     
@@ -481,7 +481,27 @@ but the weak-form mapping looks like this (PK2 form):</p>
     <span class="k">return</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">ddot</span><span class="p">(</span><span class="n">S</span><span class="p">,</span> <span class="n">dE</span><span class="p">)</span> <span class="o">*</span> <span class="n">h_wf</span><span class="o">.</span><span class="n">dOmega</span><span class="p">()</span>
 
 <span class="n">residual_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ResidualForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="n">neo_hookean_residual_wf</span><span class="p">)</span>
-<span class="n">R</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">residual_form</span><span class="o">.</span><span class="n">get_compiled</span><span class="p">(),</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">)</span>
+<span class="n">R</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span><span class="n">residual_form</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The role-explicit equivalent keeps the same weak form but binds test/unknown
+roles through <code class="docutils literal notranslate"><span class="pre">NamedSpace</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">U</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;U&quot;</span><span class="p">,</span> <span class="n">space</span><span class="p">)</span>
+<span class="n">V</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">NamedSpace</span><span class="p">(</span><span class="s2">&quot;V&quot;</span><span class="p">,</span> <span class="n">space</span><span class="p">)</span>
+<span class="n">residual</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ResidualForm</span><span class="o">.</span><span class="n">volume</span><span class="p">(</span><span class="n">neo_hookean_residual_wf</span><span class="p">)</span>
+
+<span class="n">R</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_residual</span><span class="p">(</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">ResidualSpaces</span><span class="p">(</span><span class="n">test</span><span class="o">=</span><span class="n">V</span><span class="p">,</span> <span class="n">unknown</span><span class="o">=</span><span class="n">U</span><span class="p">),</span>
+    <span class="n">residual</span><span class="p">,</span>
+    <span class="n">u</span><span class="p">,</span>
+    <span class="n">params</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">J</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">JacobianSpaces</span><span class="p">(</span><span class="n">test</span><span class="o">=</span><span class="n">V</span><span class="p">,</span> <span class="n">trial</span><span class="o">=</span><span class="n">U</span><span class="p">),</span>
+    <span class="n">residual</span><span class="p">,</span>
+    <span class="n">u</span><span class="p">,</span>
+    <span class="n">params</span><span class="p">,</span>
+<span class="p">)</span>
 </pre></div>
 </div>
 <p>In FluxFEM, <code class="docutils literal notranslate"><span class="pre">ff.neo_hookean_residual_form</span></code> uses the PK2 stress <code class="docutils literal notranslate"><span class="pre">S</span></code> internally,

@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Index &#8212; FluxFEM 0.2.8 documentation</title>
+    <title>Index &#8212; FluxFEM 0.3.0 documentation</title>
   
   
   
@@ -37,7 +37,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=dfb2ad43"></script>
+    <script src="_static/documentation_options.js?v=f129cdf0"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'genindex';</script>
@@ -108,7 +108,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.8 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.0 documentation</p>
   
 </a></div>
     
@@ -342,6 +342,7 @@
  | <a href="#G"><strong>G</strong></a>
  | <a href="#H"><strong>H</strong></a>
  | <a href="#I"><strong>I</strong></a>
+ | <a href="#J"><strong>J</strong></a>
  | <a href="#K"><strong>K</strong></a>
  | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
@@ -368,14 +369,16 @@
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.add">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+      <li><a href="api/role_spaces.html#fluxfem.assemble_bilinear_form">assemble_bilinear_form() (in module fluxfem)</a>
+</li>
       <li><a href="api/physics.html#fluxfem.physics.assemble_constant_body_force">assemble_constant_body_force() (in module fluxfem.physics)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_constraint_operators">assemble_contact_constraint_operators() (in module fluxfem.mesh)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_coupling_matrices">assemble_contact_coupling_matrices() (in module fluxfem.mesh)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_interface_jacobian">assemble_contact_interface_jacobian() (in module fluxfem.mesh)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_interface_residual">assemble_contact_interface_residual() (in module fluxfem.mesh)</a>
@@ -383,6 +386,12 @@
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_kkt">assemble_contact_kkt() (in module fluxfem.mesh)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_penalty_operators">assemble_contact_penalty_operators() (in module fluxfem.mesh)</a>
+</li>
+      <li><a href="api/role_spaces.html#fluxfem.assemble_jacobian">assemble_jacobian() (in module fluxfem)</a>
+</li>
+      <li><a href="api/role_spaces.html#fluxfem.assemble_linear_form">assemble_linear_form() (in module fluxfem)</a>
+</li>
+      <li><a href="api/role_spaces.html#fluxfem.assemble_residual">assemble_residual() (in module fluxfem)</a>
 </li>
       <li><a href="api/tools.html#fluxfem.tools.timer.SectionStats.avg">avg (fluxfem.tools.timer.SectionStats attribute)</a>
 </li>
@@ -400,11 +409,15 @@
 </li>
       <li><a href="api/tools.html#fluxfem.tools.timer.BaseTimer">BaseTimer (class in fluxfem.tools.timer)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/mesh.html#fluxfem.mesh.bbox_predicate">bbox_predicate() (in module fluxfem.mesh)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/core.html#fluxfem.core.BilinearForm">BilinearForm (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/role_spaces.html#fluxfem.BilinearSpaces">BilinearSpaces (class in fluxfem)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.bind_mixed_residual">bind_mixed_residual() (in module fluxfem.core)</a>
 </li>
       <li><a href="api/solver.html#fluxfem.solver.block_diag">block_diag() (in module fluxfem.solver)</a>
 </li>
@@ -422,13 +435,17 @@
 </li>
       <li><a href="api/solver.html#fluxfem.solver.condense_dirichlet_fluxsparse">condense_dirichlet_fluxsparse() (in module fluxfem.solver)</a>
 </li>
+      <li><a href="api/physics.html#fluxfem.physics.constant_body_force_vector_form">constant_body_force_vector_form() (in module fluxfem.physics)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/physics.html#fluxfem.physics.constant_body_force_vector_form">constant_body_force_vector_form() (in module fluxfem.physics)</a>
+      <li><a href="api/role_spaces.html#fluxfem.ContactGroupSpaces">ContactGroupSpaces (class in fluxfem)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.ContactOperators">ContactOperators (class in fluxfem.mesh)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.ContactSide">ContactSide (class in fluxfem.mesh)</a>
+</li>
+      <li><a href="api/role_spaces.html#fluxfem.ContactSpaces">ContactSpaces (class in fluxfem)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.ContactSurfaceSpace">ContactSurfaceSpace (class in fluxfem.mesh)</a>
 </li>
@@ -540,8 +557,6 @@
         <li><a href="api/physics.html#module-fluxfem.physics.diffusion">module</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     fluxfem.physics.operators
 
@@ -549,6 +564,8 @@
         <li><a href="api/physics.html#module-fluxfem.physics.operators">module</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     fluxfem.physics.postprocess
 
@@ -585,6 +602,8 @@
 </li>
       </ul></li>
       <li><a href="api/solver.html#fluxfem.solver.FluxSparseMatrix">FluxSparseMatrix (class in fluxfem.solver)</a>
+</li>
+      <li><a href="api/role_spaces.html#fluxfem.FluxSparseOperator">FluxSparseOperator (class in fluxfem)</a>
 </li>
       <li><a href="api/core.html#fluxfem.core.FormContext">FormContext (class in fluxfem.core)</a>
 </li>
@@ -645,6 +664,14 @@
   </ul></td>
 </tr></table>
 
+<h2 id="J">J</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/role_spaces.html#fluxfem.JacobianSpaces">JacobianSpaces (class in fluxfem)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="K">K</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
@@ -687,6 +714,8 @@
       <li><a href="api/solver.html#fluxfem.solver.LinearSolver">LinearSolver (class in fluxfem.solver)</a>
 </li>
       <li><a href="api/solver.html#fluxfem.solver.LinearSolveRunner">LinearSolveRunner (class in fluxfem.solver)</a>
+</li>
+      <li><a href="api/role_spaces.html#fluxfem.LinearSpaces">LinearSpaces (class in fluxfem)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.load_gmsh_hex_mesh">load_gmsh_hex_mesh() (in module fluxfem.mesh)</a>
 </li>
@@ -744,10 +773,10 @@
 </li>
       <li><a href="api/helpers.html#fluxfem.helpers_wf.matmul">matmul() (in module fluxfem.helpers_wf)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/helpers.html#fluxfem.helpers_wf.matmul_std">matmul_std() (in module fluxfem.helpers_wf)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/tools.html#fluxfem.tools.timer.SectionStats.max">max (fluxfem.tools.timer.SectionStats attribute)</a>
 </li>
       <li><a href="api/physics.html#fluxfem.physics.max_shear_stress">max_shear_stress() (in module fluxfem.physics)</a>
@@ -759,6 +788,8 @@
       <li><a href="api/core.html#fluxfem.core.MixedFormContext">MixedFormContext (class in fluxfem.core)</a>
 </li>
       <li><a href="api/core.html#fluxfem.core.MixedProblem">MixedProblem (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/role_spaces.html#fluxfem.MixedSpaces">MixedSpaces (class in fluxfem)</a>
 </li>
       <li><a href="api/core.html#fluxfem.core.MixedWeakForm">MixedWeakForm (class in fluxfem.core)</a>
 </li>
@@ -795,6 +826,8 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/tools.html#fluxfem.tools.timer.SectionStats.name">name (fluxfem.tools.timer.SectionStats attribute)</a>
 </li>
+      <li><a href="api/role_spaces.html#fluxfem.NamedSpace">NamedSpace (class in fluxfem)</a>
+</li>
       <li><a href="api/top.html#fluxfem.neo_hookean_residual_form">neo_hookean_residual_form() (in module fluxfem)</a>
 
       <ul>
@@ -827,6 +860,8 @@
 <h2 id="O">O</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/role_spaces.html#fluxfem.OneSidedContactSpaces">OneSidedContactSpaces (class in fluxfem)</a>
+</li>
       <li><a href="api/mesh.html#fluxfem.mesh.OneSidedContactSurfaceSpace">OneSidedContactSurfaceSpace (class in fluxfem.mesh)</a>
 </li>
   </ul></td>
@@ -890,6 +925,8 @@
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/core.html#fluxfem.core.ResidualForm">ResidualForm (class in fluxfem.core)</a>
+</li>
+      <li><a href="api/role_spaces.html#fluxfem.ResidualSpaces">ResidualSpaces (class in fluxfem)</a>
 </li>
       <li><a href="api/physics.html#fluxfem.physics.right_cauchy_green">right_cauchy_green() (in module fluxfem.physics)</a>
 </li>

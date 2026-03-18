@@ -39,6 +39,12 @@ context and params during compilation/evaluation:
        lambda u, v, p: p.kappa * (v.grad @ u.grad) * wf.dOmega()
    )
 
+   K = space.assemble(form, params=ff.Params(kappa=1.0))
+
+If you want to cache and reuse the compiled form explicitly:
+
+.. code-block:: python
+
    compiled = form.get_compiled()
    K = space.assemble(compiled, params=ff.Params(kappa=1.0))
 

@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Contact Interface Usage &#8212; FluxFEM 0.2.8 documentation</title>
+    <title>Contact Interface Usage &#8212; FluxFEM 0.3.0 documentation</title>
   
   
   
@@ -38,14 +38,14 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=dfb2ad43"></script>
+    <script src="_static/documentation_options.js?v=f129cdf0"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'usage_contact';</script>
     <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/usage_contact.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Tutorial Page" href="tutorial.html" />
+    <link rel="next" title="Contact API Boundaries" href="contact_api_boundaries.html" />
     <link rel="prev" title="FE Spaces" href="space.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.2.8 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.0 documentation</p>
   
 </a></div>
     
@@ -314,10 +314,12 @@
   <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Usage</span></p>
 <ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="assembly.html">Assembly</a></li>
+<li class="toctree-l1"><a class="reference internal" href="migration_role_spaces.html">Role-Explicit API Migration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_chunked_assembly.html">Chunked Assembly</a></li>
 <li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="space.html">FE Spaces</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Contact Interface Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="contact_api_boundaries.html">Contact API Boundaries</a></li>
 </ul>
 </div>
 </nav></div>
@@ -381,12 +383,33 @@
   <section id="contact-interface-usage">
 <h1>Contact Interface Usage<a class="headerlink" href="#contact-interface-usage" title="Link to this heading">#</a></h1>
 <p>This page shows the recommended high-level API for contact assembly.</p>
+<p>For the broader split between plain surface forms, mixed surface residuals, and
+contact-specific paths, see <span class="xref std std-doc">surface_api_status</span>.</p>
 <p>For terminology/ownership/scope (<code class="docutils literal notranslate"><span class="pre">contact</span></code>, <code class="docutils literal notranslate"><span class="pre">multiplier</span></code>, <code class="docutils literal notranslate"><span class="pre">formulation</span></code>, <code class="docutils literal notranslate"><span class="pre">ops</span></code>),
-see <span class="xref std std-doc">contact_api_boundaries</span>.</p>
-<section id="one-to-many-contact-from-meshes">
-<h2>One-To-Many Contact From Meshes<a class="headerlink" href="#one-to-many-contact-from-meshes" title="Link to this heading">#</a></h2>
-<p>Use <code class="xref py py-class docutils literal notranslate"><span class="pre">fluxfem.OneToManyContactSurfaceSpace</span></code> with mesh objects and facet selectors.
-You do not need to manually pass surface coordinates/connectivity.</p>
+see <a class="reference internal" href="contact_api_boundaries.html"><span class="doc">Contact API Boundaries</span></a>.</p>
+<section id="role-specs">
+<h2>Role Specs<a class="headerlink" href="#role-specs" title="Link to this heading">#</a></h2>
+<p>For new code, prefer explicit role specs over ad-hoc positional wiring.</p>
+<p>Pair contact:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pair_spec</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactSpaces</span><span class="p">(</span><span class="n">master</span><span class="o">=</span><span class="n">master_side</span><span class="p">,</span> <span class="n">slave</span><span class="o">=</span><span class="n">slave_side</span><span class="p">)</span>
+<span class="n">contact</span> <span class="o">=</span> <span class="n">pair_spec</span><span class="o">.</span><span class="n">to_contact_surface_space</span><span class="p">(</span><span class="n">quad_order</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>One-sided contact:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">one_sided_spec</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">OneSidedContactSpaces</span><span class="p">(</span><span class="n">side</span><span class="o">=</span><span class="n">slave_side</span><span class="p">)</span>
+<span class="n">contact</span> <span class="o">=</span> <span class="n">one_sided_spec</span><span class="o">.</span><span class="n">to_contact_surface_space</span><span class="p">(</span><span class="n">quad_order</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>One-to-many contact:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">group_spec</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactGroupSpaces</span><span class="p">(</span><span class="n">master</span><span class="o">=</span><span class="n">master_side</span><span class="p">,</span> <span class="n">slaves</span><span class="o">=</span><span class="p">[</span><span class="n">slave_side_1</span><span class="p">,</span> <span class="n">slave_side_2</span><span class="p">])</span>
+<span class="n">contact</span> <span class="o">=</span> <span class="n">group_spec</span><span class="o">.</span><span class="n">to_contact_surface_space</span><span class="p">(</span><span class="n">quad_order</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="one-to-many-contact">
+<h2>One-To-Many Contact<a class="headerlink" href="#one-to-many-contact" title="Link to this heading">#</a></h2>
+<p>For new code, prefer explicit role specs and build the one-to-many contact space
+from <code class="docutils literal notranslate"><span class="pre">ContactGroupSpaces</span></code>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">fluxfem</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ff</span>
@@ -399,13 +422,26 @@ You do not need to manually pass surface coordinates/connectivity.</p>
 <span class="k">def</span><span class="w"> </span><span class="nf">select_contact</span><span class="p">(</span><span class="n">mesh</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">mesh</span><span class="o">.</span><span class="n">facets_on_plane</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
 
-<span class="n">contact</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">OneToManyContactSurfaceSpace</span><span class="o">.</span><span class="n">from_meshes</span><span class="p">(</span>
-    <span class="n">master_mesh</span><span class="o">=</span><span class="n">mesh_master</span><span class="p">,</span>
-    <span class="n">slave_meshes</span><span class="o">=</span><span class="p">[</span><span class="n">mesh_s1</span><span class="p">,</span> <span class="n">mesh_s2</span><span class="p">],</span>
-    <span class="n">master_facet_selector</span><span class="o">=</span><span class="n">select_contact</span><span class="p">,</span>
-    <span class="n">slave_facet_selectors</span><span class="o">=</span><span class="n">select_contact</span><span class="p">,</span>
-    <span class="n">value_dim_master</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
-    <span class="n">value_dim_slaves</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<span class="n">master_side</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactSide</span><span class="o">.</span><span class="n">from_facets</span><span class="p">(</span>
+    <span class="n">mesh_master</span><span class="p">,</span>
+    <span class="n">select_contact</span><span class="p">(</span><span class="n">mesh_master</span><span class="p">),</span>
+    <span class="n">value_dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">slave_side_1</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactSide</span><span class="o">.</span><span class="n">from_facets</span><span class="p">(</span>
+    <span class="n">mesh_s1</span><span class="p">,</span>
+    <span class="n">select_contact</span><span class="p">(</span><span class="n">mesh_s1</span><span class="p">),</span>
+    <span class="n">value_dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">slave_side_2</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactSide</span><span class="o">.</span><span class="n">from_facets</span><span class="p">(</span>
+    <span class="n">mesh_s2</span><span class="p">,</span>
+    <span class="n">select_contact</span><span class="p">(</span><span class="n">mesh_s2</span><span class="p">),</span>
+    <span class="n">value_dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">contact</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactGroupSpaces</span><span class="p">(</span>
+    <span class="n">master</span><span class="o">=</span><span class="n">master_side</span><span class="p">,</span>
+    <span class="n">slaves</span><span class="o">=</span><span class="p">[</span><span class="n">slave_side_1</span><span class="p">,</span> <span class="n">slave_side_2</span><span class="p">],</span>
+<span class="p">)</span><span class="o">.</span><span class="n">to_contact_surface_space</span><span class="p">(</span>
     <span class="n">quad_order</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
     <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
 <span class="p">)</span>
@@ -420,13 +456,38 @@ You do not need to manually pass surface coordinates/connectivity.</p>
 <span class="n">K</span> <span class="o">=</span> <span class="n">contact</span><span class="o">.</span><span class="n">assemble_bilinear</span><span class="p">(</span><span class="n">bilin</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="p">[</span><span class="n">u</span><span class="p">,</span> <span class="n">u</span><span class="p">],</span> <span class="n">params</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>Low-level constructors such as
+<code class="docutils literal notranslate"><span class="pre">OneToManyContactSurfaceSpace.from_meshes(...)</span></code> remain available for advanced
+setups, but they are no longer the preferred public tutorial path.</p>
 </section>
 <section id="penalty-style-jacobian-assembly">
 <h2>Penalty-Style Jacobian Assembly<a class="headerlink" href="#penalty-style-jacobian-assembly" title="Link to this heading">#</a></h2>
 <p>After building contact space, call <code class="docutils literal notranslate"><span class="pre">assemble_bilinear</span></code> with your weak form.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">K</span> <span class="o">=</span> <span class="n">contact</span><span class="o">.</span><span class="n">assemble_bilinear</span><span class="p">(</span><span class="n">bilin</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="p">[</span><span class="n">u</span><span class="p">,</span> <span class="n">u</span><span class="p">],</span> <span class="n">params</span><span class="p">,</span> <span class="n">sparse</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">K</span> <span class="o">=</span> <span class="n">contact</span><span class="o">.</span><span class="n">assemble_bilinear</span><span class="p">(</span><span class="n">bilin</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="p">[</span><span class="n">u</span><span class="p">,</span> <span class="n">u</span><span class="p">],</span> <span class="n">params</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>Call <code class="docutils literal notranslate"><span class="pre">K.to_dense()</span></code> or <code class="docutils literal notranslate"><span class="pre">np.asarray(K)</span></code> only when you explicitly need a
+dense matrix for debugging, dense linear algebra, or comparison code.</p>
+<p>If you assemble directly from a compiled mixed surface residual form and still
+want the standard pair Nitsche/penalty NumPy fast path, use:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">res_form</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">compile_tagged_pair_nitsche_penalty_residual</span><span class="p">(</span>
+    <span class="p">{</span><span class="s2">&quot;a&quot;</span><span class="p">:</span> <span class="n">res_a</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">:</span> <span class="n">res_b</span><span class="p">},</span>
+    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">J</span> <span class="o">=</span> <span class="n">contact</span><span class="o">.</span><span class="n">assemble_jacobian</span><span class="p">(</span><span class="n">res_form</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;a&quot;</span><span class="p">:</span> <span class="n">u_a</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">:</span> <span class="n">u_b</span><span class="p">},</span> <span class="n">params</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="volume-vs-contact-api-style">
+<h2>Volume vs Contact API Style<a class="headerlink" href="#volume-vs-contact-api-style" title="Link to this heading">#</a></h2>
+<p>The recommended split is:</p>
+<ul class="simple">
+<li><p>volume single-space shortcut: <code class="docutils literal notranslate"><span class="pre">space.assemble_*</span></code></p></li>
+<li><p>volume role-explicit path: <code class="docutils literal notranslate"><span class="pre">ff.assemble_*(*Spaces(...),</span> <span class="pre">...)</span></code></p></li>
+<li><p>contact role-explicit path: <code class="docutils literal notranslate"><span class="pre">ContactSpaces</span></code> / <code class="docutils literal notranslate"><span class="pre">ContactGroupSpaces</span></code> / <code class="docutils literal notranslate"><span class="pre">OneSidedContactSpaces</span></code></p></li>
+</ul>
+<p>This keeps the short path for simple problems while making master/slave intent
+explicit when contact wiring matters.</p>
 </section>
 <section id="contact-operators-api-recommended">
 <h2>Contact Operators API (Recommended)<a class="headerlink" href="#contact-operators-api-recommended" title="Link to this heading">#</a></h2>
@@ -448,7 +509,7 @@ You do not need to manually pass surface coordinates/connectivity.</p>
     <span class="n">contact</span><span class="p">,</span>
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
     <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span>
-    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">,</span>
+    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
     <span class="c1"># Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.</span>
     <span class="n">weak_form</span><span class="o">=</span><span class="n">res_form</span><span class="p">,</span>
     <span class="n">state</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;master&quot;</span><span class="p">:</span> <span class="n">u_master</span><span class="p">,</span> <span class="s2">&quot;slaves&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">u_s1</span><span class="p">,</span> <span class="n">u_s2</span><span class="p">]},</span>
@@ -483,7 +544,7 @@ The default output is <code class="docutils literal notranslate"><span class="pr
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
     <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span>
     <span class="n">facet_conn_master</span><span class="o">=</span><span class="n">ops</span><span class="o">.</span><span class="n">facet_conn_master</span><span class="p">,</span>
-    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">,</span>
+    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="n">KKT_bcoo</span> <span class="o">=</span> <span class="n">KKT_flux</span><span class="o">.</span><span class="n">to_bcoo</span><span class="p">()</span>
@@ -601,11 +662,11 @@ assemble operators first, then pass them to <code class="docutils literal notran
       </div>
     </a>
     <a class="right-next"
-       href="tutorial.html"
+       href="contact_api_boundaries.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Tutorial Page</p>
+        <p class="prev-next-title">Contact API Boundaries</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -628,8 +689,10 @@ assemble operators first, then pass them to <code class="docutils literal notran
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-to-many-contact-from-meshes">One-To-Many Contact From Meshes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#role-specs">Role Specs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-to-many-contact">One-To-Many Contact</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#penalty-style-jacobian-assembly">Penalty-Style Jacobian Assembly</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#volume-vs-contact-api-style">Volume vs Contact API Style</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contact-operators-api-recommended">Contact Operators API (Recommended)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contact-coupling-matrices-constraint">Contact Coupling Matrices (Constraint)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#kkt-assembly-fluxsparse-and-bcoo">KKT Assembly, FluxSparse, and BCOO</a></li>

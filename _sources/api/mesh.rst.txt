@@ -42,7 +42,17 @@ Predicates
 Contact
 -------
 
+For new public-facing contact setup, prefer ``ContactSpaces``,
+``ContactGroupSpaces``, and ``OneSidedContactSpaces``. The concrete contact
+space classes remain available as lower-level constructors.
+
 .. autoclass:: fluxfem.mesh.ContactSide
+.. autoclass:: fluxfem.mesh.ContactSpaces
+   :no-index:
+.. autoclass:: fluxfem.mesh.ContactGroupSpaces
+   :no-index:
+.. autoclass:: fluxfem.mesh.OneSidedContactSpaces
+   :no-index:
 .. autoclass:: fluxfem.mesh.ContactSurfaceSpace
 .. autoclass:: fluxfem.mesh.OneToManyContactSurfaceSpace
 .. autoclass:: fluxfem.mesh.OneSidedContactSurfaceSpace
