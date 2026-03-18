@@ -104,7 +104,8 @@ K_ts = space.assemble(diffusion_form, params=params.kappa)
 
 #### weak-form-based assembly
 In the weak-form-based assembly, the variational formulation itself is the primary object.
-The expression below defines a symbolic computation graph, which is later compiled and executed at the element level.
+The expression below defines a symbolic weak form. FluxFEM compiles it internally during
+assembly, and you can still request an explicit compiled object when you want reuse/control.
 
 ```Python
 import fluxfem as ff
@@ -119,7 +120,7 @@ form_wf = ff.BilinearForm.volume(
     lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
 )
 
-K_wf = space.assemble(form_wf, params=params)
+K_wf = space.assemble_bilinear_form(form_wf, params=params)
 ```
 
 If you want to compile once and reuse explicitly:
@@ -129,7 +130,7 @@ compiled = ff.BilinearForm.volume(
     lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
 ).get_compiled()
 
-K_wf = space.assemble(compiled, params=params)
+K_wf = space.assemble_bilinear_form(compiled, params=params)
 ```
 
 ### Linear Elasticity assembly (weak-form based assembly)
@@ -145,7 +146,7 @@ form_wf = ff.BilinearForm.volume(
     lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
 )
 
-K = space.assemble(form_wf, params=D)
+K = space.assemble_bilinear_form(form_wf, params=D)
 ```
 
 ### Neo-Hookean residual assembly (weak-form DSL)
@@ -167,6 +168,7 @@ def neo_hookean_residual_wf(v, u, params):
     return h_wf.ddot(S, dE) * h_wf.dOmega()
 
 res_form = ff.ResidualForm.volume(neo_hookean_residual_wf)
+R = space.assemble_residual(res_form, u, ff.Params(mu=1.0, lam=1.0))
 ```
 
 
@@ -216,36 +218,15 @@ When you want the roles to be explicit, prefer top-level assembly with
 
 ### Mixed systems
 
-Mixed problems can be assembled from residual blocks and solved as a coupled system.
-
-```Python
-import fluxfem as ff
-import jax.numpy as jnp
-
-mixed = ff.MixedSpaces(
-    {
-        "u": ff.NamedSpace("U", space_u),
-        "p": ff.NamedSpace("Q", space_p),
-    }
-).to_fe_space()
-residuals = ff.make_mixed_residuals(
-    u=res_u,  # (v, u, params) -> Expr
-    p=res_p,  # (q, u, params) -> Expr
-)
-problem = ff.MixedProblem(mixed, residuals, params=ff.Params(alpha=1.0))
-
-u0 = jnp.zeros(mixed.n_dofs)
-R = problem.assemble_residual(u0)
-J = problem.assemble_jacobian(u0, return_flux_matrix=True)
-```
-
-The same flow can be written in the same form-then-assemble style used elsewhere:
+Mixed problems can use the same form-then-assemble style as single-space assembly:
 
 ```Python
 res_form = ff.ResidualForm.mixed(residuals)
 R = mixed.assemble_residual(res_form, u0, ff.Params(alpha=1.0))
 J = mixed.assemble_jacobian(res_form, u0, ff.Params(alpha=1.0))
 ```
+
+If you prefer a higher-level problem object, `MixedProblem(...)` is still available.
 
 ### Contact weak forms
 
@@ -341,7 +322,7 @@ floor_contact = ff.OneSidedContactSpaces(side=side_slave).to_contact_surface_spa
 # 1) Assemble constraint operators (B, Kuu, ...)
 lm_space = ff.ContactMultiplierSpace.from_contact(
     contact_group,
-    family="p0",
+    family="p0_supermesh",
     side="master",
 )
 
@@ -409,7 +390,7 @@ Contact API boundaries (fixed terms):
 Notes:
 
 - Multiple contacts can be added with different settings per `builder.add_contact(...)` call.
-- `ContactMultiplierSpace(family="p0")` currently supports `side="master"` only (implementation limitation).
+- `ContactMultiplierSpace` p0-like families (`"p0"`, `"p0_active"`, `"p0_supermesh"`) currently support `side="master"` only.
 - See docs: `Usage -> Contact API Boundaries`.
 
 
