@@ -156,7 +156,7 @@ def main():
     def compliance(r: jnp.ndarray, *, rebuild_force: bool) -> jnp.ndarray:
         coords = warp_coords_radial(coords0, center_xy, r0, r, delta)
         space = space_with_coords(coords)
-        K = space.assemble_bilinear_form(ff.linear_elasticity_form, params=D).to_dense()
+        K = space.assemble(ff.linear_elasticity_form, params=D).to_dense()
 
         if rebuild_force:
             surface = ff.make_surface_from_facets(coords, facets)
@@ -178,7 +178,7 @@ def main():
     def vm_pnorm(r: jnp.ndarray, *, rebuild_force: bool, p: float) -> jnp.ndarray:
         coords = warp_coords_radial(coords0, center_xy, r0, r, delta)
         space = space_with_coords(coords)
-        K = space.assemble_bilinear_form(ff.linear_elasticity_form, params=D).to_dense()
+        K = space.assemble(ff.linear_elasticity_form, params=D).to_dense()
 
         if rebuild_force:
             surface = ff.make_surface_from_facets(coords, facets)
@@ -215,7 +215,7 @@ def main():
     def vm_ks(r: jnp.ndarray, *, rebuild_force: bool, rho: float) -> jnp.ndarray:
         coords = warp_coords_radial(coords0, center_xy, r0, r, delta)
         space = space_with_coords(coords)
-        K = space.assemble_bilinear_form(ff.linear_elasticity_form, params=D).to_dense()
+        K = space.assemble(ff.linear_elasticity_form, params=D).to_dense()
 
         if rebuild_force:
             surface = ff.make_surface_from_facets(coords, facets)

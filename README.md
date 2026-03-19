@@ -92,14 +92,14 @@ import fluxfem as ff
 import jax.numpy as jnp
 
 @ff.kernel(kind="bilinear", domain="volume")
-def diffusion_form(ctx: ff.FormContext, kappa):
+def diffusion_kernel(ctx: ff.FormContext, kappa):
     # ctx.test.gradN / ctx.trial.gradN: (n_qp, n_nodes, dim)
     # output tensor: (n_qp, n_nodes, n_nodes)
     return kappa * jnp.einsum("qia,qja->qij", ctx.test.gradN, ctx.trial.gradN)
 
 space = ff.make_hex_space(mesh, dim=3, intorder=2)
 params = ff.Params(kappa=1.0)
-K_ts = space.assemble(diffusion_form, params=params.kappa)
+K_ts = space.assemble(diffusion_kernel, params=params.kappa)
 ```
 
 #### weak-form-based assembly
@@ -113,6 +113,8 @@ import fluxfem.helpers_wf as h_wf
 
 space = ff.make_hex_space(mesh, dim=3, intorder=2)
 params = ff.Params(kappa=1.0)
+U = ff.NamedSpace("U", space)
+V = ff.NamedSpace("V", space)
 
 # u, v are symbolic trial/test fields (weak-form DSL objects).
 # u.grad / v.grad are symbolic nodes (expression tree), not numeric arrays.
@@ -120,7 +122,11 @@ form_wf = ff.BilinearForm.volume(
     lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
 )
 
-K_wf = space.assemble_bilinear_form(form_wf, params=params)
+# Shortest path for standard Galerkin assembly (U == V == space).
+K_wf = space.assemble(form_wf, params=params)
+
+# Equivalent explicit-role form when you want U/V to appear in the code.
+K_wf_roles = ff.BilinearSpaces(test=V, trial=U).assemble(form_wf, params=params)
 ```
 
 If you want to compile once and reuse explicitly:
@@ -130,7 +136,7 @@ compiled = ff.BilinearForm.volume(
     lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
 ).get_compiled()
 
-K_wf = space.assemble_bilinear_form(compiled, params=params)
+K_wf = space.assemble(compiled, params=params)
 ```
 
 ### Linear Elasticity assembly (weak-form based assembly)
@@ -146,7 +152,7 @@ form_wf = ff.BilinearForm.volume(
     lambda u, v, D: h_wf.ddot(v.sym_grad, D @ u.sym_grad) * h_wf.dOmega()
 )
 
-K = space.assemble_bilinear_form(form_wf, params=D)
+K = space.assemble(form_wf, params=D)
 ```
 
 ### Neo-Hookean residual assembly (weak-form DSL)
@@ -169,6 +175,7 @@ def neo_hookean_residual_wf(v, u, params):
 
 res_form = ff.ResidualForm.volume(neo_hookean_residual_wf)
 R = space.assemble_residual(res_form, u, ff.Params(mu=1.0, lam=1.0))
+J = space.assemble_jacobian(res_form, u, ff.Params(mu=1.0, lam=1.0))
 ```
 
 
@@ -212,13 +219,105 @@ Current boundary:
 - there is not yet a dedicated public "shape derivative" API layer; shape sensitivity is currently expressed as ordinary JAX differentiation through assembly/solve code
 - `backend="numpy"` is not part of this differentiable path
 
-For same-space Galerkin assembly, `space.assemble_*` remains the shortest path.
-When you want the roles to be explicit, prefer top-level assembly with
-`LinearSpaces`, `BilinearSpaces`, `ResidualSpaces`, and `JacobianSpaces`.
+For same-space Galerkin assembly, `space.assemble(...)` and `space.assemble_*`
+remain the shortest paths.
+When you want the roles to be explicit, prefer
+`LinearSpaces(...).assemble(...)`, `BilinearSpaces(...).assemble(...)`,
+`ResidualSpaces(...).assemble(...)`, and `JacobianSpaces(...).assemble(...)`.
+For contact interfaces, prefer `contact.assemble_*` methods over top-level
+`ff.assemble_contact_*` helpers. The top-level `assemble_*` helpers remain
+available as compatibility entrypoints.
 
 ### Mixed systems
 
-Mixed problems can use the same form-then-assemble style as single-space assembly:
+Mixed systems use two kinds of names:
+
+- field name: the global block name in the mixed vector, such as `"u"` or `"p"`
+- FE space: the discrete space where that field lives
+
+Start from the mathematical picture:
+
+- unknown `u` lives in FE space `V`
+- unknown `p` lives in FE space `Q`
+
+```Python
+V = ff.make_hex_space(mesh, dim=3, intorder=2)
+Q = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+# "u in V"  (the name "u" is the mixed field name)
+u_field = ff.NamedSpace("u", V)
+
+# "p in Q"
+p_field = ff.NamedSpace("p", Q)
+
+mixed = ff.MixedSpace(u_field, p_field)
+```
+
+Read that as:
+
+- `"u"` and `"p"` are the field names in the global mixed vector
+- `V` and `Q` are the actual FE spaces for those fields
+
+So `ff.NamedSpace("u", V)` means:
+
+- this mixed field is called `"u"`
+- it lives in FE space `V`
+
+In the common mixed API, field names are also the default symbolic names used
+inside weak forms. That keeps the notation close to the mathematical picture.
+
+If you want to make the per-field roles explicit, `MixedSpace(...)` can also
+reuse the existing single-field role specs:
+
+```Python
+U = ff.NamedSpace("u", V)
+Vt = ff.NamedSpace("v_u", V)
+P = ff.NamedSpace("p", Q)
+Qt = ff.NamedSpace("v_p", Q)
+
+mixed = ff.MixedSpace(
+    u=ff.ResidualSpaces(test=Vt, unknown=U),
+    p=ff.BilinearSpaces(test=Qt, trial=P),
+)
+```
+
+That reads as:
+
+- the `u` field uses `V` for both test and unknown, with explicit symbolic names `v_u` and `u`
+- the `p` field uses `Q` for both test and trial, with explicit symbolic names `v_p` and `p`
+
+Next, define one residual function per equation. Inside those functions, use the
+field names when you want to refer to another unknown symbolically.
+Here `unknown_ref("p")` means "the symbolic mixed unknown stored under field name `p`".
+The test function is usually just the first local argument (`v`, `q`), so a separate
+test-side lookup is often unnecessary.
+
+```Python
+
+def res_u(v, u, p):
+    p_ref = ff.unknown_ref("p")
+    return (...) * h_wf.dOmega()
+
+def res_p(q, p_field, p):
+    u_ref = ff.unknown_ref("u")
+    return (...) * h_wf.dOmega()
+```
+
+For the common case where residual names and field names match, keep it short:
+
+```Python
+
+residuals = ff.make_mixed_residuals(
+    u=res_u,
+    p=res_p,
+)
+```
+
+If you need to route an equation to a different field name explicitly, use
+`bind_mixed_residual(...)`.
+
+Once the field layout and residual bindings are defined, assembly follows the
+same object-centered flow as the single-space API:
 
 ```Python
 res_form = ff.ResidualForm.mixed(residuals)
@@ -230,7 +329,24 @@ If you prefer a higher-level problem object, `MixedProblem(...)` is still availa
 
 ### Contact weak forms
 
-Contact bilinear forms use the same pattern:
+Start by defining a contact side on each body, then combine them into a contact
+interface object:
+
+```Python
+master_side = ff.ContactSide.from_facets(master_mesh, master_facets, master_space)
+slave_side = ff.ContactSide.from_facets(slave_mesh, slave_facets, slave_space)
+
+contact = ff.ContactSpaces(
+    master=master_side,
+    slave=slave_side,
+).to_contact_surface_space(
+    quad_order=1,
+    backend="jax",
+)
+```
+
+Once you have `contact`, bilinear weak forms follow the same object-centered
+pattern:
 
 ```Python
 contact_form = ff.BilinearForm.contact(a_contact)
@@ -243,6 +359,39 @@ If you want an explicit compiled object for reuse:
 compiled = ff.BilinearForm.contact(a_contact).get_compiled()
 B = contact.assemble_bilinear_form(compiled, params)
 ```
+
+Penalty-family contact assembly uses the same `contact` object:
+
+```Python
+ops_penalty = contact.assemble_penalty_operators(
+    weak_form=contact_residual_form,
+    state={"a": u_master, "b": u_slave},
+    params=params,
+    backend="jax",
+)
+```
+
+Constraint-family contact adds a multiplier space on top of the same interface:
+
+```Python
+lm_space = ff.ContactMultiplierSpace.from_contact(
+    contact,
+    family="p0",
+    side="master",
+)
+
+ops_constraint = contact.assemble_constraint_operators(
+    rho=1.0,
+    multiplier=lm_space,
+    backend="numpy",
+)
+```
+
+So the usual flow is:
+
+- create `ContactSide` objects from mesh facets
+- build `contact` with `ContactSpaces(...).to_contact_surface_space(...)`
+- choose penalty or constraint assembly on that `contact` object
 
 Mixed weak-form naming follows this convention:
 
@@ -326,8 +475,7 @@ lm_space = ff.ContactMultiplierSpace.from_contact(
     side="master",
 )
 
-ops: ff.ContactOperators = ff.assemble_contact_constraint_operators(
-    contact_group,
+ops: ff.ContactOperators = contact_group.assemble_constraint_operators(
     rho=1.0,
     multiplier=lm_space,
     backend="numpy",
@@ -338,8 +486,7 @@ ops: ff.ContactOperators = ff.assemble_contact_constraint_operators(
 )
 
 # 2) Penalty-family path: user weak form -> residual/jacobian operators
-ops_nitsche: ff.ContactOperators = ff.assemble_contact_penalty_operators(
-    contact,
+ops_nitsche: ff.ContactOperators = contact.assemble_penalty_operators(
     weak_form=contact_residual_form,
     state={"a": u_master, "b": u_slave},
     params=params,

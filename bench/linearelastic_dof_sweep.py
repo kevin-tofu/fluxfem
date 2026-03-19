@@ -263,7 +263,7 @@ def assemble_fluxfem_case(n: int, args, dtype):
         )
     )
     assemble_F = jax.jit(
-        lambda: space.assemble_linear_form(
+        lambda: space.assemble(
             constant_body_force_vector_form, params=f_body, sparse=False
         )
     )

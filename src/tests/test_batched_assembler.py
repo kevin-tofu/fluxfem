@@ -18,7 +18,7 @@ def test_bilinear_with_kernel_matches_space():
     ker = ff.make_element_bilinear_kernel(ff.diffusion_form, kappa, jit=True)
     batch = space.make_batched_assembler()
     K_kernel = batch.assemble_bilinear_with_kernel(ker)
-    K_default = space.assemble_bilinear_form(ff.diffusion_form, kappa)
+    K_default = space.assemble(ff.diffusion_form, kappa)
     assert np.allclose(
         np.asarray(K_kernel.to_dense()), np.asarray(K_default.to_dense())
     )
@@ -35,7 +35,7 @@ def test_linear_with_kernel_matches_space():
     ker = jax.jit(linear_kernel)
     batch = space.make_batched_assembler()
     F_kernel = batch.assemble_linear_with_kernel(ker)
-    F_default = space.assemble_linear_form(ff.scalar_body_force_form, 2.0)
+    F_default = space.assemble(ff.scalar_body_force_form, 2.0)
     assert np.allclose(np.asarray(F_kernel), np.asarray(F_default))
 
 
@@ -78,7 +78,7 @@ def test_bilinear_kernel_with_chunks_matches_space(n_chunks):
     batch = space.make_batched_assembler()
     K_kernel = batch.assemble_bilinear_with_kernel(ker)
     policy = None if n_chunks is None else ff.AssemblyPolicy.chunked(n_chunks=n_chunks)
-    K_space = space.assemble_bilinear_form(ff.diffusion_form, kappa, policy=policy)
+    K_space = space.assemble(ff.diffusion_form, kappa, policy=policy)
     assert np.allclose(
         np.asarray(K_kernel.to_dense()), np.asarray(K_space.to_dense())
     )
@@ -91,7 +91,7 @@ def test_bilinear_kernel_with_pattern_matches_space():
     pattern = space.get_sparsity_pattern(with_idx=True)
     batch = space.make_batched_assembler(pattern=pattern)
     K_kernel = batch.assemble_bilinear_with_kernel(ker)
-    K_space = space.assemble_bilinear_form(
+    K_space = space.assemble(
         ff.diffusion_form, kappa, pattern=pattern
     )
     assert np.allclose(

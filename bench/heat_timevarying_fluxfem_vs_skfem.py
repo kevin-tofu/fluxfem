@@ -217,7 +217,7 @@ def _build_fluxfem_system(size: int):
 
 def assemble_fluxfem_stiffness(space, kappa: float):
     # FluxFEM weak form: diffusion_form -> assemble_bilinear_form
-    return space.assemble_bilinear_form(ff.diffusion_form, params=kappa)
+    return space.assemble(ff.diffusion_form, params=kappa)
 
 
 def _build_skfem_basis(size: int, coords_flux: np.ndarray):

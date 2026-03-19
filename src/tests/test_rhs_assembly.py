@@ -21,7 +21,7 @@ def test_rhs_body_and_surface_vs_skfem():
     f_vec = np.array([0.2, -0.1, 0.05], dtype=float)
     traction_vec = np.array([0.0, 1.5, 0.0], dtype=float)
 
-    F_body_ff = np.asarray(space_ff.assemble_linear_form(ff.vector_body_force_form, params=jnp.asarray(f_vec)))
+    F_body_ff = np.asarray(space_ff.assemble(ff.vector_body_force_form, params=jnp.asarray(f_vec)))
     xmax = float(np.asarray(mesh_ff.coords)[:, 0].max())
     facets = mesh_ff.boundary_facets_where(lambda pts: np.allclose(pts[:, 0], xmax, atol=1e-8))
     surf = ff.SurfaceMesh.from_hex_mesh(mesh_ff, facets)

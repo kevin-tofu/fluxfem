@@ -2495,6 +2495,40 @@ class ContactSurfaceSpace:
             batch_jac=batch_jac,
         )
 
+    def assemble_constraint_operators(
+        self,
+        *,
+        law: str | None = None,
+        formulation: str | None = None,
+        rho: float = 0.0,
+        multiplier: ContactMultiplierSpace,
+        backend: str = "numpy",
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+    ) -> ContactOperators:
+        """Alias for assemble_contact_constraint_operators()."""
+        return self.assemble_contact_constraint_operators(
+            law=law,
+            formulation=formulation,
+            rho=rho,
+            multiplier=multiplier,
+            backend=backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+
     def assemble_contact_penalty_operators(
         self,
         *,
@@ -2512,6 +2546,36 @@ class ContactSurfaceSpace:
     ) -> ContactOperators:
         return assemble_contact_penalty_operators(
             self,
+            law=law,
+            formulation=formulation,
+            backend=backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+
+    def assemble_penalty_operators(
+        self,
+        *,
+        law: str | None = None,
+        formulation: str | None = None,
+        backend: str = "numpy",
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+    ) -> ContactOperators:
+        """Alias for assemble_contact_penalty_operators()."""
+        return self.assemble_contact_penalty_operators(
             law=law,
             formulation=formulation,
             backend=backend,
@@ -3407,6 +3471,40 @@ class OneToManyContactSurfaceSpace:
             batch_jac=batch_jac,
         )
 
+    def assemble_constraint_operators(
+        self,
+        *,
+        law: str | None = None,
+        formulation: str | None = None,
+        rho: float = 0.0,
+        multiplier: ContactMultiplierSpace,
+        backend: str = "numpy",
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+    ) -> ContactOperators:
+        """Alias for assemble_contact_constraint_operators()."""
+        return self.assemble_contact_constraint_operators(
+            law=law,
+            formulation=formulation,
+            rho=rho,
+            multiplier=multiplier,
+            backend=backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+
     def assemble_contact_penalty_operators(
         self,
         *,
@@ -3424,6 +3522,36 @@ class OneToManyContactSurfaceSpace:
     ) -> ContactOperators:
         return assemble_contact_penalty_operators(
             self,
+            law=law,
+            formulation=formulation,
+            backend=backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+
+    def assemble_penalty_operators(
+        self,
+        *,
+        law: str | None = None,
+        formulation: str | None = None,
+        backend: str = "numpy",
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+    ) -> ContactOperators:
+        """Alias for assemble_contact_penalty_operators()."""
+        return self.assemble_contact_penalty_operators(
             law=law,
             formulation=formulation,
             backend=backend,

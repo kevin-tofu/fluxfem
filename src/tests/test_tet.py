@@ -14,7 +14,7 @@ def test_tet_mesh_shapes():
 def test_tet_diffusion_small():
     mesh = ff.StructuredTetBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_tet_space(mesh, dim=1, intorder=2)
-    K = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense())
+    K = np.asarray(space.assemble(ff.diffusion_form, params=1.0).to_dense())
     assert K.shape == (8, 8)
     assert np.all(np.isfinite(K))
 
@@ -30,7 +30,7 @@ def test_tet_against_scikit_fem():
     # fluxfem mesh
     mesh_ff = ff.StructuredTetBox(nx=n_xyz, ny=n_xyz, nz=n_xyz, lx=1.0, ly=1.0, lz=1.0).build()
     space_ff = ff.make_tet_space(mesh_ff, dim=1, intorder=2)
-    K_ff = np.asarray(space_ff.assemble_bilinear_form(ff.diffusion_form, params=kappa).to_dense())
+    K_ff = np.asarray(space_ff.assemble(ff.diffusion_form, params=kappa).to_dense())
 
     # Build scikit-fem mesh with the same 5-tet subdivision
     xs = np.linspace(0.0, 1.0, n_xyz + 1)

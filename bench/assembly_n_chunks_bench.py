@@ -58,7 +58,7 @@ def _build_assemble_fn(space, kind: str, n_chunks: int | None, params: dict):
         pattern = space.get_sparsity_pattern(with_idx=True)
 
         def assemble():
-            return space.assemble_bilinear_form(
+            return space.assemble(
                 ff.diffusion_form,
                 params=params["kappa"],
                 pattern=pattern,
@@ -67,7 +67,7 @@ def _build_assemble_fn(space, kind: str, n_chunks: int | None, params: dict):
 
     elif kind == "linear":
         def assemble():
-            return space.assemble_linear_form(
+            return space.assemble(
                 ff.scalar_body_force_form,
                 params=params["load"],
                 policy=policy,

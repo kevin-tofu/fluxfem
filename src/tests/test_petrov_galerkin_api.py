@@ -11,7 +11,7 @@ def test_assemble_bilinear_form_named_spaces_matches_standard_galerkin_for_same_
         return p.kappa * h_wf.dot(h_wf.grad(v), h_wf.grad(u)) * h_wf.dOmega()
 
     compiled = ff.compile_bilinear(form)
-    A_std = space.assemble_bilinear_form(compiled, ff.Params(kappa=2.0))
+    A_std = space.assemble(compiled, ff.Params(kappa=2.0))
     A_pg = ff.assemble_bilinear_form(
         ff.BilinearSpaces(test=ff.NamedSpace("V", space), trial=ff.NamedSpace("U", space)),
         compiled,

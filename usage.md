@@ -1,7 +1,9 @@
-# Usage (New assemble API)
+# Usage
 
-This note shows the updated `assemble` workflow where the form kind is inferred
-from `BilinearForm`/`LinearForm` or compiled kernels carrying metadata.
+This note shows the current assembly flow. Prefer object-centered entrypoints:
+`space.assemble(...)`, `*Spaces(...).assemble(...)`, `mixed.assemble_*`, and
+`contact.assemble_*`. Top-level `ff.assemble_*` helpers remain available as
+compatibility entrypoints.
 
 ## 1) Weak-form classes
 
@@ -10,8 +12,6 @@ import fluxfem as ff
 import fluxfem.helpers_wf as wf
 
 form = ff.BilinearForm.volume(lambda u, v, p: (v.grad @ u.grad) * p.kappa * wf.dOmega())
-
-# `kind` is inferred from BilinearForm
 K = space.assemble(form, params=ff.Params(kappa=1.0))
 ```
 
@@ -19,8 +19,6 @@ K = space.assemble(form, params=ff.Params(kappa=1.0))
 import fluxfem.helpers_wf as wf
 
 form = ff.LinearForm.volume(lambda v, p: (v * p.f) * wf.dOmega())
-
-# `kind` is inferred from LinearForm
 F = space.assemble(form, params=ff.Params(f=2.0))
 ```
 
@@ -34,8 +32,6 @@ import fluxfem.helpers_wf as wf
 
 form = ff.BilinearForm.volume(lambda u, v, p: (v.grad @ u.grad) * p.kappa * wf.dOmega())
 compiled = form.get_compiled()
-
-# `kind` is inferred from compiled metadata
 K = space.assemble(compiled, params=ff.Params(kappa=1.0))
 ```
 
@@ -45,11 +41,9 @@ import fluxfem.helpers_wf as wf
 form = ff.LinearForm.surface(lambda v, p: (v | p.t) * wf.ds())
 compiled = form.get_compiled()
 
-# Surface compiled forms are still rejected by Space.assemble (volume only),
-# but they can now go through the role-explicit linear-form API:
+# Surface forms go through the surface/domain-aware linear-form API:
 V = ff.NamedSpace("V", space)
-F = ff.assemble_linear_form(
-    ff.LinearSpaces(test=V),
+F = ff.LinearSpaces(test=V).assemble(
     compiled,
     params=ff.Params(t=traction),
     domain=surface,
@@ -59,7 +53,7 @@ F = ff.assemble_linear_form(
 ## 3) Raw kernels (tagged by metadata)
 
 Built-in kernels in `fluxfem.physics` are tagged with `_ff_kind`/`_ff_domain`
-so `kind` can be inferred.
+so `kind` can be inferred. This is where `space.assemble(...)` remains the natural path.
 
 ```python
 import fluxfem as ff
@@ -133,8 +127,7 @@ For new code, prefer explicit role specs over ad-hoc dictionaries.
 V = ff.NamedSpace("V", space)
 
 form = ff.LinearForm.volume(lambda v, p: (v * p.f) * wf.dOmega())
-F = ff.assemble_linear_form(
-    ff.LinearSpaces(test=V),
+F = ff.LinearSpaces(test=V).assemble(
     form,
     params=ff.Params(f=2.0),
 )
@@ -144,8 +137,7 @@ F = ff.assemble_linear_form(
 V = ff.NamedSpace("V", space)
 
 traction = ff.LinearForm.surface(lambda v, p: wf.dot(v, p.pressure * wf.normal()) * wf.ds())
-F = ff.assemble_linear_form(
-    ff.LinearSpaces(test=V),
+F = ff.LinearSpaces(test=V).assemble(
     traction,
     params=ff.Params(pressure=1.0),
     domain=surface,
@@ -161,8 +153,7 @@ V = ff.NamedSpace("V", test_space)
 form = ff.BilinearForm.volume(
     lambda u, v, p: p.kappa * wf.dot(wf.grad(v), wf.grad(u)) * wf.dOmega()
 )
-A = ff.assemble_bilinear_form(
-    ff.BilinearSpaces(test=V, trial=U),
+A = ff.BilinearSpaces(test=V, trial=U).assemble(
     form,
     params=ff.Params(kappa=1.0),
 )
@@ -175,14 +166,12 @@ U = ff.NamedSpace("U", space)
 V = ff.NamedSpace("V", space)
 
 residual = ff.ResidualForm.volume(lambda v, u, p: (v * (u.val**2)) * wf.dOmega())
-R = ff.assemble_residual(
-    ff.ResidualSpaces(test=V, unknown=U),
+R = ff.ResidualSpaces(test=V, unknown=U).assemble(
     residual,
     u_vec,
     params=None,
 )
-J = ff.assemble_jacobian(
-    ff.JacobianSpaces(test=V, trial=U),
+J = ff.JacobianSpaces(test=V, trial=U).assemble(
     residual,
     u_vec,
     params=None,
@@ -216,13 +205,22 @@ compiled = ff.BilinearForm.contact(a_contact).get_compiled()
 B = contact.assemble_bilinear_form(compiled, params)
 ```
 
+### Mixed problems with the same flow
+
+```python
+residuals = ff.make_mixed_residuals(u=res_u, p=res_p)
+mixed_form = ff.ResidualForm.mixed(residuals)
+
+R = mixed.assemble_residual(mixed_form, u_vec, params)
+J = mixed.assemble_jacobian(mixed_form, u_vec, params)
+```
+
 ### Mixed / contact naming layers
 
 ```python
-mixed = ff.MixedSpaces({
-    "disp": ff.NamedSpace("V", V_space),
-    "press": ff.NamedSpace("Q", Q_space),
-}).to_fe_space()
+u_field = ff.NamedSpace("u", V_space)
+p_field = ff.NamedSpace("p", Q_space)
+mixed = ff.MixedSpace(u_field, p_field)
 
 contact = ff.ContactSpaces(master=master_side, slave=slave_side).to_contact_surface_space()
 group = ff.ContactGroupSpaces(master=master_side, slaves=[slave_1, slave_2]).to_contact_surface_space()

@@ -24,6 +24,7 @@ from .space import (
     make_hex27_space_pytree,
 )
 from .mixed_space import (
+    MixedSpace,
     MixedFESpace,
     MixedSpaces,
     MixedRoleFESpace,
@@ -283,6 +284,7 @@ __all__ = [
     "JacobianSpaces",
     "build_form_contexts_pair",
     "MixedFESpace",
+    "MixedSpace",
     "MixedSpaces",
     "MixedRoleFESpace",
     "MixedRoleSpaces",

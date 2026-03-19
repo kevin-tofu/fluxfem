@@ -51,10 +51,10 @@ def test_contact_solve_box_12x12x12_vs_2x2x2():
         lambda u, v, k: k * (v.grad @ u.grad) * h_wf.dOmega()
     )
     kappa = 1.0
-    K_top = top_space.assemble_bilinear_form(bilinear.get_compiled(), params=kappa)
-    K_support = support_space.assemble_bilinear_form(bilinear.get_compiled(), params=kappa)
-    F_top = np.asarray(top_space.assemble_linear_form(ff.scalar_body_force_form, params=-1.0))
-    F_support = np.asarray(support_space.assemble_linear_form(ff.scalar_body_force_form, params=0.0))
+    K_top = top_space.assemble(bilinear.get_compiled(), params=kappa)
+    K_support = support_space.assemble(bilinear.get_compiled(), params=kappa)
+    F_top = np.asarray(top_space.assemble(ff.scalar_body_force_form, params=-1.0))
+    F_support = np.asarray(support_space.assemble(ff.scalar_body_force_form, params=0.0))
 
     z_top_min = float(np.asarray(top_mesh.coords)[:, 2].min())
     z_support_max = float(np.asarray(support_mesh.coords)[:, 2].max())

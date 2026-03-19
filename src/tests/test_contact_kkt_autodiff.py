@@ -108,6 +108,43 @@ def test_contact_constraint_operators_match_kkt_blocks():
     assert np.allclose(np.asarray(ops.Kuu), np.asarray(K_dense)[:n_u, :n_u], atol=1e-12)
 
 
+def test_contact_operator_method_aliases_match_existing_entrypoints():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    mult = _p0_multiplier(contact)
+
+    ops_top = ff.assemble_contact_constraint_operators(
+        contact,
+        rho=3.0,
+        multiplier=mult,
+        backend="numpy",
+    )
+    ops_method = contact.assemble_contact_constraint_operators(
+        rho=3.0,
+        multiplier=mult,
+        backend="numpy",
+    )
+    ops_alias = contact.assemble_constraint_operators(
+        rho=3.0,
+        multiplier=mult,
+        backend="numpy",
+    )
+
+    assert np.allclose(np.asarray(ops_top.B), np.asarray(ops_method.B), atol=1e-12)
+    assert np.allclose(np.asarray(ops_top.B), np.asarray(ops_alias.B), atol=1e-12)
+    assert np.allclose(np.asarray(ops_top.Kuu), np.asarray(ops_alias.Kuu), atol=1e-12)
+
+
 def test_contact_multiplier_object_path_is_consistent():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(

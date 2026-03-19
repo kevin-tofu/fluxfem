@@ -24,6 +24,50 @@ def _make_mixed_space():
     return mixed
 
 
+def test_mixedspace_helper_uses_namedspace_names_as_field_keys():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    V = ff.make_hex_space(mesh, dim=1, intorder=2)
+    Q = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    mixed_helper = ff.MixedSpace(
+        ff.NamedSpace("u", V),
+        ff.NamedSpace("p", Q),
+    )
+    mixed_explicit = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("u", V),
+            "p": ff.NamedSpace("p", Q),
+        }
+    ).to_fe_space()
+
+    assert mixed_helper.field_names == mixed_explicit.field_names
+    assert mixed_helper.space_key_by_field == mixed_explicit.space_key_by_field
+    assert mixed_helper.n_dofs == mixed_explicit.n_dofs
+
+
+def test_mixedspace_helper_accepts_role_explicit_specs_by_keyword():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    V = ff.make_hex_space(mesh, dim=1, intorder=2)
+    Q = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    mixed = ff.MixedSpace(
+        u=ff.ResidualSpaces(
+            test=ff.NamedSpace("v_u", V),
+            unknown=ff.NamedSpace("u", V),
+        ),
+        p=ff.BilinearSpaces(
+            test=ff.NamedSpace("v_p", Q),
+            trial=ff.NamedSpace("p", Q),
+        ),
+    )
+
+    assert mixed.field_names == ("u", "p")
+    assert mixed.space_key_by_field["u"] == "u"
+    assert mixed.space_key_by_field["p"] == "p"
+    assert set(mixed.alias_space_keys_by_field["u"]) == {"v_u"}
+    assert set(mixed.alias_space_keys_by_field["p"]) == {"v_p"}
+
+
 def _mixed_residuals():
     def res_u(v, u, p):
         p_ref = ff.unknown_ref("p")

@@ -189,6 +189,48 @@ class BilinearSpaces:
         if not isinstance(self.test, NamedSpace) or not isinstance(self.trial, NamedSpace):
             raise TypeError("BilinearSpaces.test and BilinearSpaces.trial must be NamedSpace instances.")
 
+    def assemble(
+        self,
+        form: FormKernel[P],
+        params: P,
+        *,
+        backend: str = "jax",
+        pattern: SparsityPattern | None = None,
+        n_chunks: int | None = None,
+        dep: jnp.ndarray | None = None,
+        elem_data: FormContext | None = None,
+        include_x_q: bool | None = None,
+        lightweight_context: bool | None = None,
+        chunk_build_context: bool | None = None,
+        kernel: ElementBilinearKernel | None = None,
+        jit: bool = True,
+        pad_trace: bool | None = None,
+        policy: AssemblyPolicy | None = None,
+    ) -> BilinearReturn:
+        """Assemble a bilinear form using these explicit test/trial spaces."""
+        from .assembly import assemble_bilinear_form
+
+        return cast(
+            BilinearReturn,
+            assemble_bilinear_form(
+                self,
+                form,
+                params,
+                backend=backend,
+                pattern=pattern,
+                n_chunks=n_chunks,
+                dep=dep,
+                elem_data=elem_data,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+                chunk_build_context=chunk_build_context,
+                kernel=kernel,
+                jit=jit,
+                pad_trace=pad_trace,
+                policy=policy,
+            ),
+        )
+
 
 @dataclass(frozen=True)
 class LinearSpaces:
@@ -199,6 +241,50 @@ class LinearSpaces:
     def __post_init__(self):
         if not isinstance(self.test, NamedSpace):
             raise TypeError("LinearSpaces.test must be a NamedSpace instance.")
+
+    def assemble(
+        self,
+        form: FormKernel[P],
+        params: P,
+        *,
+        domain=None,
+        backend: str = "jax",
+        kernel: ElementLinearKernel | None = None,
+        sparse: bool = False,
+        vector_accumulation: Literal["segment", "scatter"] = "scatter",
+        n_chunks: int | None = None,
+        dep: jnp.ndarray | None = None,
+        elem_data: FormContext | None = None,
+        include_x_q: bool | None = None,
+        lightweight_context: bool | None = None,
+        chunk_build_context: bool | None = None,
+        pad_trace: bool | None = None,
+        policy: AssemblyPolicy | None = None,
+    ) -> LinearReturn:
+        """Assemble a linear form using this explicit test space."""
+        from .assembly import assemble_linear_form
+
+        return cast(
+            LinearReturn,
+            assemble_linear_form(
+                self,
+                form,
+                params,
+                domain=domain,
+                backend=backend,
+                kernel=kernel,
+                sparse=sparse,
+                vector_accumulation=vector_accumulation,
+                n_chunks=n_chunks,
+                dep=dep,
+                elem_data=elem_data,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+                chunk_build_context=chunk_build_context,
+                pad_trace=pad_trace,
+                policy=policy,
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -212,6 +298,40 @@ class ResidualSpaces:
         if not isinstance(self.test, NamedSpace) or not isinstance(self.unknown, NamedSpace):
             raise TypeError("ResidualSpaces.test and ResidualSpaces.unknown must be NamedSpace instances.")
 
+    def assemble(
+        self,
+        form: ResidualForm[P],
+        u: jnp.ndarray,
+        params: P,
+        *,
+        backend: str = "jax",
+        kernel: ElementResidualKernel | None = None,
+        sparse: bool = False,
+        vector_accumulation: Literal["segment", "scatter"] = "scatter",
+        n_chunks: int | None = None,
+        pad_trace: bool | None = None,
+        policy: AssemblyPolicy | None = None,
+    ) -> LinearReturn:
+        """Assemble a residual using these explicit test/unknown spaces."""
+        from .assembly import assemble_residual
+
+        return cast(
+            LinearReturn,
+            assemble_residual(
+                self,
+                form,
+                u,
+                params,
+                backend=backend,
+                kernel=kernel,
+                sparse=sparse,
+                vector_accumulation=vector_accumulation,
+                n_chunks=n_chunks,
+                pad_trace=pad_trace,
+                policy=policy,
+            ),
+        )
+
 
 @dataclass(frozen=True)
 class JacobianSpaces:
@@ -223,6 +343,36 @@ class JacobianSpaces:
     def __post_init__(self):
         if not isinstance(self.test, NamedSpace) or not isinstance(self.trial, NamedSpace):
             raise TypeError("JacobianSpaces.test and JacobianSpaces.trial must be NamedSpace instances.")
+
+    def assemble(
+        self,
+        res_form: ResidualForm[P],
+        u: jnp.ndarray,
+        params: P,
+        *,
+        kernel: ElementJacobianKernel | None = None,
+        pattern: SparsityPattern | None = None,
+        n_chunks: int | None = None,
+        pad_trace: bool | None = None,
+        policy: AssemblyPolicy | None = None,
+    ) -> JacobianReturn:
+        """Assemble a Jacobian using these explicit test/trial spaces."""
+        from .assembly import assemble_jacobian
+
+        return cast(
+            JacobianReturn,
+            assemble_jacobian(
+                self,
+                res_form,
+                u,
+                params,
+                kernel=kernel,
+                pattern=pattern,
+                n_chunks=n_chunks,
+                pad_trace=pad_trace,
+                policy=policy,
+            ),
+        )
 
 
 def build_form_contexts_pair(

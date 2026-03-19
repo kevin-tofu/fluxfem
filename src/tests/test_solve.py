@@ -29,8 +29,8 @@ def test_elasticity_displacement_matches_scikit_fem():
     mesh_ff = ff.StructuredHexBox(nx=n_xyz, ny=n_xyz, nz=n_xyz, lx=1.0, ly=1.0, lz=1.0).build()
     space_ff = ff.make_hex_space(mesh_ff, dim=3, intorder=2)
 
-    K_flux = np.asarray(space_ff.assemble_bilinear_form(ff.linear_elasticity_form, params=D).to_dense())
-    F_flux = np.asarray(space_ff.assemble_linear_form(ff.vector_body_force_form, params=f_vec))
+    K_flux = np.asarray(space_ff.assemble(ff.linear_elasticity_form, params=D).to_dense())
+    F_flux = np.asarray(space_ff.assemble(ff.vector_body_force_form, params=f_vec))
 
     coords = np.asarray(mesh_ff.coords)
     xmin = coords[:, 0].min()

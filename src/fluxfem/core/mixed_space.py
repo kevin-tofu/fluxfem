@@ -104,6 +104,23 @@ def _normalize_mixed_role_field_spec(
     )
 
 
+def _default_mixed_field_name(spec: MixedFieldSpec) -> str:
+    if isinstance(spec, NamedSpace):
+        return spec.name
+    if isinstance(spec, LinearSpaces):
+        return spec.test.name
+    if isinstance(spec, ResidualSpaces):
+        return spec.unknown.name
+    if isinstance(spec, BilinearSpaces):
+        return spec.trial.name
+    if isinstance(spec, JacobianSpaces):
+        return spec.trial.name
+    raise TypeError(
+        "MixedSpace(...) fields must be NamedSpace, LinearSpaces, BilinearSpaces, "
+        "ResidualSpaces, or JacobianSpaces instances."
+    )
+
+
 @dataclass(frozen=True)
 class MixedSpaces:
     """Public spec that maps mixed field names to named FE space-role specs."""
@@ -132,6 +149,35 @@ class MixedSpaces:
             field_to_space_key=field_to_space_key,
             field_alias_space_keys=field_alias_space_keys,
         )
+
+
+def MixedSpace(*fields: MixedFieldSpec, **named_fields: MixedFieldSpec) -> "MixedFESpace":
+    """
+    Build a MixedFESpace from positional or keyword field specs.
+
+    Examples
+    --------
+    ``MixedSpace(NamedSpace("u", V), NamedSpace("p", Q))`` is shorthand for
+    ``MixedSpaces({"u": NamedSpace("u", V), "p": NamedSpace("p", Q)}).to_fe_space()``.
+
+    ``MixedSpace(u=ResidualSpaces(...), p=ResidualSpaces(...))`` lets mixed field
+    keys be written explicitly while reusing the existing single-field role specs.
+    """
+    if not fields and not named_fields:
+        raise ValueError("MixedSpace requires at least one field spec.")
+    field_map: dict[str, MixedFieldSpec] = {}
+    for spec in fields:
+        name = _default_mixed_field_name(spec)
+        if name in field_map:
+            raise ValueError(f"MixedSpace field name '{name}' is duplicated.")
+        field_map[name] = spec
+    for name, spec in named_fields.items():
+        name_str = str(name)
+        if name_str in field_map:
+            raise ValueError(f"MixedSpace field name '{name_str}' is duplicated.")
+        _normalize_mixed_field_spec(name_str, spec)
+        field_map[name_str] = spec
+    return MixedSpaces(field_map).to_fe_space()
 
 
 @dataclass(frozen=True)
@@ -1044,6 +1090,7 @@ def _condense_mixed_role_unknown(K, R, free: np.ndarray, dir_dofs: np.ndarray, d
 
 
 __all__ = [
+    "MixedSpace",
     "MixedFESpace",
     "MixedSpaces",
     "MixedRoleFESpace",

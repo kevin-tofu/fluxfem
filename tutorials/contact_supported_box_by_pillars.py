@@ -112,12 +112,12 @@ def main():
     )
     # Use scalar stiffness for this coupled tutorial path (value_dim=1).
     kappa = float(D[0, 0])
-    K_top = top_space.assemble_bilinear_form(bilinear, params=kappa)
-    K_support = support_space.assemble_bilinear_form(bilinear, params=kappa)
+    K_top = top_space.assemble(bilinear, params=kappa)
+    K_support = support_space.assemble(bilinear, params=kappa)
 
     # Gravity force (top only)
-    F_top = np.asarray(top_space.assemble_linear_form(ff.scalar_body_force_form, params=body_force_top[2]))
-    F_support = np.asarray(support_space.assemble_linear_form(ff.scalar_body_force_form, params=0.0))
+    F_top = np.asarray(top_space.assemble(ff.scalar_body_force_form, params=body_force_top[2]))
+    F_support = np.asarray(support_space.assemble(ff.scalar_body_force_form, params=0.0))
 
     # Contact facets
     z_top_min = float(np.asarray(top_mesh.coords)[:, 2].min())

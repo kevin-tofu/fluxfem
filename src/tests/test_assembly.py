@@ -46,7 +46,7 @@ def test_diffusion_matrix_agrees(intorder):
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=intorder)
 
-    K_form = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense())
+    K_form = np.asarray(space.assemble(ff.diffusion_form, params=1.0).to_dense())
     K_manual = _diffusion_dense_manual(space, kappa=1.0)
 
     assert K_form.shape == (8, 8)
@@ -74,9 +74,9 @@ def test_linear_form_chunk_consistency(n_chunks):
     mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
-    F_ref = space.assemble_linear_form(ff.scalar_body_force_form, params=2.0)
+    F_ref = space.assemble(ff.scalar_body_force_form, params=2.0)
     policy = None if n_chunks is None else ff.AssemblyPolicy.chunked(int(n_chunks))
-    F_chk = space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, policy=policy)
+    F_chk = space.assemble(ff.scalar_body_force_form, params=2.0, policy=policy)
     assert np.allclose(np.asarray(F_ref), np.asarray(F_chk))
 
 
@@ -98,9 +98,9 @@ def test_bilinear_form_chunk_consistency(n_chunks):
     mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
-    K_ref = space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense()
+    K_ref = space.assemble(ff.diffusion_form, params=1.0).to_dense()
     policy = None if n_chunks is None else ff.AssemblyPolicy.chunked(int(n_chunks))
-    K_chk = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, policy=policy).to_dense()
+    K_chk = space.assemble(ff.diffusion_form, params=1.0, policy=policy).to_dense()
     assert np.allclose(np.asarray(K_ref), np.asarray(K_chk))
 
 
@@ -108,12 +108,12 @@ def test_numpy_backend_forward_assembly_matches_jax():
     mesh = ff.StructuredHexBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
-    K_jax = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="jax").to_dense())
-    K_np = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy").to_dense())
+    K_jax = np.asarray(space.assemble(ff.diffusion_form, params=1.0, backend="jax").to_dense())
+    K_np = np.asarray(space.assemble(ff.diffusion_form, params=1.0, backend="numpy").to_dense())
     assert np.allclose(K_jax, K_np)
 
-    F_jax = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="jax"))
-    F_np = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy"))
+    F_jax = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0, backend="jax"))
+    F_np = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0, backend="numpy"))
     assert np.allclose(F_jax, F_np)
 
     A_jax, b_jax = space.assemble_bilinear_linear_pair(
@@ -166,12 +166,12 @@ def test_numpy_backend_chunked_pair_matches_nonchunked():
     space = ff.make_tet_space(mesh, dim=1, intorder=2)
     pol = ff.AssemblyPolicy.chunked(2)
 
-    K_ref = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy")
-    K_chk = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy", policy=pol)
+    K_ref = space.assemble(ff.diffusion_form, params=1.0, backend="numpy")
+    K_chk = space.assemble(ff.diffusion_form, params=1.0, backend="numpy", policy=pol)
     assert np.allclose(np.asarray(K_ref.to_dense()), np.asarray(K_chk.to_dense()))
 
-    F_ref = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy"))
-    F_chk = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy", policy=pol))
+    F_ref = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0, backend="numpy"))
+    F_chk = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0, backend="numpy", policy=pol))
     assert np.allclose(F_ref, F_chk)
 
     A_ref, b_ref = space.assemble_bilinear_linear_pair(
@@ -215,12 +215,12 @@ def test_numpy_backend_chunked_scalar_diffusion_fast_path_matches_nonchunked(mes
     space = make_space(mesh, dim=1, intorder=2)
     pol = ff.AssemblyPolicy.chunked(2)
 
-    K_ref = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy").to_dense())
-    K_chk = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0, backend="numpy", policy=pol).to_dense())
+    K_ref = np.asarray(space.assemble(ff.diffusion_form, params=1.0, backend="numpy").to_dense())
+    K_chk = np.asarray(space.assemble(ff.diffusion_form, params=1.0, backend="numpy", policy=pol).to_dense())
     assert np.allclose(K_ref, K_chk)
 
-    F_ref = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy"))
-    F_chk = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, backend="numpy", policy=pol))
+    F_ref = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0, backend="numpy"))
+    F_chk = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0, backend="numpy", policy=pol))
     assert np.allclose(F_ref, F_chk)
 
 def test_numpy_backend_mass_matrix_matches_jax():
@@ -242,12 +242,12 @@ def test_chunk_parity_none_vs_8_across_core_assembly_paths():
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
     pol = ff.AssemblyPolicy.chunked(8)
 
-    K_ref = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense())
-    K_chk = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0, policy=pol).to_dense())
+    K_ref = np.asarray(space.assemble(ff.diffusion_form, params=1.0).to_dense())
+    K_chk = np.asarray(space.assemble(ff.diffusion_form, params=1.0, policy=pol).to_dense())
     assert np.allclose(K_ref, K_chk)
 
-    F_ref = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0))
-    F_chk = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, policy=pol))
+    F_ref = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0))
+    F_chk = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0, policy=pol))
     assert np.allclose(F_ref, F_chk)
 
     M_ref = np.asarray(space.assemble_mass_matrix().to_dense())
@@ -316,13 +316,13 @@ def test_linear_form_vector_accumulation_equivalence(n_chunks):
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
     pol = ff.AssemblyPolicy.chunked(int(n_chunks))
 
-    f_seg = space.assemble_linear_form(
+    f_seg = space.assemble(
         ff.scalar_body_force_form,
         2.0,
         policy=pol,
         vector_accumulation="segment",
     )
-    f_sca = space.assemble_linear_form(
+    f_sca = space.assemble(
         ff.scalar_body_force_form,
         2.0,
         policy=pol,
@@ -389,13 +389,13 @@ def test_numpy_backend_sparse_outputs_match_jax():
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
     u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
 
-    rows_jax, data_jax, n_jax = space.assemble_linear_form(
+    rows_jax, data_jax, n_jax = space.assemble(
         ff.scalar_body_force_form,
         params=2.0,
         backend="jax",
         sparse=True,
     )
-    rows_np, data_np, n_np = space.assemble_linear_form(
+    rows_np, data_np, n_np = space.assemble(
         ff.scalar_body_force_form,
         params=2.0,
         backend="numpy",
@@ -453,20 +453,21 @@ def test_chunked_include_x_q_true_matches_non_chunked():
     pol_ref = ff.AssemblyPolicy(include_x_q=True, lightweight_context=True)
     pol = ff.AssemblyPolicy.chunked(4, include_x_q=True, lightweight_context=True)
 
+    @ff.kernel(kind="bilinear", domain="volume")
     def x_dependent_diffusion(ctx, _params):
         weight_q = 1.0 + 0.1 * ctx.x_q[:, 0]
         gradN = ctx.test.gradN
         return jnp.einsum("q,qia,qja->qij", weight_q, gradN, gradN)
 
     K_ref = np.asarray(
-        space.assemble_bilinear_form(
+        space.assemble(
             x_dependent_diffusion,
             params=None,
             policy=pol_ref,
         ).to_dense()
     )
     K_chk = np.asarray(
-        space.assemble_bilinear_form(
+        space.assemble(
             x_dependent_diffusion,
             params=None,
             policy=pol,
@@ -502,8 +503,8 @@ def test_assembly_policy_chunked_matches_explicit_kwargs():
     mesh = ff.StructuredHexBox(nx=5, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
     pol = ff.AssemblyPolicy.chunked(2, include_x_q=False, lightweight_context=True, chunk_build_context=True)
-    K_pol = space.assemble_bilinear_form(ff.diffusion_form, params=1.0, policy=pol).to_dense()
-    K_exp = space.assemble_bilinear_form(
+    K_pol = space.assemble(ff.diffusion_form, params=1.0, policy=pol).to_dense()
+    K_exp = space.assemble(
         ff.diffusion_form,
         params=1.0,
         policy=ff.AssemblyPolicy.chunked(
@@ -541,7 +542,7 @@ def test_sparse_bilinear_matches_dense():
     """ff.FluxSparseMatrix dense matches manual integration."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
-    A = space.assemble_bilinear_form(ff.diffusion_form, params=1.0)
+    A = space.assemble(ff.diffusion_form, params=1.0)
     K_dense = np.asarray(A.to_dense())
     K_manual = _diffusion_dense_manual(space, kappa=1.0)
     assert np.allclose(K_dense, K_manual)
@@ -551,9 +552,9 @@ def test_sparse_linear_matches_dense():
     """Check sparse linear-form output matches dense."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
-    F_dense = np.asarray(space.assemble_linear_form(ff.scalar_body_force_form, params=2.0))
+    F_dense = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0))
 
-    rows, data, n = space.assemble_linear_form(ff.scalar_body_force_form, params=2.0, sparse=True)
+    rows, data, n = space.assemble(ff.scalar_body_force_form, params=2.0, sparse=True)
     F_sparse = np.zeros(n, dtype=np.asarray(data).dtype)
     np.add.at(F_sparse, np.asarray(rows, dtype=int), np.asarray(data))
     assert np.allclose(F_sparse, F_dense)
@@ -563,7 +564,7 @@ def test_flux_sparse_matrix_matvec_and_dense():
     """Check matvec/dense consistency via ff.FluxSparseMatrix."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
-    A = space.assemble_bilinear_form(ff.diffusion_form, params=1.0)
+    A = space.assemble(ff.diffusion_form, params=1.0)
     K_dense = np.asarray(A.to_dense())
     x = np.arange(K_dense.shape[0], dtype=np.float32)
 
@@ -579,7 +580,7 @@ def test_assemble_returns_flux_matrix():
     """Check return_flux_matrix=True returns ff.FluxSparseMatrix."""
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
-    A = space.assemble_bilinear_form(ff.diffusion_form, params=1.0)
+    A = space.assemble(ff.diffusion_form, params=1.0)
     assert isinstance(A, ff.FluxSparseMatrix)
     x = np.ones(A.n_dofs, dtype=np.float32)
     y1 = np.asarray(A.matvec(x))
@@ -645,7 +646,7 @@ def test_linear_form_constant_body_force():
     fval = 2.0
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
-    F = space.assemble_linear_form(ff.scalar_body_force_form, params=fval)
+    F = space.assemble(ff.scalar_body_force_form, params=fval)
     expected = np.full((8,), fval / 8.0, dtype=np.float32)  # vol=1 → ∫N_i=1/8
     assert np.allclose(np.asarray(F), expected, rtol=1e-6, atol=1e-6)
 
@@ -670,7 +671,7 @@ def test_numpy_backend_xq_dependent_scalar_body_force_matches_jax(mesh, make_spa
         return 1.0 + 0.25 * x_q[:, 0] - 0.1 * x_q[:, 1] + 0.05 * x_q[:, 2]
 
     rhs_form = ff.make_scalar_body_force_form(body_force)
-    F_jax = np.asarray(space.assemble_linear_form(rhs_form, params=None, backend="jax"))
+    F_jax = np.asarray(space.assemble(rhs_form, params=None, backend="jax"))
     F_np = np.asarray(space.assemble_linear_form(rhs_form, params=None, backend="numpy"))
     assert np.allclose(F_jax, F_np, rtol=1e-6, atol=1e-6)
 

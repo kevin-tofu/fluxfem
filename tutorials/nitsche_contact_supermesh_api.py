@@ -688,9 +688,9 @@ def run_fluxfem_demo(
         _mark("mesh build")
         _mark("space build")
 
-    K1 = space_top.assemble_bilinear_form(ff.linear_elasticity_form, params=D, policy=policy)
+    K1 = space_top.assemble(ff.linear_elasticity_form, params=D, policy=policy)
     _mark("K1 assemble")
-    K2 = space_bot.assemble_bilinear_form(ff.linear_elasticity_form, params=D, policy=policy)
+    K2 = space_bot.assemble(ff.linear_elasticity_form, params=D, policy=policy)
     _mark("K2 assemble")
 
     if cached_setup is None:
@@ -1053,9 +1053,9 @@ def run_fluxfem_oneside_demo(
     space_bot = ff.make_tet_space(mesh_bot, dim=3)
     _mark("space build")
 
-    K1 = space_top.assemble_bilinear_form(ff.linear_elasticity_form, params=D, policy=policy)
+    K1 = space_top.assemble(ff.linear_elasticity_form, params=D, policy=policy)
     _mark("K1 assemble")
-    K2 = space_bot.assemble_bilinear_form(ff.linear_elasticity_form, params=D, policy=policy)
+    K2 = space_bot.assemble(ff.linear_elasticity_form, params=D, policy=policy)
     _mark("K2 assemble")
 
     contact_facets_top = mesh_top.facets_on_plane(axis=2, value=0.0)

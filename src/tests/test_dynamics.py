@@ -67,7 +67,7 @@ def test_newmark_3d_bar_tracks_first_mode_period():
     space = ff.make_hex_space(mesh, dim=3, intorder=2)
 
     D = ff.isotropic_3d_D(E, nu)
-    K = np.asarray(space.assemble_bilinear_form(ff.linear_elasticity_form, D).to_dense())
+    K = np.asarray(space.assemble(ff.linear_elasticity_form, D).to_dense())
     M = rho * np.asarray(space.assemble_mass_matrix().to_dense())
     C = np.zeros_like(K)
 

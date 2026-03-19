@@ -19,10 +19,10 @@ def test_bilinear_kernel_matches_form(n_chunks):
     kappa = 1.0
     ker = ff.make_element_bilinear_kernel(ff.diffusion_form, kappa, jit=True)
     policy = None if n_chunks is None else ff.AssemblyPolicy.chunked(int(n_chunks))
-    K_kernel = space.assemble_bilinear_form(
+    K_kernel = space.assemble(
         ff.diffusion_form, kappa, kernel=ker, policy=policy
     )
-    K_default = space.assemble_bilinear_form(
+    K_default = space.assemble(
         ff.diffusion_form, kappa, policy=policy
     )
     assert np.allclose(
@@ -41,10 +41,10 @@ def test_linear_kernel_matches_form(n_chunks):
         return (integrand * wJ[:, None]).sum(axis=0)
 
     ker = jax.jit(_linear_kernel)
-    F_kernel = space.assemble_linear_form(
+    F_kernel = space.assemble(
         ff.scalar_body_force_form, 2.0, kernel=ker, policy=policy
     )
-    F_default = space.assemble_linear_form(
+    F_default = space.assemble(
         ff.scalar_body_force_form, 2.0, policy=policy
     )
     assert np.allclose(np.asarray(F_kernel), np.asarray(F_default))
@@ -98,8 +98,8 @@ def test_bilinear_kernel_with_compiled_dsl():
     params = ff.Params(kappa=1.0)
     ker = ff.make_element_bilinear_kernel(form_wf, params, jit=True)
 
-    K_kernel = space.assemble_bilinear_form(form_wf, params, kernel=ker)
-    K_default = space.assemble_bilinear_form(form_wf, params)
+    K_kernel = space.assemble(form_wf, params, kernel=ker)
+    K_default = space.assemble(form_wf, params)
     assert np.allclose(
         np.asarray(K_kernel.to_dense()), np.asarray(K_default.to_dense())
     )
@@ -133,8 +133,8 @@ def test_make_element_kernel_dispatch():
     u0 = jnp.zeros(space.n_dofs)
 
     ker_bilin = ff.make_element_kernel(ff.diffusion_form, 1.0, kind="bilinear")
-    K = space.assemble_bilinear_form(ff.diffusion_form, 1.0, kernel=ker_bilin)
-    K_ref = space.assemble_bilinear_form(ff.diffusion_form, 1.0)
+    K = space.assemble(ff.diffusion_form, 1.0, kernel=ker_bilin)
+    K_ref = space.assemble(ff.diffusion_form, 1.0)
     assert np.allclose(np.asarray(K.to_dense()), np.asarray(K_ref.to_dense()))
 
     def simple_residual(ctx, u_elem, _params):

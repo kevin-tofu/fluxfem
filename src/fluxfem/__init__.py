@@ -33,6 +33,7 @@ __all__ = [
     "make_mixed_residuals",
     "kernel",
     "MixedFESpace",
+    "MixedSpace",
     "MixedSpaces",
     "MixedRoleFESpace",
     "MixedRoleSpaces",

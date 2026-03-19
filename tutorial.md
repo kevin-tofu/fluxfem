@@ -101,25 +101,21 @@ residual = ff.ResidualForm.volume(
 neumann_facets = np.asarray(mesh.facets_on_plane(axis=0, value=1.0), dtype=int)
 surface = ff.make_surface_from_facets(np.asarray(mesh.coords), neumann_facets)
 
-K = ff.assemble_bilinear_form(
-    ff.BilinearSpaces(test=V, trial=U),
+K = ff.BilinearSpaces(test=V, trial=U).assemble(
     bilinear,
     ff.Params(kappa=1.0),
 )
-F = ff.assemble_linear_form(
-    ff.LinearSpaces(test=V),
+F = ff.LinearSpaces(test=V).assemble(
     traction,
     ff.Params(pressure=1.0),
     domain=surface,
 )
-R = ff.assemble_residual(
-    ff.ResidualSpaces(test=V, unknown=U),
+R = ff.ResidualSpaces(test=V, unknown=U).assemble(
     residual,
     jnp.zeros(space.n_dofs),
     params=None,
 )
-J = ff.assemble_jacobian(
-    ff.JacobianSpaces(test=V, trial=U),
+J = ff.JacobianSpaces(test=V, trial=U).assemble(
     residual,
     jnp.zeros(space.n_dofs),
     params=None,
@@ -139,8 +135,7 @@ body_force = ff.LinearForm.volume(
     lambda v, p: h_wf.dot(v, p.f) * h_wf.dOmega()
 )
 
-F_body = ff.assemble_linear_form(
-    ff.LinearSpaces(test=V),
+F_body = ff.LinearSpaces(test=V).assemble(
     body_force,
     ff.Params(f=np.array([0.0, 0.0, -9.81], dtype=float)),
 )
@@ -235,8 +230,7 @@ contact = ff.ContactSpaces(master=master_side, slave=slave_side).to_contact_surf
     backend="jax",
 )
 
-ops = ff.assemble_contact_penalty_operators(
-    contact,
+ops = contact.assemble_penalty_operators(
     weak_form=res_form,
     state={"a": u_top, "b": u_support},
     params=params_if,
@@ -293,7 +287,7 @@ K_global * du = -R_global
 コード上の対応は次です。
 
 - 接触面を作る: `ContactSpaces(...)` / `ContactGroupSpaces(...)`
-- interface 演算子を作る: `assemble_contact_penalty_operators(...)`
+- interface 演算子を作る: `contact.assemble_penalty_operators(...)`
 - 全体系へ足し込む: `CoupledSystemBuilder.add_contact(...)`
 
 実装では [`src/fluxfem/solver/coupled_system.py`](/home/kohei/project/physics/fem/src/fluxfem/solver/coupled_system.py)
@@ -316,7 +310,7 @@ K_global * du = -R_global
 コード上の対応は次です。
 
 - 接触面を作る: `ContactSpaces(...)` / `ContactGroupSpaces(...)`
-- constraint/KKT 演算子を作る: `assemble_contact_constraint_operators(...)` または `assemble_contact_kkt(...)`
+- constraint/KKT 演算子を作る: `contact.assemble_constraint_operators(...)` または `contact.assemble_contact_kkt(...)`
 - 全体系へ lift する: `CoupledSystemBuilder.add_contact(...)`
 
 実装では [`src/fluxfem/solver/coupled_system.py`](/home/kohei/project/physics/fem/src/fluxfem/solver/coupled_system.py)
@@ -371,19 +365,16 @@ mixed 系は、読みやすさと拡張性を両立するために次の使い�
 ```python
 import fluxfem as ff
 
-mixed = ff.MixedSpaces(
-    {
-        "disp": ff.NamedSpace("V", V),
-        "press": ff.NamedSpace("Q", Q),
-    }
-).to_fe_space()
+u_field = ff.NamedSpace("u", V)
+p_field = ff.NamedSpace("p", Q)
+mixed = ff.MixedSpace(u_field, p_field)
 
-def momentum(v, u, p):
-    pressure = ff.unknown_ref("p_like", space="Q")
+def res_u(v, u, p):
+    pressure = ff.unknown_ref("p")
     return (...) * ff.dOmega()
 
 residuals = ff.make_mixed_residuals(
-    momentum=ff.bind_mixed_residual("disp", momentum, space="V"),
+    u=res_u,
 )
 ```
 
@@ -393,17 +384,17 @@ residuals = ff.make_mixed_residuals(
 - `ctx.spaces[...]` は「space key ごとの test/trial/unknown bundle」
 - 単純ケースでは短い sugar を残し、space の明示は本当に必要な箇所だけにする
 
+field 名と residual 名がずれる場合だけ、`bind_mixed_residual(...)` で明示的に
+どの block へ積むかを指定します。
+
 新 API の具体例は [tutorials/coupled_reaction_diffusion_new_api.py](/home/kohei/project/physics/fem/tutorials/coupled_reaction_diffusion_new_api.py) と [tutorials/ch3d_fluxfem_wf_new_api.py](/home/kohei/project/physics/fem/tutorials/ch3d_fluxfem_wf_new_api.py) を参照してください。
 
-`MixedFESpace` を直接作る代わりに、命名レイヤだけを先に切ることもできます。
+`MixedFESpace` を直接触る代わりに、field 名付き空間をそのまま渡せます。
 
 ```python
-mixed = ff.MixedSpaces(
-    {
-        "disp": ff.NamedSpace("V", V),
-        "press": ff.NamedSpace("Q", Q),
-    }
-).to_fe_space()
+u_field = ff.NamedSpace("u", V)
+p_field = ff.NamedSpace("p", Q)
+mixed = ff.MixedSpace(u_field, p_field)
 ```
 
 Contact も同じ発想で、public spec を先に置けます。
@@ -477,7 +468,7 @@ def body_force_form(ctx, _params):
     return load.reshape(load.shape[0], -1)
 
 # Assemble external load vector once (total Lagrangian)
-# space 経由で外力ベクトルを組み立て
+# residual-like kernel を直接 `space.assemble_linear_form(...)` へ渡す
 F_ext = space.assemble_linear_form(body_force_form, params=None, sparse=False)
 
 # Residual = internal - external; wrap stvk_residual_form

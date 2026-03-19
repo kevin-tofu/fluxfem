@@ -39,7 +39,7 @@ def test_closure_space_jit_via_closure():
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
     def assemble(kappa):
-        K = space.assemble_bilinear_form(ff.diffusion_form, params=kappa).to_dense()
+        K = space.assemble(ff.diffusion_form, params=kappa).to_dense()
         return K
 
     assemble_jit = jax.jit(assemble)
@@ -53,7 +53,7 @@ def test_pytree_space_jit_with_space_argument():
     space = ff.make_hex_space_pytree(mesh, dim=1, intorder=2)
 
     def assemble(space_arg, kappa):
-        K = space_arg.assemble_bilinear_form(ff.diffusion_form, params=kappa).to_dense()
+        K = space_arg.assemble(ff.diffusion_form, params=kappa).to_dense()
         return K
 
     assemble_jit = jax.jit(assemble)

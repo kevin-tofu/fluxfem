@@ -100,7 +100,7 @@ def test_bilinear_form_matches_skfem(case: Case):
     space_ff, basis_sf, perm = _build_case(case)
     kappa = 1.3
 
-    K_ff = np.asarray(space_ff.assemble_bilinear_form(ff.diffusion_form, params=kappa).to_dense())
+    K_ff = np.asarray(space_ff.assemble(ff.diffusion_form, params=kappa).to_dense())
 
     @skfem.BilinearForm
     def diff(u, v, w):
@@ -119,7 +119,7 @@ def test_linear_form_matches_skfem(case: Case):
     space_ff, basis_sf, perm = _build_case(case)
     load = 2.0
 
-    F_ff = np.asarray(space_ff.assemble_linear_form(ff.scalar_body_force_form, params=load))
+    F_ff = np.asarray(space_ff.assemble(ff.scalar_body_force_form, params=load))
 
     @skfem.LinearForm
     def body_force(v, w):
