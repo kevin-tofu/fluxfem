@@ -329,24 +329,51 @@ If you prefer a higher-level problem object, `MixedProblem(...)` is still availa
 
 ### Contact weak forms
 
+Contact follows the same broad assembly pattern as the volume and surface APIs:
+
+- define a contact spec
+- prepare a reusable interface object
+- optionally update a contact state at the current iterate
+- assemble interface operators or contact contributions
+
+The main difference from standard volume assembly is that contact has a
+state-dependent geometric part. In FluxFEM terms:
+
+- `ContactPairSpec` / `ContactGroupSpec` / `OneSidedContactSpec` are declarative specs
+- `prepare(...)` performs the heavy reusable setup
+- `initialize_state()` / `update_state(...)` expose the state-explicit nonlinear path
+
+FluxFEM contact assembly is expressed in residual/jacobian form. When comparing
+against references written directly as `K u = f` bilinear/linear forms, a global
+sign flip may be required to match conventions; this is expected if the physics
+is otherwise identical.
+
+In the current implementation, `prepare(...)` is the preferred public alias for
+the older `to_contact_surface_space(...)` setup step.
+
+### Pair Contact Quickstart
+
 Start by defining a contact side on each body, then combine them into a contact
-interface object:
+spec and prepare a reusable interface:
 
 ```Python
-master_side = ff.ContactSide.from_facets(master_mesh, master_facets, master_space)
-slave_side = ff.ContactSide.from_facets(slave_mesh, slave_facets, slave_space)
+master_side = ff.ContactSideSpec.from_facets(master_mesh, master_facets, master_space)
+slave_side = ff.ContactSideSpec.from_facets(slave_mesh, slave_facets, slave_space)
 
-contact = ff.ContactSpaces(
+contact = ff.ContactPairSpec(
     master=master_side,
     slave=slave_side,
-).to_contact_surface_space(
+).prepare(
     quad_order=1,
     backend="jax",
 )
 ```
 
-Once you have `contact`, bilinear weak forms follow the same object-centered
-pattern:
+Internally, this setup step prepares reusable interface data such as pairing,
+supermesh geometry, facet-to-element maps, and quadrature caches.
+
+Once you have a prepared contact interface, bilinear weak forms follow the same
+object-centered pattern:
 
 ```Python
 contact_form = ff.BilinearForm.contact(a_contact)
@@ -360,10 +387,33 @@ compiled = ff.BilinearForm.contact(a_contact).get_compiled()
 B = contact.assemble_bilinear_form(compiled, params)
 ```
 
-Penalty-family contact assembly uses the same `contact` object:
+### State-Explicit Nonlinear Contact
+
+For curved surfaces, load stepping, or nonlinear contact updates, expose the
+state-dependent part explicitly:
 
 ```Python
-ops_penalty = contact.assemble_penalty_operators(
+contact_state = contact.initialize_state()
+
+contact_state = contact.update_state(
+    state={"a": u_master, "b": u_slave},
+    contact_state=contact_state,
+    geometry="current",
+    active_set="update",
+)
+```
+
+The current `ContactState` object is a lightweight public skeleton for this
+workflow. It records the interface kind, iteration, geometry mode, and a shape
+summary of the current field state. This is the intended public boundary for
+future state-dependent contact updates.
+
+### Penalty Contact
+
+Penalty-family contact assembly uses the same prepared `contact` object:
+
+```Python
+ops_penalty = contact.assemble_penalty(
     weak_form=contact_residual_form,
     state={"a": u_master, "b": u_slave},
     params=params,
@@ -371,16 +421,18 @@ ops_penalty = contact.assemble_penalty_operators(
 )
 ```
 
-Constraint-family contact adds a multiplier space on top of the same interface:
+### Multiplier Contact
+
+Constraint-family contact adds a multiplier spec on top of the same interface:
 
 ```Python
-lm_space = ff.ContactMultiplierSpace.from_contact(
+lm_space = ff.MultiplierSpec.from_contact(
     contact,
     family="p0",
     side="master",
 )
 
-ops_constraint = contact.assemble_constraint_operators(
+ops_constraint = contact.assemble_multiplier(
     rho=1.0,
     multiplier=lm_space,
     backend="numpy",
@@ -389,9 +441,11 @@ ops_constraint = contact.assemble_constraint_operators(
 
 So the usual flow is:
 
-- create `ContactSide` objects from mesh facets
-- build `contact` with `ContactSpaces(...).to_contact_surface_space(...)`
-- choose penalty or constraint assembly on that `contact` object
+- create `ContactSideSpec` objects from mesh facets
+- build a spec with `ContactPairSpec(...)`
+- call `prepare(...)` to build reusable interface setup
+- optionally call `initialize_state()` / `update_state(...)` in nonlinear loops
+- choose penalty or multiplier assembly on that prepared contact object
 
 Mixed weak-form naming follows this convention:
 
@@ -447,35 +501,44 @@ FluxFEM also provides high-level contact utilities:
 
 ```python
 # Pair contact
-side_master = ff.ContactSide.from_surfaces(surf_master, elem_conn=conn_master, value_dim=3)
-side_slave = ff.ContactSide.from_surfaces(surf_slave, elem_conn=conn_slave, value_dim=3)
-contact = ff.ContactSpaces(master=side_master, slave=side_slave).to_contact_surface_space(
+side_master = ff.ContactSideSpec.from_surfaces(surf_master, elem_conn=conn_master, value_dim=3)
+side_slave = ff.ContactSideSpec.from_surfaces(surf_slave, elem_conn=conn_slave, value_dim=3)
+contact = ff.ContactPairSpec(master=side_master, slave=side_slave).prepare(
     quad_order=4,
     backend="jax",
 )
 
 # One-to-many contact
-contact_group = ff.ContactGroupSpaces(
+contact_group = ff.ContactGroupSpec(
     master=side_master,
     slaves=[side_slave],
-).to_contact_surface_space(
+).prepare(
     quad_order=4,
     backend="jax",
 )
 
 # One-sided contact
-floor_contact = ff.OneSidedContactSpaces(side=side_slave).to_contact_surface_space(
+floor_contact = ff.OneSidedContactSpec(side=side_slave).prepare(
     quad_order=4,
 )
 
+# Optional nonlinear/state-explicit update
+contact_state = contact.initialize_state()
+contact_state = contact.update_state(
+    state={"a": u_master, "b": u_slave},
+    contact_state=contact_state,
+    geometry="current",
+    active_set="update",
+)
+
 # 1) Assemble constraint operators (B, Kuu, ...)
-lm_space = ff.ContactMultiplierSpace.from_contact(
+lm_space = ff.MultiplierSpec.from_contact(
     contact_group,
     family="p0_supermesh",
     side="master",
 )
 
-ops: ff.ContactOperators = contact_group.assemble_constraint_operators(
+ops: ff.ContactOperators = contact_group.assemble_multiplier(
     rho=1.0,
     multiplier=lm_space,
     backend="numpy",
@@ -486,7 +549,7 @@ ops: ff.ContactOperators = contact_group.assemble_constraint_operators(
 )
 
 # 2) Penalty-family path: user weak form -> residual/jacobian operators
-ops_nitsche: ff.ContactOperators = contact.assemble_penalty_operators(
+ops_nitsche: ff.ContactOperators = contact.assemble_penalty(
     weak_form=contact_residual_form,
     state={"a": u_master, "b": u_slave},
     params=params,
@@ -529,7 +592,9 @@ system_mortar = builder_mortar.build()
 
 Contact API boundaries (fixed terms):
 
-- `contact`: interface geometry/pairing/supermesh/quadrature.
+- `spec`: declarative contact definition (`ContactPairSpec`, `ContactGroupSpec`, `OneSidedContactSpec`).
+- `contact`: prepared interface geometry/pairing/supermesh/quadrature.
+- `contact_state`: current-iterate contact state for nonlinear workflows.
 - `multiplier`: LM discretization (`family`, `side`, `value_dim`).
 - `formulation`: enforcement variant used for routing.
 - `ops`: assembled bundle passed to `CoupledSystemBuilder`.
@@ -537,7 +602,10 @@ Contact API boundaries (fixed terms):
 Notes:
 
 - Multiple contacts can be added with different settings per `builder.add_contact(...)` call.
-- `ContactMultiplierSpace` p0-like families (`"p0"`, `"p0_active"`, `"p0_supermesh"`) currently support `side="master"` only.
+- `prepare(...)` is the preferred public name for the reusable setup step; `to_contact_surface_space(...)` remains available as a compatibility entrypoint.
+- `ContactState` currently provides the public skeleton for state-explicit contact workflows; future nonlinear contact updates should build on this boundary.
+- `MultiplierSpec` is the preferred public name for multiplier discretization; `ContactMultiplierSpace` remains available as a compatibility name.
+- `ContactMultiplierSpace` / `MultiplierSpec` p0-like families (`"p0"`, `"p0_active"`, `"p0_supermesh"`) currently support `side="master"` only.
 - See docs: `Usage -> Contact API Boundaries`.
 
 

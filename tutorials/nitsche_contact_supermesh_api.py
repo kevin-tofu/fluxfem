@@ -714,18 +714,18 @@ def run_fluxfem_demo(
 
         if timing:
             t_setup = time.perf_counter()
-        side_top = ff.ContactSide.from_facets(mesh_top, contact_facets_top, space_top)
+        side_top = ff.ContactSideSpec.from_facets(mesh_top, contact_facets_top, space_top)
         if timing:
             print(f"[timing] contact setup: side_top {time.perf_counter() - t_setup:.3f}s", flush=True)
             t_setup = time.perf_counter()
-        side_bot = ff.ContactSide.from_facets(mesh_bot, contact_facets_bot, space_bot)
+        side_bot = ff.ContactSideSpec.from_facets(mesh_bot, contact_facets_bot, space_bot)
         if timing:
             print(f"[timing] contact setup: side_bot {time.perf_counter() - t_setup:.3f}s", flush=True)
             t_setup = time.perf_counter()
-        contact = ff.ContactSpaces(
+        contact = ff.ContactPairSpec(
             master=side_top,
             slave=side_bot,
-        ).to_contact_surface_space(
+        ).prepare(
             quad_order=int(params.quad_order),
             backend="jax",
             batch_jac=batch_jac,
@@ -1077,10 +1077,10 @@ def run_fluxfem_oneside_demo(
     dirichlet_facets_bot = mesh_bot.facets_on_plane(axis=2, value=-0.5)
     _mark("boundary facets")
 
-    side_top = ff.ContactSide.from_facets(mesh_top, contact_facets_top, space_top)
-    contact_space = ff.OneSidedContactSpaces(
+    side_top = ff.ContactSideSpec.from_facets(mesh_top, contact_facets_top, space_top)
+    contact_space = ff.OneSidedContactSpec(
         side=side_top,
-    ).to_contact_surface_space(
+    ).prepare(
         quad_order=int(params.quad_order),
     )
     _mark("contact setup")

@@ -75,7 +75,7 @@ def test_contact_solve_box_12x12x12_vs_2x2x2():
         quad_order=1,
         backend="numpy",
     )
-    ops = ff.assemble_contact_penalty_operators(
+    ops = ff.assemble_penalty(
         contact,
         weak_form=_penalty_residual_form(),
         state={"a": jnp.zeros(int(top_space.n_dofs)), "b": jnp.zeros(int(support_space.n_dofs))},

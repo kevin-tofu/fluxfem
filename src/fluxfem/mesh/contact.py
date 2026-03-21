@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Mapping, Protocol, Sequence, TYPE_CHECKING, TypeAlias, Union, cast
 import warnings
 
@@ -53,6 +53,14 @@ if TYPE_CHECKING:
     from ..core.weakform import Params as WeakParams
     from .contact_interface import SurfaceMixedFormContext
     from ..solver import FluxSparseMatrix, FluxSparseOperator
+
+
+def _warn_contact_legacy_name(old: str, new: str) -> None:
+    warnings.warn(
+        f"`{old}` is deprecated; use `{new}` instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
 ContactJacobianReturn: TypeAlias = Union[np.ndarray, "FluxSparseMatrix", "FluxSparseOperator"]
 MixedSurfaceResidualForm: TypeAlias = Callable[
@@ -271,6 +279,47 @@ class ContactOperators:
 
 
 @dataclass(frozen=True)
+class ContactState:
+    """Lightweight state snapshot for state-explicit contact workflows."""
+
+    interface_kind: str
+    geometry: str = "reference"
+    iteration: int = 0
+    active_set: str | None = None
+    field_summary: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PenaltyContactContribution(ContactOperators):
+    """Explicit penalty-family contact contribution."""
+
+
+@dataclass(frozen=True)
+class MultiplierContactContribution(ContactOperators):
+    """Explicit multiplier-family contact contribution."""
+
+
+def _summarize_contact_field_state(state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None) -> dict[str, Any]:
+    if state is None:
+        return {}
+    if isinstance(state, Mapping):
+        summary: dict[str, Any] = {}
+        for key, value in state.items():
+            arr = np.asarray(value)
+            summary[str(key)] = tuple(int(x) for x in arr.shape)
+        return summary
+    if isinstance(state, Sequence) and not hasattr(state, "shape"):
+        summary = {}
+        for i, value in enumerate(state):
+            arr = np.asarray(value)
+            summary[f"arg{i}"] = tuple(int(x) for x in arr.shape)
+        return summary
+    arr = np.asarray(state)
+    return {"arg0": tuple(int(x) for x in arr.shape)}
+
+
+@dataclass(frozen=True)
 class ContactSpaces:
     """Public spec that binds contact roles to contact sides."""
 
@@ -293,6 +342,27 @@ class ContactSpaces:
         backend: str = "jax",
         batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
+        _warn_contact_legacy_name("ContactSpaces.to_contact_surface_space()", "ContactPairSpec.prepare()")
+        return ContactSurfaceSpace.from_sides(
+            self.master,
+            self.slave,
+            field_master=str(self.field_master),
+            field_slave=str(self.field_slave),
+            quad_order=int(quad_order),
+            tol=float(tol),
+            backend=str(backend),
+            batch_jac=batch_jac,
+        )
+
+    def prepare(
+        self,
+        *,
+        quad_order: int = 0,
+        tol: float = 1e-8,
+        backend: str = "jax",
+        batch_jac: bool | None = None,
+    ) -> "ContactSurfaceSpace":
+        """Public alias for heavy contact-interface setup."""
         return ContactSurfaceSpace.from_sides(
             self.master,
             self.slave,
@@ -337,6 +407,41 @@ class ContactGroupSpaces:
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
     ) -> "OneToManyContactSurfaceSpace":
+        _warn_contact_legacy_name("ContactGroupSpaces.to_contact_surface_space()", "ContactGroupSpec.prepare()")
+        return OneToManyContactSurfaceSpace.from_sides(
+            self.master,
+            list(self.slaves),
+            field_master=str(self.field_master),
+            field_slave=str(self.field_slave),
+            quad_order=int(quad_order),
+            space_mode_master=str(space_mode_master),
+            space_mode_slave=str(space_mode_slave),
+            facet_dofs_master=facet_dofs_master,
+            facet_dofs_slave=facet_dofs_slave,
+            normal_sign=normal_sign,
+            tol=float(tol),
+            backend=str(backend),
+            batch_jac=batch_jac,
+            setup_cache_enabled=setup_cache_enabled,
+            setup_cache_trace=setup_cache_trace,
+        )
+
+    def prepare(
+        self,
+        *,
+        quad_order: int = 0,
+        space_mode_master: str = "nodal",
+        space_mode_slave: str = "nodal",
+        facet_dofs_master: np.ndarray | None = None,
+        facet_dofs_slave: np.ndarray | None = None,
+        normal_sign: float | None = None,
+        tol: float = 1e-8,
+        backend: str = "jax",
+        batch_jac: bool | None = None,
+        setup_cache_enabled: bool | None = None,
+        setup_cache_trace: bool | None = None,
+    ) -> "OneToManyContactSurfaceSpace":
+        """Public alias for heavy one-to-many contact-interface setup."""
         return OneToManyContactSurfaceSpace.from_sides(
             self.master,
             list(self.slaves),
@@ -372,6 +477,25 @@ class OneSidedContactSpaces:
         normal_sign: float = 1.0,
         tol: float = 1e-8,
     ) -> "OneSidedContactSurfaceSpace":
+        _warn_contact_legacy_name("OneSidedContactSpaces.to_contact_surface_space()", "OneSidedContactSpec.prepare()")
+        return OneSidedContactSurfaceSpace.from_side(
+            self.side,
+            surface_master=self.surface_master,
+            elem_conn_master=self.elem_conn_master,
+            facet_to_elem_master=self.facet_to_elem_master,
+            quad_order=int(quad_order),
+            normal_sign=float(normal_sign),
+            tol=float(tol),
+        )
+
+    def prepare(
+        self,
+        *,
+        quad_order: int = 2,
+        normal_sign: float = 1.0,
+        tol: float = 1e-8,
+    ) -> "OneSidedContactSurfaceSpace":
+        """Public alias for heavy one-sided contact-interface setup."""
         return OneSidedContactSurfaceSpace.from_side(
             self.side,
             surface_master=self.surface_master,
@@ -1362,7 +1486,7 @@ def assemble_contact_constraint_operators(
             backend=backend,
             batch_jac=batch_jac,
         )
-    return ContactOperators(
+    return MultiplierContactContribution(
         enforcement=resolved,
         law=law_resolved,
         formulation=formulation_resolved,
@@ -1433,7 +1557,7 @@ def assemble_contact_penalty_operators(
         backend=backend,
         batch_jac=batch_jac,
     )
-    return ContactOperators(
+    return PenaltyContactContribution(
         enforcement=resolved,
         law=law_resolved,
         formulation=formulation_resolved,
@@ -1974,6 +2098,38 @@ class OneSidedContactSurfaceSpace:
             tol=tol,
         )
 
+    def initialize_state(self, *, metadata: Mapping[str, Any] | None = None) -> ContactState:
+        return ContactState(
+            interface_kind="one_sided",
+            geometry="reference",
+            iteration=0,
+            active_set=None,
+            field_summary={"slave": (int(self.elem_conn_slave.max()) + 1, int(self.value_dim))},
+            metadata=dict(metadata or {}),
+        )
+
+    def update_state(
+        self,
+        *,
+        state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        contact_state: ContactState | None = None,
+        geometry: str = "current",
+        active_set: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> ContactState:
+        base = self.initialize_state() if contact_state is None else contact_state
+        merged_metadata = dict(base.metadata)
+        if metadata is not None:
+            merged_metadata.update(dict(metadata))
+        return replace(
+            base,
+            geometry=str(geometry),
+            iteration=int(base.iteration) + 1,
+            active_set=active_set if active_set is not None else base.active_set,
+            field_summary=_summarize_contact_field_state(state),
+            metadata=merged_metadata,
+        )
+
     def assemble_bilinear(
         self,
         u_hat_fn: SurfaceHatFn | None,
@@ -2427,6 +2583,41 @@ class ContactSurfaceSpace:
                 "Rectangular contact operators are not enabled yet."
             )
 
+    def initialize_state(self, *, metadata: Mapping[str, Any] | None = None) -> ContactState:
+        return ContactState(
+            interface_kind="pair",
+            geometry="reference",
+            iteration=0,
+            active_set=None,
+            field_summary={
+                self.field_master: (_contact_space_side_n_dofs(self, side="master", role="trial"),),
+                self.field_slave: (_contact_space_side_n_dofs(self, side="slave", role="trial"),),
+            },
+            metadata=dict(metadata or {}),
+        )
+
+    def update_state(
+        self,
+        *,
+        state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        contact_state: ContactState | None = None,
+        geometry: str = "current",
+        active_set: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> ContactState:
+        base = self.initialize_state() if contact_state is None else contact_state
+        merged_metadata = dict(base.metadata)
+        if metadata is not None:
+            merged_metadata.update(dict(metadata))
+        return replace(
+            base,
+            geometry=str(geometry),
+            iteration=int(base.iteration) + 1,
+            active_set=active_set if active_set is not None else base.active_set,
+            field_summary=_summarize_contact_field_state(state),
+            metadata=merged_metadata,
+        )
+
     def assemble_contact_coupling_matrices(self) -> tuple["ContactCouplingMatrix", "ContactCouplingMatrix"]:
         """Return (M_aa, M_ab) coupling matrices on this contact interface."""
         return _assemble_contact_coupling_matrices(
@@ -2512,7 +2703,42 @@ class ContactSurfaceSpace:
         sparse: bool = False,
         batch_jac: bool | None = None,
     ) -> ContactOperators:
-        """Alias for assemble_contact_constraint_operators()."""
+        """Legacy alias for assemble_multiplier()."""
+        _warn_contact_legacy_name("PreparedContactInterface.assemble_constraint_operators()", "PreparedContactInterface.assemble_multiplier()")
+        return self.assemble_contact_constraint_operators(
+            law=law,
+            formulation=formulation,
+            rho=rho,
+            multiplier=multiplier,
+            backend=backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+
+    def assemble_multiplier(
+        self,
+        *,
+        law: str | None = None,
+        formulation: str | None = None,
+        rho: float = 0.0,
+        multiplier: ContactMultiplierSpace,
+        backend: str = "numpy",
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+    ) -> ContactOperators:
+        """Preferred public alias for assemble_contact_constraint_operators()."""
         return self.assemble_contact_constraint_operators(
             law=law,
             formulation=formulation,
@@ -2574,7 +2800,38 @@ class ContactSurfaceSpace:
         sparse: bool = False,
         batch_jac: bool | None = None,
     ) -> ContactOperators:
-        """Alias for assemble_contact_penalty_operators()."""
+        """Legacy alias for assemble_penalty()."""
+        _warn_contact_legacy_name("PreparedContactInterface.assemble_penalty_operators()", "PreparedContactInterface.assemble_penalty()")
+        return self.assemble_contact_penalty_operators(
+            law=law,
+            formulation=formulation,
+            backend=backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+
+    def assemble_penalty(
+        self,
+        *,
+        law: str | None = None,
+        formulation: str | None = None,
+        backend: str = "numpy",
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+    ) -> ContactOperators:
+        """Preferred public alias for assemble_contact_penalty_operators()."""
         return self.assemble_contact_penalty_operators(
             law=law,
             formulation=formulation,
@@ -3113,6 +3370,42 @@ class OneToManyContactSurfaceSpace:
         total = int(n_master + sum(slave_sizes))
         return n_master, slave_sizes, total
 
+    def initialize_state(self, *, metadata: Mapping[str, Any] | None = None) -> ContactState:
+        n_master, slave_sizes, _ = self._dof_layout()
+        return ContactState(
+            interface_kind="one_to_many",
+            geometry="reference",
+            iteration=0,
+            active_set=None,
+            field_summary={
+                self.field_master: (n_master,),
+                self.field_slave: tuple(int(n) for n in slave_sizes),
+            },
+            metadata=dict(metadata or {}),
+        )
+
+    def update_state(
+        self,
+        *,
+        state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+        contact_state: ContactState | None = None,
+        geometry: str = "current",
+        active_set: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> ContactState:
+        base = self.initialize_state() if contact_state is None else contact_state
+        merged_metadata = dict(base.metadata)
+        if metadata is not None:
+            merged_metadata.update(dict(metadata))
+        return replace(
+            base,
+            geometry=str(geometry),
+            iteration=int(base.iteration) + 1,
+            active_set=active_set if active_set is not None else base.active_set,
+            field_summary=_summarize_contact_field_state(state),
+            metadata=merged_metadata,
+        )
+
     def _resolve_backend(self, backend: str | None) -> str:
         if backend is not None:
             return str(backend)
@@ -3566,14 +3859,35 @@ class OneToManyContactSurfaceSpace:
         )
 
 
+def assemble_multiplier(contact, **kwargs):
+    """Public alias for assemble_contact_constraint_operators()."""
+    return assemble_contact_constraint_operators(contact, **kwargs)
+
+
+def assemble_penalty(contact, **kwargs):
+    """Public alias for assemble_contact_penalty_operators()."""
+    return assemble_contact_penalty_operators(contact, **kwargs)
+
+
 __all__ = [
+    "ContactSideSpec",
     "ContactSide",
     "OneSidedContact",
+    "PreparedOneSidedContactInterface",
     "OneSidedContactSurfaceSpace",
+    "PreparedContactInterface",
     "ContactSurfaceSpace",
+    "PreparedOneToManyContactInterface",
     "OneToManyContactSurfaceSpace",
     "ContactOperators",
+    "MultiplierContactContribution",
+    "PenaltyContactContribution",
+    "ContactState",
+    "MultiplierSpec",
     "ContactMultiplierSpace",
+    "ContactPairSpec",
+    "ContactGroupSpec",
+    "OneSidedContactSpec",
     "ContactKKTSolveConfig",
     "EmbeddingMap",
     "build_nodal_embedding_map",
@@ -3582,7 +3896,9 @@ __all__ = [
     "assemble_embedding_constraint_matrix",
     "assemble_rbe2_constraint_matrix",
     "assemble_contact_constraint_operators",
+    "assemble_multiplier",
     "assemble_contact_penalty_operators",
+    "assemble_penalty",
     "assemble_contact_interface_residual",
     "assemble_contact_interface_jacobian",
     "assemble_contact_coupling_matrices",
@@ -3591,3 +3907,14 @@ __all__ = [
     "facet_gap_values",
     "active_contact_facets",
 ]
+
+# Phase-1 public naming aliases. These remain thin wrappers over the existing
+# contact implementation until the state-explicit redesign is introduced.
+ContactSideSpec = ContactSide
+PreparedContactInterface = ContactSurfaceSpace
+PreparedOneToManyContactInterface = OneToManyContactSurfaceSpace
+PreparedOneSidedContactInterface = OneSidedContactSurfaceSpace
+ContactPairSpec = ContactSpaces
+ContactGroupSpec = ContactGroupSpaces
+OneSidedContactSpec = OneSidedContactSpaces
+MultiplierSpec = ContactMultiplierSpace

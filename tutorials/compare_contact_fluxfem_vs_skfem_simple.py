@@ -152,22 +152,22 @@ def build_fluxfem_contact(
         facets = _build_tet_facets(conn, order)
     if normal_sign is None:
         surface = ff.SurfaceMesh.from_facets(coords, facets)
-        side_master = ff.ContactSide.from_surfaces(
+        side_master = ff.ContactSideSpec.from_surfaces(
             surface,
             elem_conn=conn,
             value_dim=3,
         )
-        side_slave = ff.ContactSide.from_surfaces(
+        side_slave = ff.ContactSideSpec.from_surfaces(
             surface,
             elem_conn=conn,
             value_dim=3,
         )
-        contact = ff.ContactSpaces(
+        contact = ff.ContactPairSpec(
             master=side_master,
             slave=side_slave,
             field_master="a",
             field_slave="b",
-        ).to_contact_surface_space(
+        ).prepare(
             quad_order=quad_order,
             backend="jax",
         )
@@ -218,7 +218,7 @@ def build_fluxfem_contact(
         use_penalty=float(use_penalty),
         use_traction=float(use_traction),
     )
-    ops = ff.assemble_contact_penalty_operators(
+    ops = ff.assemble_penalty(
         contact,
         weak_form=compile_tagged_pair_nitsche_penalty_residual(
             {

@@ -773,8 +773,32 @@ def _diag_hex27_sigma(*, verbose: bool) -> None:
         f"[diag][hex27][gradN] max_sum_grad={max_sum_grad:.3e} "
         f"max_moment_grad={max_moment_grad:.3e}"
     )
-    if verbose:
+    dump_pointwise = os.getenv("DIAG_HEX27_SIGMA_POINTWISE", "0") == "1"
+    if verbose or dump_pointwise:
         print(f"[diag][hex27][sigma] A=\n{A}")
+        for idx, pt in enumerate(sample):
+            g_ff = _grad_ff(pt)
+            g_sf = _grad_sf(pt)
+            s_ff = _sigma(g_ff)
+            s_sf = _sigma(g_sf)
+            print(f"[diag][hex27][sigma][pt{idx}] x={pt}")
+            print(f"  grad_ff=\n{g_ff}")
+            print(f"  grad_sf=\n{g_sf}")
+            print(f"  grad_diff=\n{g_ff - g_sf}")
+            print(f"  sigma_ff=\n{s_ff}")
+            print(f"  sigma_sf=\n{s_sf}")
+            print(f"  sigma_diff=\n{s_ff - s_sf}")
+        for idx, pt in enumerate(face_pts):
+            g_ff = _grad_ff(pt)
+            g_sf = _grad_sf(pt)
+            s_ff = _sigma(g_ff)
+            s_sf = _sigma(g_sf)
+            t_ff = s_ff @ n
+            t_sf = s_sf @ n
+            print(f"[diag][hex27][traction][pt{idx}] x={pt}")
+            print(f"  traction_ff={t_ff}")
+            print(f"  traction_sf={t_sf}")
+            print(f"  traction_diff={t_ff - t_sf}")
 
 
 def build_fluxfem_contact(
@@ -826,7 +850,7 @@ def build_fluxfem_contact(
         use_penalty=float(use_penalty),
         use_traction=float(use_traction),
     )
-    ops = ff.assemble_contact_penalty_operators(
+    ops = ff.assemble_penalty(
         contact,
         weak_form=compile_tagged_pair_nitsche_penalty_residual(
             {
@@ -1146,15 +1170,33 @@ if __name__ == "__main__":
             rel_diff_inf = diff_inf / max(1.0, n_inf_sf)
             rel_diff_2 = diff_2 / max(1.0, n_2_sf)
             rel_diff_max = diff_max / max(1.0, max_sf)
+            diff_flip = K_ff + K_sf
+            diff_flip_inf = float(np.linalg.norm(diff_flip, ord=np.inf))
+            diff_flip_2 = float(np.linalg.norm(diff_flip))
+            diff_flip_max = float(np.max(np.abs(diff_flip))) if diff_flip.size else 0.0
+            rel_diff_flip_inf = diff_flip_inf / max(1.0, n_inf_sf)
+            rel_diff_flip_2 = diff_flip_2 / max(1.0, n_2_sf)
+            rel_diff_flip_max = diff_flip_max / max(1.0, max_sf)
             h_note = f"h={h_use:.6g}" if h_ref is not None else f"h={h_use:.6g} (default)"
             print(
                 f"[{elem}/{name}/n={sign:+.0f}] {h_note} rel_inf={rel_inf:.3e} "
                 f"rel_2={rel_2:.3e} rel_max={rel_max:.3e}"
             )
             print(
-                f"[{elem}/{name}/n={sign:+.0f}] rel_diff_inf={rel_diff_inf:.3e} "
-                f"rel_diff_2={rel_diff_2:.3e} rel_diff_max={rel_diff_max:.3e}"
+                f"[{elem}/{name}/n={sign:+.0f}] raw_rel_diff_inf={rel_diff_inf:.3e} "
+                f"raw_rel_diff_2={rel_diff_2:.3e} raw_rel_diff_max={rel_diff_max:.3e} "
+                f"sign_aligned_rel_diff_inf={rel_diff_flip_inf:.3e} "
+                f"sign_aligned_rel_diff_2={rel_diff_flip_2:.3e} sign_aligned_rel_diff_max={rel_diff_flip_max:.3e}"
             )
+            if rel_diff_inf < 1e-6 and rel_diff_2 < 1e-6:
+                print(
+                    f"[{elem}/{name}/n={sign:+.0f}] note: FluxFEM and scikit-fem already match in the raw convention."
+                )
+            elif rel_diff_flip_inf < 1e-6 and rel_diff_flip_2 < 1e-6:
+                print(
+                    f"[{elem}/{name}/n={sign:+.0f}] note: FluxFEM and scikit-fem match after sign alignment. "
+                    "The remaining raw sign difference is due to residual/jacobian vs bilinear-form conventions."
+                )
             if elem == "hex27" and name == "full":
                 _diag_hex27_dof_groups(K_ff, K_sf, coords_hex27)
                 _diag_hex27_block_compare(K_ff, K_sf, coords_hex27)

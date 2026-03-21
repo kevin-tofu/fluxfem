@@ -10,6 +10,10 @@ import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 from fluxfem.core.weakform import einsum as wf_einsum
 from fluxfem.mesh.contact import make_tagged_pair_nitsche_penalty_bilinear
+from tutorials.compare_nitsche_onesided_fluxfem_vs_skfem import (
+    build_fluxfem_onesided,
+    build_skfem_onesided,
+)
 
 
 def _tet4_coords() -> np.ndarray:
@@ -140,7 +144,7 @@ def _assemble_nitsche_blocks_tet4(
         use_penalty=float(use_penalty),
         use_traction=float(use_traction),
     )
-    K_ff_symbolic = np.asarray(contact.assemble_bilinear(_bilin, u0, [u0], params, sparse=False), dtype=float)
+    K_ff_symbolic = np.asarray(contact.assemble_bilinear(_bilin, u0, u0, params, sparse=False), dtype=float)
     K_ff_direct = np.asarray(contact.assemble_bilinear(bilin_direct, u0, [u0], params, sparse=False), dtype=float)
 
     mesh_a = MeshTet(coords.T, conn.T).with_boundaries({"contact": lambda x: np.isclose(x[2], 0.0)})
@@ -234,3 +238,119 @@ def test_nitsche_contact_interface_direct_bilinear_matches_symbolic_jacobian_tet
     diff = K_ff_direct - K_ff_symbolic
     rel_inf = float(np.linalg.norm(diff, ord=np.inf) / max(1.0, np.linalg.norm(K_ff_symbolic, ord=np.inf)))
     assert rel_inf < 1e-12
+
+
+def _assemble_nitsche_blocks_hex27(*, inv_h: float, use_penalty: float = 1.0, use_traction: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+    skfem = pytest.importorskip("skfem", reason="scikit-fem not installed")
+    from skfem import MeshHex, Basis, FacetBasis, ElementHex2, ElementVectorH1, asm
+    from skfem.helpers import dot, sym_grad, mul
+    from skfem.supermeshing import intersect, elementwise_quadrature
+    from skfem.models.elasticity import lame_parameters, linear_stress
+
+    alpha = 10.0
+    quad_order = 4
+    mesh_m = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, order=3).build()
+    mesh_s = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, order=3).build()
+    coords = np.asarray(mesh_m.coords, dtype=float)
+    conn = np.asarray(mesh_m.conn, dtype=int)
+    facets = np.asarray([[int(conn[0, i]) for i in (0, 1, 2, 3, 4, 5, 6, 7, 8)]], dtype=int)
+    surface_m = ff.SurfaceMesh.from_facets(coords, facets)
+    surface_s = ff.SurfaceMesh.from_facets(coords, facets)
+    side_m = ff.ContactSideSpec.from_surfaces(surface_m, elem_conn=conn, value_dim=3)
+    side_s = ff.ContactSideSpec.from_surfaces(surface_s, elem_conn=conn, value_dim=3)
+    contact = ff.ContactPairSpec(master=side_m, slave=side_s, field_master="a", field_slave="b").prepare(
+        quad_order=quad_order,
+        backend="jax",
+    )
+
+    E, nu = 210e9, 0.3
+    lam, mu = ff.lame_parameters(E, nu)
+
+    def _bilin(v1, v2, u1, u2, p):
+        n = h_wf.normal()
+        ju = u1.val - u2.val
+        t_u = 0.5 * (h_wf.traction(u1, n, p) + h_wf.traction(u2, n, p))
+        t_v1 = h_wf.traction(v1, n, p)
+        t_v2 = h_wf.traction(v2, n, p)
+        penalty = p.use_penalty * (p.alpha * p.inv_h) * (h_wf.dot(v1, ju) - h_wf.dot(v2, ju))
+        traction = p.use_traction * (-h_wf.dot(v1, t_u) + h_wf.dot(v2, t_u))
+        traction -= p.use_traction * 0.5 * wf_einsum("qia,qi->qa", t_v1, ju)
+        traction -= p.use_traction * 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
+        return (penalty + traction) * h_wf.ds()
+
+    u0 = jnp.zeros(coords.shape[0] * 3)
+    params = ff.Params(
+        alpha=alpha,
+        inv_h=float(inv_h),
+        lam=float(lam),
+        mu=float(mu),
+        use_penalty=float(use_penalty),
+        use_traction=float(use_traction),
+    )
+    K_ff = np.asarray(contact.assemble_bilinear(_bilin, u0, u0, params, sparse=False), dtype=float)
+
+    xs = np.linspace(0.0, 1.0, 2)
+    ys = np.linspace(0.0, 1.0, 2)
+    zs = np.linspace(0.0, 1.0, 2)
+    mesh_a = MeshHex().init_tensor(xs, ys, zs).with_boundaries({"contact": lambda x: np.isclose(x[2], 0.0)})
+    mesh_b = MeshHex().init_tensor(xs, ys, zs).with_boundaries({"contact": lambda x: np.isclose(x[2], 0.0)})
+    elem_s = ElementHex2()
+    elem_v = ElementVectorH1(elem_s)
+    m1t, orig1 = mesh_a.trace("contact", mtype=skfem.MeshQuad, project=lambda p: p[[0, 1]])
+    m2t, orig2 = mesh_b.trace("contact", mtype=skfem.MeshQuad, project=lambda p: p[[0, 1]])
+    m12, t1, t2 = intersect(m1t, m2t)
+    try:
+        quad1 = elementwise_quadrature(m1t, m12, t1, intorder=quad_order)
+        quad2 = elementwise_quadrature(m2t, m12, t2, intorder=quad_order)
+    except TypeError:
+        quad1 = elementwise_quadrature(m1t, m12, t1)
+        quad2 = elementwise_quadrature(m2t, m12, t2)
+
+    basis_scalar_a = Basis(mesh_a, elem_s)
+    basis_scalar_b = Basis(mesh_b, elem_s)
+    basis_vec_a = Basis(mesh_a, elem_v)
+    basis_vec_b = Basis(mesh_b, elem_v)
+    fb_u_a = FacetBasis(mesh_a, elem_v, facets=orig1[t1], quadrature=quad1)
+    fb_u_b = FacetBasis(mesh_b, elem_v, facets=orig2[t2], quadrature=quad2)
+    fbasis = fb_u_a * fb_u_b
+
+    lam_sf, mu_sf = lame_parameters(E, nu)
+    C = linear_stress(lam_sf, mu_sf)
+
+    @skfem.BilinearForm
+    def bilin_sf(u1, u2, v1, v2, w):
+        ju = u1 - u2
+        t_u = 0.5 * (mul(C(sym_grad(u1)), w.n) + mul(C(sym_grad(u2)), w.n))
+        t_v1 = mul(C(sym_grad(v1)), w.n)
+        t_v2 = mul(C(sym_grad(v2)), w.n)
+        penalty = use_penalty * (alpha / w.h) * dot(v1 - v2, ju)
+        traction = use_traction * (-dot(v1, t_u) + dot(v2, t_u) - 0.5 * dot(t_v1, ju) - 0.5 * dot(t_v2, ju))
+        return penalty + traction
+
+    K_sf = asm(bilin_sf, fbasis, h=fb_u_a.mesh_parameters()).toarray()
+    perm_a = _vector_perm_for_skfem(coords, np.asarray(basis_scalar_a.doflocs), np.asarray(basis_vec_a.doflocs), 3)
+    perm_b = _vector_perm_for_skfem(coords, np.asarray(basis_scalar_b.doflocs), np.asarray(basis_vec_b.doflocs), 3) + int(fb_u_a.N)
+    perm = np.concatenate([perm_a, perm_b])
+    K_sf = K_sf[np.ix_(perm, perm)]
+    return K_ff, K_sf
+
+
+def test_nitsche_contact_interface_jacobian_matches_skfem_hex27():
+    K_ff, K_sf = _assemble_nitsche_blocks_hex27(inv_h=1.0)
+    assert K_ff.shape == K_sf.shape
+    rel_inf = float(np.linalg.norm(K_ff - K_sf, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf)))
+    rel_inf_flipped = float(np.linalg.norm(K_ff + K_sf, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf)))
+    assert rel_inf > 1e-2
+    assert rel_inf_flipped < 1e-6
+
+
+def test_nitsche_onesided_jacobian_matches_skfem_hex27_after_sign_alignment(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("QUAD_ORDER", "4")
+    K_ff, f_ff, _coords = build_fluxfem_onesided("hex27", alpha=10.0, quad_order=4)
+    K_sf, f_sf = build_skfem_onesided("hex27", alpha=10.0)
+    assert K_sf is not None
+    assert f_sf is not None
+    rel_inf_flipped = float(np.linalg.norm(K_ff + K_sf, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf)))
+    rel_f_flipped = float(np.linalg.norm(f_ff + f_sf) / max(1.0, np.linalg.norm(f_sf)))
+    assert rel_inf_flipped < 1e-10
+    assert rel_f_flipped < 1e-10

@@ -43,8 +43,8 @@ The following are now implemented for volume problems:
 The following are now implemented for mixed/contact specs:
 
 - `MixedSpaces({...}).to_fe_space()`
-- `ContactSpaces(master=..., slave=...).to_contact_surface_space()`
-- `ContactGroupSpaces(master=..., slaves=[...]).to_contact_surface_space()`
+- `ContactPairSpec(master=..., slave=...).prepare()`
+- `ContactGroupSpec(master=..., slaves=[...]).prepare()`
 
 Current public behavior:
 
@@ -54,8 +54,8 @@ Current public behavior:
 - `assemble_jacobian(...)` accepts `JacobianSpaces`
 - same-space cases preserve parity with the legacy single-space path
 - mixed public naming can be expressed through `MixedSpaces`
-- contact public role binding can be expressed through `ContactSpaces`
-- one-to-many contact public role binding can be expressed through `ContactGroupSpaces`
+- contact public role binding can be expressed through `ContactPairSpec`
+- one-to-many contact public role binding can be expressed through `ContactGroupSpec`
 
 Compatibility status:
 
@@ -82,7 +82,7 @@ These should move toward deprecation first:
 - dict-based role passing such as `{"test": ..., "trial": ...}`
 - examples/docs that construct `MixedFESpace(...)` directly when `MixedSpaces(...).to_fe_space()` is sufficient
 - examples/docs that construct `ContactSurfaceSpace.from_sides(...)` or `OneToManyContactSurfaceSpace.from_sides(...)`
-  directly when `ContactSpaces(...)` or `ContactGroupSpaces(...)` is sufficient
+  directly when `ContactPairSpec(...)` or `ContactGroupSpec(...)` is sufficient
 
 ### Keep Supported
 
@@ -152,7 +152,7 @@ The current public recommendation is:
   prefer `MixedSpaces({...}).to_fe_space()`
   and allow per-field role specs such as `ResidualSpaces(test=..., unknown=...)`
 - contact problems:
-  prefer `ContactSpaces(...)`, `ContactGroupSpaces(...)`, and `OneSidedContactSpaces(...)`
+  prefer `ContactPairSpec(...)`, `ContactGroupSpec(...)`, and `OneSidedContactSpec(...)`
 
 The remaining work is primarily API cleanup, docs alignment, and future sugar,
 not the initial introduction of named spaces.
@@ -924,7 +924,7 @@ So the likely public direction is not to force volume-style `BilinearSpaces` dir
 Instead, contact should probably grow a parallel but aligned API family, for example:
 
 ```python
-ff.ContactSpaces(master=A, slave=B)
+ff.ContactPairSpec(master=A, slave=B)
 ff.ContactResidualSpaces(master=A, slave=B)
 ```
 
@@ -936,9 +936,9 @@ The key idea is:
 
 Current status:
 
-- a first `ContactSpaces(master=..., slave=...)` spec exists
+- a first `ContactPairSpec(master=..., slave=...)` spec exists
 - it currently focuses on public role binding and conversion to `ContactSurfaceSpace`
-- a first `ContactGroupSpaces(master=..., slaves=[...])` spec also exists
+- a first `ContactGroupSpec(master=..., slaves=[...])` spec also exists
 - deeper contact-family decomposition beyond pair/one-to-many is not yet added
 
 ### Design Principle Across Modules
@@ -961,7 +961,7 @@ This preserves conceptual unity without forcing unnatural abstractions onto cont
 - keep new tests/examples on `LinearSpaces` / `BilinearSpaces` / `ResidualSpaces` / `JacobianSpaces`
 - avoid introducing new dict-based APIs
 - document `FluxSparseOperator` as the rectangular operator type
-- prefer `MixedSpaces` and `ContactSpaces` in new high-level examples
+- prefer `MixedSpaces` and `ContactPairSpec` in new high-level examples
 
 ### Mixed
 
@@ -997,7 +997,7 @@ Introduce a contact-specific spec family rather than forcing volume APIs onto co
 Candidate direction:
 
 ```python
-ff.ContactSpaces(master=A, slave=B)
+ff.ContactPairSpec(master=A, slave=B)
 ff.ContactBilinearSpaces(master=A, slave=B)
 ```
 

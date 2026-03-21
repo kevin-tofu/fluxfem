@@ -169,8 +169,8 @@ def test_contact_p0_supermesh_operators_match_skfem_intersection_triangle_p0_tet
         value_dim_slave=3,
         quad_order=quad_order,
     )
-    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0_supermesh", side="master", value_dim=3)
-    ops = ff.assemble_contact_constraint_operators(contact, rho=rho, multiplier=mult, backend="numpy")
+    mult = ff.MultiplierSpec.from_contact(contact, family="p0_supermesh", side="master", value_dim=3)
+    ops = ff.assemble_multiplier(contact, rho=rho, multiplier=mult, backend="numpy")
     B_ff = np.asarray(ops.B, dtype=float)
     Kuu_ff = np.asarray(ops.Kuu, dtype=float)
 

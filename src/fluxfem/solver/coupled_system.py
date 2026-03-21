@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import warnings
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -806,6 +807,12 @@ class CoupledSystemBuilder:
             and not hasattr(contact_obj, "jacobian")
             and not hasattr(contact_obj, "coupling_aa")
         ):
+            warnings.warn(
+                "Passing a raw contact interface into CoupledSystemBuilder.add_contact(...) is a compatibility path. "
+                "Prefer assembling an explicit contact contribution first and passing that contribution to add_contact(...).",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             f_arg_guess = None if formulation is None else str(formulation).lower()
             has_penalty_inputs = (weak_form is not None) or (state is not None) or (params is not None)
             eval_backend = "jax" if (has_penalty_inputs and backend == "numpy") else backend

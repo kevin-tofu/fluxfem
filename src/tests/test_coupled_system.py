@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 import numpy as np
 import pytest
 import scipy.sparse as sp
@@ -168,7 +169,7 @@ def test_coupled_system_builder_add_contact_mortar_from_operators():
     ops.coupling_ab = coupling_ab
     ops.facet_conn_master = np.array([[0]], dtype=int)
 
-    builder.add_contact_mortar(ops, master="a", slave="b", multiplier=ff.ContactMultiplierSpace(family="nodal"), rho=0.0)
+    builder.add_contact_mortar(ops, master="a", slave="b", multiplier=ff.MultiplierSpec(family="nodal"), rho=0.0)
     K, _ = builder.build().assemble(format="csr")
     Kd = K.toarray()
     assert Kd.shape == (3, 3)
@@ -205,7 +206,7 @@ def test_coupled_system_builder_add_contact_mortar_uses_ops_defaults():
         coupling_ab=coupling_ab,
         facet_conn_master=np.array([[0]], dtype=int),
         rho=2.0,
-        multiplier=ff.ContactMultiplierSpace(family="nodal"),
+        multiplier=ff.MultiplierSpec(family="nodal"),
     )
     builder.add_contact_mortar(ops, master="a", slave="b")
     K, _ = builder.build().assemble(format="csr")
@@ -238,7 +239,7 @@ def test_coupled_system_builder_add_contact_mortar_uses_multiplier_object_defaul
         coupling_ab=coupling_ab,
         facet_conn_master=np.array([[0]], dtype=int),
         rho=2.0,
-        multiplier=ff.ContactMultiplierSpace(family="nodal"),
+        multiplier=ff.MultiplierSpec(family="nodal"),
     )
     builder.add_contact_mortar(ops, master="a", slave="b")
     K, _ = builder.build().assemble(format="csr")
@@ -273,7 +274,7 @@ def test_coupled_system_builder_add_contact_mortar_multiple_contacts_different_l
         coupling_ab=coupling_ab_1,
         facet_conn_master=np.array([[0]], dtype=int),
         rho=0.0,
-        multiplier=ff.ContactMultiplierSpace(family="nodal"),
+        multiplier=ff.MultiplierSpec(family="nodal"),
     )
     builder.add_contact_mortar(ops1, master="a", slave="b")
 
@@ -295,7 +296,7 @@ def test_coupled_system_builder_add_contact_mortar_multiple_contacts_different_l
         coupling_ab=coupling_ab_2,
         facet_conn_master=np.array([[0], [1]], dtype=int),
         rho=0.0,
-        multiplier=ff.ContactMultiplierSpace(family="nodal"),
+        multiplier=ff.MultiplierSpec(family="nodal"),
     )
     builder.add_contact_mortar(ops2, master="c", slave="d")
 
@@ -371,7 +372,7 @@ def test_coupled_system_builder_add_contact_unified_mortar():
         coupling_ab=coupling_ab,
         facet_conn_master=np.array([[0]], dtype=int),
         rho=0.0,
-        multiplier=ff.ContactMultiplierSpace(family="nodal"),
+        multiplier=ff.MultiplierSpec(family="nodal"),
     )
     builder.add_contact(ops, master="a", slave="b")
     K, _ = builder.build().assemble(format="csr")
@@ -437,7 +438,7 @@ def test_coupled_system_builder_add_contact_accepts_family_constraint_alias():
         coupling_ab=coupling_ab,
         facet_conn_master=np.array([[0]], dtype=int),
         rho=0.0,
-        multiplier=ff.ContactMultiplierSpace(family="nodal"),
+        multiplier=ff.MultiplierSpec(family="nodal"),
     )
     builder.add_contact(ops, master="a", slave="b", family="constraint")
     K, _ = builder.build().assemble(format="csr")
@@ -486,7 +487,7 @@ def test_coupled_system_builder_add_contact_routes_by_formulation_multiplier():
         coupling_ab=coupling_ab,
         facet_conn_master=np.array([[0]], dtype=int),
         rho=0.0,
-        multiplier=ff.ContactMultiplierSpace(family="nodal"),
+        multiplier=ff.MultiplierSpec(family="nodal"),
     )
     builder.add_contact(ops, master="a", slave="b", formulation="multiplier")
     K, _ = builder.build().assemble(format="csr")
@@ -536,15 +537,16 @@ def test_coupled_system_builder_add_contact_accepts_raw_contact_penalty_form():
         _ = (ctx, u, p)
         return {"a": np.array([0.0]), "b": np.array([0.0])}
 
-    builder.add_contact(
-        _RawContact(),
-        master="a",
-        slave="b",
-        weak_form=_wf,
-        state={"a": np.array([0.0]), "b": np.array([0.0])},
-        params=object(),
-        value_dim=1,
-    )
+    with pytest.warns(DeprecationWarning, match="raw contact interface"):
+        builder.add_contact(
+            _RawContact(),
+            master="a",
+            slave="b",
+            weak_form=_wf,
+            state={"a": np.array([0.0]), "b": np.array([0.0])},
+            params=object(),
+            value_dim=1,
+        )
     K, F = builder.build().assemble(format="csr")
     Kd = K.toarray()
     assert np.allclose(Kd[0, 1], -2.0, atol=1e-12)
@@ -601,17 +603,18 @@ def test_coupled_system_builder_add_contact_constraint_family_consumes_eval_inpu
         _ = (ctx, u, p)
         return {"a": np.array([0.0]), "b": np.array([0.0])}
 
-    builder.add_contact(
-        _RawContact(),
-        master="a",
-        slave="b",
-        family="constraint",
-        multiplier=ff.ContactMultiplierSpace(family="nodal"),
-        weak_form=_wf,
-        state={"a": np.array([0.0]), "b": np.array([0.0])},
-        params=object(),
-        value_dim=1,
-    )
+    with pytest.warns(DeprecationWarning, match="raw contact interface"):
+        builder.add_contact(
+            _RawContact(),
+            master="a",
+            slave="b",
+            family="constraint",
+            multiplier=ff.MultiplierSpec(family="nodal"),
+            weak_form=_wf,
+            state={"a": np.array([0.0]), "b": np.array([0.0])},
+            params=object(),
+            value_dim=1,
+        )
     K, _ = builder.build().assemble(format="csr")
     Kd = K.toarray()
     assert np.allclose(Kd[0, 2], 1.0, atol=1e-12)
@@ -881,3 +884,28 @@ def test_builder_add_constraint_with_embedding_spec():
 def test_constraint_spec_rejects_missing_payload():
     with pytest.raises(ValueError, match="requires C"):
         ff.ConstraintSpec(kind="matrix", master="a", slave="b")
+
+
+def test_coupled_system_builder_add_contact_prefers_explicit_contribution_without_warning():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
+    builder.register_field("master", n_dofs=2, value_dim=1)
+    builder.register_field("slave", n_dofs=2, value_dim=1)
+
+    ops = ff.PenaltyContactContribution(
+        enforcement="nitsche",
+        jacobian=np.array(
+            [
+                [1.0, 0.0, -1.0, 0.0],
+                [0.0, 2.0, 0.0, -2.0],
+                [-1.0, 0.0, 1.0, 0.0],
+                [0.0, -2.0, 0.0, 2.0],
+            ],
+            dtype=float,
+        ),
+        residual=np.array([1.0, 2.0, -1.0, -2.0], dtype=float),
+    )
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        builder.add_contact(ops, master="master", slave="slave")
+    assert len(record) == 0

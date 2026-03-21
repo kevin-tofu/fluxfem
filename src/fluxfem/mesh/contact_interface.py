@@ -568,7 +568,7 @@ def _facet_area_estimate(facet_nodes: np.ndarray, coords: np.ndarray) -> float:
         pts = coords[corner_nodes]
         return _tri_area(pts[0], pts[1], pts[2]) + _tri_area(pts[0], pts[2], pts[3])
     if n == 9:
-        corner_nodes = facet_nodes[[0, 2, 8, 6]]
+        corner_nodes = facet_nodes[[2, 0, 6, 8]]
         pts = coords[corner_nodes]
         return _tri_area(pts[0], pts[1], pts[2]) + _tri_area(pts[0], pts[2], pts[3])
     pts = coords[facet_nodes]
@@ -590,7 +590,7 @@ def _facet_triangles(coords: np.ndarray, facet_nodes: np.ndarray) -> list[tuple[
     elif n == 8:
         corner = facet_nodes[:4]
     elif n == 9:
-        corner = facet_nodes[[0, 2, 8, 6]]
+        corner = facet_nodes[[2, 0, 6, 8]]
     else:
         corner = facet_nodes
     pts = coords[corner]
@@ -1389,7 +1389,7 @@ def _facet_shape_values(
             return np.zeros((8,), dtype=float)
         return _quad8_shape_values(xi, eta)
     if n == 9:
-        corner_nodes = facet_nodes[[0, 2, 8, 6]]
+        corner_nodes = facet_nodes[[2, 0, 6, 8]]
         values, xi, eta = _quad_shape_and_local(point, corner_nodes, coords, tol=tol)
         if np.allclose(values, 0.0):
             return np.zeros((9,), dtype=float)
@@ -3931,7 +3931,7 @@ def _surface_gradN(
             )
             _DEBUG_SURFACE_GRADN_COUNT += 1
     elif n == 9:
-        corner_nodes = facet_nodes[[0, 2, 8, 6]]
+        corner_nodes = facet_nodes[[2, 0, 6, 8]]
         values, xi, eta = _quad_shape_and_local(point, corner_nodes, coords, tol=tol)
         if np.allclose(values, 0.0):
             return np.zeros((9, 3), dtype=float)
@@ -3953,8 +3953,9 @@ def _surface_gradN(
             ],
             dtype=float,
         )
-        dX_dxi = dN_dxi_corner @ pts[:4]
-        dX_deta = dN_deta_corner @ pts[:4]
+        corner_pts = coords[corner_nodes]
+        dX_dxi = dN_dxi_corner @ corner_pts
+        dX_deta = dN_deta_corner @ corner_pts
 
         def q1(t):
             return 0.5 * t * (t - 1.0)
@@ -5714,13 +5715,19 @@ def assemble_onesided_bilinear(
     t_v = h_wf.traction(v, n, p)
     sym_term = h_wf.einsum("qia,qi->qa", t_v, u.val)
     sym_term_hat = h_wf.einsum("qia,qi->qa", t_v, p.u_hat)
-    expr = (
-        -h_wf.dot(v, t_u)
-        - sym_term
-        + (p.alpha * p.inv_h) * h_wf.dot(v, u.val)
-        + sym_term_hat
-        - (p.alpha * p.inv_h) * h_wf.dot(v, p.u_hat)
-    ) * h_wf.ds()
+
+    disable_consistency = os.getenv("FF_ONESIDED_DISABLE_CONSISTENCY", "").strip().lower() in {"1", "true", "yes", "on"}
+    disable_symmetry = os.getenv("FF_ONESIDED_DISABLE_SYMMETRY", "").strip().lower() in {"1", "true", "yes", "on"}
+    disable_penalty = os.getenv("FF_ONESIDED_DISABLE_PENALTY", "").strip().lower() in {"1", "true", "yes", "on"}
+
+    expr = 0.0
+    if not disable_consistency:
+        expr = expr - h_wf.dot(v, t_u)
+    if not disable_symmetry:
+        expr = expr - sym_term + sym_term_hat
+    if not disable_penalty:
+        expr = expr + (p.alpha * p.inv_h) * h_wf.dot(v, u.val) - (p.alpha * p.inv_h) * h_wf.dot(v, p.u_hat)
+    expr = expr * h_wf.ds()
     res_form = compile_mixed_surface_residual_numpy({"u": expr})
     includes_measure = res_form._includes_measure
 

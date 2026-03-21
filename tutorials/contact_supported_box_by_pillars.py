@@ -125,9 +125,9 @@ def main():
     master_facets = np.asarray(top_mesh.facets_on_plane(axis=2, value=z_top_min, tol=1e-8), dtype=int)
     slave_facets = np.asarray(support_mesh.facets_on_plane(axis=2, value=z_support_max, tol=1e-8), dtype=int)
 
-    master_side = ff.ContactSide.from_facets(top_mesh, master_facets, top_space)
-    slave_side = ff.ContactSide.from_facets(support_mesh, slave_facets, support_space)
-    contact = ff.ContactSpaces(master=master_side, slave=slave_side).to_contact_surface_space(
+    master_side = ff.ContactSideSpec.from_facets(top_mesh, master_facets, top_space)
+    slave_side = ff.ContactSideSpec.from_facets(support_mesh, slave_facets, support_space)
+    contact = ff.ContactPairSpec(master=master_side, slave=slave_side).prepare(
         quad_order=1,
         backend="jax",
     )
@@ -139,7 +139,7 @@ def main():
         "b": jnp.zeros(int(support_space.n_dofs)),
     }
     params_if = ff.Params(alpha=50.0, inv_h=1.0)
-    ops = ff.assemble_contact_penalty_operators(
+    ops = ff.assemble_penalty(
         contact,
         weak_form=res_form,
         state=u_if,

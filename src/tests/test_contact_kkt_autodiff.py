@@ -26,11 +26,11 @@ def _tet4_fixture():
 
 
 def _p0_multiplier(contact):
-    return ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master")
+    return ff.MultiplierSpec.from_contact(contact, family="p0", side="master")
 
 
 def _nodal_multiplier():
-    return ff.ContactMultiplierSpace(family="nodal")
+    return ff.MultiplierSpec(family="nodal")
 
 
 def test_contact_kkt_matches_module_and_class_api():
@@ -86,7 +86,7 @@ def test_contact_constraint_operators_match_kkt_blocks():
         quad_order=1,
     )
 
-    ops = ff.assemble_contact_constraint_operators(
+    ops = ff.assemble_multiplier(
         contact,
         rho=3.0,
         multiplier=_p0_multiplier(contact),
@@ -123,13 +123,13 @@ def test_contact_operator_method_aliases_match_existing_entrypoints():
     )
     mult = _p0_multiplier(contact)
 
-    ops_top = ff.assemble_contact_constraint_operators(
+    ops_top = ff.assemble_multiplier(
         contact,
         rho=3.0,
         multiplier=mult,
         backend="numpy",
     )
-    ops_method = contact.assemble_contact_constraint_operators(
+    ops_method = contact.assemble_multiplier(
         rho=3.0,
         multiplier=mult,
         backend="numpy",
@@ -158,15 +158,15 @@ def test_contact_multiplier_object_path_is_consistent():
         value_dim_slave=1,
         quad_order=1,
     )
-    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master")
+    mult = ff.MultiplierSpec.from_contact(contact, family="p0", side="master")
 
-    ops_obj = ff.assemble_contact_constraint_operators(
+    ops_obj = ff.assemble_multiplier(
         contact,
         rho=3.0,
         multiplier=mult,
         backend="numpy",
     )
-    ops_ref = ff.assemble_contact_constraint_operators(
+    ops_ref = ff.assemble_multiplier(
         contact,
         rho=3.0,
         multiplier=_p0_multiplier(contact),
@@ -174,7 +174,7 @@ def test_contact_multiplier_object_path_is_consistent():
     )
     assert np.allclose(np.asarray(ops_obj.B), np.asarray(ops_ref.B), atol=1e-12)
     assert np.allclose(np.asarray(ops_obj.Kuu), np.asarray(ops_ref.Kuu), atol=1e-12)
-    assert isinstance(ops_obj.multiplier, ff.ContactMultiplierSpace)
+    assert isinstance(ops_obj.multiplier, ff.MultiplierSpec)
 
     m_aa, m_ab = contact.assemble_contact_coupling_matrices()
     K_obj = ff.assemble_contact_kkt(
@@ -211,13 +211,13 @@ def test_contact_constraint_operators_default_formulation_is_multiplier():
         quad_order=1,
     )
 
-    ops_default = ff.assemble_contact_constraint_operators(
+    ops_default = ff.assemble_multiplier(
         contact,
         rho=3.0,
         multiplier=_p0_multiplier(contact),
         backend="numpy",
     )
-    ops_formulation = ff.assemble_contact_constraint_operators(
+    ops_formulation = ff.assemble_multiplier(
         contact,
         formulation="multiplier",
         rho=3.0,
@@ -245,9 +245,9 @@ def test_contact_p0_multiplier_vector_value_dim_expands_blocks():
         value_dim_slave=3,
         quad_order=1,
     )
-    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master", value_dim=3)
+    mult = ff.MultiplierSpec.from_contact(contact, family="p0", side="master", value_dim=3)
 
-    ops = ff.assemble_contact_constraint_operators(
+    ops = ff.assemble_multiplier(
         contact,
         rho=0.0,
         multiplier=mult,
@@ -281,8 +281,8 @@ def test_contact_p0_multiplier_vector_value_dim_lifts_into_coupled_system():
         value_dim_slave=3,
         quad_order=1,
     )
-    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master", value_dim=3)
-    ops = ff.assemble_contact_constraint_operators(
+    mult = ff.MultiplierSpec.from_contact(contact, family="p0", side="master", value_dim=3)
+    ops = ff.assemble_multiplier(
         contact,
         rho=0.0,
         multiplier=mult,
@@ -319,8 +319,8 @@ def test_contact_p0_supermesh_multiplier_tracks_supermesh_triangles():
         value_dim_slave=3,
         quad_order=1,
     )
-    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0_supermesh", side="master", value_dim=3)
-    ops = ff.assemble_contact_constraint_operators(
+    mult = ff.MultiplierSpec.from_contact(contact, family="p0_supermesh", side="master", value_dim=3)
+    ops = ff.assemble_multiplier(
         contact,
         rho=0.0,
         multiplier=mult,
@@ -362,8 +362,8 @@ def test_contact_p0_active_multiplier_tracks_active_master_facets():
         value_dim_slave=3,
         quad_order=1,
     )
-    mult = ff.ContactMultiplierSpace.from_contact(contact, family="p0_active", side="master", value_dim=3)
-    ops = ff.assemble_contact_constraint_operators(
+    mult = ff.MultiplierSpec.from_contact(contact, family="p0_active", side="master", value_dim=3)
+    ops = ff.assemble_multiplier(
         contact,
         rho=0.0,
         multiplier=mult,
@@ -406,7 +406,7 @@ def test_contact_penalty_operators_from_inputs():
         _ = (ctx, u, p)
         return {"a": np.array([0.0]), "b": np.array([0.0])}
 
-    ops = ff.assemble_contact_penalty_operators(
+    ops = ff.assemble_penalty(
         _ContactStub(),
         weak_form=_dummy_res_form,
         state={"a": np.array([0.0]), "b": np.array([0.0])},
@@ -441,7 +441,7 @@ def test_contact_penalty_operators_accepts_weak_form_state_aliases():
         _ = (ctx, u, p)
         return {"a": np.array([0.0]), "b": np.array([0.0])}
 
-    ops = ff.assemble_contact_penalty_operators(
+    ops = ff.assemble_penalty(
         _ContactStub(),
         weak_form=_dummy_res_form,
         state={"a": np.array([0.0]), "b": np.array([0.0])},
@@ -463,7 +463,7 @@ def test_contact_constraint_operators_keep_law_formulation_metadata():
         value_dim_slave=1,
         quad_order=1,
     )
-    ops = ff.assemble_contact_constraint_operators(
+    ops = ff.assemble_multiplier(
         contact,
         law="coulomb_like",
         formulation="augmented_lagrangian",
@@ -516,8 +516,8 @@ def test_contact_constraint_operators_accept_penalty_style_inputs_for_api_symmet
         return {"a": np.array([0.0]), "b": np.array([0.0])}
 
     contact = _ContactStub()
-    ops_base = ff.assemble_contact_constraint_operators(contact, rho=1.0, multiplier=_nodal_multiplier())
-    ops_with_alias_inputs = ff.assemble_contact_constraint_operators(
+    ops_base = ff.assemble_multiplier(contact, rho=1.0, multiplier=_nodal_multiplier())
+    ops_with_alias_inputs = ff.assemble_multiplier(
         contact,
         rho=1.0,
         multiplier=_nodal_multiplier(),
@@ -559,7 +559,7 @@ def test_contact_constraint_operators_reject_partial_eval_inputs():
         return {"a": np.array([0.0]), "b": np.array([0.0])}
 
     with pytest.raises(ValueError, match="must be provided together"):
-        ff.assemble_contact_constraint_operators(_ContactStub(), multiplier=_nodal_multiplier(), weak_form=_dummy_res_form)
+        ff.assemble_multiplier(_ContactStub(), multiplier=_nodal_multiplier(), weak_form=_dummy_res_form)
 
 
 def test_contact_constraint_operators_reject_penalty_formulation():
@@ -576,7 +576,7 @@ def test_contact_constraint_operators_reject_penalty_formulation():
         quad_order=1,
     )
     with pytest.raises(ValueError, match="Constraint operators are multiplier-family only"):
-        ff.assemble_contact_constraint_operators(contact, multiplier=_nodal_multiplier(), formulation="penalty")
+        ff.assemble_multiplier(contact, multiplier=_nodal_multiplier(), formulation="penalty")
 
 
 def test_contact_constraint_eval_grad_state_matches_fd():
@@ -625,7 +625,7 @@ def test_contact_constraint_eval_grad_state_matches_fd():
     params = {"alpha": jnp.asarray(2.0)}
 
     def objective(s):
-        ops = ff.assemble_contact_constraint_operators(
+        ops = ff.assemble_multiplier(
             contact,
             rho=1.5,
             multiplier=_nodal_multiplier(),
@@ -688,7 +688,7 @@ def test_contact_constraint_eval_grad_rho_matches_fd():
     contact = _ContactStub()
 
     def objective(rho):
-        ops = ff.assemble_contact_constraint_operators(
+        ops = ff.assemble_multiplier(
             contact,
             rho=rho,
             multiplier=_nodal_multiplier(),

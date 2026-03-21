@@ -96,9 +96,9 @@ def build_fluxfem_contact_space(
         facets = build_tet_facets(conn, order)
     if normal_sign is None:
         surface = ff.SurfaceMesh.from_facets(coords, facets)
-        master = ff.ContactSide.from_surfaces(surface, elem_conn=conn, value_dim=3)
-        slave = ff.ContactSide.from_surfaces(surface, elem_conn=conn, value_dim=3)
-        contact = ff.ContactSpaces(master=master, slave=slave).to_contact_surface_space(
+        master = ff.ContactSideSpec.from_surfaces(surface, elem_conn=conn, value_dim=3)
+        slave = ff.ContactSideSpec.from_surfaces(surface, elem_conn=conn, value_dim=3)
+        contact = ff.ContactPairSpec(master=master, slave=slave).prepare(
             quad_order=quad_order,
         )
     else:
@@ -129,15 +129,15 @@ def build_fluxfem_onesided_contact_space(
     else:
         facets = build_tet_facets(conn, order)
     surface = ff.SurfaceMesh.from_facets(coords, facets)
-    side = ff.ContactSide.from_surfaces(surface, elem_conn=conn, value_dim=3)
+    side = ff.ContactSideSpec.from_surfaces(surface, elem_conn=conn, value_dim=3)
     if with_master:
-        contact_space = ff.OneSidedContactSpaces(
+        contact_space = ff.OneSidedContactSpec(
             side=side,
             surface_master=surface,
             elem_conn_master=conn,
-        ).to_contact_surface_space(quad_order=quad_order)
+        ).prepare(quad_order=quad_order)
     else:
-        contact_space = ff.OneSidedContactSpaces(side=side).to_contact_surface_space(quad_order=quad_order)
+        contact_space = ff.OneSidedContactSpec(side=side).prepare(quad_order=quad_order)
     return coords, conn, contact_space
 
 
