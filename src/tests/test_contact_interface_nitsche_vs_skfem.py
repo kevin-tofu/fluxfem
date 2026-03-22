@@ -10,7 +10,7 @@ import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
 from fluxfem.core.weakform import einsum as wf_einsum
 from fluxfem.mesh.contact import make_tagged_pair_nitsche_penalty_bilinear
-from tutorials.compare_nitsche_onesided_fluxfem_vs_skfem import (
+from ._contact_nitsche_compare_helpers import (
     build_fluxfem_onesided,
     build_skfem_onesided,
 )
