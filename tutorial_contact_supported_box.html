@@ -407,7 +407,7 @@
 (multiple disconnected small boxes).</p></li>
 <li><p>Creating the interface through <code class="docutils literal notranslate"><span class="pre">ContactSide</span></code> + <code class="docutils literal notranslate"><span class="pre">ContactSpaces</span></code> so the
 master/slave roles are explicit in the public API.</p></li>
-<li><p>Assembling penalty-family operators via <code class="docutils literal notranslate"><span class="pre">assemble_contact_penalty_operators(...)</span></code>.</p></li>
+<li><p>Assembling penalty-family operators via <code class="docutils literal notranslate"><span class="pre">assemble_contact_operators(...,</span> <span class="pre">enforcement=&quot;penalty&quot;)</span></code>.</p></li>
 <li><p>Lifting interface Jacobian/residual into structural DOFs via <code class="docutils literal notranslate"><span class="pre">CoupledSystem.add_contact_nitsche(...)</span></code>.</p></li>
 <li><p>Building gravity/body-force vectors and support-bottom Dirichlet DOFs.</p></li>
 </ul>

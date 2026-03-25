@@ -157,9 +157,12 @@ Use explicit APIs by family:
        params=params,
    )
 
-   # Penalty-family path: returns residual/jacobian from your weak form
-   ops_nitsche: ff.ContactOperators = ff.assemble_contact_penalty_operators(
+   # Penalty-family path: returns residual/jacobian from your weak form.
+   # This is the recommended public entry when you want to assemble contact
+   # operators and manage the nonlinear solve yourself.
+   ops_nitsche: ff.ContactOperators = ff.assemble_contact_operators(
        contact,
+       enforcement="penalty",
        weak_form=res_form,
        state={"master": u_master, "slaves": [u_s1, u_s2]},
        params=params,

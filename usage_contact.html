@@ -516,9 +516,12 @@ explicit when contact wiring matters.</p>
     <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="c1"># Penalty-family path: returns residual/jacobian from your weak form</span>
-<span class="n">ops_nitsche</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactOperators</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_penalty_operators</span><span class="p">(</span>
+<span class="c1"># Penalty-family path: returns residual/jacobian from your weak form.</span>
+<span class="c1"># This is the recommended public entry when you want to assemble contact</span>
+<span class="c1"># operators and manage the nonlinear solve yourself.</span>
+<span class="n">ops_nitsche</span><span class="p">:</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactOperators</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_operators</span><span class="p">(</span>
     <span class="n">contact</span><span class="p">,</span>
+    <span class="n">enforcement</span><span class="o">=</span><span class="s2">&quot;penalty&quot;</span><span class="p">,</span>
     <span class="n">weak_form</span><span class="o">=</span><span class="n">res_form</span><span class="p">,</span>
     <span class="n">state</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;master&quot;</span><span class="p">:</span> <span class="n">u_master</span><span class="p">,</span> <span class="s2">&quot;slaves&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">u_s1</span><span class="p">,</span> <span class="n">u_s2</span><span class="p">]},</span>
     <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span>
