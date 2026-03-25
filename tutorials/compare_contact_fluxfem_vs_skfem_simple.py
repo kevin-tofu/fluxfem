@@ -218,8 +218,9 @@ def build_fluxfem_contact(
         use_penalty=float(use_penalty),
         use_traction=float(use_traction),
     )
-    ops = ff.assemble_penalty(
+    ops = ff.assemble_contact_operators(
         contact,
+        enforcement="penalty",
         weak_form=compile_tagged_pair_nitsche_penalty_residual(
             {
                 "a": ff.bind_mixed_residual("a", res_a, space="A"),

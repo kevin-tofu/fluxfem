@@ -1522,6 +1522,32 @@ def assemble_contact_constraint_operators(
     )
 
 
+def _resolve_contact_operator_enforcement(
+    *,
+    enforcement: str | None = None,
+    method: str | None = None,
+    formulation: str | None = None,
+    multiplier: ContactMultiplierSpace | None = None,
+) -> str:
+    if enforcement is not None and method is not None and str(enforcement).lower() != str(method).lower():
+        raise ValueError("enforcement and method are aliases; provide only one effective value.")
+    value = enforcement if enforcement is not None else method
+    if value is None and formulation is not None:
+        formulation_key = str(formulation).lower()
+        if formulation_key in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
+            value = "constraint"
+        elif formulation_key in {"penalty", "penalty_consistent", "nitsche"}:
+            value = "penalty"
+    if value is None:
+        value = "constraint" if multiplier is not None else "penalty"
+    value_key = str(value).lower()
+    if value_key in {"penalty", "nitsche", "penalty_family", "penalty-family"}:
+        return "penalty"
+    if value_key in {"constraint", "mortar", "multiplier", "constraint_family", "constraint-family", "augmented_lagrangian"}:
+        return "constraint"
+    raise ValueError("enforcement must resolve to either 'penalty' or 'constraint'.")
+
+
 def assemble_contact_penalty_operators(
     contact,
     *,
@@ -3221,6 +3247,45 @@ class ContactSurfaceSpace:
             batch_jac=batch_jac,
         )
 
+    def assemble_contact_operators(
+        self,
+        *,
+        enforcement: str | None = None,
+        method: str | None = None,
+        law: str | None = None,
+        formulation: str | None = None,
+        rho: float = 0.0,
+        multiplier: ContactMultiplierSpace | None = None,
+        backend: str | None = None,
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+    ) -> ContactOperators:
+        """Unified public alias that routes to penalty or constraint assembly."""
+        return assemble_contact_operators(
+            self,
+            enforcement=enforcement,
+            method=method,
+            law=law,
+            formulation=formulation,
+            rho=rho,
+            multiplier=multiplier,
+            backend=backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+
     def assemble_residual(
         self,
         res_form: MixedSurfaceResidualForm,
@@ -4233,6 +4298,106 @@ class OneToManyContactSurfaceSpace:
             batch_jac=batch_jac,
         )
 
+    def assemble_contact_operators(
+        self,
+        *,
+        enforcement: str | None = None,
+        method: str | None = None,
+        law: str | None = None,
+        formulation: str | None = None,
+        rho: float = 0.0,
+        multiplier: ContactMultiplierSpace | None = None,
+        backend: str | None = None,
+        weak_form: MixedSurfaceResidualForm | None = None,
+        state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+        res_form: MixedSurfaceResidualForm | None = None,
+        u: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+        params: "WeakParams" | None = None,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+    ) -> ContactOperators:
+        """Unified public alias that routes to penalty or constraint assembly."""
+        return assemble_contact_operators(
+            self,
+            enforcement=enforcement,
+            method=method,
+            law=law,
+            formulation=formulation,
+            rho=rho,
+            multiplier=multiplier,
+            backend=backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+
+
+def assemble_contact_operators(
+    contact,
+    *,
+    enforcement: str | None = None,
+    method: str | None = None,
+    law: str | None = None,
+    formulation: str | None = None,
+    rho: float = 0.0,
+    multiplier: ContactMultiplierSpace | None = None,
+    backend: str | None = None,
+    weak_form: MixedSurfaceResidualForm | None = None,
+    state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+    res_form: MixedSurfaceResidualForm | None = None,
+    u: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
+    params: "WeakParams" | None = None,
+    normal_source: str = "master",
+    sparse: bool = False,
+    batch_jac: bool | None = None,
+) -> ContactOperators:
+    """Unified public contact assembly entry that routes to penalty or constraint operators."""
+    resolved = _resolve_contact_operator_enforcement(
+        enforcement=enforcement,
+        method=method,
+        formulation=formulation,
+        multiplier=multiplier,
+    )
+    if resolved == "penalty":
+        use_backend = "jax" if backend is None else backend
+        return assemble_contact_penalty_operators(
+            contact,
+            law=law,
+            formulation=formulation,
+            backend=use_backend,
+            weak_form=weak_form,
+            state=state,
+            res_form=res_form,
+            u=u,
+            params=params,
+            normal_source=normal_source,
+            sparse=sparse,
+            batch_jac=batch_jac,
+        )
+    use_backend = "numpy" if backend is None else backend
+    return assemble_contact_constraint_operators(
+        contact,
+        law=law,
+        formulation=formulation,
+        rho=rho,
+        multiplier=multiplier,
+        backend=use_backend,
+        weak_form=weak_form,
+        state=state,
+        res_form=res_form,
+        u=u,
+        params=params,
+        normal_source=normal_source,
+        sparse=sparse,
+        batch_jac=batch_jac,
+    )
+
 
 def assemble_multiplier(contact, **kwargs):
     """Public alias for assemble_contact_constraint_operators()."""
@@ -4272,6 +4437,7 @@ __all__ = [
     "assemble_rbe2_constraint_matrix",
     "assemble_contact_constraint_operators",
     "assemble_multiplier",
+    "assemble_contact_operators",
     "assemble_contact_penalty_operators",
     "assemble_penalty",
     "assemble_contact_interface_residual",

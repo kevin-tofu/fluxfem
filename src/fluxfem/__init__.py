@@ -175,6 +175,7 @@ __all__ = [
     "OneToManyContactSurfaceSpace",
     "assemble_contact_constraint_operators",
     "assemble_multiplier",
+    "assemble_contact_operators",
     "assemble_contact_penalty_operators",
     "assemble_penalty",
     "assemble_contact_interface_residual",

@@ -367,6 +367,53 @@ def test_onesided_penalty_top_level_alias_matches_legacy_tutorial_path():
     assert np.allclose(np.asarray(ops_new.residual), np.asarray(ops_old.residual))
 
 
+def test_contact_assemble_contact_operators_routes_penalty_alias():
+    class _PenaltyStub:
+        def assemble_residual(self, _res_form, u, params, *, normal_source="master"):
+            _ = normal_source
+            return params.k * jnp.asarray(u["a"]) - jnp.asarray([params.f])
+
+        def assemble_jacobian(
+            self,
+            _res_form,
+            _u,
+            params,
+            *,
+            normal_source="master",
+            sparse=False,
+            backend="jax",
+            batch_jac=None,
+        ):
+            _ = (normal_source, sparse, backend, batch_jac)
+            return jnp.asarray([[params.k]])
+
+    def _dummy_res_form(ctx, u, p):
+        _ = (ctx, u, p)
+        return {"a": jnp.asarray([0.0])}
+
+    state = {"a": jnp.asarray([0.0])}
+    params = ff.Params(k=4.0, f=2.0, alpha=7.0)
+
+    ops_new = ff.assemble_contact_operators(
+        _PenaltyStub(),
+        enforcement="penalty",
+        weak_form=_dummy_res_form,
+        state=state,
+        params=params,
+    )
+    ops_old = ff.assemble_contact_penalty_operators(
+        _PenaltyStub(),
+        weak_form=_dummy_res_form,
+        state=state,
+        params=params,
+        backend="jax",
+    )
+
+    assert ops_new.enforcement == "nitsche"
+    assert np.allclose(np.asarray(ops_new.jacobian), np.asarray(ops_old.jacobian))
+    assert np.allclose(np.asarray(ops_new.residual), np.asarray(ops_old.residual))
+
+
 def test_contact_new_assemble_aliases_match_existing_names():
     coords = np.array(
         [

@@ -139,8 +139,9 @@ def main():
         "b": jnp.zeros(int(support_space.n_dofs)),
     }
     params_if = ff.Params(alpha=50.0, inv_h=1.0)
-    ops = ff.assemble_penalty(
+    ops = ff.assemble_contact_operators(
         contact,
+        enforcement="penalty",
         weak_form=res_form,
         state=u_if,
         params=params_if,
