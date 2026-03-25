@@ -677,7 +677,7 @@ I acknowledge the open-source software, libraries, and communities that made thi
 
 
 ## Citation
-Reference to cite if you use LlamaIndex in a paper:
+Reference to cite if you use FluxFEM in a paper:
 
 ```
 @software{Watanabe_FluxFEM_2026,

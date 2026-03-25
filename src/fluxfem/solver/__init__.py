@@ -27,6 +27,7 @@ from .preconditioner import make_block_jacobi_preconditioner
 from .block_system import build_block_system, split_block_matrix, BlockSystem
 from .block_matrix import FluxBlockMatrix, diag as block_diag, make as make_block_matrix
 from .newton import newton_solve
+from .newton_jax import newton_solve_jax, NewtonJaxResult
 from .result import SolverResult
 from .history import NewtonIterRecord
 from .solve_runner import (
@@ -78,6 +79,8 @@ __all__ = [
     "block_diag",
     "make_block_matrix",
     "newton_solve",
+    "newton_solve_jax",
+    "NewtonJaxResult",
     "SolverResult",
     "NewtonIterRecord",
     "LinearAnalysis",
