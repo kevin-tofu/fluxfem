@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Core &#8212; FluxFEM 0.3.1 documentation</title>
+    <title>Core &#8212; FluxFEM 0.3.2 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=5869b996"></script>
+    <script src="../_static/documentation_options.js?v=78d8237d"></script>
     <script src="../_static/doctools.js?v=9bcbadda"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'api/core';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.1 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.2 documentation</p>
   
 </a></div>
     
@@ -388,15 +388,6 @@
 <p>For new public-facing mixed setups, prefer <code class="docutils literal notranslate"><span class="pre">MixedSpaces(...).to_fe_space()</span></code>.
 <code class="docutils literal notranslate"><span class="pre">MixedFESpace</span></code> remains available as a lower-level constructor for advanced
 or internal usage.</p>
-<dl class="py class">
-<dt class="sig sig-object py" id="fluxfem.core.FESpaceBase">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">FESpaceBase</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fluxfem.core.FESpaceBase" title="Link to this definition">#</a></dt>
-<dd><p>Protocol for FE space objects used by assembly.</p>
-<p>This defines the minimal interface required by the core assembly routines:
-element-to-DOF connectivity, value dimension, and the ability to build
-per-element FormContext objects (test/trial fields plus quadrature data).</p>
-</dd></dl>
-
 <dl class="py attribute">
 <dt class="sig sig-object py" id="fluxfem.core.FESpace">
 <span class="sig-prename descclassname"><span class="pre">fluxfem.core.</span></span><span class="sig-name descname"><span class="pre">FESpace</span></span><a class="headerlink" href="#fluxfem.core.FESpace" title="Link to this definition">#</a></dt>
@@ -696,7 +687,6 @@ a field was declared through <code class="docutils literal notranslate"><span cl
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#spaces">Spaces</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.FESpaceBase"><code class="docutils literal notranslate"><span class="pre">FESpaceBase</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.FESpace"><code class="docutils literal notranslate"><span class="pre">FESpace</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.FESpacePytree"><code class="docutils literal notranslate"><span class="pre">FESpacePytree</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fluxfem.core.MixedFESpace"><code class="docutils literal notranslate"><span class="pre">MixedFESpace</span></code></a></li>
