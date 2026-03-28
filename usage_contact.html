@@ -587,6 +587,8 @@ The default output is <code class="docutils literal notranslate"><span class="pr
 <section id="notes">
 <h2>Notes<a class="headerlink" href="#notes" title="Link to this heading">#</a></h2>
 <ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">assemble_contact_operators(...,</span> <span class="pre">enforcement=...)</span></code> is the recommended public entry when you want FluxFEM to assemble contact contributions and manage the solve yourself.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">solve_contact_penalty_jax(...)</span></code> and <code class="docutils literal notranslate"><span class="pre">solve_contact_al_jax(...)</span></code> should be treated as convenience / experimental helpers for narrow JAX contact workflows, not as the main production solve path.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">master_facet_selector</span></code> and <code class="docutils literal notranslate"><span class="pre">slave_facet_selectors</span></code> are recommended for robust workflows.</p></li>
 <li><p>For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ContactMultiplierSpace(family=&quot;p0&quot;)</span></code> gives facet-wise constant multipliers (common for constraint-family coupling).</p></li>

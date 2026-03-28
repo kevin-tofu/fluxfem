@@ -392,6 +392,23 @@ Neo-Hookean cantilever.</p>
 </pre></div>
 </div>
 </section>
+<section id="recommended-solver-settings">
+<h2>Recommended solver settings<a class="headerlink" href="#recommended-solver-settings" title="Link to this heading">#</a></h2>
+<p>For practical 3D runs, the default tutorial settings now prefer PETSc shell
+with a direct preconditioner:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/neo_hookean_cantilever.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--linear-solver<span class="w"> </span>petsc_shell<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--petsc-ksp-type<span class="w"> </span>preonly<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--petsc-pc-type<span class="w"> </span>lu<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--petsc-use-pmat<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--nstep<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--maxiter<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--tol<span class="w"> </span>1e-6
+</pre></div>
+</div>
+<p>This is the recommended baseline when <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> is available. If PETSc is
+not installed, fall back to <code class="docutils literal notranslate"><span class="pre">cg_matfree</span></code> or <code class="docutils literal notranslate"><span class="pre">spsolve</span></code>.</p>
+</section>
 <section id="problem-statement">
 <h2>Problem statement<a class="headerlink" href="#problem-statement" title="Link to this heading">#</a></h2>
 <p>We solve a finite-strain neo-Hookean problem on a 3D cantilever:</p>
@@ -584,6 +601,7 @@ u, history = runner.run(u0=jnp.zeros(space.n_dofs, dtype=dtype))</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-example">Run the example</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-solver-settings">Recommended solver settings</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#problem-statement">Problem statement</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hyperelastic-formulation">Hyperelastic formulation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-flow-fluxfem">Implementation flow (FluxFEM)</a><ul class="nav section-nav flex-column">

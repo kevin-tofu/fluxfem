@@ -234,6 +234,8 @@ Solve with ``solve_contact_kkt``. For JAX, use ``backend="jax"``.
 Notes
 -----
 
+- ``assemble_contact_operators(..., enforcement=...)`` is the recommended public entry when you want FluxFEM to assemble contact contributions and manage the solve yourself.
+- ``solve_contact_penalty_jax(...)`` and ``solve_contact_al_jax(...)`` should be treated as convenience / experimental helpers for narrow JAX contact workflows, not as the main production solve path.
 - ``master_facet_selector`` and ``slave_facet_selectors`` are recommended for robust workflows.
 - For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.
 - ``ContactMultiplierSpace(family="p0")`` gives facet-wise constant multipliers (common for constraint-family coupling).
