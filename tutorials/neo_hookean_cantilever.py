@@ -44,8 +44,8 @@ def parse_args():
     p.add_argument(
         "--linear-solver",
         type=str,
-        default="cg_matfree",
-        choices=["cg", "cg_matfree", "spsolve"],
+        default="petsc_shell",
+        choices=["cg", "cg_matfree", "spsolve", "petsc_shell"],
     )
     p.add_argument(
         "--linear-precond",
@@ -53,6 +53,15 @@ def parse_args():
         default="none",
         choices=["none", "diag0", "jacobi", "block_jacobi"],
     )
+    p.add_argument("--petsc-ksp-type", type=str, default="preonly")
+    p.add_argument("--petsc-pc-type", type=str, default="lu")
+    p.add_argument("--petsc-factor-solver-type", type=str, default="")
+    p.add_argument("--petsc-rtol", type=float, default=None)
+    p.add_argument("--petsc-atol", type=float, default=None)
+    p.add_argument("--petsc-max-it", type=int, default=None)
+    p.add_argument("--petsc-use-pmat", dest="petsc_use_pmat", action="store_true")
+    p.add_argument("--no-petsc-use-pmat", dest="petsc_use_pmat", action="store_false")
+    p.set_defaults(petsc_use_pmat=True)
     p.add_argument(
         "--matfree-mode",
         type=str,
@@ -195,6 +204,17 @@ def main():
         line_search=line_search,
         linear_solver=linear_solver,
         linear_preconditioner=(None if linear_precond == "none" else linear_precond),
+        petsc_ksp_type=args.petsc_ksp_type,
+        petsc_pc_type=args.petsc_pc_type,
+        petsc_options=(
+            {"pc_factor_mat_solver_type": args.petsc_factor_solver_type}
+            if args.petsc_factor_solver_type
+            else None
+        ),
+        petsc_rtol=args.petsc_rtol,
+        petsc_atol=args.petsc_atol,
+        petsc_max_it=args.petsc_max_it,
+        petsc_use_pmat=args.petsc_use_pmat,
         matfree_mode=matfree_mode,
         n_steps=nstep,
     )

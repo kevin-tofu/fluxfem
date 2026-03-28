@@ -94,8 +94,9 @@ def build_B_matrices_finite(dN_dX: jnp.ndarray, F: jnp.ndarray) -> jnp.ndarray:
 
             def fill_dof(k, B):
                 grad_delta = grads[k]
-                # Total Lagrange variation: dE = 0.5 * (∇δu · F + (∇δu · F)^T)
-                dE = 0.5 * (grad_delta @ Fq + (grad_delta @ Fq).T)
+                # Total Lagrange variation: dE = sym(F^T grad_delta)
+                grad_delta_F = grad_delta.T @ Fq
+                dE = 0.5 * (grad_delta_F + grad_delta_F.T)
                 B = B.at[0, col + k].set(dE[0, 0])  # xx
                 B = B.at[1, col + k].set(dE[1, 1])  # yy
                 B = B.at[2, col + k].set(dE[2, 2])  # zz
@@ -182,7 +183,8 @@ class TotalLagrangeBMixin:
 
                 def dof_fun(k, B):
                     grad_delta = grads[k]
-                    dE = 0.5 * (grad_delta @ Fq + (grad_delta @ Fq).T)
+                    grad_delta_F = grad_delta.T @ Fq
+                    dE = 0.5 * (grad_delta_F + grad_delta_F.T)
                     B = B.at[0, col + k].set(dE[0, 0])
                     B = B.at[1, col + k].set(dE[1, 1])
                     B = B.at[2, col + k].set(dE[2, 2])

@@ -17,6 +17,20 @@ MatVec: TypeAlias = Callable[[np.ndarray], np.ndarray]
 SolveInfo: TypeAlias = dict[str, Any]
 
 
+def _extract_factor_solver_type(options: dict[str, Any] | None) -> tuple[dict[str, Any] | None, str | None]:
+    if not options:
+        return options, None
+    opts = dict(options)
+    factor_solver_type = None
+    for key in ("pc_factor_mat_solver_type", "fluxfem_pc_factor_mat_solver_type"):
+        if key in opts:
+            value = opts.pop(key)
+            if value is not None and str(value) != "":
+                factor_solver_type = str(value)
+            break
+    return (opts or None), factor_solver_type
+
+
 def petsc_is_available() -> bool:
     try:
         import petsc4py  # noqa: F401
@@ -180,6 +194,7 @@ def petsc_solve(
         Extra PETSc options (name -> value).
     """
     PETSc = _require_petsc4py()
+    options, factor_solver_type = _extract_factor_solver_type(options)
     indptr, indices, data, n_dofs = _as_csr(K)
 
     mat = PETSc.Mat().createAIJ(size=(n_dofs, n_dofs), csr=(indptr, indices, np.asarray(data)))
@@ -191,6 +206,8 @@ def petsc_solve(
         ksp.setType(ksp_type)
     if pc_type:
         ksp.getPC().setType(pc_type)
+    if factor_solver_type:
+        ksp.getPC().setFactorSolverType(factor_solver_type)
     if rtol is not None or atol is not None or max_it is not None:
         ksp.setTolerances(
             rtol=rtol if rtol is not None else PETSc.DEFAULT,
@@ -259,6 +276,7 @@ def petsc_shell_solve(
         When True, return a (solution, info) tuple.
     """
     PETSc = _require_petsc4py()
+    options, factor_solver_type = _extract_factor_solver_type(options)
     n = _infer_n_dofs(A, F, n_dofs)
     matvec = _matvec_builder(A)
 
@@ -322,6 +340,8 @@ def petsc_shell_solve(
     if preconditioner is None:
         if pc_type:
             pc.setType(pc_type)
+        if factor_solver_type:
+            pc.setFactorSolverType(factor_solver_type)
     else:
         if preconditioner == "diag0":
             diag_source = pmat if pmat is not None else A
@@ -356,6 +376,8 @@ def petsc_shell_solve(
                 pc.setType("none")
             elif pc_type:
                 pc.setType(pc_type)
+                if factor_solver_type:
+                    pc.setFactorSolverType(factor_solver_type)
         elif callable(preconditioner):
 
             class _CallablePCContext:

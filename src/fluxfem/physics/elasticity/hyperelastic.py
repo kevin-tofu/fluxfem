@@ -7,7 +7,6 @@ import numpy as np
 from ...core.forms import FormContext
 from ...core.space import FESpace
 from ...mesh import BaseMesh
-from ...core.basis import build_B_matrices_finite
 from ..postprocess import make_point_data_displacement, write_point_data_vtu
 
 if TYPE_CHECKING:
@@ -74,22 +73,9 @@ def neo_hookean_residual_form(
 
     F = deformation_gradient(ctx, u_elem)          # (n_q, 3, 3)
     S = pk2_neo_hookean(F, mu, lam)                # (n_q, 3, 3)
-
-    S_voigt = jnp.stack(
-        [
-            S[..., 0, 0],
-            S[..., 1, 1],
-            S[..., 2, 2],
-            S[..., 0, 1],
-            S[..., 1, 2],
-            S[..., 2, 0],
-        ],
-        axis=-1,
-    )  # (n_q, 6)
-
-    B = build_B_matrices_finite(ctx.trial.gradN, F)           # (n_q, 6, n_ldofs)
-    BT = jnp.swapaxes(B, 1, 2)                               # (n_q, n_ldofs, 6)
-    return jnp.einsum("qik,qk->qi", BT, S_voigt)   # (n_q, n_ldofs)
+    P = jnp.einsum("qik,qkj->qij", F, S)  # (n_q, 3, 3)
+    elem_res = jnp.einsum("qaj,qij->qai", ctx.trial.gradN, P)  # (n_q, n_nodes, 3)
+    return elem_res.reshape(elem_res.shape[0], -1)
 
 
 neo_hookean_residual_form._ff_kind = "residual"

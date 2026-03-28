@@ -17,6 +17,7 @@ from ..core.assembly import (
 )
 from ..core.solver import spdirect_solve_cpu, spdirect_solve_gpu
 from .cg import cg_solve, cg_solve_jax
+from .petsc import petsc_shell_solve
 from .preconditioner import make_block_jacobi_preconditioner
 from .result import SolverResult
 from .sparse import SparsityPattern, FluxSparseMatrix
@@ -40,10 +41,17 @@ def newton_solve(
     tol: float = 1e-8,
     atol: float = 0.0,
     maxiter: int = 20,
-    linear_solver: str = "spsolve",  # "spsolve", "spdirect_solve_gpu", "cg", "cg_jax", "cg_custom", or "cg_matfree"
+    linear_solver: str = "spsolve",  # "spsolve", "spdirect_solve_gpu", "cg", "cg_jax", "cg_custom", "cg_matfree", or "petsc_shell"
     linear_maxiter: int | None = None,
     linear_tol: float | None = None,
     linear_preconditioner: object | None = None,
+    petsc_ksp_type: str = "gmres",
+    petsc_pc_type: str = "none",
+    petsc_rtol: float | None = None,
+    petsc_atol: float | None = None,
+    petsc_max_it: int | None = None,
+    petsc_options: dict[str, Any] | None = None,
+    petsc_use_pmat: bool = False,
     matfree_mode: str = "linearize",
     matfree_cache: dict[str, Any] | None = None,
     dirichlet: tuple[np.ndarray, np.ndarray] | None = None,
@@ -64,7 +72,8 @@ def newton_solve(
     - external_vector: optional global RHS (internal - external).
     - CG path accepts an operator with matvec that acts on free DOFs via a wrapper.
     - cg_matfree uses JVP/linearize to form a matrix-free matvec (no global Jacobian).
-    - linear_preconditioner: forwarded to cg_solve/cg_solve_jax (None | "jacobi" | "block_jacobi" | "diag0" | callable).
+    - linear_preconditioner: forwarded to cg_solve/cg_solve_jax or PETSc shell (None | "jacobi" | "block_jacobi" | "diag0" | callable).
+    - petsc_* options configure the inner PETSc shell solve when linear_solver="petsc_shell".
     - matfree_cache: optional dict for reusing matrix-free preconditioners across calls.
     - linear_tol: CG tolerance (defaults to 0.1 * tol if not provided).
     - jacobian_pattern: optional SparsityPattern to reuse sparsity across load steps.
@@ -310,6 +319,9 @@ def newton_solve(
     step_norm = float("nan")
     linear_converged = True
     lr = None
+    linear_solve_time = None
+    pc_setup_time = None
+    pmat_build_time = None
     for k in range(maxiter):
         # --- Newton residual (iteration start) ---
         t_iter0 = time.perf_counter()
@@ -359,6 +371,9 @@ def newton_solve(
         linear_converged = True
         linear_residual = None
         lin_iters = None
+        linear_solve_time = None
+        pc_setup_time = None
+        pmat_build_time = None
 
         linearize_dt = 0.0
         if use_matfree:
@@ -463,6 +478,34 @@ def newton_solve(
             linear_converged = True
             lin_iters = 1
 
+        elif linear_solver == "petsc_shell":
+            pre_dt = 0.0
+            print(f"[linear] k={k:02d} {linear_solver}: solve...", flush=True)
+            t_lin0 = time.perf_counter()
+            pmat = J_free if petsc_use_pmat else None
+            du_free_np, lin_info = petsc_shell_solve(
+                J_free,
+                np.asarray(rhs, dtype=float),
+                preconditioner=linear_preconditioner,
+                ksp_type=petsc_ksp_type,
+                pc_type=petsc_pc_type,
+                rtol=petsc_rtol if petsc_rtol is not None else eff_linear_tol,
+                atol=petsc_atol,
+                max_it=petsc_max_it if petsc_max_it is not None else linear_maxiter,
+                pmat=pmat,
+                options=petsc_options,
+                return_info=True,
+            )
+            du_free = jnp.asarray(du_free_np, dtype=u.dtype)
+            du_free = jax.block_until_ready(du_free)
+            lin_dt = time.perf_counter() - t_lin0
+            linear_residual = lin_info.get("residual_norm")
+            linear_converged = bool(lin_info.get("converged", True))
+            lin_iters = lin_info.get("iters", None)
+            linear_solve_time = lin_info.get("solve_time")
+            pc_setup_time = lin_info.get("pc_setup_time")
+            pmat_build_time = lin_info.get("pmat_build_time")
+
         else:
             raise ValueError(f"Unknown linear solver: {linear_solver}")
 
@@ -471,6 +514,13 @@ def newton_solve(
             print(
                 f"[linear] k={k:02d} done iters={lin_iters} conv={linear_converged} lin_res={lr:.3e} "
                 f"linz_dt={linearize_dt:.3f}s cg_dt={lin_dt:.3f}s",
+                flush=True,
+            )
+        elif linear_solver == "petsc_shell":
+            petsc_dt = float(linear_solve_time) if linear_solve_time is not None else float("nan")
+            print(
+                f"[linear] k={k:02d} done iters={lin_iters} conv={linear_converged} lin_res={lr:.3e} "
+                f"lin_dt={lin_dt:.3f}s petsc_solve_dt={petsc_dt:.3f}s",
                 flush=True,
             )
         else:
@@ -539,6 +589,9 @@ def newton_solve(
                 "linear_iters": lin_info.get("iters"),
                 "linear_converged": linear_converged,
                 "linear_residual": lr,
+                "linear_solve_time": linear_solve_time,
+                "pc_setup_time": pc_setup_time,
+                "pmat_build_time": pmat_build_time,
                 "nan_detected": bool(np.isnan(res_trial_inf)),
             }
             if extra_metrics is not None:
@@ -559,6 +612,9 @@ def newton_solve(
                 linear_iters=lin_info.get("iters"),
                 linear_converged=linear_converged,
                 linear_residual=lr,
+                linear_solve_time=(float(linear_solve_time) if linear_solve_time is not None else None),
+                pc_setup_time=(float(pc_setup_time) if pc_setup_time is not None else None),
+                pmat_build_time=(float(pmat_build_time) if pmat_build_time is not None else None),
                 tol=tol,
                 atol=atol,
                 stopping_criterion=crit,
@@ -579,6 +635,9 @@ def newton_solve(
         linear_iters=lin_info.get("iters"),
         linear_converged=linear_converged,
         linear_residual=lr,
+        linear_solve_time=(float(linear_solve_time) if linear_solve_time is not None else None),
+        pc_setup_time=(float(pc_setup_time) if pc_setup_time is not None else None),
+        pmat_build_time=(float(pmat_build_time) if pmat_build_time is not None else None),
         tol=tol,
         atol=atol,
         stopping_criterion=crit,

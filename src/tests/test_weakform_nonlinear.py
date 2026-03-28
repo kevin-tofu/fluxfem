@@ -1,8 +1,10 @@
 """Nonlinear weak-form residual tests."""
 import numpy as np
+import jax
 import jax.numpy as jnp
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
+from fluxfem.physics.elasticity.hyperelastic import deformation_gradient, pk2_neo_hookean
 
 
 def test_weakform_nonlinear_residual_matches_tensor():
@@ -211,3 +213,30 @@ def test_weakform_neo_hookean_residual_matches_tensor():
 
     assert np.allclose(np.asarray(R_tensor), np.asarray(R_wf), atol=1e-6)
     assert np.allclose(np.asarray(R_wf), 0.0, atol=1e-8)
+
+
+def test_neo_hookean_residual_matches_explicit_pk1_reference_for_nonzero_tet_state():
+    """Tensor Neo-Hookean residual matches explicit PK1 reference on tet meshes."""
+    mesh = ff.StructuredTetTensorBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_tet_space(mesh, dim=3, intorder=3)
+    params = {"mu": 2.0, "lam": 3.0}
+    rng = np.random.default_rng(7)
+    u = jnp.asarray(1.0e-2 * rng.standard_normal(space.n_dofs))
+
+    R_tensor = space.assemble_residual(ff.neo_hookean_residual_form, u, params)
+
+    ctxs = space.build_form_contexts()
+    u_elems = u[space.elem_dofs]
+    R_ref = np.zeros(space.n_dofs, dtype=float)
+    for e, conn in enumerate(np.asarray(space.elem_dofs)):
+        ctx = jax.tree_util.tree_map(lambda x: x[e], ctxs)
+        u_elem = u_elems[e]
+        F = deformation_gradient(ctx, u_elem)
+        S = pk2_neo_hookean(F, params["mu"], params["lam"])
+        P = jnp.einsum("qik,qkj->qij", F, S)
+        elem_res = jnp.einsum("qaj,qij->qai", ctx.trial.gradN, P).reshape(F.shape[0], -1)
+        wJ = ctx.w * ctx.test.detJ
+        elem_vec = np.asarray(jnp.sum(elem_res * wJ[:, None], axis=0))
+        np.add.at(R_ref, conn, elem_vec)
+
+    assert np.allclose(np.asarray(R_tensor), R_ref, atol=1e-6, rtol=1e-6)
