@@ -9,6 +9,86 @@ from .dtypes import INDEX_DTYPE
 from .forms import FormContext
 
 
+def _assemble_jacobian_fixed_chunk_tail(
+    *,
+    space,
+    vmapped_kernel,
+    u_elems: jnp.ndarray,
+    chunk_size: int,
+    include_x_q,
+    lightweight_context,
+    chunk_build_context,
+):
+    from . import assembly as _a
+
+    n_elems = int(u_elems.shape[0])
+    n_full = n_elems // int(chunk_size)
+    tail = n_elems % int(chunk_size)
+    m = int(space.n_ldofs)
+    use_chunk_context, conn_pad, elem_ids, ctxs_pad = _a._prepare_chunk_context_source(
+        space,
+        n_pad=n_elems,
+        pad=0,
+        dep=None,
+        include_x_q=include_x_q,
+        lightweight_context=lightweight_context,
+        chunk_build_context=chunk_build_context,
+    )
+
+    def chunk_values_fn(start: int):
+        ctx_chunk = _a._chunk_context_from_source(
+            space,
+            start=start,
+            chunk_size=chunk_size,
+            use_chunk_context=use_chunk_context,
+            conn_pad=conn_pad,
+            elem_ids=elem_ids,
+            ctxs_pad=ctxs_pad,
+            include_x_q=include_x_q,
+            lightweight_context=lightweight_context,
+        )
+        u_chunk = _a._slice_first_dim(u_elems, start, chunk_size)
+        return vmapped_kernel(u_chunk, ctx_chunk)
+
+    first_ctx = _a._chunk_context_from_source(
+        space,
+        start=0,
+        chunk_size=1,
+        use_chunk_context=use_chunk_context,
+        conn_pad=conn_pad,
+        elem_ids=elem_ids,
+        ctxs_pad=ctxs_pad,
+        include_x_q=include_x_q,
+        lightweight_context=lightweight_context,
+    )
+    sample_J = vmapped_kernel(_a._slice_first_dim(u_elems, 0, 1), first_ctx)[0]
+    data = _a._accumulate_chunk_matrix_data(
+        n_chunks=n_full,
+        chunk_size=chunk_size,
+        n_pad=n_elems,
+        m=m,
+        dtype=sample_J.dtype,
+        valid_mask=jnp.ones((n_elems,), dtype=bool),
+        chunk_values_fn=chunk_values_fn,
+    )
+    if tail:
+        ctx_tail = _a._chunk_context_from_source(
+            space,
+            start=n_full * chunk_size,
+            chunk_size=tail,
+            use_chunk_context=use_chunk_context,
+            conn_pad=conn_pad,
+            elem_ids=elem_ids,
+            ctxs_pad=ctxs_pad,
+            include_x_q=include_x_q,
+            lightweight_context=lightweight_context,
+        )
+        u_tail = _a._slice_first_dim(u_elems, n_full * chunk_size, tail)
+        tail_vals = vmapped_kernel(u_tail, ctx_tail).reshape(tail * m * m)
+        data = jax.lax.dynamic_update_slice(data, tail_vals, (n_full * chunk_size * m * m,))
+    return data[: n_elems * m * m]
+
+
 def assemble_jacobian_global(
     space,
     res_form,
@@ -127,11 +207,14 @@ def assemble_jacobian_values(
         chunk_build_context=None,
         pad_trace=pad_trace,
     )
+    fixed_chunk_size, max_padded_elems, allow_tail_chunk = _a._resolve_bucket_policy(policy=policy)
+    if fixed_chunk_size is not None and n_chunks is not None:
+        raise ValueError("Use either n_chunks or fixed_chunk_size/max_padded_elems, not both.")
     ker = kernel if kernel is not None else _a.make_element_jacobian_kernel(res_form, params)
     vmapped_kernel = jax.vmap(ker)
 
     u_elems = u[space.elem_dofs]
-    if n_chunks is None:
+    if n_chunks is None and fixed_chunk_size is None:
         def _eval(include_x_q_eff: bool):
             ctxs = space.build_form_contexts(include_x_q=include_x_q_eff, lightweight=lightweight_context)
             return vmapped_kernel(u_elems, ctxs)
@@ -145,10 +228,30 @@ def assemble_jacobian_values(
         return J_e_all.reshape(-1)
 
     n_elems = int(u_elems.shape[0])
+    if fixed_chunk_size is not None and max_padded_elems is None and allow_tail_chunk:
+        def _eval_tail(include_x_q_eff: bool):
+            return _assemble_jacobian_fixed_chunk_tail(
+                space=space,
+                vmapped_kernel=vmapped_kernel,
+                u_elems=u_elems,
+                chunk_size=int(fixed_chunk_size),
+                include_x_q=include_x_q_eff,
+                lightweight_context=lightweight_context,
+                chunk_build_context=chunk_build_context,
+            )
+
+        try:
+            return _eval_tail(include_x_q)
+        except Exception:
+            if include_x_q:
+                raise
+            return _eval_tail(True)
     n_chunks, chunk_size, pad, n_pad, valid_mask = _a._prepare_chunk_iteration(
         n_elems=int(n_elems),
         n_chunks=n_chunks,
         pad_trace=pad_trace,
+        fixed_chunk_size=fixed_chunk_size,
+        max_padded_elems=max_padded_elems,
     )
     m = int(space.n_ldofs)
     if pad:

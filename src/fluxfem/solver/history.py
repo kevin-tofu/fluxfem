@@ -30,6 +30,14 @@ class NewtonIterRecord:
     nan_detected: bool = False
     assemble_time: Optional[float] = None
     linear_time: Optional[float] = None
+    eval_time: Optional[float] = None
+    rhs_time: Optional[float] = None
+    preconditioner_time: Optional[float] = None
+    linearize_time: Optional[float] = None
+    control_time: Optional[float] = None
+    iter_total_time: Optional[float] = None
+    initial_residual_time: Optional[float] = None
+    initial_jacobian_time: Optional[float] = None
 
 
 @dataclass

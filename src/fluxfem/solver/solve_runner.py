@@ -51,6 +51,8 @@ class NonlinearAnalysis:
         (dofs, values) for Dirichlet boundary conditions.
     extra_terms : list[callable] | None
         Optional extra term assemblers returning (K, f[, metrics]).
+    assembly_policy : Any | None
+        Optional volume assembly execution policy forwarded to residual/Jacobian assembly.
     jacobian_pattern : Any | None
         Optional sparsity pattern to reuse between load steps.
     dtype : Any
@@ -63,6 +65,7 @@ class NonlinearAnalysis:
     base_external_vector: ArrayLike | None = None
     dirichlet: DirichletLike | None = None
     extra_terms: list[ExtraTerm] | None = None
+    assembly_policy: Any | None = None
     jacobian_pattern: Any | None = None
     dtype: Any = jnp.float64
 
@@ -225,81 +228,128 @@ class NewtonSolveRunner:
                                     lin_converged=bool(lin_conv) if lin_conv is not None else None,
                                     lin_residual=float(lin_res) if lin_res is not None else None,
                                     nan_detected=bool(d.get("nan_detected", False)),
+                                    linear_time=(
+                                        float(d.get("linear_wall_time"))
+                                        if d.get("linear_wall_time") is not None
+                                        else None
+                                    ),
+                                    eval_time=(
+                                        float(d.get("eval_time"))
+                                        if d.get("eval_time") is not None
+                                        else None
+                                    ),
+                                    rhs_time=(
+                                        float(d.get("rhs_time"))
+                                        if d.get("rhs_time") is not None
+                                        else None
+                                    ),
+                                    preconditioner_time=(
+                                        float(d.get("preconditioner_time"))
+                                        if d.get("preconditioner_time") is not None
+                                        else None
+                                    ),
+                                    linearize_time=(
+                                        float(d.get("linearize_time"))
+                                        if d.get("linearize_time") is not None
+                                        else None
+                                    ),
+                                    control_time=(
+                                        float(d.get("control_time"))
+                                        if d.get("control_time") is not None
+                                        else None
+                                    ),
+                                    iter_total_time=(
+                                        float(d.get("iter_total_time"))
+                                        if d.get("iter_total_time") is not None
+                                        else None
+                                    ),
+                                    initial_residual_time=(
+                                        float(d.get("initial_residual_time"))
+                                        if d.get("initial_residual_time") is not None
+                                        else None
+                                    ),
+                                    initial_jacobian_time=(
+                                        float(d.get("initial_jacobian_time"))
+                                        if d.get("initial_jacobian_time") is not None
+                                        else None
+                                    ),
                                 )
                             )
                             if newton_callback is not None:
                                 newton_callback(d)
 
-                    try:
-                        u, info = newton_solve(
-                            self.analysis.space,
-                            self.analysis.residual_form,
-                            u,
-                            self.analysis.params,
-                            tol=self.config.tol,
-                            atol=self.config.atol,
-                            maxiter=self.config.maxiter,
-                            linear_solver=self.config.linear_solver,
-                            linear_maxiter=self.config.linear_maxiter,
-                            linear_tol=self.config.linear_tol,
-                            linear_preconditioner=self.config.linear_preconditioner,
-                            petsc_ksp_type=self.config.petsc_ksp_type,
-                            petsc_pc_type=self.config.petsc_pc_type,
-                            petsc_rtol=self.config.petsc_rtol,
-                            petsc_atol=self.config.petsc_atol,
-                            petsc_max_it=self.config.petsc_max_it,
-                            petsc_options=self.config.petsc_options,
-                            petsc_use_pmat=self.config.petsc_use_pmat,
-                            matfree_cache=matfree_cache,
-                            matfree_mode=self.config.matfree_mode,
-                            dirichlet=self.analysis.dirichlet,
-                            line_search=self.config.line_search,
-                            max_ls=self.config.max_ls,
-                            ls_c=self.config.ls_c,
-                            external_vector=external,
-                            callback=cb,
-                            jacobian_pattern=self.analysis.jacobian_pattern,
-                            extra_terms=self.analysis.extra_terms,
+                        try:
+                            with timer.section("newton_solve"):
+                                u, info = newton_solve(
+                                    self.analysis.space,
+                                    self.analysis.residual_form,
+                                    u,
+                                    self.analysis.params,
+                                    tol=self.config.tol,
+                                    atol=self.config.atol,
+                                    maxiter=self.config.maxiter,
+                                    linear_solver=self.config.linear_solver,
+                                    linear_maxiter=self.config.linear_maxiter,
+                                    linear_tol=self.config.linear_tol,
+                                    linear_preconditioner=self.config.linear_preconditioner,
+                                    petsc_ksp_type=self.config.petsc_ksp_type,
+                                    petsc_pc_type=self.config.petsc_pc_type,
+                                    petsc_rtol=self.config.petsc_rtol,
+                                    petsc_atol=self.config.petsc_atol,
+                                    petsc_max_it=self.config.petsc_max_it,
+                                    petsc_options=self.config.petsc_options,
+                                    petsc_use_pmat=self.config.petsc_use_pmat,
+                                    matfree_cache=matfree_cache,
+                                    matfree_mode=self.config.matfree_mode,
+                                    dirichlet=self.analysis.dirichlet,
+                                    line_search=self.config.line_search,
+                                    max_ls=self.config.max_ls,
+                                    ls_c=self.config.ls_c,
+                                    external_vector=external,
+                                    callback=cb,
+                                    jacobian_pattern=self.analysis.jacobian_pattern,
+                                    extra_terms=self.analysis.extra_terms,
+                                    assembly_policy=self.analysis.assembly_policy,
+                                )
+                            exception = None
+                        except Exception as e:  # pragma: no cover - defensive
+                            info = SolverResult(converged=False, iters=0, stop_reason="exception", nan_detected=False)
+                            exception = repr(e)
+
+                        # ===== [B] OUTER LOOP PRINT (STEP END) =====
+                        u_nodes1 = np.asarray(u).reshape(-1, 3)
+                        max_u1 = float(np.linalg.norm(u_nodes1, axis=1).max()) if u_nodes1.size else 0.0
+                        step_solve_time = timer.last("run_total>preprocess>step>newton_solve", default=0.0)
+                        print(
+                            f"  -> converged={getattr(info,'converged',None)} iters={getattr(info,'iters',None)} "
+                            f"time={step_solve_time:.3f}s max|u|_end={max_u1:.3e}"
+                            + (f" EXC={exception}" if exception else "")
                         )
-                        exception = None
-                    except Exception as e:  # pragma: no cover - defensive
-                        info = SolverResult(converged=False, iters=0, stop_reason="exception", nan_detected=False)
-                        exception = repr(e)
 
-                # ===== [B] OUTER LOOP PRINT (STEP END) =====
-                u_nodes1 = np.asarray(u).reshape(-1, 3)
-                max_u1 = float(np.linalg.norm(u_nodes1, axis=1).max()) if u_nodes1.size else 0.0
-                step_solve_time = timer._records.get("step>newton_solve", [0.0])[-1]
-                print(
-                    f"  -> converged={getattr(info,'converged',None)} iters={getattr(info,'iters',None)} "
-                    f"time={step_solve_time:.3f}s max|u|_end={max_u1:.3e}"
-                    + (f" EXC={exception}" if exception else "")
-                )
+                        meta = {
+                            "load_factor": load_factor,
+                            "linear_solver": self.config.linear_solver,
+                            "line_search": self.config.line_search,
+                            "maxiter": self.config.maxiter,
+                            "n_dofs": self.analysis.space.n_dofs,
+                            "dtype": str(self.analysis.dtype),
+                            "u_layout": "full",
+                            "schedule": schedule,
+                            "schedule_dropped": dropped,
+                        }
 
-                meta = {
-                    "load_factor": load_factor,
-                    "linear_solver": self.config.linear_solver,
-                    "line_search": self.config.line_search,
-                    "maxiter": self.config.maxiter,
-                    "n_dofs": self.analysis.space.n_dofs,
-                    "dtype": str(self.analysis.dtype),
-                    "u_layout": "full",
-                    "schedule": schedule,
-                    "schedule_dropped": dropped,
-                }
-
-                result = LoadStepResult(
-                    load_factor=load_factor,
-                    info=info,
-                    solve_time=step_solve_time,
-                    u=u,
-                    iter_history=iter_log,
-                    exception=exception,
-                    meta=meta,
-                )
-                history.append(result)
-                if step_callback is not None:
-                    step_callback(result)
+                        result = LoadStepResult(
+                            load_factor=load_factor,
+                            info=info,
+                            solve_time=step_solve_time,
+                            u=u,
+                            iter_history=iter_log,
+                            exception=exception,
+                            meta=meta,
+                        )
+                        history.append(result)
+                        if step_callback is not None:
+                            step_callback(result)
 
         if report_timing:
             timer.report(sort_by="total")
@@ -332,6 +382,7 @@ def solve_nonlinear(
     dirichlet: DirichletLike | None = None,
     base_external_vector: ArrayLike | None = None,
     extra_terms: list[ExtraTerm] | None = None,
+    assembly_policy: Any | None = None,
     dtype=jnp.float64,
     maxiter: int = 20,
     tol: float = 1e-8,
@@ -365,6 +416,7 @@ def solve_nonlinear(
         base_external_vector=base_external_vector,
         dirichlet=dirichlet,
         extra_terms=extra_terms,
+        assembly_policy=assembly_policy,
         dtype=dtype,
         jacobian_pattern=jacobian_pattern,
     )

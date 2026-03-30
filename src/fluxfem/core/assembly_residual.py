@@ -9,6 +9,154 @@ import numpy as np
 from .forms import FormContext
 
 
+def _assemble_residual_fixed_chunk_tail(
+    *,
+    space,
+    ker,
+    u_elems: jnp.ndarray,
+    n_dofs: int,
+    vector_accumulation: str,
+    sparse: bool,
+    chunk_size: int,
+    include_x_q,
+    lightweight_context,
+    chunk_build_context,
+) -> Any:
+    from . import assembly as _a
+
+    n_elems = int(u_elems.shape[0])
+    n_full = n_elems // int(chunk_size)
+    tail = n_elems % int(chunk_size)
+    m = int(space.n_ldofs)
+    use_chunk_context, conn_pad, elem_ids, ctxs_pad = _a._prepare_chunk_context_source(
+        space,
+        n_pad=n_elems,
+        pad=0,
+        dep=None,
+        include_x_q=include_x_q,
+        lightweight_context=lightweight_context,
+        chunk_build_context=chunk_build_context,
+    )
+    valid_mask = jnp.ones((n_elems,), dtype=bool)
+
+    def chunk_values_fn(start: int):
+        ctx_chunk = _a._chunk_context_from_source(
+            space,
+            start=start,
+            chunk_size=chunk_size,
+            use_chunk_context=use_chunk_context,
+            conn_pad=conn_pad,
+            elem_ids=elem_ids,
+            ctxs_pad=ctxs_pad,
+            include_x_q=include_x_q,
+            lightweight_context=lightweight_context,
+        )
+        u_chunk = _a._slice_first_dim(u_elems, start, chunk_size)
+        return jax.vmap(ker)(ctx_chunk, u_chunk)
+
+    if sparse:
+        first_ctx = _a._chunk_context_from_source(
+            space,
+            start=0,
+            chunk_size=1,
+            use_chunk_context=use_chunk_context,
+            conn_pad=conn_pad,
+            elem_ids=elem_ids,
+            ctxs_pad=ctxs_pad,
+            include_x_q=include_x_q,
+            lightweight_context=lightweight_context,
+        )
+        sample_res = jax.vmap(ker)(first_ctx, _a._slice_first_dim(u_elems, 0, 1))[0]
+        data = _a._accumulate_chunk_vector_data(
+            n_chunks=n_full,
+            chunk_size=chunk_size,
+            n_pad=n_elems,
+            m=m,
+            dtype=sample_res.dtype,
+            valid_mask=valid_mask,
+            chunk_values_fn=chunk_values_fn,
+        )
+        if tail:
+            ctx_tail = _a._chunk_context_from_source(
+                space,
+                start=n_full * chunk_size,
+                chunk_size=tail,
+                use_chunk_context=use_chunk_context,
+                conn_pad=conn_pad,
+                elem_ids=elem_ids,
+                ctxs_pad=ctxs_pad,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+            )
+            u_tail = _a._slice_first_dim(u_elems, n_full * chunk_size, tail)
+            tail_vals = jax.vmap(ker)(ctx_tail, u_tail).reshape(tail * m)
+            data = jax.lax.dynamic_update_slice(data, tail_vals, (n_full * chunk_size * m,))
+        rows = _a._get_elem_rows(space)
+        return data[: n_elems * m], rows
+
+    sample_ctx = _a._chunk_context_from_source(
+        space,
+        start=0,
+        chunk_size=1,
+        use_chunk_context=use_chunk_context,
+        conn_pad=conn_pad,
+        elem_ids=elem_ids,
+        ctxs_pad=ctxs_pad,
+        include_x_q=include_x_q,
+        lightweight_context=lightweight_context,
+    )
+    sample_res = jax.vmap(ker)(sample_ctx, _a._slice_first_dim(u_elems, 0, 1))[0]
+    elem_dofs = space.elem_dofs
+    if vector_accumulation == "scatter":
+        F = _a._accumulate_chunk_vector_scatter(
+            n_chunks=n_full,
+            chunk_size=chunk_size,
+            m=m,
+            n_dofs=n_dofs,
+            dtype=sample_res.dtype,
+            valid_mask=valid_mask,
+            elem_dofs_pad=elem_dofs,
+            chunk_values_fn=chunk_values_fn,
+        )
+    else:
+        F = _a._accumulate_chunk_vector_segment(
+            n_chunks=n_full,
+            chunk_size=chunk_size,
+            m=m,
+            n_dofs=n_dofs,
+            dtype=sample_res.dtype,
+            valid_mask=valid_mask,
+            elem_dofs_pad=elem_dofs,
+            chunk_values_fn=chunk_values_fn,
+        )
+    if tail:
+        ctx_tail = _a._chunk_context_from_source(
+            space,
+            start=n_full * chunk_size,
+            chunk_size=tail,
+            use_chunk_context=use_chunk_context,
+            conn_pad=conn_pad,
+            elem_ids=elem_ids,
+            ctxs_pad=ctxs_pad,
+            include_x_q=include_x_q,
+            lightweight_context=lightweight_context,
+        )
+        u_tail = _a._slice_first_dim(u_elems, n_full * chunk_size, tail)
+        tail_vals = jax.vmap(ker)(ctx_tail, u_tail)
+        tail_rows = _a._slice_first_dim(elem_dofs, n_full * chunk_size, tail).reshape(-1)
+        tail_data = tail_vals.reshape(-1)
+        if vector_accumulation == "scatter":
+            sdn = jax.lax.ScatterDimensionNumbers(
+                update_window_dims=(),
+                inserted_window_dims=(0,),
+                scatter_dims_to_operand_dims=(0,),
+            )
+            F = jax.lax.scatter_add(F, tail_rows[:, None], tail_data, sdn)
+        else:
+            F = F + jax.ops.segment_sum(tail_data, tail_rows, n_dofs)
+    return F
+
+
 def assemble_residual_global(
     space,
     form,
@@ -128,6 +276,9 @@ def assemble_residual_scatter(
         chunk_build_context=None,
         pad_trace=pad_trace,
     )
+    fixed_chunk_size, max_padded_elems, allow_tail_chunk = _a._resolve_bucket_policy(policy=policy)
+    if fixed_chunk_size is not None and n_chunks is not None:
+        raise ValueError("Use either n_chunks or fixed_chunk_size/max_padded_elems, not both.")
     if vector_accumulation not in ("segment", "scatter"):
         raise ValueError(
             f"vector_accumulation must be 'segment' or 'scatter' (got {vector_accumulation!r})"
@@ -142,7 +293,7 @@ def assemble_residual_scatter(
     ker = kernel if kernel is not None else _a.make_element_residual_kernel(res_form, params)
 
     if backend == "numpy":
-        if n_chunks is not None:
+        if n_chunks is not None or fixed_chunk_size is not None:
             raise ValueError("backend='numpy' currently supports only non-chunked assembly.")
         elem_dofs_np = np.asarray(elem_dofs, dtype=int)
         u_np = np.asarray(u)
@@ -164,16 +315,35 @@ def assemble_residual_scatter(
         return F
 
     u_elems = u[elem_dofs]
-    if n_chunks is None:
+    if n_chunks is None and fixed_chunk_size is None:
         ctxs = space.build_form_contexts(include_x_q=include_x_q, lightweight=lightweight_context)
         elem_res = jax.vmap(ker)(ctxs, u_elems)
         data = elem_res.reshape(-1)
     else:
         n_elems = int(u_elems.shape[0])
+        if fixed_chunk_size is not None and max_padded_elems is None and allow_tail_chunk:
+            out = _assemble_residual_fixed_chunk_tail(
+                space=space,
+                ker=ker,
+                u_elems=u_elems,
+                n_dofs=n_dofs,
+                vector_accumulation=vector_accumulation,
+                sparse=sparse,
+                chunk_size=int(fixed_chunk_size),
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+                chunk_build_context=chunk_build_context,
+            )
+            if sparse:
+                data, rows = out
+                return rows, data, n_dofs
+            return out
         n_chunks, chunk_size, pad, n_pad, valid_mask = _a._prepare_chunk_iteration(
             n_elems=int(n_elems),
             n_chunks=n_chunks,
             pad_trace=pad_trace,
+            fixed_chunk_size=fixed_chunk_size,
+            max_padded_elems=max_padded_elems,
         )
         if pad:
             u_elems_pad = jnp.concatenate([u_elems, jnp.repeat(u_elems[-1:], pad, axis=0)], axis=0)

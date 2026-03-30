@@ -187,6 +187,9 @@ class AssemblyPolicy:
     """
 
     n_chunks: int | None = None
+    fixed_chunk_size: int | None = None
+    max_padded_elems: int | None = None
+    allow_tail_chunk: bool = False
     include_x_q: bool = False
     lightweight_context: bool = True
     chunk_build_context: bool = False
@@ -204,6 +207,48 @@ class AssemblyPolicy:
     ) -> "AssemblyPolicy":
         return cls(
             n_chunks=int(n_chunks),
+            include_x_q=bool(include_x_q),
+            lightweight_context=bool(lightweight_context),
+            chunk_build_context=bool(chunk_build_context),
+            pad_trace=bool(pad_trace),
+        )
+
+    @classmethod
+    def bucketed(
+        cls,
+        bucket_size: int,
+        *,
+        chunk_size: int,
+        include_x_q: bool = False,
+        lightweight_context: bool = True,
+        chunk_build_context: bool = False,
+        pad_trace: bool = False,
+    ) -> "AssemblyPolicy":
+        return cls(
+            fixed_chunk_size=int(chunk_size),
+            max_padded_elems=int(bucket_size),
+            allow_tail_chunk=False,
+            include_x_q=bool(include_x_q),
+            lightweight_context=bool(lightweight_context),
+            chunk_build_context=bool(chunk_build_context),
+            pad_trace=bool(pad_trace),
+        )
+
+    @classmethod
+    def fixed_chunk(
+        cls,
+        chunk_size: int,
+        *,
+        allow_tail_chunk: bool = True,
+        include_x_q: bool = False,
+        lightweight_context: bool = True,
+        chunk_build_context: bool = False,
+        pad_trace: bool = False,
+    ) -> "AssemblyPolicy":
+        return cls(
+            fixed_chunk_size=int(chunk_size),
+            max_padded_elems=None,
+            allow_tail_chunk=bool(allow_tail_chunk),
             include_x_q=bool(include_x_q),
             lightweight_context=bool(lightweight_context),
             chunk_build_context=bool(chunk_build_context),
@@ -241,6 +286,14 @@ def _resolve_chunk_policy(
         n_chunks if n_chunks is not None else p.n_chunks,
         pad_trace if pad_trace is not None else p.pad_trace,
     )
+
+
+def _resolve_bucket_policy(
+    *,
+    policy: AssemblyPolicy | None,
+) -> tuple[int | None, int | None, bool]:
+    p = policy or AssemblyPolicy()
+    return p.fixed_chunk_size, p.max_padded_elems, p.allow_tail_chunk
 
 
 class ElementBilinearKernel(Protocol):
@@ -352,6 +405,213 @@ from .assembly_vector import (
     accumulate_chunk_vector_scatter as _accumulate_chunk_vector_scatter,
     accumulate_chunk_vector_segment as _accumulate_chunk_vector_segment,
 )
+
+
+def _fixed_chunk_tail_context_source(
+    space,
+    *,
+    dep: jnp.ndarray | None,
+    include_x_q: bool | None,
+    lightweight_context: bool | None,
+    chunk_build_context: bool,
+    elem_data: FormContext | None = None,
+) -> tuple[bool, Array | None, Array | None, FormContext | None]:
+    n_elems = int(space.elem_dofs.shape[0])
+    return _prepare_chunk_context_source(
+        space,
+        n_pad=n_elems,
+        pad=0,
+        dep=dep,
+        include_x_q=include_x_q,
+        lightweight_context=lightweight_context,
+        chunk_build_context=chunk_build_context,
+        elem_data=elem_data,
+    )
+
+
+def _fixed_chunk_tail_matrix_data(
+    *,
+    space,
+    chunk_size: int,
+    m: int,
+    dtype,
+    full_chunk_values_fn: Callable[[int], Array],
+    tail_values_fn: Callable[[int, int], Array] | None = None,
+) -> Array:
+    n_elems = int(space.elem_dofs.shape[0])
+    n_full = n_elems // int(chunk_size)
+    tail = n_elems % int(chunk_size)
+    data = jnp.zeros((n_elems * m * m,), dtype=dtype)
+    if n_full:
+        data = _accumulate_chunk_matrix_data(
+            n_chunks=n_full,
+            chunk_size=chunk_size,
+            n_pad=n_elems,
+            m=m,
+            dtype=dtype,
+            valid_mask=jnp.ones((n_elems,), dtype=bool),
+            chunk_values_fn=full_chunk_values_fn,
+        )
+    if tail and tail_values_fn is not None:
+        tail_vals = tail_values_fn(n_full * chunk_size, tail).reshape(tail * m * m)
+        data = jax.lax.dynamic_update_slice(data, tail_vals, (n_full * chunk_size * m * m,))
+    return data[: n_elems * m * m]
+
+
+def _fixed_chunk_tail_vector_data(
+    *,
+    space,
+    chunk_size: int,
+    m: int,
+    dtype,
+    full_chunk_values_fn: Callable[[int], Array],
+    tail_values_fn: Callable[[int, int], Array] | None = None,
+) -> Array:
+    n_elems = int(space.elem_dofs.shape[0])
+    n_full = n_elems // int(chunk_size)
+    tail = n_elems % int(chunk_size)
+    data = jnp.zeros((n_elems * m,), dtype=dtype)
+    if n_full:
+        data = _accumulate_chunk_vector_data(
+            n_chunks=n_full,
+            chunk_size=chunk_size,
+            n_pad=n_elems,
+            m=m,
+            dtype=dtype,
+            valid_mask=jnp.ones((n_elems,), dtype=bool),
+            chunk_values_fn=full_chunk_values_fn,
+        )
+    if tail and tail_values_fn is not None:
+        tail_vals = tail_values_fn(n_full * chunk_size, tail).reshape(tail * m)
+        data = jax.lax.dynamic_update_slice(data, tail_vals, (n_full * chunk_size * m,))
+    return data[: n_elems * m]
+
+
+def _fixed_chunk_tail_vector_global(
+    *,
+    space,
+    chunk_size: int,
+    m: int,
+    n_dofs: int,
+    dtype,
+    vector_accumulation: Literal["segment", "scatter"],
+    full_chunk_values_fn: Callable[[int], Array],
+    tail_values_fn: Callable[[int, int], Array] | None = None,
+) -> Array:
+    n_elems = int(space.elem_dofs.shape[0])
+    n_full = n_elems // int(chunk_size)
+    tail = n_elems % int(chunk_size)
+    valid_mask = jnp.ones((n_elems,), dtype=bool)
+    elem_dofs = space.elem_dofs
+    if vector_accumulation == "scatter":
+        out = _accumulate_chunk_vector_scatter(
+            n_chunks=n_full,
+            chunk_size=chunk_size,
+            m=m,
+            n_dofs=n_dofs,
+            dtype=dtype,
+            valid_mask=valid_mask,
+            elem_dofs_pad=elem_dofs,
+            chunk_values_fn=full_chunk_values_fn,
+        ) if n_full else jnp.zeros((n_dofs,), dtype=dtype)
+        if tail and tail_values_fn is not None:
+            tail_vals = tail_values_fn(n_full * chunk_size, tail).reshape(-1)
+            tail_rows = _slice_first_dim(elem_dofs, n_full * chunk_size, tail).reshape(-1)
+            sdn = jax.lax.ScatterDimensionNumbers(
+                update_window_dims=(),
+                inserted_window_dims=(0,),
+                scatter_dims_to_operand_dims=(0,),
+            )
+            out = jax.lax.scatter_add(out, tail_rows[:, None], tail_vals, sdn)
+        return out
+    out = _accumulate_chunk_vector_segment(
+        n_chunks=n_full,
+        chunk_size=chunk_size,
+        m=m,
+        n_dofs=n_dofs,
+        dtype=dtype,
+        valid_mask=valid_mask,
+        elem_dofs_pad=elem_dofs,
+        chunk_values_fn=full_chunk_values_fn,
+    ) if n_full else jnp.zeros((n_dofs,), dtype=dtype)
+    if tail and tail_values_fn is not None:
+        tail_vals = tail_values_fn(n_full * chunk_size, tail).reshape(-1)
+        tail_rows = _slice_first_dim(elem_dofs, n_full * chunk_size, tail).reshape(-1)
+        out = out + jax.ops.segment_sum(tail_vals, tail_rows, n_dofs)
+    return out
+
+
+def _fixed_chunk_tail_matrix_and_vector(
+    *,
+    space,
+    chunk_size: int,
+    m: int,
+    n_dofs: int,
+    matrix_dtype,
+    vector_dtype,
+    vector_accumulation: Literal["segment", "scatter"],
+    full_chunk_values_fn: Callable[[int], tuple[Array, Array]],
+    tail_values_fn: Callable[[int, int], tuple[Array, Array]] | None = None,
+) -> tuple[Array, Array]:
+    n_elems = int(space.elem_dofs.shape[0])
+    n_full = n_elems // int(chunk_size)
+    tail = n_elems % int(chunk_size)
+    valid_mask = jnp.ones((n_elems,), dtype=bool)
+    elem_dofs = space.elem_dofs
+    if vector_accumulation == "scatter":
+        if n_full:
+            K_data, F = _accumulate_chunk_matrix_and_vector_scatter(
+                n_chunks=n_full,
+                chunk_size=chunk_size,
+                n_pad=n_elems,
+                m=m,
+                n_dofs=n_dofs,
+                matrix_dtype=matrix_dtype,
+                vector_dtype=vector_dtype,
+                valid_mask=valid_mask,
+                elem_dofs_pad=elem_dofs,
+                chunk_values_fn=full_chunk_values_fn,
+            )
+        else:
+            K_data = jnp.zeros((n_elems * m * m,), dtype=matrix_dtype)
+            F = jnp.zeros((n_dofs,), dtype=vector_dtype)
+        if tail and tail_values_fn is not None:
+            tail_K, tail_F = tail_values_fn(n_full * chunk_size, tail)
+            tail_K = tail_K.reshape(tail * m * m)
+            tail_F = tail_F.reshape(-1)
+            K_data = jax.lax.dynamic_update_slice(K_data, tail_K, (n_full * chunk_size * m * m,))
+            tail_rows = _slice_first_dim(elem_dofs, n_full * chunk_size, tail).reshape(-1)
+            sdn = jax.lax.ScatterDimensionNumbers(
+                update_window_dims=(),
+                inserted_window_dims=(0,),
+                scatter_dims_to_operand_dims=(0,),
+            )
+            F = jax.lax.scatter_add(F, tail_rows[:, None], tail_F, sdn)
+        return K_data[: n_elems * m * m], F
+    if n_full:
+        K_data, F = _accumulate_chunk_matrix_and_vector_segment(
+            n_chunks=n_full,
+            chunk_size=chunk_size,
+            n_pad=n_elems,
+            m=m,
+            n_dofs=n_dofs,
+            matrix_dtype=matrix_dtype,
+            vector_dtype=vector_dtype,
+            valid_mask=valid_mask,
+            elem_dofs_pad=elem_dofs,
+            chunk_values_fn=full_chunk_values_fn,
+        )
+    else:
+        K_data = jnp.zeros((n_elems * m * m,), dtype=matrix_dtype)
+        F = jnp.zeros((n_dofs,), dtype=vector_dtype)
+    if tail and tail_values_fn is not None:
+        tail_K, tail_F = tail_values_fn(n_full * chunk_size, tail)
+        tail_K = tail_K.reshape(tail * m * m)
+        tail_F = tail_F.reshape(-1)
+        K_data = jax.lax.dynamic_update_slice(K_data, tail_K, (n_full * chunk_size * m * m,))
+        tail_rows = _slice_first_dim(elem_dofs, n_full * chunk_size, tail).reshape(-1)
+        F = F + jax.ops.segment_sum(tail_F, tail_rows, n_dofs)
+    return K_data[: n_elems * m * m], F
 
 
 class BatchedAssembler:
@@ -704,6 +964,9 @@ def assemble_bilinear_form(
         chunk_build_context=chunk_build_context,
         pad_trace=pad_trace,
     )
+    fixed_chunk_size, max_padded_elems, allow_tail_chunk = _resolve_bucket_policy(policy=policy)
+    if fixed_chunk_size is not None and n_chunks is not None:
+        raise ValueError("Use either n_chunks or fixed_chunk_size/max_padded_elems, not both.")
 
     if pattern is None:
         if hasattr(space, "get_sparsity_pattern"):
@@ -729,7 +992,12 @@ def assemble_bilinear_form(
         data_parts: list[np.ndarray] = []
         if elem_data is not None:
             raise NotImplementedError("backend='numpy' with explicit elem_data is not supported in generic mode.")
-        chunk_size_np = int(space.elem_dofs.shape[0]) if n_chunks is None else max(1, int(np.ceil(int(space.elem_dofs.shape[0]) / int(n_chunks))))
+        if fixed_chunk_size is not None:
+            chunk_size_np = int(fixed_chunk_size)
+        elif n_chunks is None:
+            chunk_size_np = int(space.elem_dofs.shape[0])
+        else:
+            chunk_size_np = max(1, int(np.ceil(int(space.elem_dofs.shape[0]) / int(n_chunks))))
         try:
             ctx_chunks = space.build_form_contexts_numpy_chunked(
                 chunk_size=chunk_size_np,
@@ -755,7 +1023,15 @@ def assemble_bilinear_form(
 
     vmapped_kernel = jax.vmap(kernel)
 
-    if n_chunks is None or (jax.core.trace_ctx.is_top_level() and not chunk_build_context):
+    if (
+        (n_chunks is None and fixed_chunk_size is None)
+        or (
+            fixed_chunk_size is None
+            and n_chunks is not None
+            and jax.core.trace_ctx.is_top_level()
+            and not chunk_build_context
+        )
+    ):
         if elem_data is not None:
             K_e_all = vmapped_kernel(elem_data)  # (n_elems, m, m)
         else:
@@ -778,10 +1054,71 @@ def assemble_bilinear_form(
 
     # --- chunked path ---
     n_elems = space.elem_dofs.shape[0]
+    if fixed_chunk_size is not None and max_padded_elems is None and allow_tail_chunk:
+        use_chunk_context = bool(dep is None and chunk_build_context)
+
+        def _eval_tail(include_x_q_eff: bool) -> Array:
+            use_ctx, conn_pad, elem_ids, elem_data_pad = _fixed_chunk_tail_context_source(
+                space,
+                dep=dep,
+                include_x_q=include_x_q_eff,
+                lightweight_context=lightweight_context,
+                chunk_build_context=use_chunk_context,
+                elem_data=elem_data,
+            )
+
+            def full_chunk_values_fn(start: int) -> Array:
+                ctx_chunk = _chunk_context_from_source(
+                    space,
+                    start=start,
+                    chunk_size=int(fixed_chunk_size),
+                    use_chunk_context=use_ctx,
+                    conn_pad=conn_pad,
+                    elem_ids=elem_ids,
+                    ctxs_pad=elem_data_pad,
+                    include_x_q=include_x_q_eff,
+                    lightweight_context=lightweight_context,
+                )
+                return vmapped_kernel(ctx_chunk)
+
+            def tail_values_fn(start: int, size: int) -> Array:
+                ctx_chunk = _chunk_context_from_source(
+                    space,
+                    start=start,
+                    chunk_size=size,
+                    use_chunk_context=use_ctx,
+                    conn_pad=conn_pad,
+                    elem_ids=elem_ids,
+                    ctxs_pad=elem_data_pad,
+                    include_x_q=include_x_q_eff,
+                    lightweight_context=lightweight_context,
+                )
+                return vmapped_kernel(ctx_chunk)
+
+            first = full_chunk_values_fn(0)[0]
+            m_eff = getattr(pat, "n_ldofs", None) or int(first.shape[0])
+            return _fixed_chunk_tail_matrix_data(
+                space=space,
+                chunk_size=int(fixed_chunk_size),
+                m=int(m_eff),
+                dtype=first.dtype,
+                full_chunk_values_fn=full_chunk_values_fn,
+                tail_values_fn=tail_values_fn,
+            )
+
+        try:
+            data = _eval_tail(include_x_q)
+        except Exception:
+            if include_x_q:
+                raise
+            data = _eval_tail(True)
+        return FluxSparseMatrix(pat, data)
     n_chunks, chunk_size, pad, n_pad, valid_mask = _prepare_chunk_iteration(
         n_elems=int(n_elems),
         n_chunks=n_chunks,
         pad_trace=pad_trace,
+        fixed_chunk_size=fixed_chunk_size,
+        max_padded_elems=max_padded_elems,
     )
     # Ideally get m from pat (otherwise infer from one element).
     m = getattr(pat, "n_ldofs", None)
@@ -992,6 +1329,9 @@ def assemble_mass_matrix(
         chunk_build_context=None,
         pad_trace=pad_trace,
     )
+    fixed_chunk_size, max_padded_elems, allow_tail_chunk = _resolve_bucket_policy(policy=policy)
+    if fixed_chunk_size is not None and n_chunks is not None:
+        raise ValueError("Use either n_chunks or fixed_chunk_size/max_padded_elems, not both.")
     def per_element(ctx: FormContext):
         N = ctx.test.N  # (n_q, n_nodes)
         wJ = ctx.w * ctx.test.detJ
@@ -1024,46 +1364,81 @@ def assemble_mass_matrix(
             return M
         return FluxSparseMatrix(rows, cols, data, n_dofs=space.n_dofs)
 
-    if n_chunks is None:
+    if n_chunks is None and fixed_chunk_size is None:
         ctxs = space.build_form_contexts(include_x_q=False, lightweight=lightweight_context)
         M_e_all = jax.vmap(per_element)(ctxs)  # (n_elems, n_ldofs, n_ldofs)
         data = M_e_all.reshape(-1)
     else:
         n_elems = int(space.elem_dofs.shape[0])
-        n_chunks, chunk_size, pad, n_pad, valid_mask = _prepare_chunk_iteration(
-            n_elems=n_elems,
-            n_chunks=n_chunks,
-            pad_trace=pad_trace,
-        )
-        use_chunk_context = bool(chunk_build_context)
-        use_chunk_context, conn_pad, elem_ids, ctxs_pad = _prepare_chunk_context_source(
-            space,
-            n_pad=n_pad,
-            pad=pad,
-            dep=None,
-            include_x_q=False,
-            lightweight_context=lightweight_context,
-            chunk_build_context=use_chunk_context,
-        )
-        first_ctx_b = _chunk_context_from_source(
-            space,
-            start=0,
-            chunk_size=1,
-            use_chunk_context=use_chunk_context,
-            conn_pad=conn_pad,
-            elem_ids=elem_ids,
-            ctxs_pad=ctxs_pad,
-            include_x_q=False,
-            lightweight_context=lightweight_context,
-        )
-        sample_me = jax.vmap(per_element)(first_ctx_b)[0]
-        m = int(sample_me.shape[0])
-
-        def chunk_values_fn(start: int) -> Array:
-            ctx_chunk = _chunk_context_from_source(
+        if fixed_chunk_size is not None and max_padded_elems is None and allow_tail_chunk:
+            use_chunk_context = bool(chunk_build_context)
+            use_chunk_context, conn_pad, elem_ids, ctxs_pad = _fixed_chunk_tail_context_source(
                 space,
-                start=start,
-                chunk_size=chunk_size,
+                dep=None,
+                include_x_q=False,
+                lightweight_context=lightweight_context,
+                chunk_build_context=use_chunk_context,
+            )
+
+            def full_chunk_values_fn(start: int) -> Array:
+                ctx_chunk = _chunk_context_from_source(
+                    space,
+                    start=start,
+                    chunk_size=int(fixed_chunk_size),
+                    use_chunk_context=use_chunk_context,
+                    conn_pad=conn_pad,
+                    elem_ids=elem_ids,
+                    ctxs_pad=ctxs_pad,
+                    include_x_q=False,
+                    lightweight_context=lightweight_context,
+                )
+                return jax.vmap(per_element)(ctx_chunk)
+
+            def tail_values_fn(start: int, size: int) -> Array:
+                ctx_chunk = _chunk_context_from_source(
+                    space,
+                    start=start,
+                    chunk_size=size,
+                    use_chunk_context=use_chunk_context,
+                    conn_pad=conn_pad,
+                    elem_ids=elem_ids,
+                    ctxs_pad=ctxs_pad,
+                    include_x_q=False,
+                    lightweight_context=lightweight_context,
+                )
+                return jax.vmap(per_element)(ctx_chunk)
+
+            first = full_chunk_values_fn(0)[0]
+            data = _fixed_chunk_tail_matrix_data(
+                space=space,
+                chunk_size=int(fixed_chunk_size),
+                m=int(first.shape[0]),
+                dtype=first.dtype,
+                full_chunk_values_fn=full_chunk_values_fn,
+                tail_values_fn=tail_values_fn,
+            )
+        else:
+            n_chunks, chunk_size, pad, n_pad, valid_mask = _prepare_chunk_iteration(
+                n_elems=n_elems,
+                n_chunks=n_chunks,
+                pad_trace=pad_trace,
+                fixed_chunk_size=fixed_chunk_size,
+                max_padded_elems=max_padded_elems,
+            )
+            use_chunk_context = bool(chunk_build_context)
+            use_chunk_context, conn_pad, elem_ids, ctxs_pad = _prepare_chunk_context_source(
+                space,
+                n_pad=n_pad,
+                pad=pad,
+                dep=None,
+                include_x_q=False,
+                lightweight_context=lightweight_context,
+                chunk_build_context=use_chunk_context,
+            )
+            first_ctx_b = _chunk_context_from_source(
+                space,
+                start=0,
+                chunk_size=1,
                 use_chunk_context=use_chunk_context,
                 conn_pad=conn_pad,
                 elem_ids=elem_ids,
@@ -1071,18 +1446,33 @@ def assemble_mass_matrix(
                 include_x_q=False,
                 lightweight_context=lightweight_context,
             )
-            return jax.vmap(per_element)(ctx_chunk)
+            sample_me = jax.vmap(per_element)(first_ctx_b)[0]
+            m = int(sample_me.shape[0])
 
-        data = _accumulate_chunk_matrix_data(
-            n_chunks=n_chunks,
-            chunk_size=chunk_size,
-            n_pad=n_pad,
-            m=m,
-            dtype=sample_me.dtype,
-            valid_mask=valid_mask,
-            chunk_values_fn=chunk_values_fn,
-        )
-        data = data[: n_elems * m * m]
+            def chunk_values_fn(start: int) -> Array:
+                ctx_chunk = _chunk_context_from_source(
+                    space,
+                    start=start,
+                    chunk_size=chunk_size,
+                    use_chunk_context=use_chunk_context,
+                    conn_pad=conn_pad,
+                    elem_ids=elem_ids,
+                    ctxs_pad=ctxs_pad,
+                    include_x_q=False,
+                    lightweight_context=lightweight_context,
+                )
+                return jax.vmap(per_element)(ctx_chunk)
+
+            data = _accumulate_chunk_matrix_data(
+                n_chunks=n_chunks,
+                chunk_size=chunk_size,
+                n_pad=n_pad,
+                m=m,
+                dtype=sample_me.dtype,
+                valid_mask=valid_mask,
+                chunk_values_fn=chunk_values_fn,
+            )
+            data = data[: n_elems * m * m]
 
     elem_dofs = space.elem_dofs
     pat = _get_pattern(space, with_idx=False)
@@ -1189,6 +1579,9 @@ def assemble_linear_form(
         chunk_build_context=chunk_build_context,
         pad_trace=pad_trace,
     )
+    fixed_chunk_size, max_padded_elems, allow_tail_chunk = _resolve_bucket_policy(policy=policy)
+    if fixed_chunk_size is not None and n_chunks is not None:
+        raise ValueError("Use either n_chunks or fixed_chunk_size/max_padded_elems, not both.")
     if vector_accumulation not in ("segment", "scatter"):
         raise ValueError(
             f"vector_accumulation must be 'segment' or 'scatter' (got {vector_accumulation!r})"
@@ -1223,7 +1616,12 @@ def assemble_linear_form(
         data_parts: list[np.ndarray] = []
         if elem_data is not None:
             raise NotImplementedError("backend='numpy' with explicit elem_data is not supported in generic mode.")
-        chunk_size_np = int(space.elem_dofs.shape[0]) if n_chunks is None else max(1, int(np.ceil(int(space.elem_dofs.shape[0]) / int(n_chunks))))
+        if fixed_chunk_size is not None:
+            chunk_size_np = int(fixed_chunk_size)
+        elif n_chunks is None:
+            chunk_size_np = int(space.elem_dofs.shape[0])
+        else:
+            chunk_size_np = max(1, int(np.ceil(int(space.elem_dofs.shape[0]) / int(n_chunks))))
         for ctxs in space.build_form_contexts_numpy_chunked(
             chunk_size=chunk_size_np,
             dep=dep,
@@ -1242,7 +1640,15 @@ def assemble_linear_form(
             np.add.at(F, rows, data)
         return F
 
-    if n_chunks is None or (jax.core.trace_ctx.is_top_level() and not chunk_build_context):
+    if (
+        (n_chunks is None and fixed_chunk_size is None)
+        or (
+            fixed_chunk_size is None
+            and n_chunks is not None
+            and jax.core.trace_ctx.is_top_level()
+            and not chunk_build_context
+        )
+    ):
         if elem_data is None:
             elem_data = space.build_form_contexts(
                 dep=dep,
@@ -1254,72 +1660,22 @@ def assemble_linear_form(
     else:
         n_elems = space.elem_dofs.shape[0]
         m = n_ldofs
-        n_chunks, chunk_size, pad, n_pad, valid_mask = _prepare_chunk_iteration(
-            n_elems=int(n_elems),
-            n_chunks=n_chunks,
-            pad_trace=pad_trace,
-        )
-
-        use_chunk_context = bool(dep is None and chunk_build_context)
-        use_chunk_context, conn_pad, elem_ids, elem_data_pad = _prepare_chunk_context_source(
-            space,
-            n_pad=int(n_pad),
-            pad=int(pad),
-            dep=dep,
-            include_x_q=include_x_q,
-            lightweight_context=lightweight_context,
-            chunk_build_context=use_chunk_context,
-            elem_data=elem_data,
-        )
-        sample_ctx_b = _chunk_context_from_source(
-            space,
-            start=0,
-            chunk_size=1,
-            use_chunk_context=use_chunk_context,
-            conn_pad=conn_pad,
-            elem_ids=elem_ids,
-            ctxs_pad=elem_data_pad,
-            include_x_q=include_x_q,
-            lightweight_context=lightweight_context,
-        )
-        sample_ctx = jax.tree_util.tree_map(lambda x: x[0], sample_ctx_b)
-
-        sample_fe = per_element(sample_ctx)
-        if sparse:
-            def chunk_values_fn(start: int) -> Array:
-                ctx_chunk = _chunk_context_from_source(
-                    space,
-                    start=start,
-                    chunk_size=chunk_size,
-                    use_chunk_context=use_chunk_context,
-                    conn_pad=conn_pad,
-                    elem_ids=elem_ids,
-                    ctxs_pad=elem_data_pad,
-                    include_x_q=include_x_q,
-                    lightweight_context=lightweight_context,
-                )
-                return jax.vmap(per_element)(ctx_chunk)
-
-            data = _accumulate_chunk_vector_data(
-                n_chunks=n_chunks,
-                chunk_size=chunk_size,
-                n_pad=n_pad,
-                m=m,
-                dtype=sample_fe.dtype,
-                valid_mask=valid_mask,
-                chunk_values_fn=chunk_values_fn,
+        if fixed_chunk_size is not None and max_padded_elems is None and allow_tail_chunk:
+            use_chunk_context = bool(dep is None and chunk_build_context)
+            use_chunk_context, conn_pad, elem_ids, elem_data_pad = _fixed_chunk_tail_context_source(
+                space,
+                dep=dep,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+                chunk_build_context=use_chunk_context,
+                elem_data=elem_data,
             )
-            data = data[: n_elems * m]
-        else:
-            if pad:
-                elem_dofs_pad = jnp.concatenate([elem_dofs, jnp.repeat(elem_dofs[-1:], pad, axis=0)], axis=0)
-            else:
-                elem_dofs_pad = elem_dofs
-            def chunk_values_fn(start: int) -> Array:
+
+            def full_chunk_values_fn(start: int) -> Array:
                 ctx_chunk = _chunk_context_from_source(
                     space,
                     start=start,
-                    chunk_size=chunk_size,
+                    chunk_size=int(fixed_chunk_size),
                     use_chunk_context=use_chunk_context,
                     conn_pad=conn_pad,
                     elem_ids=elem_ids,
@@ -1329,8 +1685,131 @@ def assemble_linear_form(
                 )
                 return jax.vmap(per_element)(ctx_chunk)
 
-            if vector_accumulation == "scatter":
-                return _accumulate_chunk_vector_scatter(
+            def tail_values_fn(start: int, size: int) -> Array:
+                ctx_chunk = _chunk_context_from_source(
+                    space,
+                    start=start,
+                    chunk_size=size,
+                    use_chunk_context=use_chunk_context,
+                    conn_pad=conn_pad,
+                    elem_ids=elem_ids,
+                    ctxs_pad=elem_data_pad,
+                    include_x_q=include_x_q,
+                    lightweight_context=lightweight_context,
+                )
+                return jax.vmap(per_element)(ctx_chunk)
+
+            sample_fe = full_chunk_values_fn(0)[0]
+            if sparse:
+                data = _fixed_chunk_tail_vector_data(
+                    space=space,
+                    chunk_size=int(fixed_chunk_size),
+                    m=m,
+                    dtype=sample_fe.dtype,
+                    full_chunk_values_fn=full_chunk_values_fn,
+                    tail_values_fn=tail_values_fn,
+                )
+            else:
+                return _fixed_chunk_tail_vector_global(
+                    space=space,
+                    chunk_size=int(fixed_chunk_size),
+                    m=m,
+                    n_dofs=n_dofs,
+                    dtype=sample_fe.dtype,
+                    vector_accumulation=vector_accumulation,
+                    full_chunk_values_fn=full_chunk_values_fn,
+                    tail_values_fn=tail_values_fn,
+                )
+        else:
+            n_chunks, chunk_size, pad, n_pad, valid_mask = _prepare_chunk_iteration(
+                n_elems=int(n_elems),
+                n_chunks=n_chunks,
+                pad_trace=pad_trace,
+                fixed_chunk_size=fixed_chunk_size,
+                max_padded_elems=max_padded_elems,
+            )
+
+            use_chunk_context = bool(dep is None and chunk_build_context)
+            use_chunk_context, conn_pad, elem_ids, elem_data_pad = _prepare_chunk_context_source(
+                space,
+                n_pad=int(n_pad),
+                pad=int(pad),
+                dep=dep,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+                chunk_build_context=use_chunk_context,
+                elem_data=elem_data,
+            )
+            sample_ctx_b = _chunk_context_from_source(
+                space,
+                start=0,
+                chunk_size=1,
+                use_chunk_context=use_chunk_context,
+                conn_pad=conn_pad,
+                elem_ids=elem_ids,
+                ctxs_pad=elem_data_pad,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+            )
+            sample_ctx = jax.tree_util.tree_map(lambda x: x[0], sample_ctx_b)
+
+            sample_fe = per_element(sample_ctx)
+            if sparse:
+                def chunk_values_fn(start: int) -> Array:
+                    ctx_chunk = _chunk_context_from_source(
+                        space,
+                        start=start,
+                        chunk_size=chunk_size,
+                        use_chunk_context=use_chunk_context,
+                        conn_pad=conn_pad,
+                        elem_ids=elem_ids,
+                        ctxs_pad=elem_data_pad,
+                        include_x_q=include_x_q,
+                        lightweight_context=lightweight_context,
+                    )
+                    return jax.vmap(per_element)(ctx_chunk)
+
+                data = _accumulate_chunk_vector_data(
+                    n_chunks=n_chunks,
+                    chunk_size=chunk_size,
+                    n_pad=n_pad,
+                    m=m,
+                    dtype=sample_fe.dtype,
+                    valid_mask=valid_mask,
+                    chunk_values_fn=chunk_values_fn,
+                )
+                data = data[: n_elems * m]
+            else:
+                if pad:
+                    elem_dofs_pad = jnp.concatenate([elem_dofs, jnp.repeat(elem_dofs[-1:], pad, axis=0)], axis=0)
+                else:
+                    elem_dofs_pad = elem_dofs
+                def chunk_values_fn(start: int) -> Array:
+                    ctx_chunk = _chunk_context_from_source(
+                        space,
+                        start=start,
+                        chunk_size=chunk_size,
+                        use_chunk_context=use_chunk_context,
+                        conn_pad=conn_pad,
+                        elem_ids=elem_ids,
+                        ctxs_pad=elem_data_pad,
+                        include_x_q=include_x_q,
+                        lightweight_context=lightweight_context,
+                    )
+                    return jax.vmap(per_element)(ctx_chunk)
+
+                if vector_accumulation == "scatter":
+                    return _accumulate_chunk_vector_scatter(
+                        n_chunks=n_chunks,
+                        chunk_size=chunk_size,
+                        m=m,
+                        n_dofs=n_dofs,
+                        dtype=sample_fe.dtype,
+                        valid_mask=valid_mask,
+                        elem_dofs_pad=elem_dofs_pad,
+                        chunk_values_fn=chunk_values_fn,
+                    )
+                return _accumulate_chunk_vector_segment(
                     n_chunks=n_chunks,
                     chunk_size=chunk_size,
                     m=m,
@@ -1340,16 +1819,6 @@ def assemble_linear_form(
                     elem_dofs_pad=elem_dofs_pad,
                     chunk_values_fn=chunk_values_fn,
                 )
-            return _accumulate_chunk_vector_segment(
-                n_chunks=n_chunks,
-                chunk_size=chunk_size,
-                m=m,
-                n_dofs=n_dofs,
-                dtype=sample_fe.dtype,
-                valid_mask=valid_mask,
-                elem_dofs_pad=elem_dofs_pad,
-                chunk_values_fn=chunk_values_fn,
-            )
 
     rows = _get_elem_rows(space)
 
@@ -1394,6 +1863,9 @@ def assemble_bilinear_linear_pair(
         chunk_build_context=chunk_build_context,
         pad_trace=pad_trace,
     )
+    fixed_chunk_size, max_padded_elems, allow_tail_chunk = _resolve_bucket_policy(policy=policy)
+    if fixed_chunk_size is not None and n_chunks is not None:
+        raise ValueError("Use either n_chunks or fixed_chunk_size/max_padded_elems, not both.")
 
     if pattern is None:
         if hasattr(space, "get_sparsity_pattern"):
@@ -1441,7 +1913,7 @@ def assemble_bilinear_linear_pair(
                 include_x_q=include_x_q,
                 lightweight=lightweight_context,
             )
-        if n_chunks is None:
+        if n_chunks is None and fixed_chunk_size is None:
             assert elem_data is not None
             Ke = np.asarray(bilinear_kernel_batched(elem_data), dtype=float)
             Fe = np.asarray(linear_kernel_batched(elem_data), dtype=float)
@@ -1457,6 +1929,8 @@ def assemble_bilinear_linear_pair(
             n_elems=int(n_elems),
             n_chunks=n_chunks,
             pad_trace=pad_trace,
+            fixed_chunk_size=fixed_chunk_size,
+            max_padded_elems=max_padded_elems,
         )
         use_chunk_context = bool(dep is None and chunk_build_context)
         use_chunk_context, conn_pad, elem_ids, elem_data_pad = _prepare_chunk_context_source(
@@ -1511,7 +1985,15 @@ def assemble_bilinear_linear_pair(
         K_data = np.concatenate(K_parts, axis=0) if K_parts else np.zeros((0,), dtype=float)
         return FluxSparseMatrix(pat, K_data), F
 
-    if n_chunks is None or (jax.core.trace_ctx.is_top_level() and not chunk_build_context):
+    if (
+        (n_chunks is None and fixed_chunk_size is None)
+        or (
+            fixed_chunk_size is None
+            and n_chunks is not None
+            and jax.core.trace_ctx.is_top_level()
+            and not chunk_build_context
+        )
+    ):
         if elem_data is None:
             elem_data = space.build_form_contexts(
                 dep=dep,
@@ -1527,10 +2009,64 @@ def assemble_bilinear_linear_pair(
         F = jax.ops.segment_sum(F_data, rows, space.n_dofs)
         return FluxSparseMatrix(pat, K_data), F
 
+    if fixed_chunk_size is not None and max_padded_elems is None and allow_tail_chunk:
+        use_chunk_context = bool(dep is None and chunk_build_context)
+        use_chunk_context, conn_pad, elem_ids, elem_data_pad = _fixed_chunk_tail_context_source(
+            space,
+            dep=dep,
+            include_x_q=include_x_q,
+            lightweight_context=lightweight_context,
+            chunk_build_context=use_chunk_context,
+            elem_data=elem_data,
+        )
+        def full_chunk_values_fn(start: int) -> tuple[Array, Array]:
+            ctx_chunk = _chunk_context_from_source(
+                space,
+                start=start,
+                chunk_size=int(fixed_chunk_size),
+                use_chunk_context=use_chunk_context,
+                conn_pad=conn_pad,
+                elem_ids=elem_ids,
+                ctxs_pad=elem_data_pad,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+            )
+            return jax.vmap(bilinear_kernel)(ctx_chunk), jax.vmap(linear_kernel)(ctx_chunk)
+
+        def tail_values_fn(start: int, size: int) -> tuple[Array, Array]:
+            ctx_chunk = _chunk_context_from_source(
+                space,
+                start=start,
+                chunk_size=size,
+                use_chunk_context=use_chunk_context,
+                conn_pad=conn_pad,
+                elem_ids=elem_ids,
+                ctxs_pad=elem_data_pad,
+                include_x_q=include_x_q,
+                lightweight_context=lightweight_context,
+            )
+            return jax.vmap(bilinear_kernel)(ctx_chunk), jax.vmap(linear_kernel)(ctx_chunk)
+
+        sample_ke, sample_fe = full_chunk_values_fn(0)
+        K_data, F = _fixed_chunk_tail_matrix_and_vector(
+            space=space,
+            chunk_size=int(fixed_chunk_size),
+            m=int(sample_ke[0].shape[0]),
+            n_dofs=space.n_dofs,
+            matrix_dtype=sample_ke.dtype,
+            vector_dtype=sample_fe.dtype,
+            vector_accumulation=vector_accumulation,
+            full_chunk_values_fn=full_chunk_values_fn,
+            tail_values_fn=tail_values_fn,
+        )
+        return FluxSparseMatrix(pat, K_data), F
+
     n_chunks, chunk_size, pad, n_pad, valid_mask = _prepare_chunk_iteration(
         n_elems=int(n_elems),
         n_chunks=n_chunks,
         pad_trace=pad_trace,
+        fixed_chunk_size=fixed_chunk_size,
+        max_padded_elems=max_padded_elems,
     )
 
     use_chunk_context = bool(dep is None and chunk_build_context)

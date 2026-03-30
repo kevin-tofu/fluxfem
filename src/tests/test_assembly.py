@@ -384,6 +384,148 @@ def test_residual_numpy_backend_chunked_not_supported():
         space.assemble_residual(simple_residual, u, params=None, backend="numpy", policy=pol)
 
 
+def test_chunk_pad_stats_bucketed_static_shape():
+    stats_a = ff.chunk_pad_stats(5, None, fixed_chunk_size=4, max_padded_elems=8)
+    stats_b = ff.chunk_pad_stats(7, None, fixed_chunk_size=4, max_padded_elems=8)
+
+    assert stats_a["chunk_size"] == 4
+    assert stats_b["chunk_size"] == 4
+    assert stats_a["n_pad"] == 8
+    assert stats_b["n_pad"] == 8
+    assert stats_a["pad"] == 3
+    assert stats_b["pad"] == 1
+
+
+@pytest.mark.parametrize("nx", [5, 7])
+def test_residual_bucketed_policy_matches_default(nx):
+    mesh = ff.StructuredHexBox(nx=nx, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+    policy = ff.AssemblyPolicy.bucketed(bucket_size=8, chunk_size=4)
+
+    def simple_residual(ctx, u_elem, _params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    r_ref = np.asarray(space.assemble_residual(simple_residual, u, params=None))
+    r_bucket = np.asarray(space.assemble_residual(simple_residual, u, params=None, policy=policy))
+    assert np.allclose(r_ref, r_bucket)
+
+
+@pytest.mark.parametrize("nx", [5, 7])
+def test_core_volume_assembly_bucketed_policy_matches_default(nx):
+    mesh = ff.StructuredHexBox(nx=nx, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    policy = ff.AssemblyPolicy.bucketed(bucket_size=8, chunk_size=4)
+
+    k_ref = np.asarray(space.assemble(ff.diffusion_form, params=1.0).to_dense())
+    k_bucket = np.asarray(space.assemble(ff.diffusion_form, params=1.0, policy=policy).to_dense())
+    assert np.allclose(k_ref, k_bucket)
+
+    f_ref = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0))
+    f_bucket = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0, policy=policy))
+    assert np.allclose(f_ref, f_bucket)
+
+    m_ref = np.asarray(space.assemble_mass_matrix().to_dense())
+    m_bucket = np.asarray(space.assemble_mass_matrix(policy=policy).to_dense())
+    assert np.allclose(m_ref, m_bucket)
+
+    a_ref, b_ref = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+    )
+    a_bucket, b_bucket = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+        policy=policy,
+    )
+    assert np.allclose(np.asarray(a_ref.to_dense()), np.asarray(a_bucket.to_dense()))
+    assert np.allclose(np.asarray(b_ref), np.asarray(b_bucket))
+
+
+@pytest.mark.parametrize("nx", [5, 7])
+def test_core_volume_assembly_fixed_chunk_tail_policy_matches_default(nx):
+    mesh = ff.StructuredHexBox(nx=nx, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    policy = ff.AssemblyPolicy.fixed_chunk(chunk_size=4, chunk_build_context=True)
+
+    k_ref = np.asarray(space.assemble(ff.diffusion_form, params=1.0).to_dense())
+    k_tail = np.asarray(space.assemble(ff.diffusion_form, params=1.0, policy=policy).to_dense())
+    assert np.allclose(k_ref, k_tail)
+
+    f_ref = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0))
+    f_tail = np.asarray(space.assemble(ff.scalar_body_force_form, params=2.0, policy=policy))
+    assert np.allclose(f_ref, f_tail)
+
+    m_ref = np.asarray(space.assemble_mass_matrix().to_dense())
+    m_tail = np.asarray(space.assemble_mass_matrix(policy=policy).to_dense())
+    assert np.allclose(m_ref, m_tail)
+
+    a_ref, b_ref = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+    )
+    a_tail, b_tail = space.assemble_bilinear_linear_pair(
+        ff.diffusion_form,
+        1.0,
+        ff.scalar_body_force_form,
+        2.0,
+        policy=policy,
+    )
+    assert np.allclose(np.asarray(a_ref.to_dense()), np.asarray(a_tail.to_dense()))
+    assert np.allclose(np.asarray(b_ref), np.asarray(b_tail))
+
+
+@pytest.mark.parametrize("nx", [5, 7])
+def test_jacobian_bucketed_policy_matches_default(nx):
+    mesh = ff.StructuredHexBox(nx=nx, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+    policy = ff.AssemblyPolicy.bucketed(bucket_size=8, chunk_size=4)
+
+    def simple_residual(ctx, u_elem, _params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    j_ref = np.asarray(space.assemble_jacobian(simple_residual, u, params=None).to_dense())
+    j_bucket = np.asarray(space.assemble_jacobian(simple_residual, u, params=None, policy=policy).to_dense())
+    assert np.allclose(j_ref, j_bucket)
+
+
+@pytest.mark.parametrize("nx", [5, 7])
+def test_residual_fixed_chunk_tail_policy_matches_default(nx):
+    mesh = ff.StructuredHexBox(nx=nx, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+    policy = ff.AssemblyPolicy.fixed_chunk(chunk_size=4, chunk_build_context=True)
+
+    def simple_residual(ctx, u_elem, _params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    r_ref = np.asarray(space.assemble_residual(simple_residual, u, params=None))
+    r_tail = np.asarray(space.assemble_residual(simple_residual, u, params=None, policy=policy))
+    assert np.allclose(r_ref, r_tail)
+
+
+@pytest.mark.parametrize("nx", [5, 7])
+def test_jacobian_fixed_chunk_tail_policy_matches_default(nx):
+    mesh = ff.StructuredHexBox(nx=nx, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    u = jnp.linspace(0.0, 1.0, space.n_dofs, dtype=jnp.float32)
+    policy = ff.AssemblyPolicy.fixed_chunk(chunk_size=4, chunk_build_context=True)
+
+    def simple_residual(ctx, u_elem, _params):
+        return jnp.broadcast_to(u_elem, (ctx.w.shape[0], u_elem.shape[0]))
+
+    j_ref = np.asarray(space.assemble_jacobian(simple_residual, u, params=None).to_dense())
+    j_tail = np.asarray(space.assemble_jacobian(simple_residual, u, params=None, policy=policy).to_dense())
+    assert np.allclose(j_ref, j_tail)
+
+
 def test_numpy_backend_sparse_outputs_match_jax():
     mesh = ff.StructuredHexBox(nx=4, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)

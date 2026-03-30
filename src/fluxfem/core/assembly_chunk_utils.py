@@ -11,13 +11,36 @@ from .forms import FormContext
 Array = jnp.ndarray
 
 
-def chunk_pad_stats(n_elems: int, n_chunks: Optional[int]) -> dict[str, int | float | None]:
+def chunk_pad_stats(
+    n_elems: int,
+    n_chunks: Optional[int],
+    *,
+    fixed_chunk_size: int | None = None,
+    max_padded_elems: int | None = None,
+) -> dict[str, int | float | None]:
     """
     Compute padding overhead for chunked assembly.
     Returns dict with chunk_size, pad, n_pad, and pad_ratio.
     """
     n_elems = int(n_elems)
-    if n_chunks is None or n_elems <= 0:
+    if n_elems <= 0:
+        return {"chunk_size": None, "pad": 0, "n_pad": n_elems, "pad_ratio": 0.0}
+    if fixed_chunk_size is not None:
+        chunk_size = int(fixed_chunk_size)
+        if chunk_size <= 0:
+            raise ValueError("fixed_chunk_size must be a positive integer.")
+        if max_padded_elems is None:
+            n_pad = ((n_elems + chunk_size - 1) // chunk_size) * chunk_size
+        else:
+            n_pad = int(max_padded_elems)
+            if n_pad < n_elems:
+                raise ValueError("max_padded_elems must be >= n_elems.")
+            if n_pad % chunk_size != 0:
+                raise ValueError("max_padded_elems must be a multiple of fixed_chunk_size.")
+        pad = n_pad - n_elems
+        pad_ratio = float(pad) / float(n_elems) if n_elems else 0.0
+        return {"chunk_size": int(chunk_size), "pad": int(pad), "n_pad": int(n_pad), "pad_ratio": pad_ratio}
+    if n_chunks is None:
         return {"chunk_size": None, "pad": 0, "n_pad": n_elems, "pad_ratio": 0.0}
     n_chunks = min(int(n_chunks), n_elems)
     chunk_size = (n_elems + n_chunks - 1) // n_chunks
@@ -55,16 +78,30 @@ def _prepare_chunk_iteration(
     n_elems: int,
     n_chunks: int | None,
     pad_trace: bool,
+    fixed_chunk_size: int | None = None,
+    max_padded_elems: int | None = None,
 ) -> tuple[int, int, int, int, Array]:
-    if n_chunks is None or n_chunks <= 0:
-        raise ValueError("n_chunks must be a positive integer.")
-    n_chunks_eff = min(int(n_chunks), int(n_elems))
-    chunk_size = (int(n_elems) + n_chunks_eff - 1) // n_chunks_eff
-    stats = chunk_pad_stats(n_elems, n_chunks_eff)
-    _maybe_trace_pad(stats, n_chunks=n_chunks_eff, pad_trace=pad_trace)
-    pad = (-int(n_elems)) % chunk_size
-    n_pad = int(n_elems) + pad
-    n_chunks_eff = n_pad // chunk_size
+    if fixed_chunk_size is not None:
+        stats = chunk_pad_stats(
+            n_elems,
+            None,
+            fixed_chunk_size=fixed_chunk_size,
+            max_padded_elems=max_padded_elems,
+        )
+        chunk_size = int(stats["chunk_size"])
+        pad = int(stats["pad"])
+        n_pad = int(stats["n_pad"])
+        n_chunks_eff = n_pad // chunk_size
+    else:
+        if n_chunks is None or n_chunks <= 0:
+            raise ValueError("n_chunks must be a positive integer.")
+        n_chunks_eff = min(int(n_chunks), int(n_elems))
+        chunk_size = (int(n_elems) + n_chunks_eff - 1) // n_chunks_eff
+        stats = chunk_pad_stats(n_elems, n_chunks_eff)
+        _maybe_trace_pad(stats, n_chunks=n_chunks_eff, pad_trace=pad_trace)
+        pad = (-int(n_elems)) % chunk_size
+        n_pad = int(n_elems) + pad
+        n_chunks_eff = n_pad // chunk_size
     valid_mask = jnp.arange(int(n_pad), dtype=INDEX_DTYPE) < int(n_elems)
     return int(n_chunks_eff), int(chunk_size), int(pad), int(n_pad), valid_mask
 

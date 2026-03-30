@@ -62,6 +62,7 @@ def newton_solve(
     external_vector: np.ndarray | None = None,
     jacobian_pattern: SparsityPattern | None = None,
     extra_terms: list[ExtraTerm] | None = None,
+    assembly_policy: Any | None = None,
 ) -> tuple[np.ndarray, SolverResult]:
     """
     Gridap-style Newton–Raphson solver on free DOFs only.
@@ -212,7 +213,14 @@ def newton_solve(
 
     def assemble_R(u_full_vec):
         nonlocal extra_metrics
-        R = assemble_residual_scatter(space, res_form, u_full_vec, params, kernel=res_kernel)
+        R = assemble_residual_scatter(
+            space,
+            res_form,
+            u_full_vec,
+            params,
+            kernel=res_kernel,
+            policy=assembly_policy,
+        )
         extra_out = _call_extra(u_full_vec)
         if extra_out is not None:
             _Kc, fc, metrics = extra_out
@@ -231,6 +239,7 @@ def newton_solve(
             params,
             kernel=jac_kernel,
             pattern=J_pattern,
+            policy=assembly_policy,
         )
         extra_out = _call_extra(u_full_vec)
         if extra_out is not None:
@@ -268,6 +277,7 @@ def newton_solve(
             print(f"[PRECOND] diag0 ready dt={pre_dt0:.3f}s", flush=True)
 
     # Initial residual/Jacobian
+    t_init_r0 = time.perf_counter()
     R_full_init = assemble_R(expand_full(u))
     if external_vector is not None:
         R_full_init = R_full_init - external_vector
@@ -287,6 +297,7 @@ def newton_solve(
     res0_inf = float(jnp.linalg.norm(R_free, ord=jnp.inf))
     res0_two = float(jnp.linalg.norm(R_free, ord=2))
     u_full = expand_full(u)
+    init_residual_dt = time.perf_counter() - t_init_r0
     if res0_inf == 0.0:
         return expand_full(u), SolverResult(
             converged=True,
@@ -300,18 +311,41 @@ def newton_solve(
         )
 
     if callback is not None:
-        payload = {"iter": 0, "res_inf": res0_inf, "res_two": res0_two, "rel_residual": 1.0, "alpha": 1.0, "step_norm": np.nan}
+        payload = {
+            "iter": 0,
+            "res_inf": res0_inf,
+            "res_two": res0_two,
+            "rel_residual": 1.0,
+            "alpha": 1.0,
+            "step_norm": np.nan,
+            "initial_residual_time": init_residual_dt,
+        }
         if extra_metrics is not None:
             payload["extra_metrics"] = extra_metrics
         callback(payload)
 
     if not use_matfree:
+        t_init_j0 = time.perf_counter()
         J = assemble_J(u_full)
         finite_j = jnp.all(jnp.isfinite(J.data))
         if not bool(jax.block_until_ready(finite_j)):
             n_bad = int(jnp.size(J.data) - jnp.count_nonzero(jnp.isfinite(J.data)))
             raise RuntimeError(f"[newton] init Jacobian has non-finite entries: {n_bad}")
         J_free = restrict_free_matrix(J)
+        init_jacobian_dt = time.perf_counter() - t_init_j0
+        if callback is not None:
+            payload = {
+                "iter": 0,
+                "res_inf": res0_inf,
+                "res_two": res0_two,
+                "rel_residual": 1.0,
+                "alpha": 1.0,
+                "step_norm": np.nan,
+                "initial_jacobian_time": init_jacobian_dt,
+            }
+            if extra_metrics is not None:
+                payload["extra_metrics"] = extra_metrics
+            callback(payload)
     else:
         J = None
         J_free = None
@@ -579,6 +613,9 @@ def newton_solve(
 
         # callback
         if callback is not None:
+            iter_total_dt = time.perf_counter() - t_iter0
+            accounted_dt = rhs_dt + pre_dt + linearize_dt + lin_dt + eval_dt
+            control_dt = max(0.0, iter_total_dt - accounted_dt)
             payload = {
                 "iter": k + 1,
                 "res_inf": res_trial_inf,
@@ -590,8 +627,15 @@ def newton_solve(
                 "linear_converged": linear_converged,
                 "linear_residual": lr,
                 "linear_solve_time": linear_solve_time,
+                "linear_wall_time": lin_dt,
                 "pc_setup_time": pc_setup_time,
                 "pmat_build_time": pmat_build_time,
+                "preconditioner_time": pre_dt,
+                "rhs_time": rhs_dt,
+                "linearize_time": linearize_dt,
+                "eval_time": eval_dt,
+                "control_time": control_dt,
+                "iter_total_time": iter_total_dt,
                 "nan_detected": bool(np.isnan(res_trial_inf)),
             }
             if extra_metrics is not None:

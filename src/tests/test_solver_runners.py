@@ -6,6 +6,8 @@ import jax
 jax.config.update("jax_enable_x64", True)
 
 import fluxfem as ff
+import fluxfem.solver.newton as ff_newton
+from fluxfem.tools.timer import SectionTimer
 
 
 def test_linear_solve_runner_matches_direct():
@@ -197,6 +199,141 @@ def test_newton_solve_runner_trivial_zero_load():
     runner = ff.NewtonSolveRunner(analysis, cfg)
     u, history = runner.run(u0=jnp.zeros(space.n_dofs))
     assert history[-1].info.converged
+    np.testing.assert_allclose(np.asarray(u), 0.0, atol=1e-12)
+
+
+def test_newton_solve_runner_records_newton_timing():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    mesh = mesh.__class__(
+        coords=jnp.asarray(mesh.coords, dtype=jnp.float64),
+        conn=mesh.conn,
+        cell_tags=getattr(mesh, "cell_tags", None),
+        node_tags=getattr(mesh, "node_tags", None),
+    )
+    space = ff.make_hex_space(mesh, dim=3, intorder=2)
+    lam, mu = ff.lame_parameters(10.0, 0.3)
+    params = {"mu": mu, "lam": lam}
+    xmin = float(np.asarray(mesh.coords)[:, 0].min())
+    dir_dofs = mesh.boundary_dofs_where(
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
+        components="xyz",
+    )
+    dir_vals = np.zeros(len(dir_dofs))
+
+    analysis = ff.NonlinearAnalysis(
+        space=space,
+        residual_form=ff.neo_hookean_residual_form,
+        params=params,
+        base_external_vector=jnp.zeros(space.n_dofs, dtype=jnp.float64),
+        dirichlet=(dir_dofs, dir_vals),
+        dtype=jnp.float64,
+    )
+    cfg = ff.NewtonLoopConfig(maxiter=2, n_steps=1)
+    runner = ff.NewtonSolveRunner(analysis, cfg)
+    timer = SectionTimer(hierarchical=True)
+
+    u, history = runner.run(u0=jnp.zeros(space.n_dofs), timer=timer, report_timing=False)
+
+    assert history[-1].info.converged
+    assert "run_total>preprocess>step>newton_solve" in timer._records
+    assert len(timer._records["run_total>preprocess>step>newton_solve"]) == 1
+    assert history[-1].solve_time >= 0.0
+    np.testing.assert_allclose(np.asarray(u), 0.0, atol=1e-12)
+
+
+def test_newton_solve_runner_records_timing_breakdown_fields():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    mesh = mesh.__class__(
+        coords=jnp.asarray(mesh.coords, dtype=jnp.float64),
+        conn=mesh.conn,
+        cell_tags=getattr(mesh, "cell_tags", None),
+        node_tags=getattr(mesh, "node_tags", None),
+    )
+    space = ff.make_hex_space(mesh, dim=3, intorder=2)
+    lam, mu = ff.lame_parameters(10.0, 0.3)
+    params = {"mu": mu, "lam": lam}
+    xmin = float(np.asarray(mesh.coords)[:, 0].min())
+    dir_dofs = mesh.boundary_dofs_where(
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
+        components="xyz",
+    )
+    dir_vals = np.zeros(len(dir_dofs))
+    F = jnp.zeros(space.n_dofs, dtype=jnp.float64).at[-1].set(1e-4)
+
+    analysis = ff.NonlinearAnalysis(
+        space=space,
+        residual_form=ff.neo_hookean_residual_form,
+        params=params,
+        base_external_vector=F,
+        dirichlet=(dir_dofs, dir_vals),
+        dtype=jnp.float64,
+    )
+    cfg = ff.NewtonLoopConfig(maxiter=1, n_steps=1, line_search=False)
+    runner = ff.NewtonSolveRunner(analysis, cfg)
+
+    _u, history = runner.run(u0=jnp.zeros(space.n_dofs), report_timing=False)
+
+    assert history
+    assert history[-1].iter_history
+    init_records = [rec for rec in history[-1].iter_history if rec.iter == 0]
+    step_records = [rec for rec in history[-1].iter_history if rec.iter == 1]
+    assert init_records
+    assert any(rec.initial_residual_time is not None for rec in init_records)
+    assert any(rec.initial_jacobian_time is not None for rec in init_records)
+    assert step_records
+    assert step_records[-1].control_time is not None
+    assert step_records[-1].iter_total_time is not None
+
+
+def test_newton_solve_runner_forwards_assembly_policy(monkeypatch):
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    mesh = mesh.__class__(
+        coords=jnp.asarray(mesh.coords, dtype=jnp.float64),
+        conn=mesh.conn,
+        cell_tags=getattr(mesh, "cell_tags", None),
+        node_tags=getattr(mesh, "node_tags", None),
+    )
+    space = ff.make_hex_space(mesh, dim=3, intorder=2)
+    lam, mu = ff.lame_parameters(10.0, 0.3)
+    params = {"mu": mu, "lam": lam}
+    xmin = float(np.asarray(mesh.coords)[:, 0].min())
+    dir_dofs = mesh.boundary_dofs_where(
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
+        components="xyz",
+    )
+    dir_vals = np.zeros(len(dir_dofs))
+    policy = ff.AssemblyPolicy.bucketed(bucket_size=8, chunk_size=4)
+    seen: list[object] = []
+
+    orig_res = ff_newton.assemble_residual_scatter
+    orig_jac = ff_newton.assemble_jacobian_scatter
+
+    def wrap_res(*args, **kwargs):
+        seen.append(kwargs.get("policy"))
+        return orig_res(*args, **kwargs)
+
+    def wrap_jac(*args, **kwargs):
+        seen.append(kwargs.get("policy"))
+        return orig_jac(*args, **kwargs)
+
+    monkeypatch.setattr(ff_newton, "assemble_residual_scatter", wrap_res)
+    monkeypatch.setattr(ff_newton, "assemble_jacobian_scatter", wrap_jac)
+
+    analysis = ff.NonlinearAnalysis(
+        space=space,
+        residual_form=ff.neo_hookean_residual_form,
+        params=params,
+        base_external_vector=jnp.zeros(space.n_dofs, dtype=jnp.float64),
+        dirichlet=(dir_dofs, dir_vals),
+        assembly_policy=policy,
+        dtype=jnp.float64,
+    )
+    cfg = ff.NewtonLoopConfig(maxiter=2, n_steps=1)
+    runner = ff.NewtonSolveRunner(analysis, cfg)
+    u, history = runner.run(u0=jnp.zeros(space.n_dofs))
+
+    assert history[-1].info.converged
+    assert any(p is policy for p in seen)
     np.testing.assert_allclose(np.asarray(u), 0.0, atol=1e-12)
 
 
