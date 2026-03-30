@@ -134,11 +134,12 @@ def test_contact_operator_method_aliases_match_existing_entrypoints():
         multiplier=mult,
         backend="numpy",
     )
-    ops_alias = contact.assemble_constraint_operators(
-        rho=3.0,
-        multiplier=mult,
-        backend="numpy",
-    )
+    with pytest.warns(DeprecationWarning, match="assemble_constraint_operators"):
+        ops_alias = contact.assemble_constraint_operators(
+            rho=3.0,
+            multiplier=mult,
+            backend="numpy",
+        )
 
     assert np.allclose(np.asarray(ops_top.B), np.asarray(ops_method.B), atol=1e-12)
     assert np.allclose(np.asarray(ops_top.B), np.asarray(ops_alias.B), atol=1e-12)

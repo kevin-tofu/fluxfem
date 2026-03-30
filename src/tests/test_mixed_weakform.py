@@ -1,4 +1,6 @@
 """Mixed weak-form assembly tests."""
+import warnings
+
 import numpy as np
 import jax.numpy as jnp
 import pytest
@@ -22,6 +24,26 @@ def _make_mixed_space():
         }
     ).to_fe_space()
     return mixed
+
+
+def _build_mixed_role_space(mesh):
+    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
+    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="MixedRoleSpaces is experimental.*",
+            category=UserWarning,
+        )
+        mixed = ff.MixedRoleSpaces(
+            {
+                "u": ff.ResidualSpaces(
+                    test=ff.NamedSpace("V", vector),
+                    unknown=ff.NamedSpace("U", scalar),
+                ),
+            }
+        ).to_fe_space()
+    return mixed, scalar, vector
 
 
 def test_mixedspace_helper_uses_namedspace_names_as_field_keys():
@@ -390,17 +412,7 @@ def test_mixed_role_spaces_preserve_distinct_role_layouts():
 
 def test_mixed_role_spaces_assemble_residual_with_distinct_role_layouts():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     u = {"u": jnp.linspace(0.0, 1.0, mixed.n_unknown_dofs, dtype=jnp.float32)}
 
@@ -417,17 +429,7 @@ def test_mixed_role_spaces_assemble_residual_with_distinct_role_layouts():
 
 def test_mixed_role_spaces_assemble_jacobian_with_distinct_role_layouts():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     u = {"u": jnp.linspace(0.0, 1.0, mixed.n_unknown_dofs, dtype=jnp.float32)}
 
@@ -445,17 +447,7 @@ def test_mixed_role_spaces_assemble_jacobian_with_distinct_role_layouts():
 
 def test_mixed_role_spaces_assemble_compiled_residual_with_space_binding():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     u = {"u": jnp.linspace(0.0, 1.0, mixed.n_unknown_dofs, dtype=jnp.float32)}
 
@@ -473,17 +465,7 @@ def test_mixed_role_spaces_assemble_compiled_residual_with_space_binding():
 
 def test_mixed_role_spaces_assemble_compiled_jacobian_with_space_binding():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     u = {"u": jnp.linspace(0.0, 1.0, mixed.n_unknown_dofs, dtype=jnp.float32)}
 
@@ -500,17 +482,7 @@ def test_mixed_role_spaces_assemble_compiled_jacobian_with_space_binding():
 
 def test_mixed_role_spaces_reject_compiled_surface_residuals():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     u = {"u": jnp.linspace(0.0, 1.0, mixed.n_unknown_dofs, dtype=jnp.float32)}
 
@@ -530,17 +502,7 @@ def test_mixed_role_spaces_reject_compiled_surface_residuals():
 
 def test_mixed_role_spaces_reject_block_system_helpers():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     with pytest.raises(NotImplementedError, match="build_block_system"):
         mixed.build_block_system(diag={"u": np.eye(mixed.n_unknown_dofs)})
@@ -548,17 +510,7 @@ def test_mixed_role_spaces_reject_block_system_helpers():
 
 def test_mixed_role_block_system_splits_unknown_and_residual_layouts():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     K = np.eye(mixed.n_unknown_dofs)
     R = np.arange(mixed.n_residual_dofs, dtype=float)
@@ -575,17 +527,7 @@ def test_mixed_role_block_system_splits_unknown_and_residual_layouts():
 
 def test_mixed_role_block_system_free_unknown_dofs_follow_unknown_dirichlet():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     bc = ff.DirichletBC(np.array([0, 2], dtype=int), np.array([0.0, 0.0], dtype=float))
     system = mixed.build_role_block_system(np.eye(mixed.n_unknown_dofs), np.zeros(mixed.n_residual_dofs), unknown_dirichlet=bc)
@@ -598,17 +540,7 @@ def test_mixed_role_block_system_free_unknown_dofs_follow_unknown_dirichlet():
 
 def test_build_mixed_role_block_system_builds_rectangular_flux_operator():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     block = np.zeros((mixed.n_residual_dofs, mixed.n_unknown_dofs))
     block[0, 0] = 2.0
@@ -627,17 +559,7 @@ def test_build_mixed_role_block_system_builds_rectangular_flux_operator():
 
 def test_build_mixed_role_block_system_accepts_nested_blocks_and_dense_format():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     block = np.eye(mixed.n_unknown_dofs)
     block = np.pad(block, ((0, mixed.n_residual_dofs - mixed.n_unknown_dofs), (0, 0)))
@@ -656,17 +578,7 @@ def test_build_mixed_role_block_system_accepts_nested_blocks_and_dense_format():
 
 def test_mixed_role_block_system_condense_unknown_flux_operator():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     K = np.zeros((mixed.n_residual_dofs, mixed.n_unknown_dofs))
     K[0, 0] = 2.0
@@ -691,17 +603,7 @@ def test_mixed_role_block_system_condense_unknown_flux_operator():
 
 def test_mixed_role_block_system_condense_unknown_dense_matrix():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
-    scalar = ff.make_hex_space(mesh, dim=1, intorder=2)
-    vector = ff.make_hex_space(mesh, dim=3, intorder=2)
-
-    mixed = ff.MixedRoleSpaces(
-        {
-            "u": ff.ResidualSpaces(
-                test=ff.NamedSpace("V", vector),
-                unknown=ff.NamedSpace("U", scalar),
-            ),
-        }
-    ).to_fe_space()
+    mixed, _, _ = _build_mixed_role_space(mesh)
 
     K = np.zeros((mixed.n_residual_dofs, mixed.n_unknown_dofs))
     K[2, 0] = -4.0
