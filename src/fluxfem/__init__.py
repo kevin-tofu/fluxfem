@@ -168,6 +168,8 @@ __all__ = [
     "build_barycentric_embedding_map_from_meshes",
     "assemble_embedding_constraint_matrix",
     "assemble_rbe2_constraint_matrix",
+    "assemble_rbe3_constraint_matrix",
+    "build_rbe3_weights",
     "OneSidedContact",
     "PreparedOneSidedContactInterface",
     "OneSidedContactSurfaceSpace",

@@ -881,9 +881,197 @@ def test_builder_add_constraint_with_embedding_spec():
     assert np.allclose(Kd[1, 2], -1.0, atol=1e-12)
 
 
+def test_builder_append_field_extends_structural_system():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.array([1.0, 2.0], dtype=float))
+    builder.register_field("base", n_dofs=2, value_dim=1, offset=0)
+    builder.append_field("remote", n_dofs=3, value_dim=1, F_block=np.array([3.0, 4.0, 5.0], dtype=float))
+
+    remote = builder._get_block("remote")
+    assert remote.offset == 2
+    assert remote.n_dofs == 3
+    assert builder.system.K_u.shape == (5, 5)
+    assert np.allclose(builder.system.F_u, np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=float), atol=1e-12)
+
+
+def test_builder_append_remote_point_registers_6dof_field():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder.append_remote_point("remote", point=np.array([1.0, 2.0, 3.0], dtype=float))
+
+    remote = builder._get_block("remote")
+    assert remote.offset == 0
+    assert remote.n_dofs == 6
+    assert np.allclose(remote.point, np.array([1.0, 2.0, 3.0], dtype=float), atol=1e-12)
+
+
+def test_builder_add_field_matrix_and_dof_spring():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder.append_field("remote", n_dofs=2, value_dim=1)
+    builder.add_field_matrix(
+        "remote",
+        np.array([[2.0, -1.0], [-1.0, 2.0]], dtype=float),
+        F_local=np.array([0.5, -0.5], dtype=float),
+    )
+    builder.add_dof_spring("remote", local_dofs=[1], stiffness=3.0, reference_value=2.0)
+
+    K, F = builder.build().assemble(format="csr")
+    Kd = K.toarray()
+    assert np.allclose(Kd, np.array([[2.0, -1.0], [-1.0, 5.0]], dtype=float), atol=1e-12)
+    assert np.allclose(F, np.array([0.5, 5.5], dtype=float), atol=1e-12)
+
+
+def test_builder_add_remote_spring_for_6dof_remote_point():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
+    builder.add_remote_spring(
+        "remote",
+        translational_stiffness=np.array([10.0, 20.0, 30.0], dtype=float),
+        rotational_stiffness=np.array([4.0, 5.0, 6.0], dtype=float),
+        translational_target=np.array([1.0, 0.0, -1.0], dtype=float),
+        rotational_target=np.array([0.5, 0.0, 0.0], dtype=float),
+    )
+
+    K, F = builder.build().assemble(format="csr")
+    Kd = K.toarray()
+    assert np.allclose(np.diag(Kd), np.array([10.0, 20.0, 30.0, 4.0, 5.0, 6.0], dtype=float), atol=1e-12)
+    assert np.allclose(F, np.array([10.0, 0.0, -30.0, 2.0, 0.0, 0.0], dtype=float), atol=1e-12)
+
+
+def test_builder_remote_rbe2_spring_flow():
+    K_u = sp.eye(3, format="csr")
+    F_u = np.zeros((3,), dtype=float)
+
+    builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+    builder.register_field("slave", n_dofs=3, value_dim=1, offset=0)
+    builder.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
+    builder.add_remote_spring(
+        "remote",
+        translational_stiffness=np.array([20.0, 20.0, 20.0], dtype=float),
+        rotational_stiffness=np.array([5.0, 5.0, 5.0], dtype=float),
+        translational_target=np.array([1.0, 0.0, 0.0], dtype=float),
+    )
+    builder.add_rbe2_constraint(
+        master="remote",
+        slave="slave",
+        ref_point=np.array([0.0, 0.0, 0.0], dtype=float),
+        slave_coords=np.array([[1.0, 0.0, 0.0]], dtype=float),
+        rho=0.0,
+        backend="numpy",
+    )
+
+    u = np.asarray(builder.build().solve(format="csr", diagonal_shift=1e-8), dtype=float)
+    q_slave = u[:3]
+    q_remote = u[3:9]
+
+    # The remote spring is balanced by the slave structural stiffness through the
+    # RBE2 constraint, so the target displacement is approached but not matched
+    # exactly for finite spring stiffness.
+    assert np.allclose(q_slave, q_remote[:3], atol=1e-6)
+    assert np.allclose(q_remote[:3], np.array([20.0 / 21.0, 0.0, 0.0]), atol=1e-6)
+
+
+def test_builder_add_constraint_with_rbe2_spec():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(3, format="csr"), np.zeros((3,), dtype=float))
+    builder.register_field("slave", n_dofs=3, value_dim=1, offset=0)
+    builder.append_field("remote", n_dofs=6, value_dim=1)
+    spec = ff.ConstraintSpec(
+        kind="rbe2",
+        master="remote",
+        slave="slave",
+        ref_point=np.array([0.0, 0.0, 0.0], dtype=float),
+        slave_coords=np.array([[1.0, 0.0, 0.0]], dtype=float),
+        rho=0.0,
+    )
+    builder.add_constraint(spec)
+    K, _ = builder.build().assemble(format="csr")
+    assert K.shape == (12, 12)
+
+
+def test_builder_add_rbe3_constraint_preserves_rigid_motion():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    x_slave = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((12, 12)), np.zeros((12,), dtype=float))
+    builder.register_field("remote", n_dofs=6, value_dim=1, offset=0)
+    builder.register_field("slave", n_dofs=6, value_dim=1, offset=6)
+    builder.add_rbe3_constraint(
+        master="remote",
+        slave="slave",
+        ref_point=x_ref,
+        slave_coords=x_slave,
+        weights=np.array([0.25, 0.75], dtype=float),
+        rho=0.0,
+        backend="numpy",
+    )
+    K, _ = builder.build().assemble(format="csr")
+    Kd = K.toarray()
+    C = Kd[12:, :12]
+
+    u_ref = np.array([0.2, -0.1, 0.05], dtype=float)
+    w_ref = np.array([0.0, 0.0, 0.4], dtype=float)
+    u_s = np.asarray([u_ref + np.cross(w_ref, p - x_ref) for p in x_slave], dtype=float).reshape(-1)
+    q = np.concatenate([u_ref, w_ref, u_s], axis=0)
+    assert np.allclose(C @ q, np.zeros((6,), dtype=float), atol=1e-12)
+
+
+def test_builder_allows_multiple_rbe3_constraints():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder.append_field("remote_a", n_dofs=6, value_dim=1)
+    builder.append_field("slave_a", n_dofs=6, value_dim=1)
+    builder.append_field("remote_b", n_dofs=6, value_dim=1)
+    builder.append_field("slave_b", n_dofs=6, value_dim=1)
+
+    builder.add_rbe3_constraint(
+        master="remote_a",
+        slave="slave_a",
+        ref_point=np.array([0.0, 0.0, 0.0], dtype=float),
+        slave_coords=np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=float),
+        weights=np.array([1.0, 1.0], dtype=float),
+        rho=0.0,
+    )
+    builder.add_rbe3_constraint(
+        master="remote_b",
+        slave="slave_b",
+        ref_point=np.array([2.0, 0.0, 0.0], dtype=float),
+        slave_coords=np.array([[2.0, 1.0, 0.0], [2.0, 0.0, 1.0]], dtype=float),
+        weights=np.array([2.0, 1.0], dtype=float),
+        rho=0.0,
+    )
+
+    K, _ = builder.build().assemble(format="csr")
+    # 24 structural dofs + 6 + 6 lambda rows from two RBE3 constraints
+    assert K.shape == (36, 36)
+
+
+def test_builder_add_constraint_with_rbe3_spec():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((12, 12)), np.zeros((12,), dtype=float))
+    builder.register_field("remote", n_dofs=6, value_dim=1, offset=0)
+    builder.register_field("slave", n_dofs=6, value_dim=1, offset=6)
+    spec = ff.ConstraintSpec(
+        kind="rbe3",
+        master="remote",
+        slave="slave",
+        ref_point=np.array([0.0, 0.0, 0.0], dtype=float),
+        slave_coords=np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=float),
+        weights=np.array([1.0, 1.0], dtype=float),
+        rho=0.0,
+    )
+    builder.add_constraint(spec)
+    K, _ = builder.build().assemble(format="csr")
+    assert K.shape == (18, 18)
+
+
 def test_constraint_spec_rejects_missing_payload():
     with pytest.raises(ValueError, match="requires C"):
         ff.ConstraintSpec(kind="matrix", master="a", slave="b")
+    with pytest.raises(ValueError, match="requires ref_point and slave_coords"):
+        ff.ConstraintSpec(kind="rbe2", master="a", slave="b")
+    with pytest.raises(ValueError, match="requires ref_point and slave_coords"):
+        ff.ConstraintSpec(kind="rbe3", master="a", slave="b")
 
 
 def test_coupled_system_builder_add_contact_prefers_explicit_contribution_without_warning():

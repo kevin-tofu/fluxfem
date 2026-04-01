@@ -1026,6 +1026,158 @@ def assemble_rbe2_constraint_matrix(
     return C
 
 
+def assemble_rbe3_constraint_matrix(
+    ref_point: np.ndarray,
+    slave_coords: np.ndarray,
+    *,
+    weights: np.ndarray | None = None,
+    normalize_weights: bool = True,
+    backend: str = "numpy",
+):
+    """
+    Assemble a weighted 3D RBE3-style interpolation constraint.
+
+    Unknown ordering:
+      q = [u_ref(3), omega_ref(3), u_slave_0(3), ..., u_slave_{n-1}(3)]
+
+    The constraints are formed from weighted rigid-body reconstruction in normal-
+    equation form:
+
+      (sum_i w_i B_i^T B_i) q_ref - sum_i w_i B_i^T u_i = 0
+
+    where ``B_i = [I, -[r_i]_x]`` and ``r_i = x_i - x_ref``.
+
+    This yields a 6 x (6 + 3*n_slave) matrix. Repeated use of this helper allows
+    multiple user-defined RBE3 couplings to be added to one system.
+    """
+    if backend not in {"numpy", "jax"}:
+        raise ValueError("backend must be 'numpy' or 'jax'")
+    x_ref = np.asarray(ref_point, dtype=float).reshape(-1)
+    x_s = np.asarray(slave_coords, dtype=float)
+    if x_ref.shape[0] != 3:
+        raise ValueError("ref_point must be 3D.")
+    if x_s.ndim != 2 or x_s.shape[1] != 3:
+        raise ValueError("slave_coords must have shape (n_slave, 3).")
+
+    n_s = int(x_s.shape[0])
+    if n_s == 0:
+        raise ValueError("slave_coords must contain at least one node.")
+
+    if weights is None:
+        w = np.ones((n_s,), dtype=float)
+    else:
+        w = np.asarray(weights, dtype=float).reshape(-1)
+        if w.shape != (n_s,):
+            raise ValueError("weights must have shape (n_slave,).")
+    if np.any(~np.isfinite(w)):
+        raise ValueError("weights must be finite.")
+    if normalize_weights:
+        w_sum = float(np.sum(w))
+        if abs(w_sum) <= 1e-15:
+            raise ValueError("weights sum must be non-zero when normalize_weights=True.")
+        w = w / w_sum
+
+    def _bmat(point: np.ndarray) -> np.ndarray:
+        rx, ry, rz = (point - x_ref).tolist()
+        return np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0, rz, -ry],
+                [0.0, 1.0, 0.0, -rz, 0.0, rx],
+                [0.0, 0.0, 1.0, ry, -rx, 0.0],
+            ],
+            dtype=float,
+        )
+
+    M = np.zeros((6, 6), dtype=float)
+    slave_blocks = []
+    for wi, xi in zip(w.tolist(), x_s):
+        Bi = _bmat(xi)
+        M += float(wi) * (Bi.T @ Bi)
+        slave_blocks.append(-float(wi) * Bi.T)
+
+    n_cols = 6 + 3 * n_s
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        C = jnp.zeros((6, n_cols), dtype=float)
+        C = C.at[:, :6].set(M)
+        for i, blk in enumerate(slave_blocks):
+            c0 = 6 + 3 * i
+            C = C.at[:, c0 : c0 + 3].set(blk)
+        return C
+
+    C = np.zeros((6, n_cols), dtype=float)
+    C[:, :6] = M
+    for i, blk in enumerate(slave_blocks):
+        c0 = 6 + 3 * i
+        C[:, c0 : c0 + 3] = blk
+    return C
+
+
+def build_rbe3_weights(
+    ref_point: np.ndarray,
+    slave_coords: np.ndarray,
+    *,
+    method: str = "equal",
+    surface: SurfaceMesh | None = None,
+    power: float = 2.0,
+    eps: float = 1e-12,
+    normalize: bool = True,
+) -> np.ndarray:
+    """
+    Build convenience weights for RBE3-style interpolation.
+
+    Supported methods
+    -----------------
+    ``equal``:
+        Uniform node weights.
+    ``distance``:
+        Inverse-distance^power weights from the remote point.
+    ``facet_area``:
+        Lump each facet area equally to its nodes, then normalize per node.
+        Requires ``surface`` whose node numbering matches ``slave_coords`` order.
+    """
+    x_ref = np.asarray(ref_point, dtype=float).reshape(-1)
+    x_s = np.asarray(slave_coords, dtype=float)
+    if x_ref.shape != (3,):
+        raise ValueError("ref_point must be 3D.")
+    if x_s.ndim != 2 or x_s.shape[1] != 3:
+        raise ValueError("slave_coords must have shape (n_slave, 3).")
+    n_s = int(x_s.shape[0])
+    if n_s == 0:
+        raise ValueError("slave_coords must contain at least one node.")
+
+    method_key = str(method).lower()
+    if method_key == "equal":
+        w = np.ones((n_s,), dtype=float)
+    elif method_key == "distance":
+        d = np.linalg.norm(x_s - x_ref[None, :], axis=1)
+        w = 1.0 / np.maximum(d, float(eps)) ** float(power)
+    elif method_key == "facet_area":
+        if surface is None:
+            raise ValueError("surface is required for method='facet_area'.")
+        facets = np.asarray(surface.conn, dtype=int)
+        areas = np.asarray(surface.facet_areas(), dtype=float)
+        if facets.shape[0] != areas.shape[0]:
+            raise ValueError("surface facet count and facet areas mismatch.")
+        w = np.zeros((n_s,), dtype=float)
+        for nodes, area in zip(facets, areas):
+            if np.any(nodes < 0) or np.any(nodes >= n_s):
+                raise ValueError("surface facets must index slave_coords in local node numbering.")
+            share = float(area) / float(len(nodes))
+            for node in nodes:
+                w[int(node)] += share
+    else:
+        raise ValueError("method must be one of: equal, distance, facet_area.")
+
+    if normalize:
+        s = float(np.sum(w))
+        if abs(s) <= float(eps):
+            raise ValueError("weight sum is zero; cannot normalize.")
+        w = w / s
+    return w
+
+
 def assemble_contact_interface_residual(*args, **kwargs):
     """Assemble residual on a contact interface supermesh."""
     return _assemble_contact_interface_residual(*args, **kwargs)
@@ -4435,6 +4587,8 @@ __all__ = [
     "build_barycentric_embedding_map_from_meshes",
     "assemble_embedding_constraint_matrix",
     "assemble_rbe2_constraint_matrix",
+    "assemble_rbe3_constraint_matrix",
+    "build_rbe3_weights",
     "assemble_contact_constraint_operators",
     "assemble_multiplier",
     "assemble_contact_operators",

@@ -265,3 +265,67 @@ def test_assemble_rbe2_constraint_matrix_kinematics_identity():
     q = np.concatenate([u_ref, w_ref, u_s], axis=0)
     res = C @ q
     assert np.allclose(res, np.zeros_like(res), atol=1e-12)
+
+
+def test_assemble_rbe3_constraint_matrix_rigid_motion_reproduction():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    x_slave = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 3.0],
+        ],
+        dtype=float,
+    )
+    weights = np.array([1.0, 2.0, 3.0], dtype=float)
+    C = ff.assemble_rbe3_constraint_matrix(x_ref, x_slave, weights=weights, backend="numpy")
+    assert C.shape == (6, 15)
+
+    u_ref = np.array([0.3, -0.2, 0.1], dtype=float)
+    w_ref = np.array([0.1, -0.05, 0.2], dtype=float)
+
+    def rigid_u(point):
+        r = point - x_ref
+        return u_ref + np.cross(w_ref, r)
+
+    u_s = np.asarray([rigid_u(p) for p in x_slave], dtype=float).reshape(-1)
+    q = np.concatenate([u_ref, w_ref, u_s], axis=0)
+    res = C @ q
+    assert np.allclose(res, np.zeros_like(res), atol=1e-12)
+
+
+def test_build_rbe3_weights_equal_and_distance():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    x_slave = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+        ],
+        dtype=float,
+    )
+    w_equal = ff.build_rbe3_weights(x_ref, x_slave, method="equal")
+    assert np.allclose(w_equal, np.array([0.5, 0.5], dtype=float), atol=1e-12)
+
+    w_dist = ff.build_rbe3_weights(x_ref, x_slave, method="distance", power=1.0)
+    assert np.allclose(w_dist, np.array([2.0 / 3.0, 1.0 / 3.0], dtype=float), atol=1e-12)
+
+
+def test_build_rbe3_weights_facet_area():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    facets = np.array([[0, 1, 2, 3]], dtype=int)
+    surface = ff.SurfaceMesh.from_facets(coords, facets)
+    w = ff.build_rbe3_weights(
+        np.array([0.5, 0.5, 1.0], dtype=float),
+        coords,
+        method="facet_area",
+        surface=surface,
+    )
+    assert np.allclose(w, 0.25 * np.ones((4,), dtype=float), atol=1e-12)

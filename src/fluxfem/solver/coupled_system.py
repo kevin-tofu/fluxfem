@@ -48,6 +48,84 @@ class CoupledSystem:
     def n_u(self) -> int:
         return int(self.K_u.shape[0])
 
+    def append_structural_block(
+        self,
+        K_block=None,
+        F_block: np.ndarray | None = None,
+        *,
+        n_dofs: int | None = None,
+    ) -> slice:
+        """
+        Append structural DOFs to the primary unknown block.
+
+        This is intended for user-added fields such as remote nodes. Any existing
+        lifted KKT/contact system is expanded consistently, with zeros inserted for
+        the new structural rows/cols in the lifted contribution.
+        """
+        if K_block is None:
+            if n_dofs is None:
+                raise ValueError("n_dofs is required when K_block is omitted.")
+            n_add = int(n_dofs)
+            if n_add <= 0:
+                raise ValueError("n_dofs must be positive.")
+            K_add = sp.csr_matrix((n_add, n_add), dtype=self.K_u.dtype)
+        else:
+            if isinstance(K_block, FluxSparseMatrix):
+                K_add = K_block.to_csr()
+            elif sp.issparse(K_block):
+                K_add = K_block.tocsr()
+            else:
+                K_add = sp.csr_matrix(np.asarray(K_block, dtype=float))
+            if K_add.shape[0] != K_add.shape[1]:
+                raise ValueError("K_block must be square.")
+            n_add = int(K_add.shape[0])
+            if n_dofs is not None and int(n_dofs) != n_add:
+                raise ValueError("n_dofs does not match K_block shape.")
+
+        if F_block is None:
+            F_add = np.zeros((n_add,), dtype=float)
+        else:
+            F_add = np.asarray(F_block, dtype=float).reshape(-1)
+            if F_add.shape != (n_add,):
+                raise ValueError("F_block shape must match appended DOF count.")
+
+        start = self.n_u
+        stop = start + n_add
+
+        self.K_u = sp.block_diag((self.K_u, K_add), format="csr")
+        self.F_u = np.concatenate([self.F_u, F_add], axis=0)
+
+        if self.K_contact_lifted is not None:
+            K_prev = self.K_contact_lifted.tocsr()
+            n_l = int(K_prev.shape[0] - start)
+            if n_l < 0:
+                raise ValueError("Invalid lifted contact matrix shape.")
+            Kuu_prev = K_prev[:start, :start]
+            Kul_prev = K_prev[:start, start:]
+            Klu_prev = K_prev[start:, :start]
+            Kll_prev = K_prev[start:, start:]
+            z_u = sp.csr_matrix((start, n_add), dtype=K_prev.dtype)
+            z_ut = sp.csr_matrix((n_add, start), dtype=K_prev.dtype)
+            z_ul = sp.csr_matrix((n_add, n_l), dtype=K_prev.dtype)
+            z_lu = sp.csr_matrix((n_l, n_add), dtype=K_prev.dtype)
+            z_uu = sp.csr_matrix((n_add, n_add), dtype=K_prev.dtype)
+            self.K_contact_lifted = sp.bmat(
+                [
+                    [Kuu_prev, z_u, Kul_prev],
+                    [z_ut, z_uu, z_ul],
+                    [Klu_prev, z_lu, Kll_prev],
+                ],
+                format="csr",
+            )
+            if self.F_contact_lifted is not None:
+                F_prev = np.asarray(self.F_contact_lifted, dtype=float).reshape(-1)
+                self.F_contact_lifted = np.concatenate(
+                    [F_prev[:start], np.zeros((n_add,), dtype=float), F_prev[start:]],
+                    axis=0,
+                )
+
+        return slice(start, stop)
+
     def _contact_projection(
         self,
         *,
@@ -300,6 +378,7 @@ class _FieldBlock:
     n_dofs: int
     value_dim: int
     n_nodes: int
+    point: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -335,6 +414,8 @@ class ConstraintSpec:
     - "matrix": routes to add_constraint_matrix(...)
     - "matrix_dof": routes to add_constraint_matrix_dof(...)
     - "embedding": routes to add_embedding_constraint(...)
+    - "rbe2": routes to add_rbe2_constraint(...)
+    - "rbe3": routes to add_rbe3_constraint(...)
     """
 
     kind: str
@@ -348,6 +429,10 @@ class ConstraintSpec:
     contact_obj: Any | None = None
     C: Any | None = None
     embedding: Any | None = None
+    ref_point: np.ndarray | None = None
+    slave_coords: np.ndarray | None = None
+    weights: np.ndarray | None = None
+    normalize_weights: bool = True
 
     # contact routing/options
     family: str | None = None
@@ -368,14 +453,18 @@ class ConstraintSpec:
 
     def __post_init__(self) -> None:
         kind = str(self.kind).lower()
-        if kind not in {"contact", "matrix", "matrix_dof", "embedding"}:
-            raise ValueError("ConstraintSpec.kind must be one of: contact, matrix, matrix_dof, embedding.")
+        if kind not in {"contact", "matrix", "matrix_dof", "embedding", "rbe2", "rbe3"}:
+            raise ValueError("ConstraintSpec.kind must be one of: contact, matrix, matrix_dof, embedding, rbe2, rbe3.")
         if kind == "contact" and self.contact_obj is None:
             raise ValueError("ConstraintSpec(kind='contact') requires contact_obj.")
         if kind in {"matrix", "matrix_dof"} and self.C is None:
             raise ValueError("ConstraintSpec(kind='matrix*') requires C.")
         if kind == "embedding" and self.embedding is None:
             raise ValueError("ConstraintSpec(kind='embedding') requires embedding.")
+        if kind == "rbe2" and (self.ref_point is None or self.slave_coords is None):
+            raise ValueError("ConstraintSpec(kind='rbe2') requires ref_point and slave_coords.")
+        if kind == "rbe3" and (self.ref_point is None or self.slave_coords is None):
+            raise ValueError("ConstraintSpec(kind='rbe3') requires ref_point and slave_coords.")
 
 
 class CoupledSystemBuilder:
@@ -423,6 +512,28 @@ class CoupledSystemBuilder:
             nn = int(n_nodes)
         self._blocks[key] = _FieldBlock(name=key, offset=off, n_dofs=nd, value_dim=vd, n_nodes=nn)
 
+    def append_remote_point(
+        self,
+        name: str,
+        *,
+        point,
+        include_rotation: bool = True,
+        F_block: np.ndarray | None = None,
+    ) -> None:
+        """
+        Append a remote-point field.
+
+        By default this creates a 6-DOF field ordered as
+        ``[u_ref(3), omega_ref(3)]``. With ``include_rotation=False`` it creates a
+        translational 3-DOF remote point.
+        """
+        dof_count = 6 if include_rotation else 3
+        self.append_field(name, n_dofs=dof_count, value_dim=1, n_nodes=dof_count, F_block=F_block)
+        block = self._get_block(name)
+        block.point = np.asarray(point, dtype=float).reshape(-1)
+        if block.point.shape != (3,):
+            raise ValueError("remote point must be a 3D coordinate.")
+
     def register_space(
         self,
         name: str,
@@ -438,6 +549,34 @@ class CoupledSystemBuilder:
             name,
             offset=off,
             n_dofs=nd,
+            value_dim=value_dim,
+            n_nodes=n_nodes,
+        )
+
+    def append_field(
+        self,
+        name: str,
+        *,
+        n_dofs: int,
+        value_dim: int = 1,
+        n_nodes: int | None = None,
+        K_block=None,
+        F_block: np.ndarray | None = None,
+    ) -> None:
+        """
+        Append a new structural field at the end of the current unknown vector.
+
+        This is the main extension hook for user-added remote nodes or auxiliary
+        structural DOFs that should participate in subsequent constraints.
+        """
+        key = str(name)
+        if key in self._blocks:
+            raise ValueError(f"Field '{key}' is already registered.")
+        new_slice = self.system.append_structural_block(K_block, F_block, n_dofs=n_dofs)
+        self.register_field(
+            key,
+            offset=int(new_slice.start),
+            n_dofs=n_dofs,
             value_dim=value_dim,
             n_nodes=n_nodes,
         )
@@ -993,7 +1132,161 @@ class CoupledSystemBuilder:
                 F_contact=spec.F_contact,
             )
             return
+        if kind == "rbe2":
+            self.add_rbe2_constraint(
+                master=spec.master,
+                slave=spec.slave,
+                ref_point=spec.ref_point,
+                slave_coords=spec.slave_coords,
+                rho=spec.rho,
+                backend=spec.backend,
+                F_contact=spec.F_contact,
+            )
+            return
+        if kind == "rbe3":
+            self.add_rbe3_constraint(
+                master=spec.master,
+                slave=spec.slave,
+                ref_point=spec.ref_point,
+                slave_coords=spec.slave_coords,
+                weights=spec.weights,
+                normalize_weights=spec.normalize_weights,
+                rho=spec.rho,
+                backend=spec.backend,
+                F_contact=spec.F_contact,
+            )
+            return
         raise ValueError("Unsupported ConstraintSpec.kind.")
+
+    def add_field_matrix(self, field: str, K_local, *, F_local: np.ndarray | None = None) -> None:
+        """
+        Add a local stiffness/load contribution directly onto one registered field.
+
+        This is useful for user-added remote fields, springs, or reduced support
+        models that should modify the structural block without introducing
+        additional Lagrange multiplier DOFs.
+        """
+        b = self._get_block(field)
+        if isinstance(K_local, FluxSparseMatrix):
+            K_csr = K_local.to_csr()
+        elif sp.issparse(K_local):
+            K_csr = K_local.tocsr()
+        else:
+            K_csr = sp.csr_matrix(np.asarray(K_local, dtype=float))
+        if K_csr.shape != (b.n_dofs, b.n_dofs):
+            raise ValueError(f"K_local shape {K_csr.shape} does not match field '{b.name}' size {(b.n_dofs, b.n_dofs)}.")
+
+        self.system.K_u = self.system.K_u.tolil()
+        self.system.K_u[b.offset : b.offset + b.n_dofs, b.offset : b.offset + b.n_dofs] += K_csr
+        self.system.K_u = self.system.K_u.tocsr()
+
+        if F_local is not None:
+            F_arr = np.asarray(F_local, dtype=float).reshape(-1)
+            if F_arr.shape != (b.n_dofs,):
+                raise ValueError(f"F_local shape {F_arr.shape} does not match field '{b.name}' size {(b.n_dofs,)}.")
+            self.system.F_u[b.offset : b.offset + b.n_dofs] += F_arr
+
+    def add_dof_spring(
+        self,
+        field: str,
+        *,
+        stiffness,
+        reference_value=0.0,
+        nodes: int | Sequence[int] | np.ndarray | None = None,
+        components: int | Sequence[int] | np.ndarray | None = None,
+        local_dofs: int | Sequence[int] | np.ndarray | None = None,
+    ) -> np.ndarray:
+        """
+        Add linear springs to selected DOFs of a registered field.
+
+        The spring contribution is:
+            K += K_s
+            F += K_s @ u_ref
+        so a scalar or vector ``reference_value`` acts like the target displacement
+        of a spring-to-ground support.
+        """
+        dofs = self.resolve_block_dofs(
+            field,
+            nodes=nodes,
+            components=components,
+            local_dofs=local_dofs,
+        )
+        if dofs.size == 0:
+            return dofs
+
+        n = int(dofs.size)
+        if np.isscalar(stiffness):
+            K_sel = np.eye(n, dtype=float) * float(stiffness)
+        else:
+            stiff_arr = np.asarray(stiffness, dtype=float)
+            if stiff_arr.ndim == 1:
+                if stiff_arr.shape != (n,):
+                    raise ValueError("stiffness vector must match selected DOF count.")
+                K_sel = np.diag(stiff_arr)
+            elif stiff_arr.ndim == 2:
+                if stiff_arr.shape != (n, n):
+                    raise ValueError("stiffness matrix must match selected DOF count.")
+                K_sel = stiff_arr
+            else:
+                raise ValueError("stiffness must be scalar, vector, or square matrix.")
+
+        ref_arr = np.asarray(reference_value, dtype=float).reshape(-1)
+        if ref_arr.size == 1:
+            u_ref = np.full((n,), float(ref_arr[0]), dtype=float)
+        elif ref_arr.size == n:
+            u_ref = ref_arr.astype(float, copy=False)
+        else:
+            raise ValueError("reference_value must be scalar or match selected DOF count.")
+
+        self.system.K_u = self.system.K_u.tolil()
+        dofs_i = np.asarray(dofs, dtype=int)
+        for i in range(n):
+            row = int(dofs_i[i])
+            for j in range(n):
+                val = float(K_sel[i, j])
+                if val != 0.0:
+                    self.system.K_u[row, int(dofs_i[j])] += val
+        self.system.K_u = self.system.K_u.tocsr()
+        self.system.F_u[dofs_i] += np.asarray(K_sel @ u_ref, dtype=float)
+        return dofs_i
+
+    def add_remote_spring(
+        self,
+        field: str,
+        *,
+        translational_stiffness=None,
+        rotational_stiffness=None,
+        translational_target=0.0,
+        rotational_target=0.0,
+    ) -> None:
+        """
+        Add translational and/or rotational springs to a remote-point field.
+
+        Expected layouts:
+        - 6 DOF: ``[u_ref(3), omega_ref(3)]``
+        - 3 DOF: translational-only remote point
+        """
+        b = self._get_block(field)
+        if b.n_dofs not in {3, 6}:
+            raise ValueError("remote spring helper expects a 3-DOF or 6-DOF field.")
+
+        if translational_stiffness is not None:
+            self.add_dof_spring(
+                field,
+                local_dofs=np.arange(min(3, b.n_dofs)),
+                stiffness=translational_stiffness,
+                reference_value=translational_target,
+            )
+
+        if rotational_stiffness is not None:
+            if b.n_dofs < 6:
+                raise ValueError("rotational springs require a 6-DOF remote field.")
+            self.add_dof_spring(
+                field,
+                local_dofs=np.arange(3, 6),
+                stiffness=rotational_stiffness,
+                reference_value=rotational_target,
+            )
 
     def add_constraint_matrix(
         self,
@@ -1129,6 +1422,84 @@ class CoupledSystemBuilder:
             master=master,
             slave=slave,
             value_dim=vd,
+            rho=rho,
+            F_contact=F_contact,
+        )
+
+    def add_rbe2_constraint(
+        self,
+        *,
+        master: str,
+        slave: str,
+        ref_point: np.ndarray,
+        slave_coords: np.ndarray,
+        rho: float = 0.0,
+        backend: str = "numpy",
+        F_contact: np.ndarray | None = None,
+    ) -> None:
+        """
+        Build and add a 3D RBE2-style rigid constraint matrix.
+
+        Expected field layout:
+        - ``master``: 6 DOFs ordered as ``[u_ref(3), omega_ref(3)]``
+        - ``slave``: 3 DOFs per node ordered as nodal translations
+        """
+        from ..mesh.contact import assemble_rbe2_constraint_matrix
+
+        m = self._get_block(master)
+        s = self._get_block(slave)
+        C = assemble_rbe2_constraint_matrix(ref_point, slave_coords, backend=backend)
+        if m.n_dofs != 6:
+            raise ValueError("RBE2 master field must have exactly 6 DOFs.")
+        if s.n_dofs != 3 * int(np.asarray(slave_coords).shape[0]):
+            raise ValueError("RBE2 slave field size must match 3 * n_slave_nodes.")
+        self.add_constraint_matrix_dof(
+            C,
+            master=master,
+            slave=slave,
+            rho=rho,
+            F_contact=F_contact,
+        )
+
+    def add_rbe3_constraint(
+        self,
+        *,
+        master: str,
+        slave: str,
+        ref_point: np.ndarray,
+        slave_coords: np.ndarray,
+        weights: np.ndarray | None = None,
+        normalize_weights: bool = True,
+        rho: float = 0.0,
+        backend: str = "numpy",
+        F_contact: np.ndarray | None = None,
+    ) -> None:
+        """
+        Build and add a weighted 3D RBE3-style interpolation constraint.
+
+        Expected field layout:
+        - ``master``: 6 DOFs ordered as ``[u_ref(3), omega_ref(3)]``
+        - ``slave``: 3 DOFs per node ordered as nodal translations
+        """
+        from ..mesh.contact import assemble_rbe3_constraint_matrix
+
+        m = self._get_block(master)
+        s = self._get_block(slave)
+        C = assemble_rbe3_constraint_matrix(
+            ref_point,
+            slave_coords,
+            weights=weights,
+            normalize_weights=normalize_weights,
+            backend=backend,
+        )
+        if m.n_dofs != 6:
+            raise ValueError("RBE3 master field must have exactly 6 DOFs.")
+        if s.n_dofs != 3 * int(np.asarray(slave_coords).shape[0]):
+            raise ValueError("RBE3 slave field size must match 3 * n_slave_nodes.")
+        self.add_constraint_matrix_dof(
+            C,
+            master=master,
+            slave=slave,
             rho=rho,
             F_contact=F_contact,
         )
