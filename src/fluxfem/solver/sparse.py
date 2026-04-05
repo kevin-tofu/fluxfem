@@ -70,10 +70,10 @@ def concat_flux(*mats: "FluxSparseMatrix", n_dofs: int | None = None) -> "FluxSp
                 raise ValueError("All matrices must share n_dofs for concat_flux.")
     rows_list = [np.asarray(mat.pattern.rows, dtype=np.int64) for mat in mats]
     cols_list = [np.asarray(mat.pattern.cols, dtype=np.int64) for mat in mats]
-    data_list = [np.asarray(mat.data) for mat in mats]
+    data_list = [jnp.asarray(mat.data) for mat in mats]
     rows = np.concatenate(rows_list) if rows_list else np.asarray([], dtype=np.int64)
     cols = np.concatenate(cols_list) if cols_list else np.asarray([], dtype=np.int64)
-    data = np.concatenate(data_list) if data_list else np.asarray([], dtype=float)
+    data = jnp.concatenate(data_list) if data_list else jnp.asarray([], dtype=float)
     return FluxSparseMatrix(rows, cols, data, int(n_dofs))
 
 
@@ -87,7 +87,7 @@ def block_diag_flux(*mats: "FluxSparseMatrix") -> "FluxSparseMatrix":
     for mat in mats:
         rows = np.asarray(mat.pattern.rows, dtype=np.int64)
         cols = np.asarray(mat.pattern.cols, dtype=np.int64)
-        data = np.asarray(mat.data)
+        data = jnp.asarray(mat.data)
         if rows.size:
             rows_out.append(rows + offset)
             cols_out.append(cols + offset)
@@ -95,7 +95,7 @@ def block_diag_flux(*mats: "FluxSparseMatrix") -> "FluxSparseMatrix":
         offset += int(mat.n_dofs)
     rows = np.concatenate(rows_out) if rows_out else np.asarray([], dtype=np.int64)
     cols = np.concatenate(cols_out) if cols_out else np.asarray([], dtype=np.int64)
-    data = np.concatenate(data_out) if data_out else np.asarray([], dtype=float)
+    data = jnp.concatenate(data_out) if data_out else jnp.asarray([], dtype=float)
     return FluxSparseMatrix(rows, cols, data, int(offset))
 
 
@@ -208,6 +208,14 @@ class FluxSparseMatrix:
         self.data = values
         self.meta = dict(meta) if meta is not None else None
 
+    @property
+    def shape(self) -> tuple[int, int]:
+        return (self.n_dofs, self.n_dofs)
+
+    @property
+    def dtype(self):
+        return self.data.dtype
+
     @classmethod
     def from_bilinear(cls, coo_tuple: COOTuple) -> "FluxSparseMatrix":
         """Construct from assemble_bilinear_dense(..., sparse=True)."""
@@ -263,12 +271,6 @@ class FluxSparseMatrix:
         # small debug helper
         dense = jnp.zeros((self.pattern.n_dofs, self.pattern.n_dofs), dtype=self.data.dtype)
         dense = dense.at[self.pattern.rows, self.pattern.cols].add(self.data)
-        return dense
-
-    def __array__(self, dtype=None, copy=None):
-        dense = np.asarray(self.to_dense(), dtype=dtype)
-        if copy:
-            return np.array(dense, dtype=dtype, copy=True)
         return dense
 
     def to_bcoo(self):

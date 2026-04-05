@@ -189,7 +189,7 @@ class ContactCouplingMatrix:
 
 
 def _is_jax_value(x: Any) -> bool:
-    return isinstance(x, jax.core.Tracer)
+    return isinstance(x, jax.core.Tracer) or isinstance(x, jax.Array)
 
 
 def _uses_jax_geometry(*xs: Any) -> bool:
@@ -197,6 +197,14 @@ def _uses_jax_geometry(*xs: Any) -> bool:
         if _is_jax_value(x):
             return True
     return False
+
+
+def _has_jax_leaves(x: Any) -> bool:
+    try:
+        leaves = jax.tree_util.tree_leaves(x)
+    except Exception:
+        leaves = [x]
+    return any(_is_jax_value(leaf) for leaf in leaves)
 
 
 def _tri_area(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
@@ -2012,14 +2020,15 @@ def _accumulate_supermesh_residual_triangle(
     offset_b: int,
     diag_facet: int,
     diag_max_q: int,
-) -> None:
+) -> np.ndarray | jnp.ndarray:
+    use_jax = _is_jax_value(R)
     area = _tri_area(a, b, c)
     if area <= tol:
-        return
+        return R
     if skip_small_tri and facet_area_a is not None and facet_area_b is not None:
         area_ref = max(float(facet_area_a[int(fa)]), float(facet_area_b[int(fb)]))
         if area_ref > 0.0 and area < area_scale * area_ref:
-            return
+            return R
     detJ = 2.0 * area
     if diag_force and diag_abs_detj:
         detJ = abs(detJ)
@@ -2197,8 +2206,12 @@ def _accumulate_supermesh_residual_triangle(
         field_b=field_b,
         unknown_space_key_a=unknown_space_key_a,
         unknown_space_key_b=unknown_space_key_b,
-        u_local_a=np.asarray(u_a, dtype=float)[np.asarray(trial_dofs_local_a, dtype=int)],
-        u_local_b=np.asarray(u_b, dtype=float)[np.asarray(trial_dofs_local_b, dtype=int)],
+        u_local_a=jnp.asarray(u_a, dtype=jnp.float64)[jnp.asarray(trial_dofs_local_a, dtype=jnp.int32)]
+        if use_jax
+        else np.asarray(u_a, dtype=float)[np.asarray(trial_dofs_local_a, dtype=int)],
+        u_local_b=jnp.asarray(u_b, dtype=jnp.float64)[jnp.asarray(trial_dofs_local_b, dtype=jnp.int32)]
+        if use_jax
+        else np.asarray(u_b, dtype=float)[np.asarray(trial_dofs_local_b, dtype=int)],
     )
     fe_q = res_form(ctx, u_elem, params)
     for name, dofs_local, offset in (
@@ -2208,14 +2221,25 @@ def _accumulate_supermesh_residual_triangle(
         fe_field = fe_q[name]
         if fe_field.ndim != 2 or fe_field.shape[0] != ctx.x_q.shape[0]:
             raise ValueError("surface residual must return shape (n_q, n_ldofs) per field")
-        fe = _reduce_surface_residual_numpy(
-            fe_field,
-            includes_measure=bool(includes_measure.get(name, False)),
-            w=ctx.w,
-            detJ=ctx.detJ,
-        )
-        dofs = int(offset) + np.asarray(dofs_local, dtype=int)
-        R[dofs] += fe
+        if use_jax:
+            fe = _reduce_surface_residual_jax(
+                fe_field,
+                includes_measure=bool(includes_measure.get(name, False)),
+                w=ctx.w,
+                detJ=ctx.detJ,
+            )
+            dofs = int(offset) + np.asarray(dofs_local, dtype=int)
+            R = R.at[jnp.asarray(dofs, dtype=jnp.int32)].add(jnp.asarray(fe))
+        else:
+            fe = _reduce_surface_residual_numpy(
+                fe_field,
+                includes_measure=bool(includes_measure.get(name, False)),
+                w=ctx.w,
+                detJ=ctx.detJ,
+            )
+            dofs = int(offset) + np.asarray(dofs_local, dtype=int)
+            R[dofs] += fe
+    return R
 
 
 def _prepare_supermesh_jacobian_triangle_geometry(
@@ -4496,9 +4520,15 @@ def assemble_contact_interface_residual(
         or not _same_optional_int_array(trial_facet_dofs_b, facet_dofs_b)
     )
     n_total = int(offset_b + n_b)
-    R: np.ndarray = np.zeros((n_total,), dtype=float)
-    u_a_np = np.asarray(u_a, dtype=float)
-    u_b_np = np.asarray(u_b, dtype=float)
+    use_jax = _has_jax_leaves((u_a, u_b, params))
+    if use_jax:
+        R = jnp.zeros((n_total,), dtype=jnp.float64)
+        u_a_np = jnp.asarray(u_a, dtype=jnp.float64)
+        u_b_np = jnp.asarray(u_b, dtype=jnp.float64)
+    else:
+        R = np.zeros((n_total,), dtype=float)
+        u_a_np = np.asarray(u_a, dtype=float)
+        u_b_np = np.asarray(u_b, dtype=float)
 
     trace = os.getenv("FLUXFEM_CONTACT_INTERFACE_TRACE", "0") not in ("0", "", "false", "False")
 
@@ -4650,14 +4680,24 @@ def assemble_contact_interface_residual(
                     fe_field = fe_q[name]
                     if fe_field.ndim != 2 or fe_field.shape[0] != ctx.x_q.shape[0]:
                         raise ValueError("mixed surface residual must return (n_q, n_ldofs)")
-                    fe = _reduce_surface_residual_jax(
-                        fe_field,
-                        includes_measure=bool(includes_measure.get(name, False)),
-                        w=ctx.w,
-                        detJ=ctx.detJ,
-                    )
-                    dofs = _global_dof_indices(facet, value_dim, int(offset))
-                    R[dofs] += np.asarray(fe)
+                    if use_jax:
+                        fe = _reduce_surface_residual_jax(
+                            fe_field,
+                            includes_measure=bool(includes_measure.get(name, False)),
+                            w=ctx.w,
+                            detJ=ctx.detJ,
+                        )
+                        dofs = _global_dof_indices(facet, value_dim, int(offset))
+                        R = R.at[jnp.asarray(dofs, dtype=jnp.int32)].add(jnp.asarray(fe))
+                    else:
+                        fe = _reduce_surface_residual_jax(
+                            fe_field,
+                            includes_measure=bool(includes_measure.get(name, False)),
+                            w=ctx.w,
+                            detJ=ctx.detJ,
+                        )
+                        dofs = _global_dof_indices(facet, value_dim, int(offset))
+                        R[dofs] += np.asarray(fe)
             return R
 
     pair_basis_builder = _select_supermesh_pair_basis_builder(
@@ -4675,7 +4715,7 @@ def assemble_contact_interface_residual(
         source_facets_a,
         source_facets_b,
     ):
-        _accumulate_supermesh_residual_triangle(
+        R = _accumulate_supermesh_residual_triangle(
             R=R,
             a=a,
             b=b,
@@ -4913,8 +4953,13 @@ def assemble_contact_interface_jacobian(
 
     rows: list[int] = []
     cols: list[int] = []
-    data: list[float] = []
-    K_dense: np.ndarray | None = np.zeros((n_total, n_total), dtype=float) if not sparse else None
+    data: list[Any] = []
+    if sparse:
+        K_dense = None
+    elif backend == "jax":
+        K_dense = jnp.zeros((n_total, n_total), dtype=jnp.float64)
+    else:
+        K_dense = np.zeros((n_total, n_total), dtype=float)
 
     use_elem_a = elem_conn_a is not None and facet_to_elem_a is not None
     use_elem_b = elem_conn_b is not None and facet_to_elem_b is not None
@@ -5005,7 +5050,7 @@ def assemble_contact_interface_jacobian(
                 return FluxSparseMatrix(
                     np.asarray(rows, dtype=int),
                     np.asarray(cols, dtype=int),
-                    np.asarray(data, dtype=float),
+                    jnp.asarray(data, dtype=jnp.float64) if backend == "jax" else np.asarray(data, dtype=float),
                     n_dofs=n_total,
                 )
             assert K_dense is not None
@@ -5054,7 +5099,7 @@ def assemble_contact_interface_jacobian(
         u_local_batch = []
         batch_rows: list[np.ndarray] = []
         batch_cols: list[np.ndarray] = []
-        batch_data: list[np.ndarray] = []
+        batch_data: list[Any] = []
         batch_size = int(os.getenv("FLUXFEM_CONTACT_INTERFACE_BATCH_SIZE", "128"))
         if batch_size <= 0:
             batch_size = 0
@@ -5164,6 +5209,7 @@ def assemble_contact_interface_jacobian(
             n_b_local,
             batch_n,
         ) -> None:
+            nonlocal K_dense
             if trace:
                 _trace(f"[CONTACT] batch_emit start n={int(Na_b.shape[0])}")
             if jit_batch and batch_size and batch_n < batch_size:
@@ -5213,14 +5259,13 @@ def assemble_contact_interface_jacobian(
                     jac_fun = _make_jac_fun(n_a_local, n_b_local)
                     jac_fun_cache[key] = jac_fun
                 J_b = jac_fun(u_local_b, Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b)
-            J_b_np = np.asarray(J_b)[:batch_n]
             if trace:
                 _trace_time("[CONTACT] batch_emit jac_done", t_batch)
             n_ldofs = dofs_batch_np.shape[1]
             rows = np.repeat(dofs_batch_np, n_ldofs, axis=1).reshape(-1)
             cols = np.tile(dofs_batch_np, (1, n_ldofs)).reshape(-1)
-            data = J_b_np.reshape(-1)
             if sparse:
+                data = jnp.asarray(J_b)[:batch_n].reshape(-1)
                 batch_rows.append(rows)
                 batch_cols.append(cols)
                 batch_data.append(data)
@@ -5228,7 +5273,8 @@ def assemble_contact_interface_jacobian(
                 assert K_dense is not None
                 # rows/cols contain repeated global DOF pairs across triangles in the batch.
                 # Advanced indexing with += does not accumulate repeated indices reliably.
-                np.add.at(K_dense, (rows, cols), data)
+                data = jnp.asarray(J_b)[:batch_n].reshape(-1)
+                K_dense = K_dense.at[(jnp.asarray(rows, dtype=jnp.int32), jnp.asarray(cols, dtype=jnp.int32))].add(data)
         for (tri, a, b, c), fa, fb in zip(
             _iter_supermesh_tris(supermesh_coords, supermesh_conn),
             source_facets_a,
@@ -5436,11 +5482,11 @@ def assemble_contact_interface_jacobian(
                 if batch_rows:
                     rows_np = np.concatenate(batch_rows)
                     cols_np = np.concatenate(batch_cols)
-                    data_np = np.concatenate(batch_data)
+                    data_np = jnp.concatenate([jnp.asarray(x) for x in batch_data]) if backend == "jax" else np.concatenate(batch_data)
                 else:
                     rows_np = np.zeros((0,), dtype=int)
                     cols_np = np.zeros((0,), dtype=int)
-                    data_np = np.zeros((0,), dtype=float)
+                    data_np = jnp.zeros((0,), dtype=jnp.float64) if backend == "jax" else np.zeros((0,), dtype=float)
                 from ..solver import FluxSparseMatrix
 
                 return FluxSparseMatrix(rows_np, cols_np, data_np, n_dofs=n_total)
@@ -5636,7 +5682,7 @@ def assemble_contact_interface_jacobian(
         return FluxSparseMatrix(
             np.asarray(rows, dtype=int),
             np.asarray(cols, dtype=int),
-            np.asarray(data, dtype=float),
+            jnp.asarray(data, dtype=jnp.float64) if backend == "jax" else np.asarray(data, dtype=float),
             n_dofs=n_total,
         )
     assert K_dense is not None

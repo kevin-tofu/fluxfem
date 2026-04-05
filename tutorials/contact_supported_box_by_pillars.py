@@ -152,7 +152,7 @@ def main():
     # Build structural block and coupled solve
     K_u = sp.block_diag((K_top.to_csr(), K_support.to_csr()), format="csr")
     F_u = np.concatenate([F_top, F_support], axis=0)
-    builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(K_u, F_u)
     builder.register_space("top", top_space, value_dim=1)
     builder.register_space("support", support_space, value_dim=1)
     builder.add_contact(

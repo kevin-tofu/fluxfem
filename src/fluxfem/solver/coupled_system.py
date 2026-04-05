@@ -1,647 +1,261 @@
 from __future__ import annotations
 
-import difflib
-import warnings
 from dataclasses import dataclass
 from typing import Any, Sequence
 
+import jax.numpy as jnp
 import numpy as np
 import scipy.sparse as sp
-import scipy.sparse.linalg as spla
 
 from .cg import cg_solve_jax
-from .dirichlet import enforce_dirichlet_fluxsparse, enforce_dirichlet_sparse
-from .sparse import FluxSparseMatrix
+from .legacy_coupled_system import ConstraintSpec, DirichletSpec
+from .dirichlet import enforce_dirichlet_fluxsparse_jax
+from .sparse import FluxSparseMatrix, block_diag_flux, concat_flux
 
 
 @dataclass
 class CoupledSystem:
-    """
-    Sparse coupled system for structural/contact assembly.
+    """JAX-native coupled system with sparse-first assembly."""
 
-    Notes:
-
-    - Contact lifting currently assumes scalar displacement per node
-      (`value_dim=1`) for KKT blocks assembled by `assemble_contact_kkt`.
-    - Lambda DOFs are appended after structural DOFs.
-    """
-
-    K_u: sp.csr_matrix
-    F_u: np.ndarray
-    K_contact_lifted: sp.csr_matrix | None = None
-    F_contact_lifted: np.ndarray | None = None
+    K_u: FluxSparseMatrix
+    F_u: jnp.ndarray
 
     @classmethod
-    def from_structural(cls, K_u, F_u):
-        if isinstance(K_u, FluxSparseMatrix):
-            K = K_u.to_csr()
-        elif sp.issparse(K_u):
-            K = K_u.tocsr()
-        else:
-            K = sp.csr_matrix(np.asarray(K_u, dtype=float))
-        F = np.asarray(F_u, dtype=float)
-        if K.shape[0] != K.shape[1]:
-            raise ValueError("K_u must be square.")
-        if F.shape != (K.shape[0],):
+    def from_structural(cls, K_u, F_u) -> "CoupledSystem":
+        K = cls._as_flux_matrix(K_u)
+        F = jnp.asarray(F_u)
+        if F.shape != (K.n_dofs,):
             raise ValueError("F_u shape must match K_u size.")
         return cls(K_u=K, F_u=F)
 
+    @classmethod
+    def create(cls, K_u, F_u, *, backend: str = "jax"):
+        """Create a coupled-system implementation for the requested backend."""
+        if backend == "jax":
+            return cls.from_structural(K_u, F_u)
+        if backend == "numpy":
+            from .legacy_coupled_system import LegacyCoupledSystem
+
+            return LegacyCoupledSystem.from_structural(K_u, F_u)
+        raise ValueError("backend must be 'numpy' or 'jax'.")
+
+    @staticmethod
+    def _as_flux_matrix(K_u) -> FluxSparseMatrix:
+        if isinstance(K_u, FluxSparseMatrix):
+            return K_u
+        if sp.issparse(K_u):
+            coo = K_u.tocoo()
+            return FluxSparseMatrix(coo.row, coo.col, coo.data, int(K_u.shape[0]))
+        K = jnp.asarray(K_u)
+        if K.ndim != 2 or K.shape[0] != K.shape[1]:
+            raise ValueError("K_u must be square.")
+        n = int(K.shape[0])
+        if n == 0:
+            return FluxSparseMatrix(np.asarray([], dtype=int), np.asarray([], dtype=int), jnp.zeros((0,), dtype=K.dtype), 0)
+        rows = jnp.repeat(jnp.arange(n, dtype=jnp.int32), n)
+        cols = jnp.tile(jnp.arange(n, dtype=jnp.int32), n)
+        data = K.reshape(-1)
+        return FluxSparseMatrix(rows, cols, data, n)
+
+    @property
+    def dtype(self):
+        return self.F_u.dtype if self.F_u.size else self.K_u.data.dtype
+
     @property
     def n_u(self) -> int:
-        return int(self.K_u.shape[0])
+        return int(self.K_u.n_dofs)
+
+    def to_dense(self) -> jnp.ndarray:
+        return self.K_u.to_dense()
+
+    def _empty_flux(self, n_dofs: int) -> FluxSparseMatrix:
+        return FluxSparseMatrix(
+            np.asarray([], dtype=int),
+            np.asarray([], dtype=int),
+            jnp.zeros((0,), dtype=self.dtype),
+            n_dofs,
+        )
+
+    def _dense_block_to_flux(self, row_dofs, col_dofs, block, *, n_total: int | None = None) -> FluxSparseMatrix:
+        row_idx = jnp.asarray(row_dofs, dtype=jnp.int32).reshape(-1)
+        col_idx = jnp.asarray(col_dofs, dtype=jnp.int32).reshape(-1)
+        block_arr = jnp.asarray(block, dtype=self.dtype)
+        if block_arr.shape != (row_idx.shape[0], col_idx.shape[0]):
+            raise ValueError("block shape mismatch for provided row/col DOFs.")
+        rr = jnp.repeat(row_idx, col_idx.shape[0])
+        cc = jnp.tile(col_idx, row_idx.shape[0])
+        data = block_arr.reshape(-1)
+        return FluxSparseMatrix(rr, cc, data, self.n_u if n_total is None else int(n_total))
+
+    def add_local_stiffness(self, local_dofs, K_local, *, F_local=None) -> None:
+        dofs = np.asarray(local_dofs, dtype=int).reshape(-1)
+        if dofs.size == 0:
+            return
+        self.K_u = concat_flux(self.K_u, self._dense_block_to_flux(dofs, dofs, K_local))
+        if F_local is not None:
+            F_arr = jnp.asarray(F_local, dtype=self.F_u.dtype).reshape(-1)
+            if F_arr.shape != (dofs.size,):
+                raise ValueError("F_local shape mismatch.")
+            self.F_u = self.F_u.at[jnp.asarray(dofs, dtype=jnp.int32)].add(F_arr)
+
+    def add_local_kkt(
+        self,
+        local_dofs,
+        C_local,
+        *,
+        Kuu_local=None,
+        F_contact=None,
+    ) -> None:
+        dofs = np.asarray(local_dofs, dtype=int).reshape(-1)
+        C_arr = jnp.asarray(C_local, dtype=self.dtype)
+        if C_arr.ndim != 2 or C_arr.shape[1] != dofs.size:
+            raise ValueError("Constraint matrix width must match selected DOF count.")
+        n_prev = self.n_u
+        n_l = int(C_arr.shape[0])
+        n_total = n_prev + n_l
+        mats = [FluxSparseMatrix(self.K_u.pattern.rows, self.K_u.pattern.cols, self.K_u.data, n_total)]
+        if Kuu_local is not None:
+            mats.append(self._dense_block_to_flux(dofs, dofs, Kuu_local, n_total=n_total))
+        lambda_dofs = np.arange(n_prev, n_total, dtype=int)
+        mats.append(self._dense_block_to_flux(dofs, lambda_dofs, C_arr.T, n_total=n_total))
+        mats.append(self._dense_block_to_flux(lambda_dofs, dofs, C_arr, n_total=n_total))
+        self.K_u = concat_flux(mats, n_dofs=n_total)
+        F_full = jnp.zeros((n_total,), dtype=self.F_u.dtype)
+        F_full = F_full.at[:n_prev].set(self.F_u)
+        if F_contact is not None:
+            F_arr = jnp.asarray(F_contact, dtype=self.F_u.dtype).reshape(-1)
+            if F_arr.shape != (n_total,):
+                raise ValueError("F_contact shape mismatch.")
+            F_full = F_full + F_arr
+        self.F_u = F_full
 
     def append_structural_block(
         self,
         K_block=None,
-        F_block: np.ndarray | None = None,
+        F_block=None,
         *,
         n_dofs: int | None = None,
     ) -> slice:
-        """
-        Append structural DOFs to the primary unknown block.
-
-        This is intended for user-added fields such as remote nodes. Any existing
-        lifted KKT/contact system is expanded consistently, with zeros inserted for
-        the new structural rows/cols in the lifted contribution.
-        """
         if K_block is None:
             if n_dofs is None:
                 raise ValueError("n_dofs is required when K_block is omitted.")
             n_add = int(n_dofs)
             if n_add <= 0:
                 raise ValueError("n_dofs must be positive.")
-            K_add = sp.csr_matrix((n_add, n_add), dtype=self.K_u.dtype)
+            K_add = self._empty_flux(n_add)
         else:
-            if isinstance(K_block, FluxSparseMatrix):
-                K_add = K_block.to_csr()
-            elif sp.issparse(K_block):
-                K_add = K_block.tocsr()
-            else:
-                K_add = sp.csr_matrix(np.asarray(K_block, dtype=float))
-            if K_add.shape[0] != K_add.shape[1]:
-                raise ValueError("K_block must be square.")
-            n_add = int(K_add.shape[0])
+            K_add = self._as_flux_matrix(K_block)
+            n_add = int(K_add.n_dofs)
             if n_dofs is not None and int(n_dofs) != n_add:
                 raise ValueError("n_dofs does not match K_block shape.")
 
         if F_block is None:
-            F_add = np.zeros((n_add,), dtype=float)
+            F_add = jnp.zeros((n_add,), dtype=self.dtype)
         else:
-            F_add = np.asarray(F_block, dtype=float).reshape(-1)
+            F_add = jnp.asarray(F_block, dtype=self.F_u.dtype).reshape(-1)
             if F_add.shape != (n_add,):
                 raise ValueError("F_block shape must match appended DOF count.")
 
         start = self.n_u
         stop = start + n_add
 
-        self.K_u = sp.block_diag((self.K_u, K_add), format="csr")
-        self.F_u = np.concatenate([self.F_u, F_add], axis=0)
-
-        if self.K_contact_lifted is not None:
-            K_prev = self.K_contact_lifted.tocsr()
-            n_l = int(K_prev.shape[0] - start)
-            if n_l < 0:
-                raise ValueError("Invalid lifted contact matrix shape.")
-            Kuu_prev = K_prev[:start, :start]
-            Kul_prev = K_prev[:start, start:]
-            Klu_prev = K_prev[start:, :start]
-            Kll_prev = K_prev[start:, start:]
-            z_u = sp.csr_matrix((start, n_add), dtype=K_prev.dtype)
-            z_ut = sp.csr_matrix((n_add, start), dtype=K_prev.dtype)
-            z_ul = sp.csr_matrix((n_add, n_l), dtype=K_prev.dtype)
-            z_lu = sp.csr_matrix((n_l, n_add), dtype=K_prev.dtype)
-            z_uu = sp.csr_matrix((n_add, n_add), dtype=K_prev.dtype)
-            self.K_contact_lifted = sp.bmat(
-                [
-                    [Kuu_prev, z_u, Kul_prev],
-                    [z_ut, z_uu, z_ul],
-                    [Klu_prev, z_lu, Kll_prev],
-                ],
-                format="csr",
-            )
-            if self.F_contact_lifted is not None:
-                F_prev = np.asarray(self.F_contact_lifted, dtype=float).reshape(-1)
-                self.F_contact_lifted = np.concatenate(
-                    [F_prev[:start], np.zeros((n_add,), dtype=float), F_prev[start:]],
-                    axis=0,
-                )
-
+        self.K_u = block_diag_flux(self.K_u, K_add)
+        self.F_u = jnp.concatenate([self.F_u, F_add], axis=0)
         return slice(start, stop)
 
-    def _contact_projection(
+    def add_constraint_kkt(
         self,
+        C,
         *,
-        n_master_nodes: int,
-        n_slave_nodes: int,
-        master_offset: int,
-        slave_offset: int,
-        value_dim: int,
-    ) -> sp.csr_matrix:
-        n_master_nodes = int(n_master_nodes)
-        n_slave_nodes = int(n_slave_nodes)
-        master_offset = int(master_offset)
-        slave_offset = int(slave_offset)
-        value_dim = int(value_dim)
-        if value_dim <= 0:
-            raise ValueError("value_dim must be positive.")
-        n_cu = value_dim * (n_master_nodes + n_slave_nodes)
-        P = sp.lil_matrix((n_cu, self.n_u), dtype=float)
-        row = 0
-        for i in range(n_master_nodes):
-            for d in range(value_dim):
-                P[row, master_offset + value_dim * i + d] = 1.0
-                row += 1
-        for i in range(n_slave_nodes):
-            for d in range(value_dim):
-                P[row, slave_offset + value_dim * i + d] = 1.0
-                row += 1
-        return P.tocsr()
-
-    def add_contact_kkt(
-        self,
-        K_contact,
-        *,
-        n_master_nodes: int,
-        n_slave_nodes: int,
-        master_offset: int,
-        slave_offset: int,
-        F_contact: np.ndarray | None = None,
-        value_dim: int = 1,
-    ) -> None:
-        if isinstance(K_contact, FluxSparseMatrix):
-            Kc = K_contact.to_csr()
-        elif sp.issparse(K_contact):
-            Kc = K_contact.tocsr()
-        else:
-            Kc = sp.csr_matrix(np.asarray(K_contact, dtype=float))
-
-        value_dim = int(value_dim)
-        n_cu = value_dim * int(n_master_nodes + n_slave_nodes)
-        if Kc.shape[0] != Kc.shape[1] or Kc.shape[0] < n_cu:
-            raise ValueError("K_contact shape is invalid.")
-        n_l = int(Kc.shape[0] - n_cu)
-
-        Kuu_c = Kc[:n_cu, :n_cu]
-        Kul_c = Kc[:n_cu, n_cu:]
-        Klu_c = Kc[n_cu:, :n_cu]
-        Kll_c = Kc[n_cu:, n_cu:]
-
-        # P maps contact displacement dofs -> structural displacement dofs
-        P = self._contact_projection(
-            n_master_nodes=n_master_nodes,
-            n_slave_nodes=n_slave_nodes,
-            master_offset=master_offset,
-            slave_offset=slave_offset,
-            value_dim=value_dim,
-        )
-
-        Kuu_lift = P.T @ Kuu_c @ P
-        Kul_lift = P.T @ Kul_c
-        Klu_lift = Klu_c @ P
-        K_add = sp.bmat(
-            [
-                [Kuu_lift, Kul_lift],
-                [Klu_lift, Kll_c],
-            ],
-            format="csr",
-        )
-
-        F_add = np.zeros((self.n_u + n_l,), dtype=float)
-        if F_contact is not None:
-            Fc = np.asarray(F_contact, dtype=float)
-            if Fc.shape != F_add.shape:
-                raise ValueError("F_contact shape mismatch.")
-            F_add += Fc
-
-        if self.K_contact_lifted is None:
-            self.K_contact_lifted = K_add
-            self.F_contact_lifted = F_add
-            return
-
-        # Accumulate multiple mortar/KKT contacts by appending new lambda blocks.
-        # This allows each contact contribution to have its own lambda size.
-        K_prev = self.K_contact_lifted.tocsr()
-        n_prev_l = int(K_prev.shape[0] - self.n_u)
-        if n_prev_l < 0:
-            raise ValueError("Invalid lifted contact matrix shape.")
-
-        Kuu_prev = K_prev[: self.n_u, : self.n_u]
-        Kul_prev = K_prev[: self.n_u, self.n_u :]
-        Klu_prev = K_prev[self.n_u :, : self.n_u]
-        Kll_prev = K_prev[self.n_u :, self.n_u :]
-
-        Kuu_new = K_add[: self.n_u, : self.n_u]
-        Kul_new = K_add[: self.n_u, self.n_u :]
-        Klu_new = K_add[self.n_u :, : self.n_u]
-        Kll_new = K_add[self.n_u :, self.n_u :]
-
-        z_prev_new = sp.csr_matrix((n_prev_l, n_l), dtype=float)
-        z_new_prev = sp.csr_matrix((n_l, n_prev_l), dtype=float)
-        self.K_contact_lifted = sp.bmat(
-            [
-                [Kuu_prev + Kuu_new, Kul_prev, Kul_new],
-                [Klu_prev, Kll_prev, z_prev_new],
-                [Klu_new, z_new_prev, Kll_new],
-            ],
-            format="csr",
-        )
-
-        F_prev = self.F_contact_lifted
-        if F_prev is None:
-            F_prev = np.zeros((self.n_u + n_prev_l,), dtype=float)
-        self.F_contact_lifted = np.concatenate(
-            [
-                np.asarray(F_prev[: self.n_u], dtype=float) + F_add[: self.n_u],
-                np.asarray(F_prev[self.n_u :], dtype=float),
-                np.asarray(F_add[self.n_u :], dtype=float),
-            ]
-        )
-
-    def add_contact_nitsche(
-        self,
-        J_contact,
-        *,
-        n_master_nodes: int,
-        n_slave_nodes: int,
-        master_offset: int,
-        slave_offset: int,
-        value_dim: int = 1,
-        residual: np.ndarray | None = None,
-        scale: float = 1.0,
-        residual_sign: float = -1.0,
+        F_contact=None,
+        rho: float = 0.0,
     ) -> None:
         """
-        Lift a two-body Nitsche interface Jacobian/residual into structural DOFs.
-
-        Parameters
-        ----------
-        J_contact:
-            Interface Jacobian ordered as [master dofs, slave dofs].
-        residual:
-            Optional interface residual with the same ordering.
-            `residual_sign=-1` maps Newton form (K du = -R).
+        Lift a DOF-level KKT constraint system directly into the sparse JAX system.
         """
-        if isinstance(J_contact, FluxSparseMatrix):
-            Jc = J_contact.to_csr()
-        elif sp.issparse(J_contact):
-            Jc = J_contact.tocsr()
-        else:
-            Jc = sp.csr_matrix(np.asarray(J_contact, dtype=float))
-
-        value_dim = int(value_dim)
-        n_cu = value_dim * int(n_master_nodes + n_slave_nodes)
-        if Jc.shape != (n_cu, n_cu):
-            raise ValueError("J_contact shape mismatch for provided node counts and value_dim.")
-
-        P = self._contact_projection(
-            n_master_nodes=n_master_nodes,
-            n_slave_nodes=n_slave_nodes,
-            master_offset=master_offset,
-            slave_offset=slave_offset,
-            value_dim=value_dim,
-        )
-
-        s = float(scale)
-        self.K_u = self.K_u + s * (P.T @ Jc @ P)
-
-        if residual is not None:
-            r = np.asarray(residual, dtype=float).reshape(-1)
-            if r.shape != (n_cu,):
-                raise ValueError("residual shape mismatch for provided node counts and value_dim.")
-            self.F_u = self.F_u + (s * float(residual_sign)) * np.asarray(P.T @ r, dtype=float)
-
-    def assemble(self, *, format: str = "fluxsparse", backend: str = "numpy"):
-        if backend not in {"numpy", "jax"}:
-            raise ValueError("backend must be 'numpy' or 'jax'.")
-        if format not in {"fluxsparse", "csr", "dense"}:
-            raise ValueError("format must be 'fluxsparse', 'csr', or 'dense'.")
-
-        if self.K_contact_lifted is None:
-            K = self.K_u.copy()
-            F = self.F_u.copy()
-        else:
-            K = self.K_contact_lifted.tolil()
-            K[: self.n_u, : self.n_u] = K[: self.n_u, : self.n_u] + self.K_u
-            K = K.tocsr()
-            F = self.F_u.copy()
-            if self.F_contact_lifted is not None:
-                F_full = self.F_contact_lifted.copy()
-                F_full[: self.n_u] += F
-                F = F_full
-            else:
-                F_full = np.zeros((K.shape[0],), dtype=float)
-                F_full[: self.n_u] = F
-                F = F_full
-
-        if format == "dense":
-            dense = K.toarray()
-            if backend == "jax":
-                import jax.numpy as jnp
-
-                return jnp.asarray(dense), jnp.asarray(F)
-            return dense, F
-        if format == "csr":
-            if backend == "jax":
-                raise ValueError("format='csr' is only available with backend='numpy'.")
-            return K, F
-
-        coo = K.tocoo()
-        flux = FluxSparseMatrix(coo.row, coo.col, coo.data, K.shape[0])
-        if backend == "jax":
-            import jax.numpy as jnp
-
-            return flux, jnp.asarray(F)
-        return flux, F
-
-    def _assemble_solve_system(
-        self,
-        *,
-        dirichlet_dofs: np.ndarray | None = None,
-        dirichlet_vals=0.0,
-        format: str = "csr",
-        diagonal_shift: float = 0.0,
-    ) -> tuple[sp.csr_matrix, np.ndarray, np.ndarray]:
-        if format not in {"csr", "fluxsparse"}:
-            raise ValueError("format must be 'csr' or 'fluxsparse'.")
-
-        dir_dofs = np.asarray(dirichlet_dofs if dirichlet_dofs is not None else [], dtype=int)
-        if format == "fluxsparse":
-            K_flux, F = self.assemble(format="fluxsparse")
-            K_bc, F_bc = enforce_dirichlet_fluxsparse(K_flux, F, dir_dofs, dirichlet_vals)
-            if float(diagonal_shift) != 0.0:
-                K_bc = K_bc + float(diagonal_shift) * sp.eye(K_bc.shape[0], format="csr")
-            return K_bc.tocsr(), np.asarray(F_bc, dtype=float), dir_dofs
-
-        K_csr, F = self.assemble(format="csr")
-        if dir_dofs.size > 0:
-            coo = K_csr.tocoo()
-            K_flux = FluxSparseMatrix(coo.row, coo.col, coo.data, K_csr.shape[0])
-            K_csr, F = enforce_dirichlet_sparse(K_flux, F, dir_dofs, dirichlet_vals)
-        if float(diagonal_shift) != 0.0:
-            K_csr = K_csr + float(diagonal_shift) * sp.eye(K_csr.shape[0], format="csr")
-        return K_csr.tocsr(), np.asarray(F, dtype=float), dir_dofs
-
-    @staticmethod
-    def _zero_dirichlet_matrix(mat, dirichlet_dofs: np.ndarray) -> sp.csr_matrix:
-        if isinstance(mat, FluxSparseMatrix):
-            out = mat.to_csr()
-        elif sp.issparse(mat):
-            out = mat.tocsr()
-        else:
-            out = sp.csr_matrix(np.asarray(mat, dtype=float))
-        if dirichlet_dofs.size == 0:
-            return out
-        out = out.tolil()
-        out[dirichlet_dofs, :] = 0.0
-        out[:, dirichlet_dofs] = 0.0
-        return out.tocsr()
-
-    @staticmethod
-    def _zero_dirichlet_vector(vec, dirichlet_dofs: np.ndarray, *, size: int) -> np.ndarray:
-        out = np.asarray(vec, dtype=float).reshape(-1)
-        if out.shape != (size,):
-            raise ValueError(f"vector shape must be {(size,)}, got {out.shape}.")
-        out = out.copy()
-        if dirichlet_dofs.size > 0:
-            out[dirichlet_dofs] = 0.0
-        return out
+        C_arr = jnp.asarray(C, dtype=self.dtype)
+        if C_arr.ndim != 2 or C_arr.shape[1] != self.n_u:
+            raise ValueError("Constraint matrix width must match the current structural DOF count.")
+        Kuu = jnp.asarray(rho, dtype=self.dtype) * (C_arr.T @ C_arr)
+        self.add_local_kkt(np.arange(self.n_u, dtype=int), C_arr, Kuu_local=Kuu, F_contact=F_contact)
 
     def solve(
         self,
         *,
         dirichlet_dofs: np.ndarray | None = None,
         dirichlet_vals=0.0,
-        format: str = "csr",
         diagonal_shift: float = 0.0,
-        backend: str = "numpy",
-        jax_solver: str = "dense",
+        solver: str = "cg",
         tol: float = 1e-8,
         maxiter: int | None = None,
     ):
-        if backend not in {"numpy", "jax"}:
-            raise ValueError("backend must be 'numpy' or 'jax'.")
-        if jax_solver not in {"dense", "cg"}:
-            raise ValueError("jax_solver must be 'dense' or 'cg'.")
-        if backend == "jax" and format == "csr":
-            format = "fluxsparse"
-        if backend == "numpy":
-            K_sys, F_sys, _dir_dofs = self._assemble_solve_system(
-                dirichlet_dofs=dirichlet_dofs,
-                dirichlet_vals=dirichlet_vals,
-                format=format,
-                diagonal_shift=diagonal_shift,
-            )
-            return spla.spsolve(K_sys, F_sys)
-
-        import jax.numpy as jnp
-        from .dirichlet import enforce_dirichlet_dense_jax
-
-        K_dense, F_dense = self.assemble(format="dense", backend="jax")
+        """
+        Solve the coupled system with the sparse-first JAX CG path.
+        """
+        if solver != "cg":
+            raise ValueError("CoupledSystem only supports solver='cg'. Use to_dense() for dense reference solves.")
         dir_dofs = np.asarray(dirichlet_dofs if dirichlet_dofs is not None else [], dtype=int)
-        K_bc, F_bc = enforce_dirichlet_dense_jax(K_dense, F_dense, dir_dofs, dirichlet_vals)
+        if dir_dofs.size > 0:
+            K_bc, F_bc = enforce_dirichlet_fluxsparse_jax(self.K_u, self.F_u, dir_dofs, dirichlet_vals)
+        else:
+            K_bc, F_bc = self.K_u, self.F_u
         if float(diagonal_shift) != 0.0:
-            K_bc = K_bc + jnp.asarray(diagonal_shift, dtype=K_bc.dtype) * jnp.eye(K_bc.shape[0], dtype=K_bc.dtype)
-        if jax_solver == "dense":
-            return jnp.linalg.solve(K_bc, F_bc)
+            diag = jnp.arange(K_bc.n_dofs, dtype=jnp.int32)
+            K_bc = concat_flux(
+                K_bc,
+                FluxSparseMatrix(diag, diag, jnp.full((K_bc.n_dofs,), jnp.asarray(diagonal_shift, dtype=self.dtype)), K_bc.n_dofs),
+                n_dofs=K_bc.n_dofs,
+            )
         u, _info = cg_solve_jax(K_bc, F_bc, tol=tol, maxiter=maxiter)
         return u
 
-    def linear_output_sensitivity(
-        self,
-        dK,
-        *,
-        output_vector,
-        dF=None,
-        u: np.ndarray | None = None,
-        dirichlet_dofs: np.ndarray | None = None,
-        dirichlet_vals=0.0,
-        format: str = "csr",
-        diagonal_shift: float = 0.0,
-    ) -> float:
-        """
-        Differentiate a linear output ``J = output_vector^T u`` w.r.t. a parameter.
-
-        The state ``u`` solves the coupled linear system assembled by this object.
-        ``dK`` and ``dF`` are the derivatives of the assembled stiffness and RHS
-        with respect to the parameter.
-        """
-        K_sys, F_sys, dir_dofs = self._assemble_solve_system(
-            dirichlet_dofs=dirichlet_dofs,
-            dirichlet_vals=dirichlet_vals,
-            format=format,
-            diagonal_shift=diagonal_shift,
-        )
-        n = int(K_sys.shape[0])
-        c = self._zero_dirichlet_vector(output_vector, dir_dofs, size=n)
-        dK_raw = self._zero_dirichlet_matrix(dK, np.asarray([], dtype=int))
-        if dK_raw.shape == (self.n_u, self.n_u) and n != self.n_u:
-            dK_lift = sp.lil_matrix((n, n), dtype=dK_raw.dtype)
-            dK_lift[: self.n_u, : self.n_u] = dK_raw
-            dK_raw = dK_lift.tocsr()
-        dK_bc = self._zero_dirichlet_matrix(dK_raw, dir_dofs)
-        if dK_bc.shape != K_sys.shape:
-            raise ValueError(f"dK shape {dK_bc.shape} does not match assembled system shape {K_sys.shape}.")
-        if dF is None:
-            dF_bc = np.zeros((n,), dtype=float)
-        else:
-            dF_arr = np.asarray(dF, dtype=float).reshape(-1)
-            if dF_arr.shape == (self.n_u,) and n != self.n_u:
-                dF_full = np.zeros((n,), dtype=float)
-                dF_full[: self.n_u] = dF_arr
-                dF_arr = dF_full
-            dF_bc = self._zero_dirichlet_vector(dF_arr, dir_dofs, size=n)
-
-        u_vec = np.asarray(u, dtype=float).reshape(-1) if u is not None else spla.spsolve(K_sys, F_sys)
-        if u_vec.shape != (n,):
-            raise ValueError(f"u shape must be {(n,)}, got {u_vec.shape}.")
-
-        lam = spla.spsolve(K_sys.T, c)
-        dJ = lam @ (dF_bc - dK_bc @ u_vec)
-        return float(dJ)
-
-    def linear_compliance_sensitivity(
-        self,
-        dK,
-        *,
-        load_vector,
-        dF=None,
-        u: np.ndarray | None = None,
-        dirichlet_dofs: np.ndarray | None = None,
-        dirichlet_vals=0.0,
-        format: str = "csr",
-        diagonal_shift: float = 0.0,
-    ) -> float:
-        """
-        Differentiate compliance ``C = load_vector^T u`` w.r.t. a parameter.
-
-        Pass the external load of interest explicitly via ``load_vector``.
-        When the parameter only modifies stiffness, leave ``dF=None``.
-        """
-        return self.linear_output_sensitivity(
-            dK,
-            output_vector=load_vector,
-            dF=dF,
-            u=u,
-            dirichlet_dofs=dirichlet_dofs,
-            dirichlet_vals=dirichlet_vals,
-            format=format,
-            diagonal_shift=diagonal_shift,
-        )
+    def compliance(self, load_vector, *, u=None):
+        u_vec = self.solve() if u is None else jnp.asarray(u)
+        return jnp.dot(jnp.asarray(load_vector, dtype=u_vec.dtype), u_vec)
 
 
 @dataclass
-class _FieldBlock:
+class _JaxFieldBlock:
     name: str
     offset: int
     n_dofs: int
     value_dim: int
     n_nodes: int
-    point: np.ndarray | None = None
-
-
-@dataclass(frozen=True)
-class DirichletSpec:
-    """
-    Field-aware Dirichlet selector for coupled systems.
-
-    Exactly one selector style must be used:
-    - `nodes` (+ optional `components`)
-    - `local_dofs`
-    """
-
-    field: str
-    nodes: int | Sequence[int] | np.ndarray | None = None
-    components: int | Sequence[int] | np.ndarray | None = None
-    local_dofs: int | Sequence[int] | np.ndarray | None = None
-    value: float | Sequence[float] | np.ndarray = 0.0
-
-    def __post_init__(self) -> None:
-        has_nodes = self.nodes is not None
-        has_local = self.local_dofs is not None
-        if has_nodes == has_local:
-            raise ValueError("DirichletSpec requires exactly one of nodes or local_dofs.")
-
-
-@dataclass(frozen=True)
-class ConstraintSpec:
-    """
-    Unified constraint descriptor for CoupledSystemBuilder.
-
-    kind:
-    - "contact": routes to add_contact(...)
-    - "matrix": routes to add_constraint_matrix(...)
-    - "matrix_dof": routes to add_constraint_matrix_dof(...)
-    - "embedding": routes to add_embedding_constraint(...)
-    - "rbe2": routes to add_rbe2_constraint(...)
-    - "rbe3": routes to add_rbe3_constraint(...)
-    """
-
-    kind: str
-    master: str
-    slave: str
-    value_dim: int | None = None
-    rho: float = 0.0
-    F_contact: np.ndarray | None = None
-    backend: str = "numpy"
-
-    contact_obj: Any | None = None
-    C: Any | None = None
-    embedding: Any | None = None
-    ref_point: np.ndarray | None = None
-    slave_coords: np.ndarray | None = None
-    weights: np.ndarray | None = None
-    normalize_weights: bool = True
-
-    # contact routing/options
-    family: str | None = None
-    enforcement: str | None = None
-    law: str | None = None
-    formulation: str | None = None
-    weak_form: Any | None = None
-    state: Any | None = None
-    params: Any | None = None
-    residual: np.ndarray | None = None
-    scale: float = 1.0
-    residual_sign: float = -1.0
-    normal_source: str = "master"
-    sparse: bool = False
-    batch_jac: bool | None = None
-    multiplier: Any | None = None
-    facet_conn_master: np.ndarray | None = None
-
-    def __post_init__(self) -> None:
-        kind = str(self.kind).lower()
-        if kind not in {"contact", "matrix", "matrix_dof", "embedding", "rbe2", "rbe3"}:
-            raise ValueError("ConstraintSpec.kind must be one of: contact, matrix, matrix_dof, embedding, rbe2, rbe3.")
-        if kind == "contact" and self.contact_obj is None:
-            raise ValueError("ConstraintSpec(kind='contact') requires contact_obj.")
-        if kind in {"matrix", "matrix_dof"} and self.C is None:
-            raise ValueError("ConstraintSpec(kind='matrix*') requires C.")
-        if kind == "embedding" and self.embedding is None:
-            raise ValueError("ConstraintSpec(kind='embedding') requires embedding.")
-        if kind == "rbe2" and (self.ref_point is None or self.slave_coords is None):
-            raise ValueError("ConstraintSpec(kind='rbe2') requires ref_point and slave_coords.")
-        if kind == "rbe3" and (self.ref_point is None or self.slave_coords is None):
-            raise ValueError("ConstraintSpec(kind='rbe3') requires ref_point and slave_coords.")
+    point: jnp.ndarray | None = None
 
 
 class CoupledSystemBuilder:
-    """
-    Helper to reduce manual offset/node bookkeeping for coupled contact assembly.
-    """
+    """Minimal JAX-native builder for structural blocks and remote springs."""
 
     def __init__(self, system: CoupledSystem):
         self.system = system
-        self._blocks: dict[str, _FieldBlock] = {}
+        self._blocks: dict[str, _JaxFieldBlock] = {}
 
     @classmethod
     def from_structural(cls, K_u, F_u) -> "CoupledSystemBuilder":
         return cls(CoupledSystem.from_structural(K_u, F_u))
 
+    @classmethod
+    def create(cls, K_u, F_u, *, backend: str = "jax"):
+        """Create a coupled-system builder for the requested backend."""
+        if backend == "jax":
+            return cls.from_structural(K_u, F_u)
+        if backend == "numpy":
+            from .legacy_coupled_system import LegacyCoupledSystemBuilder
+
+            return LegacyCoupledSystemBuilder.from_structural(K_u, F_u)
+        raise ValueError("backend must be 'numpy' or 'jax'.")
+
     def _next_offset(self) -> int:
         if not self._blocks:
             return 0
         return max(b.offset + b.n_dofs for b in self._blocks.values())
+
+    def _get_block(self, name: str) -> _JaxFieldBlock:
+        try:
+            return self._blocks[str(name)]
+        except KeyError as exc:
+            raise KeyError(f"Unknown field '{name}'.") from exc
 
     def register_field(
         self,
@@ -668,48 +282,7 @@ class CoupledSystemBuilder:
             nn = nd // vd
         else:
             nn = int(n_nodes)
-        self._blocks[key] = _FieldBlock(name=key, offset=off, n_dofs=nd, value_dim=vd, n_nodes=nn)
-
-    def append_remote_point(
-        self,
-        name: str,
-        *,
-        point,
-        include_rotation: bool = True,
-        F_block: np.ndarray | None = None,
-    ) -> None:
-        """
-        Append a remote-point field.
-
-        By default this creates a 6-DOF field ordered as
-        ``[u_ref(3), omega_ref(3)]``. With ``include_rotation=False`` it creates a
-        translational 3-DOF remote point.
-        """
-        dof_count = 6 if include_rotation else 3
-        self.append_field(name, n_dofs=dof_count, value_dim=1, n_nodes=dof_count, F_block=F_block)
-        block = self._get_block(name)
-        block.point = np.asarray(point, dtype=float).reshape(-1)
-        if block.point.shape != (3,):
-            raise ValueError("remote point must be a 3D coordinate.")
-
-    def register_space(
-        self,
-        name: str,
-        space: Any,
-        *,
-        offset: int | None = None,
-        value_dim: int = 1,
-        n_nodes: int | None = None,
-    ) -> None:
-        nd = int(getattr(space, "n_dofs"))
-        off = self._next_offset() if offset is None else int(offset)
-        self.register_field(
-            name,
-            offset=off,
-            n_dofs=nd,
-            value_dim=value_dim,
-            n_nodes=n_nodes,
-        )
+        self._blocks[key] = _JaxFieldBlock(name=key, offset=off, n_dofs=nd, value_dim=vd, n_nodes=nn)
 
     def append_field(
         self,
@@ -719,14 +292,8 @@ class CoupledSystemBuilder:
         value_dim: int = 1,
         n_nodes: int | None = None,
         K_block=None,
-        F_block: np.ndarray | None = None,
+        F_block=None,
     ) -> None:
-        """
-        Append a new structural field at the end of the current unknown vector.
-
-        This is the main extension hook for user-added remote nodes or auxiliary
-        structural DOFs that should participate in subsequent constraints.
-        """
         key = str(name)
         if key in self._blocks:
             raise ValueError(f"Field '{key}' is already registered.")
@@ -739,504 +306,24 @@ class CoupledSystemBuilder:
             n_nodes=n_nodes,
         )
 
-    def register_blocks(self, blocks: Sequence[Any]) -> None:
-        """
-        Register multiple blocks with auto-offset.
-
-        Accepted entries:
-        - (name, space)
-        - (name, space, {"value_dim": ..., "n_nodes": ..., "offset": ...})
-        - {"name": ..., "space": ...} or {"name": ..., "n_dofs": ...}
-        """
-        for item in blocks:
-            if isinstance(item, dict):
-                name = item["name"]
-                if "space" in item:
-                    self.register_space(
-                        name,
-                        item["space"],
-                        offset=item.get("offset"),
-                        value_dim=item.get("value_dim", 1),
-                        n_nodes=item.get("n_nodes"),
-                    )
-                else:
-                    self.register_field(
-                        name,
-                        offset=item.get("offset"),
-                        n_dofs=item["n_dofs"],
-                        value_dim=item.get("value_dim", 1),
-                        n_nodes=item.get("n_nodes"),
-                    )
-                continue
-
-            if isinstance(item, tuple):
-                if len(item) == 2:
-                    name, space = item
-                    opts = {}
-                elif len(item) == 3:
-                    name, space, opts = item
-                    if not isinstance(opts, dict):
-                        raise TypeError("3-tuple register_blocks entry must use dict as third item.")
-                else:
-                    raise ValueError("tuple register_blocks entry must have length 2 or 3.")
-                self.register_space(
-                    name,
-                    space,
-                    offset=opts.get("offset"),
-                    value_dim=opts.get("value_dim", 1),
-                    n_nodes=opts.get("n_nodes"),
-                )
-                continue
-
-            raise TypeError("register_blocks entries must be dict or tuple.")
-
-    def _get_block(self, name: str) -> _FieldBlock:
-        key = str(name)
-        if key not in self._blocks:
-            candidates = list(self._blocks.keys())
-            hint = ""
-            if candidates:
-                close = difflib.get_close_matches(key, candidates, n=1)
-                if close:
-                    hint = f" Did you mean '{close[0]}'?"
-            raise ValueError(f"Field '{key}' is not registered.{hint}")
-        return self._blocks[key]
-
-    def resolve_block_dofs(
+    def append_remote_point(
         self,
-        field: str,
+        name: str,
         *,
-        nodes: int | Sequence[int] | np.ndarray | None = None,
-        components: int | Sequence[int] | np.ndarray | None = None,
-        local_dofs: int | Sequence[int] | np.ndarray | None = None,
-    ) -> np.ndarray:
-        """
-        Resolve field-local node/component or local-dof indices to global DOFs.
-
-        Parameters
-        ----------
-        field:
-            Registered block name.
-        nodes/components:
-            Node/component selector in the field.
-            `components=None` means all components in `[0, value_dim)`.
-        local_dofs:
-            Field-local DOF indices. Mutually exclusive with `nodes`.
-        """
-        b = self._get_block(field)
-
-        has_nodes = nodes is not None
-        has_local = local_dofs is not None
-        if has_nodes and has_local:
-            raise ValueError("Specify either nodes/components or local_dofs, not both.")
-        if not has_nodes and not has_local:
-            raise ValueError("One of nodes or local_dofs must be provided.")
-
-        if has_local:
-            ld = np.asarray(local_dofs, dtype=int).reshape(-1)
-            if ld.size == 0:
-                return ld
-            if np.any(ld < 0) or np.any(ld >= b.n_dofs):
-                raise ValueError(f"local_dofs out of range for field '{b.name}'.")
-            return b.offset + ld
-
-        node_arr = np.asarray(nodes, dtype=int).reshape(-1)
-        if node_arr.size == 0:
-            return np.asarray([], dtype=int)
-        if np.any(node_arr < 0) or np.any(node_arr >= b.n_nodes):
-            raise ValueError(f"nodes out of range for field '{b.name}'.")
-
-        if components is None:
-            comp_arr = np.arange(b.value_dim, dtype=int)
-        else:
-            comp_arr = np.asarray(components, dtype=int).reshape(-1)
-        if comp_arr.size == 0:
-            return np.asarray([], dtype=int)
-        if np.any(comp_arr < 0) or np.any(comp_arr >= b.value_dim):
-            raise ValueError(f"components out of range for field '{b.name}'.")
-
-        local = (node_arr[:, None] * b.value_dim + comp_arr[None, :]).reshape(-1)
-        return b.offset + local
-
-    def resolve_dirichlet(
-        self,
-        specs: Sequence[DirichletSpec],
-        *,
-        default_value: float = 0.0,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Convert field-based Dirichlet specs into `(dirichlet_dofs, dirichlet_vals)`.
-
-        Supported fields:
-        - `field` (required)
-        - `nodes` and optional `components`
-        - `local_dofs`
-        - `value` (scalar or array-like)
-        """
-        dof_to_value: dict[int, float] = {}
-
-        for spec in specs:
-            if not isinstance(spec, DirichletSpec):
-                raise TypeError("dirichlet specs must be DirichletSpec instances.")
-            field = str(spec.field)
-            dofs = self.resolve_block_dofs(
-                field,
-                nodes=spec.nodes,
-                components=spec.components,
-                local_dofs=spec.local_dofs,
-            )
-
-            val_obj = spec.value if spec.value is not None else default_value
-            val_arr = np.asarray(val_obj, dtype=float).reshape(-1)
-            if dofs.size == 0:
-                continue
-            if val_arr.size == 1:
-                vals = np.full((dofs.size,), float(val_arr[0]), dtype=float)
-            elif val_arr.size == dofs.size:
-                vals = val_arr.astype(float, copy=False)
-            else:
-                raise ValueError(
-                    "Dirichlet 'value' must be scalar or match the number of selected DOFs."
-                )
-
-            for d, v in zip(dofs, vals):
-                dof_to_value[int(d)] = float(v)
-
-        if not dof_to_value:
-            return np.asarray([], dtype=int), np.asarray([], dtype=float)
-        items = sorted(dof_to_value.items(), key=lambda kv: kv[0])
-        dofs = np.asarray([k for k, _ in items], dtype=int)
-        vals = np.asarray([v for _, v in items], dtype=float)
-        return dofs, vals
-
-    def solve(
-        self,
-        *,
-        dirichlet_specs: Sequence[DirichletSpec] | None = None,
-        dirichlet_dofs: np.ndarray | None = None,
-        dirichlet_vals=0.0,
-        format: str = "csr",
-        diagonal_shift: float = 0.0,
-        backend: str = "numpy",
-        jax_solver: str = "dense",
-        tol: float = 1e-8,
-        maxiter: int | None = None,
-    ):
-        """
-        Build and solve with optional `DirichletSpec` constraints.
-        """
-        if dirichlet_specs is not None and dirichlet_dofs is not None:
-            raise ValueError("Use either dirichlet_specs or dirichlet_dofs, not both.")
-        if dirichlet_specs is not None:
-            dirichlet_dofs, dirichlet_vals = self.resolve_dirichlet(dirichlet_specs)
-        return self.system.solve(
-            dirichlet_dofs=dirichlet_dofs,
-            dirichlet_vals=dirichlet_vals,
-            format=format,
-            diagonal_shift=diagonal_shift,
-            backend=backend,
-            jax_solver=jax_solver,
-            tol=tol,
-            maxiter=maxiter,
-        )
-
-    def add_contact_nitsche(
-        self,
-        ops_or_jacobian,
-        *,
-        master: str,
-        slave: str,
-        residual: np.ndarray | None = None,
-        scale: float = 1.0,
-        residual_sign: float = -1.0,
-        value_dim: int | None = None,
+        point,
+        include_rotation: bool = True,
+        F_block=None,
     ) -> None:
-        m = self._get_block(master)
-        s = self._get_block(slave)
-
-        if value_dim is None:
-            if m.value_dim != s.value_dim:
-                raise ValueError("master/slave value_dim mismatch. Pass value_dim explicitly.")
-            vd = m.value_dim
-        else:
-            vd = int(value_dim)
-
-        jac = getattr(ops_or_jacobian, "jacobian", ops_or_jacobian)
-        if residual is None and hasattr(ops_or_jacobian, "residual"):
-            residual = ops_or_jacobian.residual
-
-        self.system.add_contact_nitsche(
-            jac,
-            residual=residual,
-            n_master_nodes=m.n_nodes,
-            n_slave_nodes=s.n_nodes,
-            master_offset=m.offset,
-            slave_offset=s.offset,
-            value_dim=vd,
-            scale=scale,
-            residual_sign=residual_sign,
-        )
-
-    def add_contact_mortar(
-        self,
-        ops_or_kkt,
-        *,
-        master: str,
-        slave: str,
-        value_dim: int | None = None,
-        F_contact: np.ndarray | None = None,
-        rho: float | None = None,
-        multiplier=None,
-        facet_conn_master: np.ndarray | None = None,
-        backend: str = "numpy",
-    ) -> None:
-        """
-        Add mortar contact through either:
-        - operators from ``assemble_contact_constraint_operators(...)``, or
-        - a preassembled KKT matrix.
-        """
-        m = self._get_block(master)
-        s = self._get_block(slave)
-        if value_dim is None:
-            if m.value_dim != s.value_dim:
-                raise ValueError("master/slave value_dim mismatch. Pass value_dim explicitly.")
-            vd = m.value_dim
-        else:
-            vd = int(value_dim)
-
-        if hasattr(ops_or_kkt, "coupling_aa") and hasattr(ops_or_kkt, "coupling_ab"):
-            mult_obj = getattr(ops_or_kkt, "multiplier", None) if multiplier is None else multiplier
-            mult_family = str(getattr(mult_obj, "family", "")).lower() if mult_obj is not None else ""
-            if mult_family in {"p0_active", "p0_supermesh"}:
-                B_obj = getattr(ops_or_kkt, "B", None)
-                if B_obj is None:
-                    raise ValueError(f"{mult_family} mortar operators must include B.")
-                Kuu_obj = getattr(ops_or_kkt, "Kuu", None)
-                if Kuu_obj is None:
-                    raise ValueError(f"{mult_family} mortar operators must include Kuu.")
-                B_csr = B_obj.tocsr() if hasattr(B_obj, "tocsr") else sp.csr_matrix(np.asarray(B_obj, dtype=float))
-                Kuu_csr = (
-                    Kuu_obj.tocsr()
-                    if hasattr(Kuu_obj, "tocsr")
-                    else sp.csr_matrix(np.asarray(Kuu_obj, dtype=float))
-                )
-                Zll = sp.csr_matrix((B_csr.shape[0], B_csr.shape[0]), dtype=Kuu_csr.dtype)
-                K_contact = sp.bmat(
-                    [[Kuu_csr, B_csr.T], [B_csr, Zll]],
-                    format="csr",
-                )
-            else:
-                coupling_aa = getattr(ops_or_kkt, "coupling_aa")
-                coupling_ab = getattr(ops_or_kkt, "coupling_ab")
-                if coupling_aa is None or coupling_ab is None:
-                    raise ValueError("mortar operators must include coupling_aa and coupling_ab.")
-                rho_eff = getattr(ops_or_kkt, "rho", None) if rho is None else float(rho)
-                if rho_eff is None:
-                    rho_eff = 0.0
-                if mult_obj is None:
-                    raise ValueError("Constraint-family contact requires multiplier (ContactMultiplierSpace).")
-                fc = facet_conn_master
-                if fc is None and hasattr(ops_or_kkt, "facet_conn_master"):
-                    fc = getattr(ops_or_kkt, "facet_conn_master")
-                from ..mesh.contact import assemble_contact_kkt as _assemble_contact_kkt
-
-                K_contact = _assemble_contact_kkt(
-                    coupling_aa,
-                    coupling_ab,
-                    rho=float(rho_eff),
-                    multiplier=mult_obj,
-                    facet_conn_master=fc,
-                    backend=backend,
-                    format="fluxsparse",
-                )
-        else:
-            K_contact = ops_or_kkt
-
-        self.system.add_contact_kkt(
-            K_contact,
-            n_master_nodes=m.n_nodes,
-            n_slave_nodes=s.n_nodes,
-            master_offset=m.offset,
-            slave_offset=s.offset,
-            F_contact=F_contact,
-            value_dim=vd,
-        )
-
-    def add_contact(
-        self,
-        contact_obj,
-        *,
-        master: str,
-        slave: str,
-        family: str | None = None,
-        enforcement: str | None = None,
-        law: str | None = None,
-        formulation: str | None = None,
-        value_dim: int | None = None,
-        weak_form=None,
-        state=None,
-        params=None,
-        # nitsche options
-        residual: np.ndarray | None = None,
-        scale: float = 1.0,
-        residual_sign: float = -1.0,
-        normal_source: str = "master",
-        sparse: bool = False,
-        batch_jac: bool | None = None,
-        # mortar options
-        F_contact: np.ndarray | None = None,
-        rho: float | None = None,
-        multiplier=None,
-        facet_conn_master: np.ndarray | None = None,
-        backend: str = "numpy",
-    ) -> None:
-        """
-        Unified contact entry point for penalty/constraint families.
-        """
-        family_arg = None if family is None else str(family).lower()
-        family_mode = None
-        family_enforcement = None
-        if family_arg is not None:
-            if family_arg in {"constraint", "mortar"}:
-                family_mode = "constraint"
-                family_enforcement = "mortar"
-            elif family_arg in {"penalty", "nitsche"}:
-                family_mode = "penalty"
-                family_enforcement = "nitsche"
-            else:
-                raise ValueError("family must be 'constraint' or 'penalty' (aliases: 'mortar', 'nitsche').")
-
-        # Accept raw contact-space objects and assemble operators internally.
-        if (
-            hasattr(contact_obj, "assemble_contact_constraint_operators")
-            and not hasattr(contact_obj, "jacobian")
-            and not hasattr(contact_obj, "coupling_aa")
-        ):
-            warnings.warn(
-                "Passing a raw contact interface into CoupledSystemBuilder.add_contact(...) is a compatibility path. "
-                "Prefer assembling an explicit contact contribution first and passing that contribution to add_contact(...).",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            f_arg_guess = None if formulation is None else str(formulation).lower()
-            has_penalty_inputs = (weak_form is not None) or (state is not None) or (params is not None)
-            eval_backend = "jax" if (has_penalty_inputs and backend == "numpy") else backend
-            if family_mode is not None:
-                resolved_family = family_mode
-            elif f_arg_guess in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
-                resolved_family = "constraint"
-            elif f_arg_guess in {"penalty", "penalty_consistent", "nitsche"}:
-                resolved_family = "penalty"
-            elif has_penalty_inputs:
-                resolved_family = "penalty"
-            else:
-                resolved_family = "constraint"
-
-            if resolved_family == "constraint":
-                from ..mesh.contact import assemble_contact_constraint_operators as _assemble_ops
-                if multiplier is None:
-                    raise ValueError("family='constraint' requires multiplier (ContactMultiplierSpace).")
-
-                contact_obj = _assemble_ops(
-                    contact_obj,
-                    law=law,
-                    formulation=formulation,
-                    rho=0.0 if rho is None else float(rho),
-                    multiplier=multiplier,
-                    backend=eval_backend,
-                    weak_form=weak_form,
-                    state=state,
-                    params=params,
-                    normal_source=normal_source,
-                    sparse=sparse,
-                    batch_jac=batch_jac,
-                )
-            else:
-                from ..mesh.contact import assemble_contact_penalty_operators as _assemble_ops
-
-                contact_obj = _assemble_ops(
-                    contact_obj,
-                    law=law,
-                    formulation=formulation,
-                    backend=eval_backend,
-                    weak_form=weak_form,
-                    state=state,
-                    params=params,
-                    normal_source=normal_source,
-                    sparse=sparse,
-                    batch_jac=batch_jac,
-                )
-
-        # `law` is currently metadata only; routing is enforcement/formulation-based.
-        _ = law
-        e_arg = None if enforcement is None else str(enforcement).lower()
-        if e_arg in {"constraint", "mortar"}:
-            e_arg = "mortar"
-        elif e_arg in {"penalty", "nitsche"}:
-            e_arg = "nitsche"
-        f_arg = None if formulation is None else str(formulation).lower()
-        if family_enforcement is not None and e_arg is not None and e_arg != family_enforcement:
-            raise ValueError("family conflicts with enforcement.")
-        if family_mode == "constraint" and f_arg in {"penalty", "penalty_consistent", "nitsche"}:
-            raise ValueError("family='constraint' conflicts with penalty formulation.")
-        if family_mode == "penalty" and f_arg in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
-            raise ValueError("family='penalty' conflicts with multiplier formulation.")
-
-        m = e_arg
-        if m is None and family_enforcement is not None:
-            m = family_enforcement
-        if m is None and f_arg is not None:
-            if f_arg in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
-                m = "mortar"
-            elif f_arg in {"penalty", "penalty_consistent", "nitsche"}:
-                m = "nitsche"
-            else:
-                raise ValueError("Unknown formulation. Supported: multiplier, augmented_lagrangian, penalty.")
-        if m is None and hasattr(contact_obj, "enforcement"):
-            m = getattr(contact_obj, "enforcement")
-        if m is None and hasattr(contact_obj, "formulation"):
-            f_obj = str(getattr(contact_obj, "formulation")).lower()
-            if f_obj in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
-                m = "mortar"
-            elif f_obj in {"penalty", "penalty_consistent", "nitsche"}:
-                m = "nitsche"
-        if m is None:
-            raise ValueError("enforcement or formulation is required when contact_obj has no routing metadata.")
-        m = str(m).lower()
-        if f_arg is not None:
-            if m == "mortar" and f_arg in {"penalty", "penalty_consistent", "nitsche"}:
-                raise ValueError("formulation suggests nitsche, but enforcement resolved to mortar.")
-            if m == "nitsche" and f_arg in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
-                raise ValueError("formulation suggests mortar, but enforcement resolved to nitsche.")
-        if m == "nitsche":
-            self.add_contact_nitsche(
-                contact_obj,
-                master=master,
-                slave=slave,
-                residual=residual,
-                scale=scale,
-                residual_sign=residual_sign,
-                value_dim=value_dim,
-            )
-            return
-        if m == "mortar":
-            self.add_contact_mortar(
-                contact_obj,
-                master=master,
-                slave=slave,
-                value_dim=value_dim,
-                F_contact=F_contact,
-                rho=rho,
-                multiplier=multiplier,
-                facet_conn_master=facet_conn_master,
-                backend=backend,
-            )
-            return
-        raise ValueError("enforcement must be 'nitsche' or 'mortar'.")
+        dof_count = 6 if include_rotation else 3
+        self.append_field(name, n_dofs=dof_count, value_dim=1, n_nodes=dof_count, F_block=F_block)
+        block = self._get_block(name)
+        block.point = jnp.asarray(point, dtype=self.system.dtype).reshape(-1)
+        if block.point.shape != (3,):
+            raise ValueError("remote point must be a 3D coordinate.")
 
     def add_constraint(self, spec: ConstraintSpec) -> None:
         """
-        Add a constraint through a unified typed descriptor.
+        Add a supported constraint through the shared ConstraintSpec descriptor.
         """
         if not isinstance(spec, ConstraintSpec):
             raise TypeError("spec must be a ConstraintSpec instance.")
@@ -1261,11 +348,6 @@ class CoupledSystemBuilder:
                 normal_source=spec.normal_source,
                 sparse=spec.sparse,
                 batch_jac=spec.batch_jac,
-                F_contact=spec.F_contact,
-                rho=spec.rho,
-                multiplier=spec.multiplier,
-                facet_conn_master=spec.facet_conn_master,
-                backend=spec.backend,
             )
             return
         if kind == "matrix":
@@ -1287,17 +369,6 @@ class CoupledSystemBuilder:
                 F_contact=spec.F_contact,
             )
             return
-        if kind == "embedding":
-            self.add_embedding_constraint(
-                spec.embedding,
-                master=spec.master,
-                slave=spec.slave,
-                value_dim=spec.value_dim,
-                rho=spec.rho,
-                backend=spec.backend,
-                F_contact=spec.F_contact,
-            )
-            return
         if kind == "rbe2":
             self.add_rbe2_constraint(
                 master=spec.master,
@@ -1305,7 +376,6 @@ class CoupledSystemBuilder:
                 ref_point=spec.ref_point,
                 slave_coords=spec.slave_coords,
                 rho=spec.rho,
-                backend=spec.backend,
                 F_contact=spec.F_contact,
             )
             return
@@ -1318,268 +388,445 @@ class CoupledSystemBuilder:
                 weights=spec.weights,
                 normalize_weights=spec.normalize_weights,
                 rho=spec.rho,
-                backend=spec.backend,
                 F_contact=spec.F_contact,
             )
             return
-        raise ValueError("Unsupported ConstraintSpec.kind.")
-
-    def add_field_matrix(self, field: str, K_local, *, F_local: np.ndarray | None = None) -> None:
-        """
-        Add a local stiffness/load contribution directly onto one registered field.
-
-        This is useful for user-added remote fields, springs, or reduced support
-        models that should modify the structural block without introducing
-        additional Lagrange multiplier DOFs.
-        """
-        b = self._get_block(field)
-        if isinstance(K_local, FluxSparseMatrix):
-            K_csr = K_local.to_csr()
-        elif sp.issparse(K_local):
-            K_csr = K_local.tocsr()
-        else:
-            K_csr = sp.csr_matrix(np.asarray(K_local, dtype=float))
-        if K_csr.shape != (b.n_dofs, b.n_dofs):
-            raise ValueError(f"K_local shape {K_csr.shape} does not match field '{b.name}' size {(b.n_dofs, b.n_dofs)}.")
-
-        self.system.K_u = self.system.K_u.tolil()
-        self.system.K_u[b.offset : b.offset + b.n_dofs, b.offset : b.offset + b.n_dofs] += K_csr
-        self.system.K_u = self.system.K_u.tocsr()
-
-        if F_local is not None:
-            F_arr = np.asarray(F_local, dtype=float).reshape(-1)
-            if F_arr.shape != (b.n_dofs,):
-                raise ValueError(f"F_local shape {F_arr.shape} does not match field '{b.name}' size {(b.n_dofs,)}.")
-            self.system.F_u[b.offset : b.offset + b.n_dofs] += F_arr
-
-    @staticmethod
-    def _coerce_spring_matrix_and_reference(stiffness, reference_value, *, n: int) -> tuple[np.ndarray, np.ndarray]:
-        if np.isscalar(stiffness):
-            K_sel = np.eye(n, dtype=float) * float(stiffness)
-        else:
-            stiff_arr = np.asarray(stiffness, dtype=float)
-            if stiff_arr.ndim == 1:
-                if stiff_arr.shape != (n,):
-                    raise ValueError("stiffness vector must match selected DOF count.")
-                K_sel = np.diag(stiff_arr)
-            elif stiff_arr.ndim == 2:
-                if stiff_arr.shape != (n, n):
-                    raise ValueError("stiffness matrix must match selected DOF count.")
-                K_sel = stiff_arr
-            else:
-                raise ValueError("stiffness must be scalar, vector, or square matrix.")
-
-        ref_arr = np.asarray(reference_value, dtype=float).reshape(-1)
-        if ref_arr.size == 1:
-            u_ref = np.full((n,), float(ref_arr[0]), dtype=float)
-        elif ref_arr.size == n:
-            u_ref = ref_arr.astype(float, copy=False)
-        else:
-            raise ValueError("reference_value must be scalar or match selected DOF count.")
-        return K_sel, u_ref
-
-    def dof_spring_contribution(
-        self,
-        field: str,
-        *,
-        stiffness,
-        reference_value=0.0,
-        nodes: int | Sequence[int] | np.ndarray | None = None,
-        components: int | Sequence[int] | np.ndarray | None = None,
-        local_dofs: int | Sequence[int] | np.ndarray | None = None,
-    ) -> tuple[sp.csr_matrix, np.ndarray]:
-        """
-        Build the full-system stiffness/RHS contribution of a spring support.
-
-        This is useful when a scalar parameter scales the spring and one wants
-        ``dK/dp`` and ``dF/dp`` for sensitivity analysis.
-        """
-        dofs = self.resolve_block_dofs(
-            field,
-            nodes=nodes,
-            components=components,
-            local_dofs=local_dofs,
+        if kind == "embedding":
+            self.add_embedding_constraint(
+                spec.embedding,
+                master=spec.master,
+                slave=spec.slave,
+                value_dim=spec.value_dim,
+                rho=spec.rho,
+                F_contact=spec.F_contact,
+            )
+            return
+        raise NotImplementedError(
+            f"CoupledSystemBuilder does not support ConstraintSpec(kind='{kind}') yet."
         )
-        n_sys = self.system.n_u
-        if dofs.size == 0:
-            return sp.csr_matrix((n_sys, n_sys), dtype=float), np.zeros((n_sys,), dtype=float)
 
-        K_sel, u_ref = self._coerce_spring_matrix_and_reference(stiffness, reference_value, n=int(dofs.size))
-        dofs_i = np.asarray(dofs, dtype=int)
-        rows = np.repeat(dofs_i, dofs_i.size)
-        cols = np.tile(dofs_i, dofs_i.size)
-        data = K_sel.reshape(-1)
-        K_full = sp.csr_matrix((data, (rows, cols)), shape=(n_sys, n_sys), dtype=float)
-        F_full = np.zeros((n_sys,), dtype=float)
-        F_full[dofs_i] = np.asarray(K_sel @ u_ref, dtype=float)
-        return K_full, F_full
+    def resolve_dirichlet(
+        self,
+        specs: Sequence[DirichletSpec],
+        *,
+        default_value: float = 0.0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Convert field-based Dirichlet specs into `(dirichlet_dofs, dirichlet_vals)`.
+        """
+        dof_to_value: dict[int, float] = {}
 
-    def add_dof_spring(
+        for spec in specs:
+            if not isinstance(spec, DirichletSpec):
+                raise TypeError("dirichlet specs must be DirichletSpec instances.")
+            dofs = self.resolve_block_dofs(
+                str(spec.field),
+                nodes=spec.nodes,
+                components=spec.components,
+                local_dofs=spec.local_dofs,
+            )
+            val_obj = spec.value if spec.value is not None else default_value
+            val_arr = np.asarray(val_obj, dtype=float).reshape(-1)
+            if dofs.size == 0:
+                continue
+            if val_arr.size == 1:
+                vals = np.full((dofs.size,), float(val_arr[0]), dtype=float)
+            elif val_arr.size == dofs.size:
+                vals = val_arr.astype(float, copy=False)
+            else:
+                raise ValueError("Dirichlet 'value' must be scalar or match the number of selected DOFs.")
+            for d, v in zip(dofs, vals):
+                dof_to_value[int(d)] = float(v)
+
+        if not dof_to_value:
+            return np.asarray([], dtype=int), np.asarray([], dtype=float)
+        items = sorted(dof_to_value.items(), key=lambda kv: kv[0])
+        dofs = np.asarray([k for k, _ in items], dtype=int)
+        vals = np.asarray([v for _, v in items], dtype=float)
+        return dofs, vals
+
+    def resolve_block_dofs(
         self,
         field: str,
         *,
-        stiffness,
-        reference_value=0.0,
         nodes: int | Sequence[int] | np.ndarray | None = None,
         components: int | Sequence[int] | np.ndarray | None = None,
         local_dofs: int | Sequence[int] | np.ndarray | None = None,
     ) -> np.ndarray:
-        """
-        Add linear springs to selected DOFs of a registered field.
-
-        The spring contribution is:
-            K += K_s
-            F += K_s @ u_ref
-        so a scalar or vector ``reference_value`` acts like the target displacement
-        of a spring-to-ground support.
-        """
-        dofs = self.resolve_block_dofs(
-            field,
-            nodes=nodes,
-            components=components,
-            local_dofs=local_dofs,
-        )
-        if dofs.size == 0:
-            return dofs
-        K_add, F_add = self.dof_spring_contribution(
-            field,
-            stiffness=stiffness,
-            reference_value=reference_value,
-            nodes=nodes,
-            components=components,
-            local_dofs=local_dofs,
-        )
-        self.system.K_u = (self.system.K_u + K_add).tocsr()
-        self.system.F_u += F_add
-        return np.asarray(dofs, dtype=int)
-
-    def remote_spring_contribution(
-        self,
-        field: str,
-        *,
-        translational_stiffness=None,
-        rotational_stiffness=None,
-        translational_force=None,
-        rotational_force=None,
-        translational_target=0.0,
-        rotational_target=0.0,
-    ) -> tuple[sp.csr_matrix, np.ndarray]:
-        """
-        Build the full-system spring contribution for a remote point.
-
-        This returns the same contribution that ``add_remote_spring`` would add,
-        which is convenient for analytical sensitivities.
-        """
-
-        def _resolve_spring_stiffness(name: str, stiffness, force, target, n_expected: int):
-            if stiffness is not None and force is not None:
-                raise ValueError(f"{name}: specify either stiffness or force, not both.")
-            if stiffness is not None:
-                return stiffness
-            if force is None:
-                return None
-
-            force_arr = np.asarray(force, dtype=float).reshape(-1)
-            target_arr = np.asarray(target, dtype=float).reshape(-1)
-
-            if force_arr.size == 1:
-                force_arr = np.full((n_expected,), float(force_arr[0]), dtype=float)
-            elif force_arr.size != n_expected:
-                raise ValueError(f"{name}: force must be scalar or length {n_expected}.")
-
-            if target_arr.size == 1:
-                target_arr = np.full((n_expected,), float(target_arr[0]), dtype=float)
-            elif target_arr.size != n_expected:
-                raise ValueError(f"{name}: target must be scalar or length {n_expected}.")
-
-            zero_mask = np.abs(target_arr) <= 1e-15
-            if np.any(zero_mask & (np.abs(force_arr) > 1e-15)):
-                raise ValueError(f"{name}: cannot infer stiffness when target is zero but force is non-zero.")
-
-            stiff = np.zeros((n_expected,), dtype=float)
-            nz = ~zero_mask
-            stiff[nz] = force_arr[nz] / target_arr[nz]
-            return stiff
-
         b = self._get_block(field)
-        if b.n_dofs not in {3, 6}:
-            raise ValueError("remote spring helper expects a 3-DOF or 6-DOF field.")
+        if local_dofs is not None:
+            if nodes is not None or components is not None:
+                raise ValueError("Use either local_dofs or nodes/components, not both.")
+            local = np.asarray(local_dofs, dtype=int).reshape(-1)
+            if np.any(local < 0) or np.any(local >= b.n_dofs):
+                raise ValueError("local_dofs out of range.")
+            return b.offset + local
 
-        n_sys = self.system.n_u
-        K_full = sp.csr_matrix((n_sys, n_sys), dtype=float)
-        F_full = np.zeros((n_sys,), dtype=float)
+        if nodes is None:
+            node_ids = np.arange(b.n_nodes, dtype=int)
+        else:
+            node_ids = np.asarray(nodes if np.ndim(nodes) > 0 else [nodes], dtype=int).reshape(-1)
+        if np.any(node_ids < 0) or np.any(node_ids >= b.n_nodes):
+            raise ValueError("nodes out of range.")
 
-        translational_stiffness = _resolve_spring_stiffness(
-            "translational spring",
-            translational_stiffness,
-            translational_force,
-            translational_target,
-            min(3, b.n_dofs),
-        )
-        if translational_stiffness is not None:
-            K_add, F_add = self.dof_spring_contribution(
-                field,
-                local_dofs=np.arange(min(3, b.n_dofs)),
-                stiffness=translational_stiffness,
-                reference_value=translational_target,
-            )
-            K_full = K_full + K_add
-            F_full += F_add
+        if components is None:
+            comp_ids = np.arange(b.value_dim, dtype=int)
+        else:
+            comp_ids = np.asarray(components if np.ndim(components) > 0 else [components], dtype=int).reshape(-1)
+        if np.any(comp_ids < 0) or np.any(comp_ids >= b.value_dim):
+            raise ValueError("components out of range.")
 
-        rotational_stiffness = _resolve_spring_stiffness(
-            "rotational spring",
-            rotational_stiffness,
-            rotational_force,
-            rotational_target,
-            3,
-        )
-        if rotational_stiffness is not None:
-            if b.n_dofs < 6:
-                raise ValueError("rotational springs require a 6-DOF remote field.")
-            K_add, F_add = self.dof_spring_contribution(
-                field,
-                local_dofs=np.arange(3, 6),
-                stiffness=rotational_stiffness,
-                reference_value=rotational_target,
-            )
-            K_full = K_full + K_add
-            F_full += F_add
+        local = np.asarray([b.value_dim * n + c for n in node_ids for c in comp_ids], dtype=int)
+        return b.offset + local
 
-        return K_full.tocsr(), F_full
+    def add_field_matrix(self, field: str, K_local, *, F_local=None) -> None:
+        b = self._get_block(field)
+        K_arr = jnp.asarray(K_local, dtype=self.system.dtype)
+        if K_arr.shape != (b.n_dofs, b.n_dofs):
+            raise ValueError(f"K_local shape {K_arr.shape} does not match field '{b.name}' size {(b.n_dofs, b.n_dofs)}.")
+        local_dofs = np.arange(b.offset, b.offset + b.n_dofs, dtype=int)
+        if F_local is not None:
+            F_arr = jnp.asarray(F_local, dtype=self.system.F_u.dtype).reshape(-1)
+            if F_arr.shape != (b.n_dofs,):
+                raise ValueError(f"F_local shape {F_arr.shape} does not match field '{b.name}' size {(b.n_dofs,)}.")
+        else:
+            F_arr = None
+        self.system.add_local_stiffness(local_dofs, K_arr, F_local=F_arr)
 
-    def add_remote_spring(
+    def add_contact_nitsche(
         self,
-        field: str,
+        ops_or_jacobian,
         *,
-        translational_stiffness=None,
-        rotational_stiffness=None,
-        translational_force=None,
-        rotational_force=None,
-        translational_target=0.0,
-        rotational_target=0.0,
+        master: str,
+        slave: str,
+        residual=None,
+        scale: float = 1.0,
+        residual_sign: float = -1.0,
+        value_dim: int | None = None,
+    ) -> None:
+        m = self._get_block(master)
+        s = self._get_block(slave)
+
+        if value_dim is None:
+            if m.value_dim != s.value_dim:
+                raise ValueError("master/slave value_dim mismatch. Pass value_dim explicitly.")
+            vd = m.value_dim
+        else:
+            vd = int(value_dim)
+        if vd <= 0:
+            raise ValueError("value_dim must be positive.")
+        if m.n_dofs != vd * m.n_nodes or s.n_dofs != vd * s.n_nodes:
+            raise ValueError("contact penalty currently requires full nodal field blocks.")
+
+        jac = getattr(ops_or_jacobian, "jacobian", ops_or_jacobian)
+        if residual is None and hasattr(ops_or_jacobian, "residual"):
+            residual = ops_or_jacobian.residual
+
+        n_master = vd * m.n_nodes
+        n_slave = vd * s.n_nodes
+        n_cu = n_master + n_slave
+        J_if = jnp.asarray(jac, dtype=self.system.dtype)
+        if J_if.shape != (n_cu, n_cu):
+            raise ValueError("J_contact shape mismatch for provided node counts and value_dim.")
+        local_dofs = np.concatenate(
+            [
+                np.arange(m.offset, m.offset + n_master, dtype=int),
+                np.arange(s.offset, s.offset + n_slave, dtype=int),
+            ]
+        )
+        s_scale = jnp.asarray(scale, dtype=self.system.dtype)
+        self.system.add_local_stiffness(local_dofs, s_scale * J_if)
+
+        if residual is not None:
+            r_if = jnp.asarray(residual, dtype=self.system.F_u.dtype).reshape(-1)
+            if r_if.shape != (n_cu,):
+                raise ValueError("residual shape mismatch for provided node counts and value_dim.")
+            r_scale = jnp.asarray(scale * residual_sign, dtype=self.system.F_u.dtype)
+            self.system.F_u = self.system.F_u.at[jnp.asarray(local_dofs, dtype=jnp.int32)].add(r_scale * r_if)
+
+    def add_contact(
+        self,
+        contact_obj,
+        *,
+        master: str,
+        slave: str,
+        family: str | None = None,
+        enforcement: str | None = None,
+        law: str | None = None,
+        formulation: str | None = None,
+        value_dim: int | None = None,
+        weak_form=None,
+        state=None,
+        params=None,
+        residual=None,
+        scale: float = 1.0,
+        residual_sign: float = -1.0,
+        normal_source: str = "master",
+        sparse: bool = False,
+        batch_jac: bool | None = None,
+        F_contact=None,
+        rho: float | None = None,
+        multiplier=None,
+        facet_conn_master=None,
     ) -> None:
         """
-        Add translational and/or rotational springs to a remote-point field.
+        JAX-native contact entry point for coupled assembly.
 
-        Expected layouts:
-        - 6 DOF: ``[u_ref(3), omega_ref(3)]``
-        - 3 DOF: translational-only remote point
+        Supported today
+        - explicit penalty/nitsche contributions with ``jacobian``/``residual``
+        - raw contact objects resolved through
+          ``assemble_contact_penalty_operators(..., backend="jax")``
 
-        For each block, either provide ``*_stiffness`` directly, or provide
-        ``*_force`` together with the corresponding target and let the helper
-        derive diagonal stiffness values from ``force / target``.
+        Also supported
+        - explicit mortar/multiplier contact operators assembled on the JAX path
+        - raw contact objects resolved through
+          ``assemble_contact_constraint_operators(..., backend="jax")``
+
+        AD behavior
+        - explicit penalty/nitsche contributions with ``jacobian``/``residual``
+        - raw contact objects assembled through the JAX penalty path can
+          participate in autodiff as long as the underlying contact assembly
+          stays on the JAX path
+        - explicit multiplier operators with JAX ``B``/``Kuu`` can also
+          participate in autodiff on the JAX path
+
+        Practical scope
+        - use ``add_contact_nitsche(...)`` if you already have a JAX Jacobian
+        - use ``add_contact(...)`` when you want the builder to assemble a raw
+          penalty contact object for you
         """
-        K_add, F_add = self.remote_spring_contribution(
-            field,
-            translational_stiffness=translational_stiffness,
-            rotational_stiffness=rotational_stiffness,
-            translational_force=translational_force,
-            rotational_force=rotational_force,
-            translational_target=translational_target,
-            rotational_target=rotational_target,
+        family_arg = None if family is None else str(family).lower()
+        family_mode = None
+        family_enforcement = None
+        if family_arg is not None:
+            if family_arg in {"constraint", "mortar"}:
+                family_mode = "constraint"
+                family_enforcement = "mortar"
+            elif family_arg in {"penalty", "nitsche"}:
+                family_mode = "penalty"
+                family_enforcement = "nitsche"
+            else:
+                raise ValueError("family must be 'constraint' or 'penalty' (aliases: 'mortar', 'nitsche').")
+        if (
+            hasattr(contact_obj, "assemble_contact_constraint_operators")
+            and not hasattr(contact_obj, "jacobian")
+            and not hasattr(contact_obj, "coupling_aa")
+        ):
+            from ..mesh.contact import (
+                assemble_contact_constraint_operators,
+                assemble_contact_penalty_operators,
+            )
+
+            f_arg_guess = None if formulation is None else str(formulation).lower()
+            has_penalty_inputs = (weak_form is not None) or (state is not None) or (params is not None)
+            if family_mode is not None:
+                resolved_family = family_mode
+            elif f_arg_guess in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
+                resolved_family = "constraint"
+            elif f_arg_guess in {"penalty", "penalty_consistent", "nitsche"}:
+                resolved_family = "penalty"
+            elif has_penalty_inputs:
+                resolved_family = "penalty"
+            else:
+                resolved_family = "constraint"
+
+            if resolved_family == "constraint":
+                if multiplier is None:
+                    raise ValueError("constraint-family contact requires multiplier.")
+                contact_obj = assemble_contact_constraint_operators(
+                    contact_obj,
+                    law=law,
+                    formulation=formulation,
+                    rho=0.0 if rho is None else float(rho),
+                    multiplier=multiplier,
+                    backend="jax",
+                    weak_form=weak_form,
+                    state=state,
+                    params=params,
+                    normal_source=normal_source,
+                    sparse=sparse,
+                    batch_jac=batch_jac,
+                )
+            else:
+                contact_obj = assemble_contact_penalty_operators(
+                    contact_obj,
+                    law=law,
+                    formulation=formulation,
+                    backend="jax",
+                    weak_form=weak_form,
+                    state=state,
+                    params=params,
+                    normal_source=normal_source,
+                    sparse=sparse,
+                    batch_jac=batch_jac,
+                )
+
+        resolved = enforcement
+        if resolved is None and family_enforcement is not None:
+            resolved = family_enforcement
+        if resolved is None and hasattr(contact_obj, "enforcement"):
+            resolved = getattr(contact_obj, "enforcement")
+        if resolved is None and formulation is not None:
+            f_arg = str(formulation).lower()
+            if f_arg in {"penalty", "penalty_consistent", "nitsche"}:
+                resolved = "nitsche"
+            elif f_arg in {"multiplier", "lagrange_multiplier", "augmented_lagrangian"}:
+                resolved = "mortar"
+            else:
+                resolved = formulation
+        if resolved is None:
+            resolved = "nitsche"
+        resolved = str(resolved).lower()
+        if resolved in {"penalty", "nitsche"}:
+            self.add_contact_nitsche(
+                contact_obj,
+                master=master,
+                slave=slave,
+                residual=residual,
+                scale=scale,
+                residual_sign=residual_sign,
+                value_dim=value_dim,
+            )
+            return
+        if resolved in {"constraint", "mortar"}:
+            self.add_contact_mortar(
+                contact_obj,
+                master=master,
+                slave=slave,
+                value_dim=value_dim,
+                F_contact=F_contact,
+                rho=rho,
+                multiplier=multiplier,
+                facet_conn_master=facet_conn_master,
+            )
+            return
+        raise ValueError("enforcement must resolve to 'nitsche' or 'mortar'.")
+
+    def add_contact_mortar(
+        self,
+        ops_or_kkt,
+        *,
+        master: str,
+        slave: str,
+        value_dim: int | None = None,
+        F_contact=None,
+        rho: float | None = None,
+        multiplier=None,
+        facet_conn_master=None,
+    ) -> None:
+        """
+        Add mortar/multiplier contact on the JAX path.
+
+        Supported today
+        - explicit contact operators with ``B`` and ``Kuu``
+        - preassembled dense KKT matrices
+
+        Not supported yet
+        - sparse preassembled KKT inputs
+        - implicit assembly from ``coupling_aa``/``coupling_ab`` only
+        """
+        m = self._get_block(master)
+        s = self._get_block(slave)
+        if value_dim is None:
+            if m.value_dim != s.value_dim:
+                raise ValueError("master/slave value_dim mismatch. Pass value_dim explicitly.")
+            vd = m.value_dim
+        else:
+            vd = int(value_dim)
+
+        if hasattr(ops_or_kkt, "B") and getattr(ops_or_kkt, "B", None) is not None:
+            B_local = jnp.asarray(getattr(ops_or_kkt, "B"), dtype=self.system.dtype)
+            Kuu_local_obj = getattr(ops_or_kkt, "Kuu", None)
+            if Kuu_local_obj is None:
+                rho_eff = getattr(ops_or_kkt, "rho", None) if rho is None else rho
+                rho_eff = 0.0 if rho_eff is None else rho_eff
+                Kuu_local = jnp.asarray(rho_eff, dtype=self.system.dtype) * (B_local.T @ B_local)
+            else:
+                Kuu_local = jnp.asarray(Kuu_local_obj, dtype=self.system.dtype)
+
+            n_cu = int(m.n_dofs + s.n_dofs)
+            if B_local.ndim != 2 or B_local.shape[1] != n_cu:
+                raise ValueError("mortar operator B shape mismatch for provided master/slave blocks.")
+            if Kuu_local.shape != (n_cu, n_cu):
+                raise ValueError("mortar operator Kuu shape mismatch for provided master/slave blocks.")
+
+            local_dofs = np.concatenate(
+                [
+                    np.arange(m.offset, m.offset + m.n_dofs, dtype=int),
+                    np.arange(s.offset, s.offset + s.n_dofs, dtype=int),
+                ]
+            )
+            self.system.add_local_kkt(local_dofs, B_local, Kuu_local=Kuu_local, F_contact=F_contact)
+            return
+
+        if not hasattr(ops_or_kkt, "shape") and not isinstance(ops_or_kkt, (np.ndarray, jnp.ndarray)):
+            raise NotImplementedError(
+                "CoupledSystemBuilder.add_contact_mortar currently accepts explicit mortar operators "
+                "with B/Kuu or preassembled dense KKT matrices."
+            )
+
+        K_contact = jnp.asarray(ops_or_kkt, dtype=self.system.dtype)
+        n_cu = int(m.n_dofs + s.n_dofs)
+        if K_contact.ndim != 2 or K_contact.shape[0] != K_contact.shape[1]:
+            raise ValueError("preassembled contact KKT must be square.")
+        if K_contact.shape[0] < n_cu:
+            raise ValueError("preassembled contact KKT is smaller than the contact DOF block.")
+        n_l = int(K_contact.shape[0] - n_cu)
+        if n_l < 0:
+            raise ValueError("invalid preassembled contact KKT shape.")
+
+        Kuu_local = K_contact[:n_cu, :n_cu]
+        Kul_local = K_contact[:n_cu, n_cu:]
+        Klu_local = K_contact[n_cu:, :n_cu]
+        Kll = K_contact[n_cu:, n_cu:]
+        local_dofs = np.concatenate(
+            [
+                np.arange(m.offset, m.offset + m.n_dofs, dtype=int),
+                np.arange(s.offset, s.offset + s.n_dofs, dtype=int),
+            ]
         )
-        self.system.K_u = (self.system.K_u + K_add).tocsr()
-        self.system.F_u += F_add
+        n_prev = self.system.n_u
+        n_total = n_prev + n_l
+        mats = [FluxSparseMatrix(self.system.K_u.pattern.rows, self.system.K_u.pattern.cols, self.system.K_u.data, n_total)]
+        mats.append(self.system._dense_block_to_flux(local_dofs, local_dofs, Kuu_local, n_total=n_total))
+        lambda_dofs = np.arange(n_prev, n_total, dtype=int)
+        mats.append(self.system._dense_block_to_flux(local_dofs, lambda_dofs, Kul_local, n_total=n_total))
+        mats.append(self.system._dense_block_to_flux(lambda_dofs, local_dofs, Klu_local, n_total=n_total))
+        mats.append(self.system._dense_block_to_flux(lambda_dofs, lambda_dofs, Kll, n_total=n_total))
+        self.system.K_u = concat_flux(mats, n_dofs=n_total)
+
+        F_full = jnp.zeros((n_total,), dtype=self.system.F_u.dtype)
+        F_full = F_full.at[: n_prev].set(self.system.F_u)
+        if F_contact is not None:
+            F_arr = jnp.asarray(F_contact, dtype=self.system.F_u.dtype).reshape(-1)
+            if F_arr.shape != (n_total,):
+                raise ValueError("F_contact shape mismatch.")
+            F_full = F_full + F_arr
+        self.system.F_u = F_full
+
+    def add_constraint_matrix_dof(
+        self,
+        C,
+        *,
+        master: str,
+        slave: str,
+        rho: float = 0.0,
+        F_contact=None,
+    ) -> None:
+        m = self._get_block(master)
+        s = self._get_block(slave)
+        C_arr = jnp.asarray(C, dtype=self.system.dtype)
+        n_cu = int(m.n_dofs + s.n_dofs)
+        if C_arr.ndim != 2 or C_arr.shape[1] != n_cu:
+            raise ValueError("C shape mismatch for provided master/slave DOF counts.")
+        local_dofs = np.concatenate(
+            [
+                np.arange(m.offset, m.offset + m.n_dofs, dtype=int),
+                np.arange(s.offset, s.offset + s.n_dofs, dtype=int),
+            ]
+        )
+        Kuu_local = jnp.asarray(rho, dtype=self.system.dtype) * (C_arr.T @ C_arr)
+        self.system.add_local_kkt(local_dofs, C_arr, Kuu_local=Kuu_local, F_contact=F_contact)
 
     def add_constraint_matrix(
         self,
@@ -1589,18 +836,8 @@ class CoupledSystemBuilder:
         slave: str,
         value_dim: int | None = None,
         rho: float = 0.0,
-        F_contact: np.ndarray | None = None,
+        F_contact=None,
     ) -> None:
-        """
-        Add generic two-block equality constraints:
-            C * [u_master; u_slave] = 0
-        using KKT assembly with optional AL-like regularization ``rho * C^T C``.
-
-        Accepted ``C`` inputs:
-        - SciPy sparse matrix (recommended for large systems)
-        - dense array-like
-        - ``FluxSparseMatrix`` (converted internally via ``to_csr()``)
-        """
         m = self._get_block(master)
         s = self._get_block(slave)
         if value_dim is None:
@@ -1612,72 +849,63 @@ class CoupledSystemBuilder:
         if vd <= 0:
             raise ValueError("value_dim must be positive.")
 
-        if isinstance(C, FluxSparseMatrix):
-            C_csr = C.to_csr()
-        elif sp.issparse(C):
-            C_csr = C.tocsr()
-        else:
-            C_csr = sp.csr_matrix(np.asarray(C, dtype=float))
+        C_arr = jnp.asarray(C, dtype=self.system.dtype)
         n_cu = vd * int(m.n_nodes + s.n_nodes)
-        if C_csr.ndim != 2 or C_csr.shape[1] != n_cu:
+        if C_arr.ndim != 2 or C_arr.shape[1] != n_cu:
             raise ValueError("C shape mismatch for provided master/slave node counts and value_dim.")
-        n_l = int(C_csr.shape[0])
-        Kuu = float(rho) * (C_csr.T @ C_csr)
-        Zll = sp.csr_matrix((n_l, n_l), dtype=float)
-        K_contact = sp.bmat([[Kuu, C_csr.T], [C_csr, Zll]], format="csr")
+        self.add_constraint_matrix_dof(C_arr, master=master, slave=slave, rho=rho, F_contact=F_contact)
 
-        self.system.add_contact_kkt(
-            K_contact,
-            n_master_nodes=m.n_nodes,
-            n_slave_nodes=s.n_nodes,
-            master_offset=m.offset,
-            slave_offset=s.offset,
-            F_contact=F_contact,
-            value_dim=vd,
-        )
-
-    def add_constraint_matrix_dof(
+    def add_rbe2_constraint(
         self,
-        C,
         *,
         master: str,
         slave: str,
+        ref_point,
+        slave_coords,
         rho: float = 0.0,
-        F_contact: np.ndarray | None = None,
+        F_contact=None,
     ) -> None:
         """
-        Add generic DOF-level equality constraints on concatenated block DOFs:
-            C * [u_master_dof; u_slave_dof] = 0
+        Build and add a 3D RBE2-style rigid constraint matrix in JAX.
 
-        Unlike ``add_constraint_matrix``, this method does not use ``value_dim``/node
-        interpretation and instead treats both blocks as pure DOF vectors.
+        Expected field layout:
+        - ``master``: 6 DOFs ordered as ``[u_ref(3), omega_ref(3)]``
+        - ``slave``: 3 DOFs per node ordered as nodal translations
         """
         m = self._get_block(master)
         s = self._get_block(slave)
-        if isinstance(C, FluxSparseMatrix):
-            C_csr = C.to_csr()
-        elif sp.issparse(C):
-            C_csr = C.tocsr()
-        else:
-            C_csr = sp.csr_matrix(np.asarray(C, dtype=float))
+        x_ref = jnp.asarray(ref_point, dtype=self.system.dtype).reshape(-1)
+        x_s = jnp.asarray(slave_coords, dtype=self.system.dtype)
+        if x_ref.shape != (3,):
+            raise ValueError("ref_point must be 3D.")
+        if x_s.ndim != 2 or x_s.shape[1] != 3:
+            raise ValueError("slave_coords must have shape (n_slave, 3).")
+        if m.n_dofs != 6:
+            raise ValueError("RBE2 master field must have exactly 6 DOFs.")
+        if s.n_dofs != 3 * int(x_s.shape[0]):
+            raise ValueError("RBE2 slave field size must match 3 * n_slave_nodes.")
 
-        n_cu = int(m.n_dofs + s.n_dofs)
-        if C_csr.ndim != 2 or C_csr.shape[1] != n_cu:
-            raise ValueError("C shape mismatch for provided master/slave DOF counts.")
-        n_l = int(C_csr.shape[0])
-        Kuu = float(rho) * (C_csr.T @ C_csr)
-        Zll = sp.csr_matrix((n_l, n_l), dtype=float)
-        K_contact = sp.bmat([[Kuu, C_csr.T], [C_csr, Zll]], format="csr")
-
-        self.system.add_contact_kkt(
-            K_contact,
-            n_master_nodes=m.n_dofs,
-            n_slave_nodes=s.n_dofs,
-            master_offset=m.offset,
-            slave_offset=s.offset,
-            F_contact=F_contact,
-            value_dim=1,
-        )
+        n_s = int(x_s.shape[0])
+        n_rows = 3 * n_s
+        n_cols = 6 + 3 * n_s
+        C = jnp.zeros((n_rows, n_cols), dtype=self.system.dtype)
+        for i in range(n_s):
+            rx, ry, rz = x_s[i] - x_ref
+            r0 = 3 * i
+            c_slave = 6 + 3 * i
+            C = C.at[r0 + 0, 0].set(-1.0)
+            C = C.at[r0 + 1, 1].set(-1.0)
+            C = C.at[r0 + 2, 2].set(-1.0)
+            C = C.at[r0 + 0, 4].set(-rz)
+            C = C.at[r0 + 0, 5].set(+ry)
+            C = C.at[r0 + 1, 3].set(+rz)
+            C = C.at[r0 + 1, 5].set(-rx)
+            C = C.at[r0 + 2, 3].set(-ry)
+            C = C.at[r0 + 2, 4].set(+rx)
+            C = C.at[r0 + 0, c_slave + 0].set(+1.0)
+            C = C.at[r0 + 1, c_slave + 1].set(+1.0)
+            C = C.at[r0 + 2, c_slave + 2].set(+1.0)
+        self.add_constraint_matrix_dof(C, master=master, slave=slave, rho=rho, F_contact=F_contact)
 
     def add_embedding_constraint(
         self,
@@ -1687,11 +915,10 @@ class CoupledSystemBuilder:
         slave: str,
         value_dim: int | None = None,
         rho: float = 0.0,
-        backend: str = "numpy",
-        F_contact: np.ndarray | None = None,
+        F_contact=None,
     ) -> None:
         """
-        Build and add embedding constraints from ``EmbeddingMap``.
+        Build and add embedding constraints from ``EmbeddingMap`` in JAX.
         """
         from ..mesh.contact import assemble_embedding_constraint_matrix
 
@@ -1708,7 +935,7 @@ class CoupledSystemBuilder:
             n_master_nodes=m.n_nodes,
             n_slave_nodes=s.n_nodes,
             value_dim=vd,
-            backend=backend,
+            backend="jax",
         )
         self.add_constraint_matrix(
             C,
@@ -1719,86 +946,190 @@ class CoupledSystemBuilder:
             F_contact=F_contact,
         )
 
-    def add_rbe2_constraint(
-        self,
-        *,
-        master: str,
-        slave: str,
-        ref_point: np.ndarray,
-        slave_coords: np.ndarray,
-        rho: float = 0.0,
-        backend: str = "numpy",
-        F_contact: np.ndarray | None = None,
-    ) -> None:
-        """
-        Build and add a 3D RBE2-style rigid constraint matrix.
-
-        Expected field layout:
-        - ``master``: 6 DOFs ordered as ``[u_ref(3), omega_ref(3)]``
-        - ``slave``: 3 DOFs per node ordered as nodal translations
-        """
-        from ..mesh.contact import assemble_rbe2_constraint_matrix
-
-        m = self._get_block(master)
-        s = self._get_block(slave)
-        C = assemble_rbe2_constraint_matrix(ref_point, slave_coords, backend=backend)
-        if m.n_dofs != 6:
-            raise ValueError("RBE2 master field must have exactly 6 DOFs.")
-        if s.n_dofs != 3 * int(np.asarray(slave_coords).shape[0]):
-            raise ValueError("RBE2 slave field size must match 3 * n_slave_nodes.")
-        self.add_constraint_matrix_dof(
-            C,
-            master=master,
-            slave=slave,
-            rho=rho,
-            F_contact=F_contact,
-        )
-
     def add_rbe3_constraint(
         self,
         *,
         master: str,
         slave: str,
-        ref_point: np.ndarray,
-        slave_coords: np.ndarray,
-        weights: np.ndarray | None = None,
+        ref_point,
+        slave_coords,
+        weights=None,
         normalize_weights: bool = True,
         rho: float = 0.0,
-        backend: str = "numpy",
-        F_contact: np.ndarray | None = None,
+        F_contact=None,
     ) -> None:
         """
-        Build and add a weighted 3D RBE3-style interpolation constraint.
+        Build and add a weighted 3D RBE3-style interpolation constraint in JAX.
 
         Expected field layout:
         - ``master``: 6 DOFs ordered as ``[u_ref(3), omega_ref(3)]``
         - ``slave``: 3 DOFs per node ordered as nodal translations
         """
-        from ..mesh.contact import assemble_rbe3_constraint_matrix
-
         m = self._get_block(master)
         s = self._get_block(slave)
-        C = assemble_rbe3_constraint_matrix(
-            ref_point,
-            slave_coords,
-            weights=weights,
-            normalize_weights=normalize_weights,
-            backend=backend,
-        )
+        x_ref = jnp.asarray(ref_point, dtype=self.system.dtype).reshape(-1)
+        x_s = jnp.asarray(slave_coords, dtype=self.system.dtype)
+        if x_ref.shape != (3,):
+            raise ValueError("ref_point must be 3D.")
+        if x_s.ndim != 2 or x_s.shape[1] != 3:
+            raise ValueError("slave_coords must have shape (n_slave, 3).")
+        n_s = int(x_s.shape[0])
+        if n_s == 0:
+            raise ValueError("slave_coords must contain at least one node.")
         if m.n_dofs != 6:
             raise ValueError("RBE3 master field must have exactly 6 DOFs.")
-        if s.n_dofs != 3 * int(np.asarray(slave_coords).shape[0]):
+        if s.n_dofs != 3 * n_s:
             raise ValueError("RBE3 slave field size must match 3 * n_slave_nodes.")
-        self.add_constraint_matrix_dof(
-            C,
-            master=master,
-            slave=slave,
-            rho=rho,
-            F_contact=F_contact,
+
+        if weights is None:
+            w = jnp.ones((n_s,), dtype=self.system.dtype)
+        else:
+            w = jnp.asarray(weights, dtype=self.system.dtype).reshape(-1)
+            if w.shape != (n_s,):
+                raise ValueError("weights must have shape (n_slave,).")
+        if normalize_weights:
+            w_sum = jnp.sum(w)
+            if float(jnp.abs(w_sum)) <= 1e-15:
+                raise ValueError("weights sum must be non-zero when normalize_weights=True.")
+            w = w / w_sum
+
+        def _bmat(point):
+            rx, ry, rz = point - x_ref
+            return jnp.array(
+                [
+                    [1.0, 0.0, 0.0, 0.0, rz, -ry],
+                    [0.0, 1.0, 0.0, -rz, 0.0, rx],
+                    [0.0, 0.0, 1.0, ry, -rx, 0.0],
+                ],
+                dtype=self.system.dtype,
+            )
+
+        M = jnp.zeros((6, 6), dtype=self.system.dtype)
+        C = jnp.zeros((6, 6 + 3 * n_s), dtype=self.system.dtype)
+        for i in range(n_s):
+            Bi = _bmat(x_s[i])
+            wi = w[i]
+            M = M + wi * (Bi.T @ Bi)
+            c0 = 6 + 3 * i
+            C = C.at[:, c0 : c0 + 3].set(-wi * Bi.T)
+        C = C.at[:, :6].set(M)
+        self.add_constraint_matrix_dof(C, master=master, slave=slave, rho=rho, F_contact=F_contact)
+
+    def _coerce_spring_matrix_and_reference(self, stiffness, reference_value, *, n: int) -> tuple[jnp.ndarray, jnp.ndarray]:
+        stiff = jnp.asarray(stiffness, dtype=self.system.dtype)
+        if stiff.ndim == 0:
+            K_sel = jnp.eye(n, dtype=self.system.dtype) * stiff
+        elif stiff.ndim == 1:
+            if stiff.shape != (n,):
+                raise ValueError("stiffness vector must match selected DOF count.")
+            K_sel = jnp.diag(stiff)
+        elif stiff.ndim == 2:
+            if stiff.shape != (n, n):
+                raise ValueError("stiffness matrix must match selected DOF count.")
+            K_sel = stiff
+        else:
+            raise ValueError("stiffness must be scalar, vector, or square matrix.")
+
+        ref_arr = jnp.asarray(reference_value, dtype=self.system.F_u.dtype).reshape(-1)
+        if ref_arr.size == 1:
+            u_ref = jnp.full((n,), ref_arr[0], dtype=self.system.F_u.dtype)
+        elif ref_arr.shape == (n,):
+            u_ref = ref_arr
+        else:
+            raise ValueError("reference_value must be scalar or match selected DOF count.")
+        return K_sel, u_ref
+
+    def add_dof_spring(
+        self,
+        field: str,
+        *,
+        stiffness,
+        reference_value=0.0,
+        nodes: int | Sequence[int] | np.ndarray | None = None,
+        components: int | Sequence[int] | np.ndarray | None = None,
+        local_dofs: int | Sequence[int] | np.ndarray | None = None,
+    ) -> np.ndarray:
+        dofs = self.resolve_block_dofs(
+            field,
+            nodes=nodes,
+            components=components,
+            local_dofs=local_dofs,
         )
+        if dofs.size == 0:
+            return dofs
+        K_sel, u_ref = self._coerce_spring_matrix_and_reference(stiffness, reference_value, n=int(dofs.size))
+        dofs_j = jnp.asarray(dofs, dtype=jnp.int32)
+        self.system.add_local_stiffness(np.asarray(dofs, dtype=int), K_sel, F_local=K_sel @ u_ref)
+        return np.asarray(dofs, dtype=int)
+
+    def add_remote_spring(
+        self,
+        field: str,
+        *,
+        translational_stiffness=None,
+        rotational_stiffness=None,
+        translational_target=0.0,
+        rotational_target=0.0,
+    ) -> None:
+        b = self._get_block(field)
+        if b.n_dofs not in {3, 6}:
+            raise ValueError("remote spring helper expects a 3-DOF or 6-DOF field.")
+        if translational_stiffness is not None:
+            self.add_dof_spring(
+                field,
+                local_dofs=np.arange(min(3, b.n_dofs)),
+                stiffness=translational_stiffness,
+                reference_value=translational_target,
+            )
+        if rotational_stiffness is not None:
+            if b.n_dofs < 6:
+                raise ValueError("rotational springs require a 6-DOF remote field.")
+            self.add_dof_spring(
+                field,
+                local_dofs=np.arange(3, 6),
+                stiffness=rotational_stiffness,
+                reference_value=rotational_target,
+            )
 
     def build(self) -> CoupledSystem:
         return self.system
 
+    def solve(
+        self,
+        *,
+        dirichlet_specs: Sequence[DirichletSpec] | None = None,
+        dirichlet_dofs: np.ndarray | None = None,
+        dirichlet_vals=0.0,
+        diagonal_shift: float = 0.0,
+        solver: str = "cg",
+        tol: float = 1e-8,
+        maxiter: int | None = None,
+    ):
+        """
+        Build and solve with optional `DirichletSpec` constraints.
 
-__all__ = ["CoupledSystem", "CoupledSystemBuilder", "DirichletSpec", "ConstraintSpec"]
+        The JAX coupled path is sparse-first and only exposes `solver="cg"`.
+        """
+        if dirichlet_specs is not None and dirichlet_dofs is not None:
+            raise ValueError("Use either dirichlet_specs or dirichlet_dofs, not both.")
+        if dirichlet_specs is not None:
+            dirichlet_dofs, dirichlet_vals = self.resolve_dirichlet(dirichlet_specs)
+        return self.system.solve(
+            dirichlet_dofs=dirichlet_dofs,
+            dirichlet_vals=dirichlet_vals,
+            diagonal_shift=diagonal_shift,
+            solver=solver,
+            tol=tol,
+            maxiter=maxiter,
+        )
+
+
+JAXCoupledSystem = CoupledSystem
+JAXCoupledSystemBuilder = CoupledSystemBuilder
+
+__all__ = [
+    "CoupledSystem",
+    "CoupledSystemBuilder",
+    "JAXCoupledSystem",
+    "JAXCoupledSystemBuilder",
+]

@@ -13,7 +13,7 @@ def test_coupled_system_add_contact_nitsche_lifts_blocks():
     # Structural block: 4 dofs
     K_u = sp.diags([10.0, 20.0, 30.0, 40.0], format="csr")
     F_u = np.zeros(4, dtype=float)
-    system = ff.CoupledSystem.from_structural(K_u, F_u)
+    system = ff.LegacyCoupledSystem.from_structural(K_u, F_u)
 
     # Interface ordering: [master node 0, slave node 0], value_dim=1
     J_if = np.array([[2.0, -2.0], [-2.0, 2.0]], dtype=float)
@@ -43,7 +43,7 @@ def test_coupled_system_add_contact_nitsche_lifts_blocks():
 def test_coupled_system_builder_register_and_add_nitsche():
     K_u = sp.diags([10.0, 20.0, 30.0, 40.0], format="csr")
     F_u = np.zeros(4, dtype=float)
-    builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(K_u, F_u)
     builder.register_field("master", offset=0, n_dofs=2, value_dim=1, n_nodes=2)
     builder.register_field("slave", offset=2, n_dofs=2, value_dim=1, n_nodes=2)
 
@@ -74,7 +74,7 @@ def test_coupled_system_builder_auto_offset_register_space():
         def __init__(self, n_dofs):
             self.n_dofs = n_dofs
 
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
     builder.register_space("a", _Space(2), value_dim=1)
     builder.register_space("b", _Space(2), value_dim=1)
 
@@ -95,7 +95,7 @@ def test_coupled_system_builder_auto_offset_register_space():
 
 
 def test_coupled_system_builder_auto_offset_register_field():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
     builder.register_field("a", n_dofs=2, value_dim=1)
     builder.register_field("b", n_dofs=2, value_dim=1)
 
@@ -120,7 +120,7 @@ def test_coupled_system_builder_register_blocks_mixed_entries():
         def __init__(self, n_dofs):
             self.n_dofs = n_dofs
 
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(4, format="csr"), np.zeros(4))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(4, format="csr"), np.zeros(4))
     builder.register_blocks(
         [
             ("a", _Space(1)),
@@ -137,7 +137,7 @@ def test_coupled_system_builder_register_blocks_mixed_entries():
 
 
 def test_coupled_system_builder_field_name_suggestion():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
     builder.register_field("master", n_dofs=1, value_dim=1)
     builder.register_field("slave", n_dofs=1, value_dim=1)
     with pytest.raises(ValueError, match="Did you mean 'master'\\?"):
@@ -145,7 +145,7 @@ def test_coupled_system_builder_field_name_suggestion():
 
 
 def test_coupled_system_builder_add_contact_mortar_from_operators():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -185,7 +185,7 @@ def test_coupled_system_builder_add_contact_mortar_from_operators():
 
 
 def test_coupled_system_builder_add_contact_mortar_uses_ops_defaults():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -218,7 +218,7 @@ def test_coupled_system_builder_add_contact_mortar_uses_ops_defaults():
 
 
 def test_coupled_system_builder_add_contact_mortar_uses_multiplier_object_default():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -251,7 +251,7 @@ def test_coupled_system_builder_add_contact_mortar_uses_multiplier_object_defaul
 
 
 def test_coupled_system_builder_add_contact_mortar_multiple_contacts_different_lambda_sizes():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0, 50.0, 60.0], format="csr"), np.zeros(6))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0, 50.0, 60.0], format="csr"), np.zeros(6))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
     builder.register_field("c", n_dofs=2, value_dim=1)
@@ -325,7 +325,7 @@ def test_coupled_system_builder_add_contact_mortar_multiple_contacts_different_l
 
 
 def test_coupled_system_builder_add_contact_unified_nitsche():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
     builder.register_field("master", n_dofs=2, value_dim=1)
     builder.register_field("slave", n_dofs=2, value_dim=1)
 
@@ -351,7 +351,7 @@ def test_coupled_system_builder_add_contact_unified_nitsche():
 
 
 def test_coupled_system_builder_add_contact_unified_mortar():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -383,7 +383,7 @@ def test_coupled_system_builder_add_contact_unified_mortar():
 
 
 def test_coupled_system_builder_add_contact_accepts_enforcement_alias():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
     builder.register_field("master", n_dofs=2, value_dim=1)
     builder.register_field("slave", n_dofs=2, value_dim=1)
 
@@ -409,7 +409,7 @@ def test_coupled_system_builder_add_contact_accepts_enforcement_alias():
 
 
 def test_coupled_system_builder_add_contact_rejects_unknown_enforcement():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
     with pytest.raises(ValueError, match="enforcement must be"):
@@ -417,7 +417,7 @@ def test_coupled_system_builder_add_contact_rejects_unknown_enforcement():
 
 
 def test_coupled_system_builder_add_contact_accepts_family_constraint_alias():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -449,7 +449,7 @@ def test_coupled_system_builder_add_contact_accepts_family_constraint_alias():
 
 
 def test_coupled_system_builder_add_contact_rejects_family_enforcement_conflict():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
     with pytest.raises(ValueError, match="family conflicts with enforcement"):
@@ -457,7 +457,7 @@ def test_coupled_system_builder_add_contact_rejects_family_enforcement_conflict(
 
 
 def test_coupled_system_builder_add_contact_rejects_family_formulation_conflict():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
     with pytest.raises(ValueError, match="family='constraint' conflicts"):
@@ -465,7 +465,7 @@ def test_coupled_system_builder_add_contact_rejects_family_formulation_conflict(
 
 
 def test_coupled_system_builder_add_contact_routes_by_formulation_multiplier():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -498,7 +498,7 @@ def test_coupled_system_builder_add_contact_routes_by_formulation_multiplier():
 
 
 def test_coupled_system_builder_add_contact_rejects_formulation_enforcement_mismatch():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
     with pytest.raises(ValueError, match="formulation suggests nitsche"):
@@ -506,7 +506,7 @@ def test_coupled_system_builder_add_contact_rejects_formulation_enforcement_mism
 
 
 def test_coupled_system_builder_add_contact_accepts_raw_contact_penalty_form():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -555,7 +555,7 @@ def test_coupled_system_builder_add_contact_accepts_raw_contact_penalty_form():
 
 
 def test_coupled_system_builder_add_contact_constraint_family_consumes_eval_inputs():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
     calls = {"residual": 0, "jacobian": 0}
@@ -625,7 +625,7 @@ def test_coupled_system_builder_add_contact_constraint_family_consumes_eval_inpu
 
 
 def test_coupled_system_builder_add_constraint_matrix_unified_kkt():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -638,7 +638,7 @@ def test_coupled_system_builder_add_constraint_matrix_unified_kkt():
 
 
 def test_coupled_system_builder_add_embedding_constraint_unified_kkt():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -657,7 +657,7 @@ def test_coupled_system_builder_add_embedding_constraint_unified_kkt():
 
 
 def test_coupled_system_builder_add_embedding_constraint_subset_rows_compacted():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0], format="csr"), np.zeros(3))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0], format="csr"), np.zeros(3))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=2, value_dim=1)
 
@@ -697,7 +697,7 @@ def test_embedding_plane_selector_to_builder_solve_flow():
     # Apply load only on slave side so constraint effect is visible.
     F_u[n_m:] = 1.0
 
-    builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(K_u, F_u)
     builder.register_field("master", n_dofs=n_m, value_dim=1)
     builder.register_field("slave", n_dofs=n_s, value_dim=1)
     builder.add_embedding_constraint(emb, master="master", slave="slave", value_dim=1, rho=0.0)
@@ -724,7 +724,7 @@ def test_rbe2_like_constraint_matrix_flow_in_tests():
     K_u = sp.eye(n_m + n_s, format="csr")
     F_u = np.array([0.0, 1.0, 2.0], dtype=float)  # load only on slave side
 
-    builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(K_u, F_u)
     builder.register_field("master", n_dofs=n_m, value_dim=1)
     builder.register_field("slave", n_dofs=n_s, value_dim=1)
 
@@ -760,7 +760,7 @@ def test_rbe2_constraint_matrix_flow_with_ref_rotation_dofs():
     K_u = sp.eye(n_ref + n_slave, format="csr")
     F_u = np.zeros((n_ref + n_slave,), dtype=float)
 
-    builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(K_u, F_u)
     # value_dim=1 so add_constraint_matrix expects direct DOF counts.
     builder.register_field("ref", n_dofs=n_ref, value_dim=1)
     builder.register_field("slave", n_dofs=n_slave, value_dim=1)
@@ -773,7 +773,7 @@ def test_rbe2_constraint_matrix_flow_with_ref_rotation_dofs():
 
 
 def test_builder_resolve_block_dofs_from_nodes_components():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(6, format="csr"), np.zeros(6))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(6, format="csr"), np.zeros(6))
     builder.register_field("u", n_dofs=6, value_dim=2, n_nodes=3, offset=0)
 
     dofs = builder.resolve_block_dofs("u", nodes=[0, 2], components=[1])
@@ -784,7 +784,7 @@ def test_builder_resolve_block_dofs_from_nodes_components():
 
 
 def test_builder_resolve_dirichlet_specs_mixed_inputs():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(8, format="csr"), np.zeros(8))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(8, format="csr"), np.zeros(8))
     builder.register_field("a", n_dofs=6, value_dim=2, n_nodes=3, offset=0)
     builder.register_field("b", n_dofs=2, value_dim=1, n_nodes=2, offset=6)
 
@@ -802,7 +802,7 @@ def test_builder_resolve_dirichlet_specs_mixed_inputs():
 def test_builder_solve_with_dirichlet_specs():
     K = sp.eye(4, format="csr")
     F = np.array([2.0, 0.0, 0.0, -3.0], dtype=float)
-    builder = ff.CoupledSystemBuilder.from_structural(K, F)
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(K, F)
     builder.register_field("master", n_dofs=2, value_dim=1, offset=0)
     builder.register_field("slave", n_dofs=2, value_dim=1, offset=2)
 
@@ -821,7 +821,7 @@ def test_builder_solve_with_dirichlet_specs():
 
 
 def test_builder_resolve_dirichlet_rejects_dict_specs():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.zeros(2))
     builder.register_field("u", n_dofs=2, value_dim=1, n_nodes=2, offset=0)
     with pytest.raises(TypeError, match="DirichletSpec"):
         builder.resolve_dirichlet([{"field": "u", "nodes": [0], "value": 0.0}])  # type: ignore[list-item]
@@ -835,7 +835,7 @@ def test_dirichlet_spec_requires_single_selector_style():
 
 
 def test_builder_add_constraint_with_matrix_spec():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -855,7 +855,7 @@ def test_builder_add_constraint_with_matrix_spec():
 
 
 def test_builder_add_constraint_with_embedding_spec():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 30.0], format="csr"), np.zeros(2))
     builder.register_field("a", n_dofs=1, value_dim=1)
     builder.register_field("b", n_dofs=1, value_dim=1)
 
@@ -883,7 +883,7 @@ def test_builder_add_constraint_with_embedding_spec():
 
 
 def test_builder_append_field_extends_structural_system():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.array([1.0, 2.0], dtype=float))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(2, format="csr"), np.array([1.0, 2.0], dtype=float))
     builder.register_field("base", n_dofs=2, value_dim=1, offset=0)
     builder.append_field("remote", n_dofs=3, value_dim=1, F_block=np.array([3.0, 4.0, 5.0], dtype=float))
 
@@ -895,7 +895,7 @@ def test_builder_append_field_extends_structural_system():
 
 
 def test_builder_append_remote_point_registers_6dof_field():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
     builder.append_remote_point("remote", point=np.array([1.0, 2.0, 3.0], dtype=float))
 
     remote = builder._get_block("remote")
@@ -905,7 +905,7 @@ def test_builder_append_remote_point_registers_6dof_field():
 
 
 def test_builder_add_field_matrix_and_dof_spring():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
     builder.append_field("remote", n_dofs=2, value_dim=1)
     builder.add_field_matrix(
         "remote",
@@ -921,7 +921,7 @@ def test_builder_add_field_matrix_and_dof_spring():
 
 
 def test_builder_add_remote_spring_for_6dof_remote_point():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
     builder.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
     builder.add_remote_spring(
         "remote",
@@ -945,11 +945,11 @@ def test_builder_remote_spring_contribution_matches_added_system():
         rotational_target=np.array([0.5, 0.0, 0.0], dtype=float),
     )
 
-    builder_a = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder_a = ff.LegacyCoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
     builder_a.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
     K_add, F_add = builder_a.remote_spring_contribution("remote", **kwargs)
 
-    builder_b = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder_b = ff.LegacyCoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
     builder_b.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
     builder_b.add_remote_spring("remote", **kwargs)
 
@@ -959,7 +959,7 @@ def test_builder_remote_spring_contribution_matches_added_system():
 
 
 def test_builder_add_remote_spring_infers_stiffness_from_force_and_target():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
     builder.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
     builder.add_remote_spring(
         "remote",
@@ -976,7 +976,7 @@ def test_builder_add_remote_spring_infers_stiffness_from_force_and_target():
 
 
 def test_builder_add_remote_spring_rejects_ambiguous_or_singular_force_target_specs():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
     builder.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
 
     with pytest.raises(ValueError, match="either stiffness or force"):
@@ -999,7 +999,7 @@ def test_builder_remote_rbe2_spring_flow():
     K_u = sp.eye(3, format="csr")
     F_u = np.zeros((3,), dtype=float)
 
-    builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(K_u, F_u)
     builder.register_field("slave", n_dofs=3, value_dim=1, offset=0)
     builder.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
     builder.add_remote_spring(
@@ -1028,11 +1028,11 @@ def test_builder_remote_rbe2_spring_flow():
     assert np.allclose(q_remote[:3], np.array([20.0 / 21.0, 0.0, 0.0]), atol=1e-6)
 
 
-def test_coupled_system_solve_jax_dense_matches_numpy_with_remote_spring_and_rbe2():
+def test_coupled_system_solve_jax_cg_matches_numpy_with_remote_spring_and_rbe2():
     K_u = sp.eye(3, format="csr")
     F_u = np.zeros((3,), dtype=float)
 
-    builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(K_u, F_u)
     builder.register_field("slave", n_dofs=3, value_dim=1, offset=0)
     builder.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
     builder.add_remote_spring(
@@ -1051,36 +1051,46 @@ def test_coupled_system_solve_jax_dense_matches_numpy_with_remote_spring_and_rbe
     )
 
     u_np = np.asarray(builder.build().solve(format="csr", diagonal_shift=1e-8, backend="numpy"), dtype=float)
-    u_jax = np.asarray(builder.build().solve(diagonal_shift=1e-8, backend="jax", jax_solver="dense"), dtype=float)
+    u_jax = np.asarray(builder.build().solve(diagonal_shift=1e-8, backend="jax", jax_solver="cg", tol=1e-10, maxiter=200), dtype=float)
     assert np.allclose(u_jax, u_np, atol=1e-8)
 
 
 def test_coupled_system_solve_jax_cg_matches_numpy():
     K = sp.diags([4.0, 5.0, 6.0], format="csr")
     F = np.array([1.0, -2.0, 3.0], dtype=float)
-    system = ff.CoupledSystem.from_structural(K, F)
+    system = ff.LegacyCoupledSystem.from_structural(K, F)
 
     u_np = np.asarray(system.solve(format="csr", backend="numpy"), dtype=float)
     u_jax = np.asarray(system.solve(backend="jax", jax_solver="cg", tol=1e-10, maxiter=50), dtype=float)
     assert np.allclose(u_jax, u_np, atol=1e-8)
 
 
-def test_coupled_system_assemble_jax_dense_and_fluxsparse():
+def test_coupled_system_solve_jax_rejects_dense_solver():
+    K = sp.eye(2, format="csr")
+    F = np.array([1.0, 2.0], dtype=float)
+    system = ff.LegacyCoupledSystem.from_structural(K, F)
+
+    with pytest.raises(ValueError, match="only supports jax_solver='cg'"):
+        system.solve(backend="jax", jax_solver="dense")
+
+
+def test_coupled_system_assemble_jax_fluxsparse_only():
     K = sp.diags([2.0, 3.0], format="csr")
     F = np.array([1.0, 4.0], dtype=float)
-    system = ff.CoupledSystem.from_structural(K, F)
+    system = ff.LegacyCoupledSystem.from_structural(K, F)
 
-    K_dense, F_dense = system.assemble(format="dense", backend="jax")
     K_flux, F_flux = system.assemble(format="fluxsparse", backend="jax")
 
-    assert isinstance(K_dense, jnp.ndarray)
-    assert isinstance(F_dense, jnp.ndarray)
     assert isinstance(K_flux, ff.FluxSparseMatrix)
     assert isinstance(F_flux, jnp.ndarray)
-    assert np.allclose(np.asarray(K_dense), K.toarray(), atol=1e-12)
-    assert np.allclose(np.asarray(F_dense), F, atol=1e-12)
     assert np.allclose(np.asarray(K_flux.to_dense()), K.toarray(), atol=1e-12)
     assert np.allclose(np.asarray(F_flux), F, atol=1e-12)
+
+    with pytest.raises(ValueError, match="only supports format='fluxsparse'"):
+        system.assemble(format="dense", backend="jax")
+
+    with pytest.raises(ValueError, match="only supports format='fluxsparse'"):
+        system.assemble(format="csr", backend="jax")
 
 
 def test_remote_rbe3_spring_compliance_sensitivity_matches_finite_difference():
@@ -1096,7 +1106,7 @@ def test_remote_rbe3_spring_compliance_sensitivity_matches_finite_difference():
     F_struct = np.array([1.0, 0.5, 0.0, 0.0, 0.0, 0.0], dtype=float)
 
     def _build_system(k_scale: float):
-        builder = ff.CoupledSystemBuilder.from_structural(sp.eye(6, format="csr"), F_struct.copy())
+        builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(6, format="csr"), F_struct.copy())
         builder.register_field("slave", n_dofs=6, value_dim=1, offset=0)
         builder.append_remote_point("remote", point=x_ref)
         builder.add_rbe3_constraint(
@@ -1149,7 +1159,7 @@ def test_remote_rbe3_spring_compliance_sensitivity_matches_finite_difference():
 
 
 def test_builder_add_constraint_with_rbe2_spec():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.eye(3, format="csr"), np.zeros((3,), dtype=float))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.eye(3, format="csr"), np.zeros((3,), dtype=float))
     builder.register_field("slave", n_dofs=3, value_dim=1, offset=0)
     builder.append_field("remote", n_dofs=6, value_dim=1)
     spec = ff.ConstraintSpec(
@@ -1174,7 +1184,7 @@ def test_builder_add_rbe3_constraint_preserves_rigid_motion():
         ],
         dtype=float,
     )
-    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((12, 12)), np.zeros((12,), dtype=float))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.csr_matrix((12, 12)), np.zeros((12,), dtype=float))
     builder.register_field("remote", n_dofs=6, value_dim=1, offset=0)
     builder.register_field("slave", n_dofs=6, value_dim=1, offset=6)
     builder.add_rbe3_constraint(
@@ -1198,7 +1208,7 @@ def test_builder_add_rbe3_constraint_preserves_rigid_motion():
 
 
 def test_builder_allows_multiple_rbe3_constraints():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
     builder.append_field("remote_a", n_dofs=6, value_dim=1)
     builder.append_field("slave_a", n_dofs=6, value_dim=1)
     builder.append_field("remote_b", n_dofs=6, value_dim=1)
@@ -1227,7 +1237,7 @@ def test_builder_allows_multiple_rbe3_constraints():
 
 
 def test_builder_add_constraint_with_rbe3_spec():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((12, 12)), np.zeros((12,), dtype=float))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.csr_matrix((12, 12)), np.zeros((12,), dtype=float))
     builder.register_field("remote", n_dofs=6, value_dim=1, offset=0)
     builder.register_field("slave", n_dofs=6, value_dim=1, offset=6)
     spec = ff.ConstraintSpec(
@@ -1254,7 +1264,7 @@ def test_constraint_spec_rejects_missing_payload():
 
 
 def test_coupled_system_builder_add_contact_prefers_explicit_contribution_without_warning():
-    builder = ff.CoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(sp.diags([10.0, 20.0, 30.0, 40.0], format="csr"), np.zeros(4))
     builder.register_field("master", n_dofs=2, value_dim=1)
     builder.register_field("slave", n_dofs=2, value_dim=1)
 

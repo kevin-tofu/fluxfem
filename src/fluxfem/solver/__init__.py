@@ -44,7 +44,24 @@ from .solve_runner import (
 from .solver import LinearSolver, NonlinearSolver
 from .petsc import petsc_solve, petsc_shell_solve, petsc_is_available
 from .dynamics import NewmarkResult, newmark_solve_linear
-from .coupled_system import CoupledSystem, CoupledSystemBuilder, DirichletSpec, ConstraintSpec
+from .coupled_system import CoupledSystem, CoupledSystemBuilder
+from .legacy_coupled_system import (
+    LegacyCoupledSystem,
+    LegacyCoupledSystemBuilder,
+    DirichletSpec,
+    ConstraintSpec,
+)
+from .coupled_factory import (
+    make_coupled_system,
+    make_coupled_system_builder,
+    make_jax_coupled_system,
+    make_jax_coupled_system_builder,
+    make_legacy_coupled_system,
+    make_legacy_coupled_system_builder,
+)
+
+JAXCoupledSystem = CoupledSystem
+JAXCoupledSystemBuilder = CoupledSystemBuilder
 
 __all__ = [
     "SparsityPattern",
@@ -100,6 +117,16 @@ __all__ = [
     "petsc_is_available",
     "CoupledSystem",
     "CoupledSystemBuilder",
+    "LegacyCoupledSystem",
+    "LegacyCoupledSystemBuilder",
+    "JAXCoupledSystem",
+    "JAXCoupledSystemBuilder",
+    "make_coupled_system",
+    "make_coupled_system_builder",
+    "make_jax_coupled_system",
+    "make_jax_coupled_system_builder",
+    "make_legacy_coupled_system",
+    "make_legacy_coupled_system_builder",
     "DirichletSpec",
     "ConstraintSpec",
 ]

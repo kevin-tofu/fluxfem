@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, TYPE_CHECKING, TypeAlias
 
 import numpy as np
+import jax
 import jax.numpy as jnp
 
 try:
@@ -11,7 +12,7 @@ try:
 except Exception:  # pragma: no cover
     sp = None
 
-from .sparse import FluxSparseMatrix, coalesce_coo
+from .sparse import FluxSparseMatrix, coalesce_coo, concat_flux
 
 if TYPE_CHECKING:
     from jax import Array as JaxArray
@@ -196,6 +197,74 @@ def enforce_dirichlet_dense_jax(K, F, dofs, vals):
     else:
         F_mod = F_mod.at[dofs].set(vals)
     return K_mod, F_mod
+
+
+def _normalize_dirichlet_values_jax(dofs: ArrayLike, vals, *, dtype) -> jnp.ndarray:
+    n = int(np.asarray(dofs).shape[0])
+    if vals is None:
+        return jnp.zeros((n,), dtype=dtype)
+    vals_arr = jnp.asarray(vals, dtype=dtype)
+    if vals_arr.ndim == 0:
+        return jnp.full((n,), vals_arr, dtype=dtype)
+    vals_arr = vals_arr.reshape(-1)
+    if vals_arr.shape != (n,):
+        raise ValueError("dirichlet values shape mismatch.")
+    return vals_arr
+
+
+def _dirichlet_membership_mask(indices: jnp.ndarray, dofs_sorted: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    if dofs_sorted.shape[0] == 0:
+        empty = jnp.zeros(indices.shape, dtype=bool)
+        return empty, jnp.zeros(indices.shape, dtype=jnp.int32)
+    pos = jnp.searchsorted(dofs_sorted, indices)
+    pos_clipped = jnp.clip(pos, 0, dofs_sorted.shape[0] - 1)
+    matches = dofs_sorted[pos_clipped] == indices
+    valid = pos < dofs_sorted.shape[0]
+    return valid & matches, pos_clipped
+
+
+def enforce_dirichlet_fluxsparse_jax(A: FluxSparseMatrix, F, dofs, vals):
+    """
+    Apply Dirichlet conditions to a FluxSparseMatrix without leaving JAX.
+
+    This keeps the COO data and load vector traceable, which is required for
+    sparse JAX solves and autodiff through the coupled assembly path.
+    """
+    dir_arr = np.asarray(dofs, dtype=int).reshape(-1)
+    F_arr = jnp.asarray(F)
+    if dir_arr.size == 0:
+        return A, F_arr
+
+    dir_vals = _normalize_dirichlet_values_jax(dir_arr, vals, dtype=F_arr.dtype)
+    order = np.argsort(dir_arr)
+    dir_sorted = dir_arr[order]
+    dir_sorted_j = jnp.asarray(dir_sorted, dtype=A.pattern.cols.dtype)
+    dir_vals_sorted = dir_vals[jnp.asarray(order, dtype=jnp.int32)]
+
+    col_is_dir, col_pos = _dirichlet_membership_mask(A.pattern.cols, dir_sorted_j)
+    row_is_dir, _ = _dirichlet_membership_mask(A.pattern.rows, dir_sorted_j)
+
+    dir_vals_per_entry = jnp.where(col_is_dir, dir_vals_sorted[col_pos], jnp.zeros_like(A.data))
+    rhs_shift = jax.ops.segment_sum(A.data * dir_vals_per_entry, A.pattern.rows, A.n_dofs)
+    F_bc = F_arr - rhs_shift
+
+    keep = ~(row_is_dir | col_is_dir)
+    K_free = FluxSparseMatrix(
+        A.pattern.rows[keep],
+        A.pattern.cols[keep],
+        A.data[keep],
+        A.n_dofs,
+    )
+    dir_idx = jnp.asarray(dir_arr, dtype=A.pattern.rows.dtype)
+    K_dir = FluxSparseMatrix(
+        dir_idx,
+        dir_idx,
+        jnp.ones((dir_arr.size,), dtype=A.data.dtype),
+        A.n_dofs,
+    )
+    K_bc = concat_flux(K_free, K_dir, n_dofs=A.n_dofs)
+    F_bc = F_bc.at[dir_idx].set(dir_vals)
+    return K_bc, F_bc
 
 
 def enforce_dirichlet_system(A, F, dofs, vals):

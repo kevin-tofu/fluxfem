@@ -290,7 +290,7 @@ def test_contact_p0_multiplier_vector_value_dim_lifts_into_coupled_system():
         backend="numpy",
     )
 
-    builder = ff.CoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
     builder.register_field("a", n_dofs=12, value_dim=3, n_nodes=4)
     builder.register_field("b", n_dofs=12, value_dim=3, n_nodes=4)
     builder.add_contact_mortar(ops, master="a", slave="b", value_dim=3)
@@ -333,7 +333,7 @@ def test_contact_p0_supermesh_multiplier_tracks_supermesh_triangles():
     assert np.asarray(ops.B_b).shape == (3 * n_tri, 3 * contact.surface_slave.n_nodes)
     assert np.asarray(ops.B).shape == (3 * n_tri, 3 * (contact.surface_master.n_nodes + contact.surface_slave.n_nodes))
 
-    builder = ff.CoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
     builder.register_field("a", n_dofs=12, value_dim=3, n_nodes=4)
     builder.register_field("b", n_dofs=12, value_dim=3, n_nodes=4)
     builder.add_contact_mortar(ops, master="a", slave="b", value_dim=3)
@@ -375,7 +375,7 @@ def test_contact_p0_active_multiplier_tracks_active_master_facets():
     assert np.asarray(ops.B_a).shape == (3 * n_active_facets, 3 * contact.surface_master.n_nodes)
     assert np.asarray(ops.B_b).shape == (3 * n_active_facets, 3 * contact.surface_slave.n_nodes)
 
-    builder = ff.CoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
+    builder = ff.LegacyCoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
     builder.register_field("a", n_dofs=12, value_dim=3, n_nodes=4)
     builder.register_field("b", n_dofs=12, value_dim=3, n_nodes=4)
     builder.add_contact_mortar(ops, master="a", slave="b", value_dim=3)
