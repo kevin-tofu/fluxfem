@@ -9,6 +9,7 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
+from .cg import cg_solve_jax
 from .dirichlet import enforce_dirichlet_fluxsparse, enforce_dirichlet_sparse
 from .sparse import FluxSparseMatrix
 
@@ -19,6 +20,7 @@ class CoupledSystem:
     Sparse coupled system for structural/contact assembly.
 
     Notes:
+
     - Contact lifting currently assumes scalar displacement per node
       (`value_dim=1`) for KKT blocks assembled by `assemble_contact_kkt`.
     - Lambda DOFs are appended after structural DOFs.
@@ -308,7 +310,9 @@ class CoupledSystem:
                 raise ValueError("residual shape mismatch for provided node counts and value_dim.")
             self.F_u = self.F_u + (s * float(residual_sign)) * np.asarray(P.T @ r, dtype=float)
 
-    def assemble(self, *, format: str = "fluxsparse"):
+    def assemble(self, *, format: str = "fluxsparse", backend: str = "numpy"):
+        if backend not in {"numpy", "jax"}:
+            raise ValueError("backend must be 'numpy' or 'jax'.")
         if format not in {"fluxsparse", "csr", "dense"}:
             raise ValueError("format must be 'fluxsparse', 'csr', or 'dense'.")
 
@@ -330,12 +334,77 @@ class CoupledSystem:
                 F = F_full
 
         if format == "dense":
-            return K.toarray(), F
+            dense = K.toarray()
+            if backend == "jax":
+                import jax.numpy as jnp
+
+                return jnp.asarray(dense), jnp.asarray(F)
+            return dense, F
         if format == "csr":
+            if backend == "jax":
+                raise ValueError("format='csr' is only available with backend='numpy'.")
             return K, F
 
         coo = K.tocoo()
-        return FluxSparseMatrix(coo.row, coo.col, coo.data, K.shape[0]), F
+        flux = FluxSparseMatrix(coo.row, coo.col, coo.data, K.shape[0])
+        if backend == "jax":
+            import jax.numpy as jnp
+
+            return flux, jnp.asarray(F)
+        return flux, F
+
+    def _assemble_solve_system(
+        self,
+        *,
+        dirichlet_dofs: np.ndarray | None = None,
+        dirichlet_vals=0.0,
+        format: str = "csr",
+        diagonal_shift: float = 0.0,
+    ) -> tuple[sp.csr_matrix, np.ndarray, np.ndarray]:
+        if format not in {"csr", "fluxsparse"}:
+            raise ValueError("format must be 'csr' or 'fluxsparse'.")
+
+        dir_dofs = np.asarray(dirichlet_dofs if dirichlet_dofs is not None else [], dtype=int)
+        if format == "fluxsparse":
+            K_flux, F = self.assemble(format="fluxsparse")
+            K_bc, F_bc = enforce_dirichlet_fluxsparse(K_flux, F, dir_dofs, dirichlet_vals)
+            if float(diagonal_shift) != 0.0:
+                K_bc = K_bc + float(diagonal_shift) * sp.eye(K_bc.shape[0], format="csr")
+            return K_bc.tocsr(), np.asarray(F_bc, dtype=float), dir_dofs
+
+        K_csr, F = self.assemble(format="csr")
+        if dir_dofs.size > 0:
+            coo = K_csr.tocoo()
+            K_flux = FluxSparseMatrix(coo.row, coo.col, coo.data, K_csr.shape[0])
+            K_csr, F = enforce_dirichlet_sparse(K_flux, F, dir_dofs, dirichlet_vals)
+        if float(diagonal_shift) != 0.0:
+            K_csr = K_csr + float(diagonal_shift) * sp.eye(K_csr.shape[0], format="csr")
+        return K_csr.tocsr(), np.asarray(F, dtype=float), dir_dofs
+
+    @staticmethod
+    def _zero_dirichlet_matrix(mat, dirichlet_dofs: np.ndarray) -> sp.csr_matrix:
+        if isinstance(mat, FluxSparseMatrix):
+            out = mat.to_csr()
+        elif sp.issparse(mat):
+            out = mat.tocsr()
+        else:
+            out = sp.csr_matrix(np.asarray(mat, dtype=float))
+        if dirichlet_dofs.size == 0:
+            return out
+        out = out.tolil()
+        out[dirichlet_dofs, :] = 0.0
+        out[:, dirichlet_dofs] = 0.0
+        return out.tocsr()
+
+    @staticmethod
+    def _zero_dirichlet_vector(vec, dirichlet_dofs: np.ndarray, *, size: int) -> np.ndarray:
+        out = np.asarray(vec, dtype=float).reshape(-1)
+        if out.shape != (size,):
+            raise ValueError(f"vector shape must be {(size,)}, got {out.shape}.")
+        out = out.copy()
+        if dirichlet_dofs.size > 0:
+            out[dirichlet_dofs] = 0.0
+        return out
 
     def solve(
         self,
@@ -344,31 +413,120 @@ class CoupledSystem:
         dirichlet_vals=0.0,
         format: str = "csr",
         diagonal_shift: float = 0.0,
+        backend: str = "numpy",
+        jax_solver: str = "dense",
+        tol: float = 1e-8,
+        maxiter: int | None = None,
     ):
-        if format not in {"csr", "fluxsparse"}:
-            raise ValueError("format must be 'csr' or 'fluxsparse'.")
-
-        if format == "fluxsparse":
-            K_flux, F = self.assemble(format="fluxsparse")
-            dir_dofs = np.asarray(dirichlet_dofs if dirichlet_dofs is not None else [], dtype=int)
-            K_bc, F_bc = enforce_dirichlet_fluxsparse(K_flux, F, dir_dofs, dirichlet_vals)
-            if float(diagonal_shift) != 0.0:
-                K_bc = K_bc + float(diagonal_shift) * sp.eye(K_bc.shape[0], format="csr")
-            return spla.spsolve(K_bc, F_bc)
-
-        K_csr, F = self.assemble(format="csr")
-        if dirichlet_dofs is not None and np.asarray(dirichlet_dofs).size > 0:
-            coo = K_csr.tocoo()
-            K_flux = FluxSparseMatrix(coo.row, coo.col, coo.data, K_csr.shape[0])
-            K_csr, F = enforce_dirichlet_sparse(
-                K_flux,
-                F,
-                np.asarray(dirichlet_dofs, dtype=int),
-                dirichlet_vals,
+        if backend not in {"numpy", "jax"}:
+            raise ValueError("backend must be 'numpy' or 'jax'.")
+        if jax_solver not in {"dense", "cg"}:
+            raise ValueError("jax_solver must be 'dense' or 'cg'.")
+        if backend == "jax" and format == "csr":
+            format = "fluxsparse"
+        if backend == "numpy":
+            K_sys, F_sys, _dir_dofs = self._assemble_solve_system(
+                dirichlet_dofs=dirichlet_dofs,
+                dirichlet_vals=dirichlet_vals,
+                format=format,
+                diagonal_shift=diagonal_shift,
             )
+            return spla.spsolve(K_sys, F_sys)
+
+        import jax.numpy as jnp
+        from .dirichlet import enforce_dirichlet_dense_jax
+
+        K_dense, F_dense = self.assemble(format="dense", backend="jax")
+        dir_dofs = np.asarray(dirichlet_dofs if dirichlet_dofs is not None else [], dtype=int)
+        K_bc, F_bc = enforce_dirichlet_dense_jax(K_dense, F_dense, dir_dofs, dirichlet_vals)
         if float(diagonal_shift) != 0.0:
-            K_csr = K_csr + float(diagonal_shift) * sp.eye(K_csr.shape[0], format="csr")
-        return spla.spsolve(K_csr, F)
+            K_bc = K_bc + jnp.asarray(diagonal_shift, dtype=K_bc.dtype) * jnp.eye(K_bc.shape[0], dtype=K_bc.dtype)
+        if jax_solver == "dense":
+            return jnp.linalg.solve(K_bc, F_bc)
+        u, _info = cg_solve_jax(K_bc, F_bc, tol=tol, maxiter=maxiter)
+        return u
+
+    def linear_output_sensitivity(
+        self,
+        dK,
+        *,
+        output_vector,
+        dF=None,
+        u: np.ndarray | None = None,
+        dirichlet_dofs: np.ndarray | None = None,
+        dirichlet_vals=0.0,
+        format: str = "csr",
+        diagonal_shift: float = 0.0,
+    ) -> float:
+        """
+        Differentiate a linear output ``J = output_vector^T u`` w.r.t. a parameter.
+
+        The state ``u`` solves the coupled linear system assembled by this object.
+        ``dK`` and ``dF`` are the derivatives of the assembled stiffness and RHS
+        with respect to the parameter.
+        """
+        K_sys, F_sys, dir_dofs = self._assemble_solve_system(
+            dirichlet_dofs=dirichlet_dofs,
+            dirichlet_vals=dirichlet_vals,
+            format=format,
+            diagonal_shift=diagonal_shift,
+        )
+        n = int(K_sys.shape[0])
+        c = self._zero_dirichlet_vector(output_vector, dir_dofs, size=n)
+        dK_raw = self._zero_dirichlet_matrix(dK, np.asarray([], dtype=int))
+        if dK_raw.shape == (self.n_u, self.n_u) and n != self.n_u:
+            dK_lift = sp.lil_matrix((n, n), dtype=dK_raw.dtype)
+            dK_lift[: self.n_u, : self.n_u] = dK_raw
+            dK_raw = dK_lift.tocsr()
+        dK_bc = self._zero_dirichlet_matrix(dK_raw, dir_dofs)
+        if dK_bc.shape != K_sys.shape:
+            raise ValueError(f"dK shape {dK_bc.shape} does not match assembled system shape {K_sys.shape}.")
+        if dF is None:
+            dF_bc = np.zeros((n,), dtype=float)
+        else:
+            dF_arr = np.asarray(dF, dtype=float).reshape(-1)
+            if dF_arr.shape == (self.n_u,) and n != self.n_u:
+                dF_full = np.zeros((n,), dtype=float)
+                dF_full[: self.n_u] = dF_arr
+                dF_arr = dF_full
+            dF_bc = self._zero_dirichlet_vector(dF_arr, dir_dofs, size=n)
+
+        u_vec = np.asarray(u, dtype=float).reshape(-1) if u is not None else spla.spsolve(K_sys, F_sys)
+        if u_vec.shape != (n,):
+            raise ValueError(f"u shape must be {(n,)}, got {u_vec.shape}.")
+
+        lam = spla.spsolve(K_sys.T, c)
+        dJ = lam @ (dF_bc - dK_bc @ u_vec)
+        return float(dJ)
+
+    def linear_compliance_sensitivity(
+        self,
+        dK,
+        *,
+        load_vector,
+        dF=None,
+        u: np.ndarray | None = None,
+        dirichlet_dofs: np.ndarray | None = None,
+        dirichlet_vals=0.0,
+        format: str = "csr",
+        diagonal_shift: float = 0.0,
+    ) -> float:
+        """
+        Differentiate compliance ``C = load_vector^T u`` w.r.t. a parameter.
+
+        Pass the external load of interest explicitly via ``load_vector``.
+        When the parameter only modifies stiffness, leave ``dF=None``.
+        """
+        return self.linear_output_sensitivity(
+            dK,
+            output_vector=load_vector,
+            dF=dF,
+            u=u,
+            dirichlet_dofs=dirichlet_dofs,
+            dirichlet_vals=dirichlet_vals,
+            format=format,
+            diagonal_shift=diagonal_shift,
+        )
 
 
 @dataclass
@@ -759,6 +917,10 @@ class CoupledSystemBuilder:
         dirichlet_vals=0.0,
         format: str = "csr",
         diagonal_shift: float = 0.0,
+        backend: str = "numpy",
+        jax_solver: str = "dense",
+        tol: float = 1e-8,
+        maxiter: int | None = None,
     ):
         """
         Build and solve with optional `DirichletSpec` constraints.
@@ -772,6 +934,10 @@ class CoupledSystemBuilder:
             dirichlet_vals=dirichlet_vals,
             format=format,
             diagonal_shift=diagonal_shift,
+            backend=backend,
+            jax_solver=jax_solver,
+            tol=tol,
+            maxiter=maxiter,
         )
 
     def add_contact_nitsche(
@@ -1186,6 +1352,68 @@ class CoupledSystemBuilder:
                 raise ValueError(f"F_local shape {F_arr.shape} does not match field '{b.name}' size {(b.n_dofs,)}.")
             self.system.F_u[b.offset : b.offset + b.n_dofs] += F_arr
 
+    @staticmethod
+    def _coerce_spring_matrix_and_reference(stiffness, reference_value, *, n: int) -> tuple[np.ndarray, np.ndarray]:
+        if np.isscalar(stiffness):
+            K_sel = np.eye(n, dtype=float) * float(stiffness)
+        else:
+            stiff_arr = np.asarray(stiffness, dtype=float)
+            if stiff_arr.ndim == 1:
+                if stiff_arr.shape != (n,):
+                    raise ValueError("stiffness vector must match selected DOF count.")
+                K_sel = np.diag(stiff_arr)
+            elif stiff_arr.ndim == 2:
+                if stiff_arr.shape != (n, n):
+                    raise ValueError("stiffness matrix must match selected DOF count.")
+                K_sel = stiff_arr
+            else:
+                raise ValueError("stiffness must be scalar, vector, or square matrix.")
+
+        ref_arr = np.asarray(reference_value, dtype=float).reshape(-1)
+        if ref_arr.size == 1:
+            u_ref = np.full((n,), float(ref_arr[0]), dtype=float)
+        elif ref_arr.size == n:
+            u_ref = ref_arr.astype(float, copy=False)
+        else:
+            raise ValueError("reference_value must be scalar or match selected DOF count.")
+        return K_sel, u_ref
+
+    def dof_spring_contribution(
+        self,
+        field: str,
+        *,
+        stiffness,
+        reference_value=0.0,
+        nodes: int | Sequence[int] | np.ndarray | None = None,
+        components: int | Sequence[int] | np.ndarray | None = None,
+        local_dofs: int | Sequence[int] | np.ndarray | None = None,
+    ) -> tuple[sp.csr_matrix, np.ndarray]:
+        """
+        Build the full-system stiffness/RHS contribution of a spring support.
+
+        This is useful when a scalar parameter scales the spring and one wants
+        ``dK/dp`` and ``dF/dp`` for sensitivity analysis.
+        """
+        dofs = self.resolve_block_dofs(
+            field,
+            nodes=nodes,
+            components=components,
+            local_dofs=local_dofs,
+        )
+        n_sys = self.system.n_u
+        if dofs.size == 0:
+            return sp.csr_matrix((n_sys, n_sys), dtype=float), np.zeros((n_sys,), dtype=float)
+
+        K_sel, u_ref = self._coerce_spring_matrix_and_reference(stiffness, reference_value, n=int(dofs.size))
+        dofs_i = np.asarray(dofs, dtype=int)
+        rows = np.repeat(dofs_i, dofs_i.size)
+        cols = np.tile(dofs_i, dofs_i.size)
+        data = K_sel.reshape(-1)
+        K_full = sp.csr_matrix((data, (rows, cols)), shape=(n_sys, n_sys), dtype=float)
+        F_full = np.zeros((n_sys,), dtype=float)
+        F_full[dofs_i] = np.asarray(K_sel @ u_ref, dtype=float)
+        return K_full, F_full
+
     def add_dof_spring(
         self,
         field: str,
@@ -1213,42 +1441,111 @@ class CoupledSystemBuilder:
         )
         if dofs.size == 0:
             return dofs
+        K_add, F_add = self.dof_spring_contribution(
+            field,
+            stiffness=stiffness,
+            reference_value=reference_value,
+            nodes=nodes,
+            components=components,
+            local_dofs=local_dofs,
+        )
+        self.system.K_u = (self.system.K_u + K_add).tocsr()
+        self.system.F_u += F_add
+        return np.asarray(dofs, dtype=int)
 
-        n = int(dofs.size)
-        if np.isscalar(stiffness):
-            K_sel = np.eye(n, dtype=float) * float(stiffness)
-        else:
-            stiff_arr = np.asarray(stiffness, dtype=float)
-            if stiff_arr.ndim == 1:
-                if stiff_arr.shape != (n,):
-                    raise ValueError("stiffness vector must match selected DOF count.")
-                K_sel = np.diag(stiff_arr)
-            elif stiff_arr.ndim == 2:
-                if stiff_arr.shape != (n, n):
-                    raise ValueError("stiffness matrix must match selected DOF count.")
-                K_sel = stiff_arr
-            else:
-                raise ValueError("stiffness must be scalar, vector, or square matrix.")
+    def remote_spring_contribution(
+        self,
+        field: str,
+        *,
+        translational_stiffness=None,
+        rotational_stiffness=None,
+        translational_force=None,
+        rotational_force=None,
+        translational_target=0.0,
+        rotational_target=0.0,
+    ) -> tuple[sp.csr_matrix, np.ndarray]:
+        """
+        Build the full-system spring contribution for a remote point.
 
-        ref_arr = np.asarray(reference_value, dtype=float).reshape(-1)
-        if ref_arr.size == 1:
-            u_ref = np.full((n,), float(ref_arr[0]), dtype=float)
-        elif ref_arr.size == n:
-            u_ref = ref_arr.astype(float, copy=False)
-        else:
-            raise ValueError("reference_value must be scalar or match selected DOF count.")
+        This returns the same contribution that ``add_remote_spring`` would add,
+        which is convenient for analytical sensitivities.
+        """
 
-        self.system.K_u = self.system.K_u.tolil()
-        dofs_i = np.asarray(dofs, dtype=int)
-        for i in range(n):
-            row = int(dofs_i[i])
-            for j in range(n):
-                val = float(K_sel[i, j])
-                if val != 0.0:
-                    self.system.K_u[row, int(dofs_i[j])] += val
-        self.system.K_u = self.system.K_u.tocsr()
-        self.system.F_u[dofs_i] += np.asarray(K_sel @ u_ref, dtype=float)
-        return dofs_i
+        def _resolve_spring_stiffness(name: str, stiffness, force, target, n_expected: int):
+            if stiffness is not None and force is not None:
+                raise ValueError(f"{name}: specify either stiffness or force, not both.")
+            if stiffness is not None:
+                return stiffness
+            if force is None:
+                return None
+
+            force_arr = np.asarray(force, dtype=float).reshape(-1)
+            target_arr = np.asarray(target, dtype=float).reshape(-1)
+
+            if force_arr.size == 1:
+                force_arr = np.full((n_expected,), float(force_arr[0]), dtype=float)
+            elif force_arr.size != n_expected:
+                raise ValueError(f"{name}: force must be scalar or length {n_expected}.")
+
+            if target_arr.size == 1:
+                target_arr = np.full((n_expected,), float(target_arr[0]), dtype=float)
+            elif target_arr.size != n_expected:
+                raise ValueError(f"{name}: target must be scalar or length {n_expected}.")
+
+            zero_mask = np.abs(target_arr) <= 1e-15
+            if np.any(zero_mask & (np.abs(force_arr) > 1e-15)):
+                raise ValueError(f"{name}: cannot infer stiffness when target is zero but force is non-zero.")
+
+            stiff = np.zeros((n_expected,), dtype=float)
+            nz = ~zero_mask
+            stiff[nz] = force_arr[nz] / target_arr[nz]
+            return stiff
+
+        b = self._get_block(field)
+        if b.n_dofs not in {3, 6}:
+            raise ValueError("remote spring helper expects a 3-DOF or 6-DOF field.")
+
+        n_sys = self.system.n_u
+        K_full = sp.csr_matrix((n_sys, n_sys), dtype=float)
+        F_full = np.zeros((n_sys,), dtype=float)
+
+        translational_stiffness = _resolve_spring_stiffness(
+            "translational spring",
+            translational_stiffness,
+            translational_force,
+            translational_target,
+            min(3, b.n_dofs),
+        )
+        if translational_stiffness is not None:
+            K_add, F_add = self.dof_spring_contribution(
+                field,
+                local_dofs=np.arange(min(3, b.n_dofs)),
+                stiffness=translational_stiffness,
+                reference_value=translational_target,
+            )
+            K_full = K_full + K_add
+            F_full += F_add
+
+        rotational_stiffness = _resolve_spring_stiffness(
+            "rotational spring",
+            rotational_stiffness,
+            rotational_force,
+            rotational_target,
+            3,
+        )
+        if rotational_stiffness is not None:
+            if b.n_dofs < 6:
+                raise ValueError("rotational springs require a 6-DOF remote field.")
+            K_add, F_add = self.dof_spring_contribution(
+                field,
+                local_dofs=np.arange(3, 6),
+                stiffness=rotational_stiffness,
+                reference_value=rotational_target,
+            )
+            K_full = K_full + K_add
+            F_full += F_add
+
+        return K_full.tocsr(), F_full
 
     def add_remote_spring(
         self,
@@ -1256,6 +1553,8 @@ class CoupledSystemBuilder:
         *,
         translational_stiffness=None,
         rotational_stiffness=None,
+        translational_force=None,
+        rotational_force=None,
         translational_target=0.0,
         rotational_target=0.0,
     ) -> None:
@@ -1265,28 +1564,22 @@ class CoupledSystemBuilder:
         Expected layouts:
         - 6 DOF: ``[u_ref(3), omega_ref(3)]``
         - 3 DOF: translational-only remote point
+
+        For each block, either provide ``*_stiffness`` directly, or provide
+        ``*_force`` together with the corresponding target and let the helper
+        derive diagonal stiffness values from ``force / target``.
         """
-        b = self._get_block(field)
-        if b.n_dofs not in {3, 6}:
-            raise ValueError("remote spring helper expects a 3-DOF or 6-DOF field.")
-
-        if translational_stiffness is not None:
-            self.add_dof_spring(
-                field,
-                local_dofs=np.arange(min(3, b.n_dofs)),
-                stiffness=translational_stiffness,
-                reference_value=translational_target,
-            )
-
-        if rotational_stiffness is not None:
-            if b.n_dofs < 6:
-                raise ValueError("rotational springs require a 6-DOF remote field.")
-            self.add_dof_spring(
-                field,
-                local_dofs=np.arange(3, 6),
-                stiffness=rotational_stiffness,
-                reference_value=rotational_target,
-            )
+        K_add, F_add = self.remote_spring_contribution(
+            field,
+            translational_stiffness=translational_stiffness,
+            rotational_stiffness=rotational_stiffness,
+            translational_force=translational_force,
+            rotational_force=rotational_force,
+            translational_target=translational_target,
+            rotational_target=rotational_target,
+        )
+        self.system.K_u = (self.system.K_u + K_add).tocsr()
+        self.system.F_u += F_add
 
     def add_constraint_matrix(
         self,

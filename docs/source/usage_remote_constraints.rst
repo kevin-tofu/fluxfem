@@ -22,6 +22,9 @@ The main entry points are:
 - ``ff.CoupledSystemBuilder.add_rbe3_constraint(...)``
 - ``ff.CoupledSystemBuilder.add_dof_spring(...)``
 - ``ff.CoupledSystemBuilder.add_remote_spring(...)``
+- ``ff.CoupledSystemBuilder.add_field_matrix(...)``
+- ``ff.CoupledSystemBuilder.add_constraint_matrix_dof(...)``
+- ``ff.ConstraintSpec(...)``
 - ``ff.build_rbe3_weights(...)``
 - ``ff.build_rbe3_remote_resultant(...)``
 
@@ -186,6 +189,113 @@ Notes:
 - If ``target == 0`` and ``force != 0``, stiffness inference is rejected.
 - If ``force == 0`` and ``target == 0``, the inferred stiffness is zero.
 
+Field-Local Matrix Contributions
+--------------------------------
+
+When a spring is too restrictive as an abstraction, use
+``add_field_matrix(...)`` to add a local stiffness matrix and optional load
+directly to a registered field.
+
+.. code-block:: python
+
+   builder.append_field("remote_aux", n_dofs=2, value_dim=1)
+   builder.add_field_matrix(
+       "remote_aux",
+       [[2.0, -1.0], [-1.0, 2.0]],
+       F_local=[0.5, -0.5],
+   )
+
+This is useful for:
+
+- reduced support models beyond diagonal springs
+- user-defined auxiliary structural DOFs
+- remote-point compliance models with coupling between DOFs
+
+DOF-Level Constraint Wiring
+---------------------------
+
+``RBE2`` and ``RBE3`` often need an intermediate slave field rather than being
+connected directly to the full structural vector. For that wiring,
+``add_constraint_matrix_dof(...)`` is the key helper.
+
+.. code-block:: python
+
+   builder.append_field("support_face", n_dofs=left_local_dofs.size, value_dim=1)
+
+   C_face = np.zeros((left_local_dofs.size, space.n_dofs + left_local_dofs.size))
+   for row, dof in enumerate(left_local_dofs):
+       C_face[row, dof] = 1.0
+       C_face[row, space.n_dofs + row] = -1.0
+
+   builder.add_constraint_matrix_dof(
+       C_face,
+       master="u",
+       slave="support_face",
+   )
+
+Conceptually this enforces:
+
+.. code-block:: text
+
+   u[selected_dofs] = support_face
+
+Use this helper when you want explicit DOF-level equality constraints between
+registered blocks without node/value-dimension interpretation.
+
+ConstraintSpec for Unified Constraint Descriptors
+-------------------------------------------------
+
+If you want to describe constraints declaratively, use ``ff.ConstraintSpec``.
+This is useful for configuration-driven assembly, higher-level wrappers, or
+cases where you want one uniform constraint list.
+
+RBE2:
+
+.. code-block:: python
+
+   spec = ff.ConstraintSpec(
+       kind="rbe2",
+       master="remote",
+       slave="support_face",
+       ref_point=x_ref,
+       slave_coords=slave_coords,
+   )
+   builder.add_constraint(spec)
+
+RBE3:
+
+.. code-block:: python
+
+   spec = ff.ConstraintSpec(
+       kind="rbe3",
+       master="remote",
+       slave="support_face",
+       ref_point=x_ref,
+       slave_coords=slave_coords,
+       weights=weights,
+   )
+   builder.add_constraint(spec)
+
+DOF matrix constraint:
+
+.. code-block:: python
+
+   spec = ff.ConstraintSpec(
+       kind="matrix_dof",
+       master="u",
+       slave="support_face",
+       C=C_face,
+   )
+   builder.add_constraint(spec)
+
+This is a typed routing layer over:
+
+- ``add_constraint_matrix(...)``
+- ``add_constraint_matrix_dof(...)``
+- ``add_embedding_constraint(...)``
+- ``add_rbe2_constraint(...)``
+- ``add_rbe3_constraint(...)``
+
 Equivalent Remote Resultant for RBE3
 ------------------------------------
 
@@ -270,6 +380,14 @@ support:
    )
 
    u = builder.build().solve(format="csr", diagonal_shift=1e-8)
+
+This same workflow can also be expressed in a more declarative style by mixing:
+
+- ``append_remote_point(...)``
+- ``append_field(...)``
+- ``add_constraint_matrix_dof(...)``
+- ``ConstraintSpec(kind="rbe3", ...)``
+- ``add_remote_spring(...)``
 
 Reference Script
 ----------------

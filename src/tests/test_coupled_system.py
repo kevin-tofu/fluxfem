@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import warnings
+import jax.numpy as jnp
 import numpy as np
 import pytest
 import scipy.sparse as sp
@@ -936,6 +937,64 @@ def test_builder_add_remote_spring_for_6dof_remote_point():
     assert np.allclose(F, np.array([10.0, 0.0, -30.0, 2.0, 0.0, 0.0], dtype=float), atol=1e-12)
 
 
+def test_builder_remote_spring_contribution_matches_added_system():
+    kwargs = dict(
+        translational_stiffness=np.array([10.0, 20.0, 30.0], dtype=float),
+        rotational_stiffness=np.array([4.0, 5.0, 6.0], dtype=float),
+        translational_target=np.array([1.0, 0.0, -1.0], dtype=float),
+        rotational_target=np.array([0.5, 0.0, 0.0], dtype=float),
+    )
+
+    builder_a = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder_a.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
+    K_add, F_add = builder_a.remote_spring_contribution("remote", **kwargs)
+
+    builder_b = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder_b.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
+    builder_b.add_remote_spring("remote", **kwargs)
+
+    K_full, F_full = builder_b.build().assemble(format="csr")
+    assert np.allclose(K_add.toarray(), K_full.toarray(), atol=1e-12)
+    assert np.allclose(F_add, F_full, atol=1e-12)
+
+
+def test_builder_add_remote_spring_infers_stiffness_from_force_and_target():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
+    builder.add_remote_spring(
+        "remote",
+        translational_force=np.array([10.0, 0.0, -30.0], dtype=float),
+        rotational_force=np.array([2.0, 0.0, 0.0], dtype=float),
+        translational_target=np.array([1.0, 2.0, -1.0], dtype=float),
+        rotational_target=np.array([0.5, 1.0, 1.0], dtype=float),
+    )
+
+    K, F = builder.build().assemble(format="csr")
+    Kd = K.toarray()
+    assert np.allclose(np.diag(Kd), np.array([10.0, 0.0, 30.0, 4.0, 0.0, 0.0], dtype=float), atol=1e-12)
+    assert np.allclose(F, np.array([10.0, 0.0, -30.0, 2.0, 0.0, 0.0], dtype=float), atol=1e-12)
+
+
+def test_builder_add_remote_spring_rejects_ambiguous_or_singular_force_target_specs():
+    builder = ff.CoupledSystemBuilder.from_structural(sp.csr_matrix((0, 0)), np.zeros((0,), dtype=float))
+    builder.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
+
+    with pytest.raises(ValueError, match="either stiffness or force"):
+        builder.add_remote_spring(
+            "remote",
+            translational_stiffness=np.array([1.0, 1.0, 1.0], dtype=float),
+            translational_force=np.array([1.0, 1.0, 1.0], dtype=float),
+            translational_target=np.array([1.0, 1.0, 1.0], dtype=float),
+        )
+
+    with pytest.raises(ValueError, match="target is zero but force is non-zero"):
+        builder.add_remote_spring(
+            "remote",
+            translational_force=np.array([1.0, 0.0, 0.0], dtype=float),
+            translational_target=np.array([0.0, 1.0, 1.0], dtype=float),
+        )
+
+
 def test_builder_remote_rbe2_spring_flow():
     K_u = sp.eye(3, format="csr")
     F_u = np.zeros((3,), dtype=float)
@@ -967,6 +1026,126 @@ def test_builder_remote_rbe2_spring_flow():
     # exactly for finite spring stiffness.
     assert np.allclose(q_slave, q_remote[:3], atol=1e-6)
     assert np.allclose(q_remote[:3], np.array([20.0 / 21.0, 0.0, 0.0]), atol=1e-6)
+
+
+def test_coupled_system_solve_jax_dense_matches_numpy_with_remote_spring_and_rbe2():
+    K_u = sp.eye(3, format="csr")
+    F_u = np.zeros((3,), dtype=float)
+
+    builder = ff.CoupledSystemBuilder.from_structural(K_u, F_u)
+    builder.register_field("slave", n_dofs=3, value_dim=1, offset=0)
+    builder.append_remote_point("remote", point=np.array([0.0, 0.0, 0.0], dtype=float))
+    builder.add_remote_spring(
+        "remote",
+        translational_stiffness=np.array([20.0, 20.0, 20.0], dtype=float),
+        rotational_stiffness=np.array([5.0, 5.0, 5.0], dtype=float),
+        translational_target=np.array([1.0, 0.0, 0.0], dtype=float),
+    )
+    builder.add_rbe2_constraint(
+        master="remote",
+        slave="slave",
+        ref_point=np.array([0.0, 0.0, 0.0], dtype=float),
+        slave_coords=np.array([[1.0, 0.0, 0.0]], dtype=float),
+        rho=0.0,
+        backend="numpy",
+    )
+
+    u_np = np.asarray(builder.build().solve(format="csr", diagonal_shift=1e-8, backend="numpy"), dtype=float)
+    u_jax = np.asarray(builder.build().solve(diagonal_shift=1e-8, backend="jax", jax_solver="dense"), dtype=float)
+    assert np.allclose(u_jax, u_np, atol=1e-8)
+
+
+def test_coupled_system_solve_jax_cg_matches_numpy():
+    K = sp.diags([4.0, 5.0, 6.0], format="csr")
+    F = np.array([1.0, -2.0, 3.0], dtype=float)
+    system = ff.CoupledSystem.from_structural(K, F)
+
+    u_np = np.asarray(system.solve(format="csr", backend="numpy"), dtype=float)
+    u_jax = np.asarray(system.solve(backend="jax", jax_solver="cg", tol=1e-10, maxiter=50), dtype=float)
+    assert np.allclose(u_jax, u_np, atol=1e-8)
+
+
+def test_coupled_system_assemble_jax_dense_and_fluxsparse():
+    K = sp.diags([2.0, 3.0], format="csr")
+    F = np.array([1.0, 4.0], dtype=float)
+    system = ff.CoupledSystem.from_structural(K, F)
+
+    K_dense, F_dense = system.assemble(format="dense", backend="jax")
+    K_flux, F_flux = system.assemble(format="fluxsparse", backend="jax")
+
+    assert isinstance(K_dense, jnp.ndarray)
+    assert isinstance(F_dense, jnp.ndarray)
+    assert isinstance(K_flux, ff.FluxSparseMatrix)
+    assert isinstance(F_flux, jnp.ndarray)
+    assert np.allclose(np.asarray(K_dense), K.toarray(), atol=1e-12)
+    assert np.allclose(np.asarray(F_dense), F, atol=1e-12)
+    assert np.allclose(np.asarray(K_flux.to_dense()), K.toarray(), atol=1e-12)
+    assert np.allclose(np.asarray(F_flux), F, atol=1e-12)
+
+
+def test_remote_rbe3_spring_compliance_sensitivity_matches_finite_difference():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    slave_coords = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    weights = np.array([0.4, 0.6], dtype=float)
+    F_struct = np.array([1.0, 0.5, 0.0, 0.0, 0.0, 0.0], dtype=float)
+
+    def _build_system(k_scale: float):
+        builder = ff.CoupledSystemBuilder.from_structural(sp.eye(6, format="csr"), F_struct.copy())
+        builder.register_field("slave", n_dofs=6, value_dim=1, offset=0)
+        builder.append_remote_point("remote", point=x_ref)
+        builder.add_rbe3_constraint(
+            master="remote",
+            slave="slave",
+            ref_point=x_ref,
+            slave_coords=slave_coords,
+            weights=weights,
+            rho=0.0,
+            backend="numpy",
+        )
+        builder.add_remote_spring(
+            "remote",
+            translational_stiffness=np.array([k_scale, k_scale, k_scale], dtype=float),
+            rotational_stiffness=np.array([1e3, 1e3, 1e3], dtype=float),
+            translational_target=np.zeros((3,), dtype=float),
+            rotational_target=np.zeros((3,), dtype=float),
+        )
+        return builder
+
+    k0 = 7.0
+    builder = _build_system(k0)
+    system = builder.build()
+    u = np.asarray(system.solve(format="csr", diagonal_shift=1e-8), dtype=float)
+
+    dK, dF = builder.remote_spring_contribution(
+        "remote",
+        translational_stiffness=np.ones((3,), dtype=float),
+        translational_target=np.zeros((3,), dtype=float),
+    )
+    n_total = system.assemble(format="csr")[0].shape[0]
+    load_full = np.concatenate([F_struct, np.zeros((n_total - F_struct.size,), dtype=float)])
+    dcomp = system.linear_compliance_sensitivity(
+        dK,
+        dF=dF,
+        load_vector=load_full,
+        u=u,
+        format="csr",
+        diagonal_shift=1e-8,
+    )
+
+    eps = 1e-6
+    u_plus = np.asarray(_build_system(k0 + eps).build().solve(format="csr", diagonal_shift=1e-8), dtype=float)
+    u_minus = np.asarray(_build_system(k0 - eps).build().solve(format="csr", diagonal_shift=1e-8), dtype=float)
+    comp_plus = float(load_full @ u_plus)
+    comp_minus = float(load_full @ u_minus)
+    dcomp_fd = (comp_plus - comp_minus) / (2.0 * eps)
+
+    assert np.allclose(dcomp, dcomp_fd, rtol=5e-5, atol=5e-6)
 
 
 def test_builder_add_constraint_with_rbe2_spec():

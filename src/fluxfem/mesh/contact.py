@@ -971,8 +971,8 @@ def assemble_rbe2_constraint_matrix(
     Constraint for each slave node i:
       u_slave_i - u_ref - (omega_ref x (x_i - x_ref)) = 0
     """
-    if backend not in {"numpy", "jax"}:
-        raise ValueError("backend must be 'numpy' or 'jax'")
+    if backend != "numpy":
+        raise ValueError("RBE2 constraint assembly currently supports backend='numpy' only.")
     x_ref = np.asarray(ref_point, dtype=float).reshape(-1)
     x_s = np.asarray(slave_coords, dtype=float)
     if x_ref.shape[0] != 3:
@@ -983,28 +983,6 @@ def assemble_rbe2_constraint_matrix(
     n_s = int(x_s.shape[0])
     n_rows = 3 * n_s
     n_cols = 6 + 3 * n_s
-
-    if backend == "jax":
-        import jax.numpy as jnp
-
-        C = jnp.zeros((n_rows, n_cols), dtype=float)
-        for i in range(n_s):
-            rx, ry, rz = (x_s[i] - x_ref).tolist()
-            r0 = 3 * i
-            c_slave = 6 + 3 * i
-            C = C.at[r0 + 0, 0].set(-1.0)
-            C = C.at[r0 + 1, 1].set(-1.0)
-            C = C.at[r0 + 2, 2].set(-1.0)
-            C = C.at[r0 + 0, 4].set(-rz)
-            C = C.at[r0 + 0, 5].set(+ry)
-            C = C.at[r0 + 1, 3].set(+rz)
-            C = C.at[r0 + 1, 5].set(-rx)
-            C = C.at[r0 + 2, 3].set(-ry)
-            C = C.at[r0 + 2, 4].set(+rx)
-            C = C.at[r0 + 0, c_slave + 0].set(+1.0)
-            C = C.at[r0 + 1, c_slave + 1].set(+1.0)
-            C = C.at[r0 + 2, c_slave + 2].set(+1.0)
-        return C
 
     C = np.zeros((n_rows, n_cols), dtype=float)
     for i in range(n_s):
@@ -1050,8 +1028,8 @@ def assemble_rbe3_constraint_matrix(
     This yields a 6 x (6 + 3*n_slave) matrix. Repeated use of this helper allows
     multiple user-defined RBE3 couplings to be added to one system.
     """
-    if backend not in {"numpy", "jax"}:
-        raise ValueError("backend must be 'numpy' or 'jax'")
+    if backend != "numpy":
+        raise ValueError("RBE3 constraint assembly currently supports backend='numpy' only.")
     x_ref = np.asarray(ref_point, dtype=float).reshape(-1)
     x_s = np.asarray(slave_coords, dtype=float)
     if x_ref.shape[0] != 3:
@@ -1096,16 +1074,6 @@ def assemble_rbe3_constraint_matrix(
         slave_blocks.append(-float(wi) * Bi.T)
 
     n_cols = 6 + 3 * n_s
-    if backend == "jax":
-        import jax.numpy as jnp
-
-        C = jnp.zeros((6, n_cols), dtype=float)
-        C = C.at[:, :6].set(M)
-        for i, blk in enumerate(slave_blocks):
-            c0 = 6 + 3 * i
-            C = C.at[:, c0 : c0 + 3].set(blk)
-        return C
-
     C = np.zeros((6, n_cols), dtype=float)
     C[:, :6] = M
     for i, blk in enumerate(slave_blocks):
@@ -1195,6 +1163,7 @@ def build_rbe3_remote_resultant(
     ``[u_ref(3), omega_ref(3)]``.
 
     Exactly one of ``load`` or ``pressure`` must be provided:
+
     - ``load``: constant vector load per unit area with shape ``(3,)`` or
       ``(n_facets, 3)``
     - ``pressure``: scalar normal traction with shape ``()`` or ``(n_facets,)``
