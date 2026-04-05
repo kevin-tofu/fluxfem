@@ -12,6 +12,26 @@ Run the example
 
    python tutorials/neo_hookean_cantilever.py
 
+Recommended solver settings
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For practical 3D runs, the default tutorial settings now prefer PETSc shell
+with a direct preconditioner:
+
+.. code-block:: bash
+
+   python tutorials/neo_hookean_cantilever.py \
+     --linear-solver petsc_shell \
+     --petsc-ksp-type preonly \
+     --petsc-pc-type lu \
+     --petsc-use-pmat \
+     --nstep 20 \
+     --maxiter 10 \
+     --tol 1e-6
+
+This is the recommended baseline when ``petsc4py`` is available. If PETSc is
+not installed, fall back to ``cg_matfree`` or ``spsolve``.
+
 Problem statement
 ^^^^^^^^^^^^^^^^^
 

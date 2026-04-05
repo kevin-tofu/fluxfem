@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Supported Box Contact Tutorial &#8212; FluxFEM 0.3.1 documentation</title>
+    <title>Supported Box Contact Tutorial &#8212; FluxFEM 0.3.4 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=5869b996"></script>
+    <script src="_static/documentation_options.js?v=39bb16ab"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial_contact_supported_box';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.1 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.4 documentation</p>
   
 </a></div>
     
@@ -407,7 +407,7 @@
 (multiple disconnected small boxes).</p></li>
 <li><p>Creating the interface through <code class="docutils literal notranslate"><span class="pre">ContactSide</span></code> + <code class="docutils literal notranslate"><span class="pre">ContactSpaces</span></code> so the
 master/slave roles are explicit in the public API.</p></li>
-<li><p>Assembling penalty-family operators via <code class="docutils literal notranslate"><span class="pre">assemble_contact_penalty_operators(...)</span></code>.</p></li>
+<li><p>Assembling penalty-family operators via <code class="docutils literal notranslate"><span class="pre">assemble_contact_operators(...,</span> <span class="pre">enforcement=&quot;penalty&quot;)</span></code>.</p></li>
 <li><p>Lifting interface Jacobian/residual into structural DOFs via <code class="docutils literal notranslate"><span class="pre">CoupledSystem.add_contact_nitsche(...)</span></code>.</p></li>
 <li><p>Building gravity/body-force vectors and support-bottom Dirichlet DOFs.</p></li>
 </ul>

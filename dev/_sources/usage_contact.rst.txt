@@ -157,9 +157,12 @@ Use explicit APIs by family:
        params=params,
    )
 
-   # Penalty-family path: returns residual/jacobian from your weak form
-   ops_nitsche: ff.ContactOperators = ff.assemble_contact_penalty_operators(
+   # Penalty-family path: returns residual/jacobian from your weak form.
+   # This is the recommended public entry when you want to assemble contact
+   # operators and manage the nonlinear solve yourself.
+   ops_nitsche: ff.ContactOperators = ff.assemble_contact_operators(
        contact,
+       enforcement="penalty",
        weak_form=res_form,
        state={"master": u_master, "slaves": [u_s1, u_s2]},
        params=params,
@@ -231,6 +234,8 @@ Solve with ``solve_contact_kkt``. For JAX, use ``backend="jax"``.
 Notes
 -----
 
+- ``assemble_contact_operators(..., enforcement=...)`` is the recommended public entry when you want FluxFEM to assemble contact contributions and manage the solve yourself.
+- ``solve_contact_penalty_jax(...)`` and ``solve_contact_al_jax(...)`` should be treated as convenience / experimental helpers for narrow JAX contact workflows, not as the main production solve path.
 - ``master_facet_selector`` and ``slave_facet_selectors`` are recommended for robust workflows.
 - For oblique interfaces, provide custom selectors that return facet IDs based on your geometric rule.
 - ``ContactMultiplierSpace(family="p0")`` gives facet-wise constant multipliers (common for constraint-family coupling).

@@ -15,6 +15,14 @@ Solvers
 .. autoclass:: fluxfem.solver.LinearSolveConfig
 .. autoclass:: fluxfem.solver.NewtonLoopConfig
 
+Coupled Systems
+---------------
+
+.. autoclass:: fluxfem.solver.CoupledSystem
+.. autoclass:: fluxfem.solver.CoupledSystemBuilder
+.. autoclass:: fluxfem.solver.DirichletSpec
+.. autoclass:: fluxfem.solver.ConstraintSpec
+
 Sparse
 ------
 
