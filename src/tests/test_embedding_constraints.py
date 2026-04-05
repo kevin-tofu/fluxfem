@@ -329,3 +329,50 @@ def test_build_rbe3_weights_facet_area():
         surface=surface,
     )
     assert np.allclose(w, 0.25 * np.ones((4,), dtype=float), atol=1e-12)
+
+
+def test_build_rbe3_remote_resultant_from_uniform_surface_load():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    surface = ff.SurfaceMesh.from_facets(coords, np.array([[0, 1, 2, 3]], dtype=int))
+
+    q = ff.build_rbe3_remote_resultant(
+        np.array([0.0, 0.0, 0.0], dtype=float),
+        coords,
+        surface=surface,
+        load=np.array([0.0, 0.0, -2.0], dtype=float),
+    )
+
+    assert np.allclose(q[:3], np.array([0.0, 0.0, -2.0], dtype=float), atol=1e-12)
+    assert np.allclose(q[3:], np.array([-1.0, 1.0, 0.0], dtype=float), atol=1e-12)
+
+
+def test_build_rbe3_remote_resultant_from_uniform_pressure():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    surface = ff.SurfaceMesh.from_facets(coords, np.array([[0, 1, 2, 3]], dtype=int))
+
+    q = ff.build_rbe3_remote_resultant(
+        np.array([0.5, 0.5, 0.0], dtype=float),
+        coords,
+        surface=surface,
+        pressure=3.0,
+        outward_from=np.array([0.5, 0.5, 1.0], dtype=float),
+    )
+
+    assert np.allclose(q[:3], np.array([0.0, 0.0, -3.0], dtype=float), atol=1e-12)
+    assert np.allclose(q[3:], np.zeros((3,), dtype=float), atol=1e-12)

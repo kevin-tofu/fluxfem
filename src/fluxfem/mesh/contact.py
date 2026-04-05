@@ -1178,6 +1178,63 @@ def build_rbe3_weights(
     return w
 
 
+def build_rbe3_remote_resultant(
+    ref_point: np.ndarray,
+    slave_coords: np.ndarray,
+    *,
+    surface: SurfaceMesh,
+    load: npt.ArrayLike | None = None,
+    pressure: float | npt.ArrayLike | None = None,
+    outward_from: npt.ArrayLike | None = None,
+) -> np.ndarray:
+    """
+    Build the equivalent remote-point resultant for an RBE3-supported surface.
+
+    The returned 6-vector is ordered as ``[force(3), moment(3)]`` and is
+    compatible with a 6-DOF remote-point field ordered as
+    ``[u_ref(3), omega_ref(3)]``.
+
+    Exactly one of ``load`` or ``pressure`` must be provided:
+    - ``load``: constant vector load per unit area with shape ``(3,)`` or
+      ``(n_facets, 3)``
+    - ``pressure``: scalar normal traction with shape ``()`` or ``(n_facets,)``
+    """
+    x_ref = np.asarray(ref_point, dtype=float).reshape(-1)
+    x_s = np.asarray(slave_coords, dtype=float)
+    if x_ref.shape != (3,):
+        raise ValueError("ref_point must be 3D.")
+    if x_s.ndim != 2 or x_s.shape[1] != 3:
+        raise ValueError("slave_coords must have shape (n_slave, 3).")
+    if surface is None:
+        raise ValueError("surface is required.")
+    if (load is None) == (pressure is None):
+        raise ValueError("Specify exactly one of load or pressure.")
+
+    n_s = int(x_s.shape[0])
+    facets = np.asarray(surface.conn, dtype=int)
+    if np.any(facets < 0) or np.any(facets >= n_s):
+        raise ValueError("surface facets must index slave_coords in local node numbering.")
+
+    if load is not None:
+        nodal_load = surface.assemble_load(load, dim=3, n_total_nodes=n_s)
+    else:
+        from ..solver.bc import assemble_surface_traction
+
+        nodal_load = assemble_surface_traction(
+            surface,
+            pressure,
+            dim=3,
+            n_total_nodes=n_s,
+            outward_from=outward_from,
+        )
+
+    nodal_load = np.asarray(nodal_load, dtype=float).reshape(n_s, 3)
+    force = np.sum(nodal_load, axis=0)
+    arm = x_s - x_ref[None, :]
+    moment = np.sum(np.cross(arm, nodal_load), axis=0)
+    return np.concatenate([force, moment], axis=0)
+
+
 def assemble_contact_interface_residual(*args, **kwargs):
     """Assemble residual on a contact interface supermesh."""
     return _assemble_contact_interface_residual(*args, **kwargs)

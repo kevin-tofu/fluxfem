@@ -170,6 +170,7 @@ __all__ = [
     "assemble_rbe2_constraint_matrix",
     "assemble_rbe3_constraint_matrix",
     "build_rbe3_weights",
+    "build_rbe3_remote_resultant",
     "OneSidedContact",
     "PreparedOneSidedContactInterface",
     "OneSidedContactSurfaceSpace",
