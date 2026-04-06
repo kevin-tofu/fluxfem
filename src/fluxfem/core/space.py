@@ -9,6 +9,25 @@ import warnings
 
 P = TypeVar("P")
 
+
+def _contains_jax_value(obj: Any) -> bool:
+    if isinstance(obj, jax.Array) or isinstance(obj, jax.core.Tracer):
+        return True
+    if isinstance(obj, np.ndarray):
+        return False
+    if isinstance(obj, dict):
+        return any(_contains_jax_value(v) for v in obj.values())
+    if isinstance(obj, (list, tuple)):
+        return any(_contains_jax_value(v) for v in obj)
+    data = getattr(obj, "data", None)
+    if data is not None and data is not obj and not isinstance(obj, np.ndarray):
+        return _contains_jax_value(data)
+    return False
+
+
+def _infer_backend(*values: Any, default: str = "jax") -> str:
+    return "jax" if any(_contains_jax_value(v) for v in values) else default
+
 if TYPE_CHECKING:
     from .assembly import (
         AssemblyPolicy,
@@ -194,7 +213,7 @@ class BilinearSpaces:
         form: FormKernel[P],
         params: P,
         *,
-        backend: str = "jax",
+        backend: str | None = None,
         pattern: SparsityPattern | None = None,
         n_chunks: int | None = None,
         dep: jnp.ndarray | None = None,
@@ -216,7 +235,7 @@ class BilinearSpaces:
                 self,
                 form,
                 params,
-                backend=backend,
+                backend=_infer_backend(params, kernel, default="jax") if backend is None else backend,
                 pattern=pattern,
                 n_chunks=n_chunks,
                 dep=dep,
@@ -248,7 +267,7 @@ class LinearSpaces:
         params: P,
         *,
         domain=None,
-        backend: str = "jax",
+        backend: str | None = None,
         kernel: ElementLinearKernel | None = None,
         sparse: bool = False,
         vector_accumulation: Literal["segment", "scatter"] = "scatter",
@@ -271,7 +290,7 @@ class LinearSpaces:
                 form,
                 params,
                 domain=domain,
-                backend=backend,
+                backend=_infer_backend(params, kernel, default="jax") if backend is None else backend,
                 kernel=kernel,
                 sparse=sparse,
                 vector_accumulation=vector_accumulation,
@@ -304,7 +323,7 @@ class ResidualSpaces:
         u: jnp.ndarray,
         params: P,
         *,
-        backend: str = "jax",
+        backend: str | None = None,
         kernel: ElementResidualKernel | None = None,
         sparse: bool = False,
         vector_accumulation: Literal["segment", "scatter"] = "scatter",
@@ -322,7 +341,7 @@ class ResidualSpaces:
                 form,
                 u,
                 params,
-                backend=backend,
+                backend=_infer_backend(u, params, kernel, default="jax") if backend is None else backend,
                 kernel=kernel,
                 sparse=sparse,
                 vector_accumulation=vector_accumulation,
@@ -811,7 +830,7 @@ class FESpaceClosure:
         form: FormKernel[P],
         params: P,
         *,
-        backend: str = "jax",
+        backend: str | None = None,
         policy: AssemblyPolicy | None = None,
         dep: jnp.ndarray | None = None,
         kernel: ElementBilinearKernel | None = None,
@@ -835,7 +854,7 @@ class FESpaceClosure:
             ),
             form,
             params,
-            backend=backend,
+            backend=_infer_backend(params, kernel, default="jax") if backend is None else backend,
             policy=policy,
             dep=dep,
             kernel=kernel,
@@ -847,7 +866,7 @@ class FESpaceClosure:
         form: FormKernel[P],
         params: P,
         *,
-        backend: str = "jax",
+        backend: str | None = None,
         policy: AssemblyPolicy | None = None,
         dep: jnp.ndarray | None = None,
         kernel: ElementLinearKernel | None = None,
@@ -867,7 +886,7 @@ class FESpaceClosure:
             LinearSpaces(test=NamedSpace("V", self)),
             form,
             params,
-            backend=backend,
+            backend=_infer_backend(params, kernel, default="jax") if backend is None else backend,
             policy=policy,
             dep=dep,
             kernel=kernel,
@@ -882,7 +901,7 @@ class FESpaceClosure:
         linear_form: FormKernel[P],
         linear_params: P,
         *,
-        backend: str = "jax",
+        backend: str | None = None,
         policy: AssemblyPolicy | None = None,
         dep: jnp.ndarray | None = None,
         bilinear_kernel: ElementBilinearKernel | None = None,
@@ -900,6 +919,7 @@ class FESpaceClosure:
         from .assembly import assemble_bilinear_form, assemble_linear_form
         _reject_legacy_policy_kwargs(kwargs)
         bilinear_kwargs = dict(kwargs)
+        backend_eff = _infer_backend(bilinear_params, linear_params, bilinear_kernel, linear_kernel, default="jax") if backend is None else backend
         if "pattern" not in bilinear_kwargs or bilinear_kwargs.get("pattern") is None:
             bilinear_kwargs["pattern"] = self.get_sparsity_pattern(with_idx=True)
         K = assemble_bilinear_form(
@@ -909,7 +929,7 @@ class FESpaceClosure:
             ),
             bilinear_form,
             bilinear_params,
-            backend=backend,
+            backend=backend_eff,
             policy=policy,
             dep=dep,
             kernel=bilinear_kernel,
@@ -919,7 +939,7 @@ class FESpaceClosure:
             LinearSpaces(test=NamedSpace("V", self)),
             linear_form,
             linear_params,
-            backend=backend,
+            backend=backend_eff,
             policy=policy,
             dep=dep,
             kernel=linear_kernel,
@@ -933,21 +953,21 @@ class FESpaceClosure:
         form: FormKernel[P],
         params: P,
         *,
-        backend: str = "jax",
+        backend: str | None = None,
     ) -> jnp.ndarray | np.ndarray:
         from .assembly import assemble_functional
-        return assemble_functional(self, form, params, backend=backend)
+        return assemble_functional(self, form, params, backend=_infer_backend(params, default="jax") if backend is None else backend)
 
     def assemble_mass_matrix(
         self,
         *,
-        backend: str = "jax",
+        backend: str | None = None,
         policy: AssemblyPolicy | None = None,
         **kwargs,
     ) -> MassReturn:
         from .assembly import assemble_mass_matrix
         _reject_legacy_policy_kwargs(kwargs)
-        return assemble_mass_matrix(self, backend=backend, policy=policy, **kwargs)
+        return assemble_mass_matrix(self, backend=("jax" if backend is None else backend), policy=policy, **kwargs)
 
     def assemble_bilinear_dense(
         self,
@@ -963,7 +983,7 @@ class FESpaceClosure:
         u: jnp.ndarray,
         params: P,
         *,
-        backend: str = "jax",
+        backend: str | None = None,
         kernel: ElementResidualKernel | None = None,
         policy: AssemblyPolicy | None = None,
         vector_accumulation: Literal["segment", "scatter"] = "scatter",
@@ -985,7 +1005,7 @@ class FESpaceClosure:
             res_form,
             u,
             params,
-            backend=backend,
+            backend=_infer_backend(u, params, kernel, default="jax") if backend is None else backend,
             kernel=kernel,
             policy=policy,
             vector_accumulation=vector_accumulation,

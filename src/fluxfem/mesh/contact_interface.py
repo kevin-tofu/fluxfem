@@ -2692,10 +2692,19 @@ def _accumulate_supermesh_jacobian_triangle_core(
         data.extend(J_local_np.reshape(-1).tolist())
     else:
         assert K_dense is not None
-        K_dense[np.ix_(row_dofs, col_dofs)] += J_local_np
+        if backend == "jax":
+            import jax.numpy as jnp
+
+            row_idx = jnp.asarray(row_dofs, dtype=jnp.int32).reshape(-1, 1)
+            col_idx = jnp.asarray(col_dofs, dtype=jnp.int32).reshape(1, -1)
+            K_dense = K_dense.at[row_idx, col_idx].add(jnp.asarray(J_local_np))
+        else:
+            K_dense[np.ix_(row_dofs, col_dofs)] += J_local_np
+        return K_dense
     if log_tri:
         trace_time_fn(f"[CONTACT] tri {it} scatter_done", t_scatter)
     tri_check("scatter_done")
+    return K_dense
 
 
 def _accumulate_projection_jacobian_batch(
@@ -4821,7 +4830,7 @@ def assemble_contact_interface_jacobian(
     quad_order: int = 0,
     tol: float = 1e-8,
     sparse: bool = False,
-    backend: str = "jax",
+    backend: str | None = None,
     batch_jac: bool | None = None,
     fd_eps: float = 1e-6,
     fd_mode: str = "central",
@@ -4839,6 +4848,7 @@ def assemble_contact_interface_jacobian(
     - "p0": facet-wise constant space (one block of value_dim DOFs per facet, or
       custom mapping via facet_dofs_*).
     """
+    backend = "jax" if backend is None else str(backend).lower()
     source_facets_a = list(source_facets_a)
     source_facets_b = list(source_facets_b)
     from ..core.forms import FieldPair
@@ -5599,7 +5609,7 @@ def assemble_contact_interface_jacobian(
         if geom is None:
             continue
 
-        _accumulate_supermesh_jacobian_triangle_core(
+        K_dense = _accumulate_supermesh_jacobian_triangle_core(
             it=it,
             log_tri=log_tri,
             fa=int(fa),

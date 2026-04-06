@@ -134,6 +134,16 @@ def test_numpy_backend_forward_assembly_matches_jax():
     assert np.allclose(np.asarray(b_jax), np.asarray(b_np))
 
 
+def test_auto_backend_prefers_jax_for_mixed_bilinear_inputs():
+    mesh = ff.StructuredHexBox(nx=2, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    K = space.assemble(ff.diffusion_form, params=jnp.array(1.0), backend=None)
+
+    assert isinstance(K.data, jax.Array)
+    assert np.allclose(np.asarray(K.to_dense()), np.asarray(space.assemble(ff.diffusion_form, params=1.0, backend="numpy").to_dense()))
+
+
 def test_bilinear_linear_pair_matches_separate_explicit_assembly():
     mesh = ff.StructuredHexBox(nx=3, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
@@ -865,6 +875,19 @@ def test_functional_backend_validation():
 
     with pytest.raises(ValueError, match="backend must be 'jax' or 'numpy'"):
         space.assemble_functional(one, params=None, backend="bad")
+
+
+def test_auto_backend_prefers_jax_for_mixed_functional_inputs():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    def scaled_one(ctx, params):
+        return params["scale"] * jnp.ones_like(ctx.w)
+
+    val = space.assemble_functional(scaled_one, params={"scale": jnp.array(2.0)}, backend=None)
+
+    assert isinstance(val, jax.Array)
+    assert np.isclose(float(val), 2.0, rtol=1e-6, atol=1e-6)
 
 
 def test_tag_axis_minmax_facets():

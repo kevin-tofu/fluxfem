@@ -39,6 +39,25 @@ from .space import (
     JacobianSpaces,
     build_form_contexts_pair,
 )
+
+
+def _contains_jax_value(obj: Any) -> bool:
+    if isinstance(obj, jax.Array) or isinstance(obj, jax.core.Tracer):
+        return True
+    if isinstance(obj, np.ndarray):
+        return False
+    if isinstance(obj, Mapping):
+        return any(_contains_jax_value(v) for v in obj.values())
+    if isinstance(obj, (list, tuple)):
+        return any(_contains_jax_value(v) for v in obj)
+    data = getattr(obj, "data", None)
+    if data is not None and data is not obj and not isinstance(obj, np.ndarray):
+        return _contains_jax_value(data)
+    return False
+
+
+def _infer_backend(*values: Any, default: str = "jax") -> str:
+    return "jax" if any(_contains_jax_value(v) for v in values) else default
 from .assembly_numpy import (
     assemble_numpy_scalar_diffusion_body_force_data as _assemble_numpy_scalar_diffusion_body_force_data,
     assemble_numpy_scalar_diffusion_pair_fast as _assemble_numpy_scalar_diffusion_pair_fast,
@@ -890,7 +909,7 @@ def assemble_bilinear_form(
     form: FormKernel[P],
     params: P,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     pattern: SparsityPattern | None = None,
     n_chunks: Optional[int] = None,   # None -> no chunking
     dep: jnp.ndarray | None = None,
@@ -903,16 +922,18 @@ def assemble_bilinear_form(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> FluxSparseMatrix | FluxSparseOperator:
-    warn_float32_assembly_once(context="volume assembly")
-    get_compiled = getattr(form, "get_compiled", None)
-    if callable(get_compiled):
-        form = get_compiled()
     """
     Assemble a sparse bilinear form into a FluxSparseMatrix.
 
     Expects form(ctx, params) -> (n_q, n_ldofs, n_ldofs).
     If kernel is provided: kernel(ctx) -> (n_ldofs, n_ldofs).
+    ``backend=None`` auto-selects JAX when any input is JAX-like; otherwise it uses the default backend for this API.
     """
+    warn_float32_assembly_once(context="volume assembly")
+    backend = _infer_backend(params, dep, elem_data, kernel, default="jax") if backend is None else str(backend).lower()
+    get_compiled = getattr(form, "get_compiled", None)
+    if callable(get_compiled):
+        form = get_compiled()
     from ..solver import FluxSparseMatrix
     named_spaces = _resolve_named_bilinear_spaces(space)
     if named_spaces is not None:
@@ -1187,7 +1208,7 @@ def _assemble_bilinear_form_pg_impl(
     form: FormKernel[P],
     params: P,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     dep_test: jnp.ndarray | None = None,
     dep_trial: jnp.ndarray | None = None,
     include_x_q: bool | None = None,
@@ -1196,6 +1217,7 @@ def _assemble_bilinear_form_pg_impl(
     jit: bool = True,
 ) -> FluxSparseOperator:
     warn_float32_assembly_once(context="volume assembly")
+    backend = _infer_backend(params, dep_test, dep_trial, kernel, default="jax") if backend is None else str(backend).lower()
     from ..solver import FluxSparseOperator
 
     test_name = test_space.name if isinstance(test_space, NamedSpace) else "V"
@@ -1265,7 +1287,7 @@ def assemble_bilinear_form_pg(
     form: FormKernel[P],
     params: P,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     dep_test: jnp.ndarray | None = None,
     dep_trial: jnp.ndarray | None = None,
     include_x_q: bool | None = None,
@@ -1306,13 +1328,14 @@ def assemble_bilinear_form_pg(
 def assemble_mass_matrix(
     space: SpaceLike,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     lumped: bool = False,
     n_chunks: Optional[int] = None,
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> MassReturn:
     warn_float32_assembly_once(context="mass-matrix assembly")
+    backend = "jax" if backend is None else str(backend).lower()
     """
     Assemble mass matrix M_ij = ∫ N_i N_j dΩ.
     Supports scalar and vector spaces. If lumped=True, rows are summed to diagonal.
@@ -1498,7 +1521,7 @@ def assemble_linear_form(
     params: P,
     *,
     domain=None,
-    backend: str = "jax",
+    backend: str | None = None,
     kernel: ElementLinearKernel | None = None,
     sparse: bool = False,
     vector_accumulation: Literal["segment", "scatter"] = "scatter",
@@ -1511,14 +1534,16 @@ def assemble_linear_form(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
-    warn_float32_assembly_once(context="linear-form assembly")
-    get_compiled = getattr(form, "get_compiled", None)
-    if callable(get_compiled):
-        form = get_compiled()
     """
     Expects form(ctx, params) -> (n_q, n_ldofs) and integrates Σ_q form * wJ for RHS.
     If kernel is provided: kernel(ctx) -> (n_ldofs,).
+    ``backend=None`` auto-selects JAX when any input is JAX-like; otherwise it uses the default backend for this API.
     """
+    warn_float32_assembly_once(context="linear-form assembly")
+    backend = _infer_backend(params, dep, elem_data, kernel, default="jax") if backend is None else str(backend).lower()
+    get_compiled = getattr(form, "get_compiled", None)
+    if callable(get_compiled):
+        form = get_compiled()
     if domain is not None:
         form_domain = getattr(form, "_ff_domain", None)
         if form_domain not in {None, "surface"}:
@@ -1836,7 +1861,7 @@ def assemble_bilinear_linear_pair(
     linear_form: FormKernel[P],
     linear_params: P,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     pattern: SparsityPattern | None = None,
     n_chunks: Optional[int] = None,
     dep: jnp.ndarray | None = None,
@@ -1852,6 +1877,15 @@ def assemble_bilinear_linear_pair(
     policy: AssemblyPolicy | None = None,
 ) -> PairReturn:
     warn_float32_assembly_once(context="paired bilinear/linear assembly")
+    backend = _infer_backend(
+        bilinear_params,
+        linear_params,
+        dep,
+        elem_data,
+        bilinear_kernel,
+        linear_kernel,
+        default="jax",
+    ) if backend is None else str(backend).lower()
     from ..solver import FluxSparseMatrix
     if backend not in {"jax", "numpy"}:
         raise ValueError("backend must be 'jax' or 'numpy'")
@@ -2138,12 +2172,14 @@ def assemble_functional(
     form: FormKernel[P],
     params: P,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
 ) -> jnp.ndarray | np.ndarray:
     """
     Assemble scalar functional J = ∫ form(ctx, params) dΩ.
     Expects form(ctx, params) -> (n_q,) or (n_q, 1).
+    ``backend=None`` auto-selects JAX when any input is JAX-like; otherwise it uses the default backend for this API.
     """
+    backend = _infer_backend(params, default="jax") if backend is None else str(backend).lower()
     if backend not in {"jax", "numpy"}:
         raise ValueError("backend must be 'jax' or 'numpy'")
     elem_data = space.build_form_contexts()
@@ -2365,7 +2401,7 @@ def assemble_residual(
     u: jnp.ndarray,
     params: P,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     kernel: ElementResidualKernel | None = None,
     sparse: bool = False,
     vector_accumulation: Literal["segment", "scatter"] = "scatter",
@@ -2373,7 +2409,9 @@ def assemble_residual(
     pad_trace: bool | None = None,
     policy: AssemblyPolicy | None = None,
 ) -> LinearReturn:
+    """Assemble a residual vector. ``backend=None`` auto-selects from the inputs."""
     warn_float32_assembly_once(context="residual assembly")
+    backend = _infer_backend(u, params, kernel, default="jax") if backend is None else str(backend).lower()
     get_compiled = getattr(form, "get_compiled", None)
     if callable(get_compiled):
         form = get_compiled()

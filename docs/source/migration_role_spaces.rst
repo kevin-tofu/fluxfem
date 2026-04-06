@@ -142,6 +142,10 @@ NumPy Backend Scope
 The ``numpy`` backend is supported, but not uniformly across every new public
 API path.
 
+When an API accepts ``backend=None``, that means auto-select rather than
+``numpy``. JAX-like inputs prefer ``jax``; otherwise the API falls back to its
+default backend.
+
 Supported today:
 
 - same-space volume bilinear assembly
@@ -173,6 +177,7 @@ Not guaranteed today:
 
 In practice:
 
+- leave ``backend`` unset for normal usage unless you need an explicit override
 - use ``backend="numpy"`` for same-space volume assembly and comparison/debug flows
 - use ``backend="numpy"`` for distinct-space bilinear assembly when functional
   coverage is sufficient and performance is not the primary concern
@@ -201,6 +206,6 @@ The intended rollout order is:
 3. one-sided contact next
 4. full weak-form Jacobian parity later
 
-Until that parity is in place, contact users should treat ``backend="jax"``
-as the default safe path for role-explicit and nonlinear assembly, and use
-``numpy`` mainly for validated comparison/debug routes.
+Until that parity is in place, contact users should treat auto-selected JAX
+paths as the default safe route for role-explicit and nonlinear assembly, and
+use explicit ``backend="numpy"`` mainly for validated comparison/debug routes.

@@ -19,7 +19,7 @@ Pair contact:
 .. code-block:: python
 
    pair_spec = ff.ContactSpaces(master=master_side, slave=slave_side)
-   contact = pair_spec.to_contact_surface_space(quad_order=1, backend="jax")
+   contact = pair_spec.to_contact_surface_space(quad_order=1)
 
 One-sided contact:
 
@@ -33,7 +33,18 @@ One-to-many contact:
 .. code-block:: python
 
    group_spec = ff.ContactGroupSpaces(master=master_side, slaves=[slave_side_1, slave_side_2])
-   contact = group_spec.to_contact_surface_space(quad_order=1, backend="jax")
+   contact = group_spec.to_contact_surface_space(quad_order=1)
+
+Backend Selection
+-----------------
+
+Contact entry points accept ``backend=None`` by default.
+
+- ``backend=None`` auto-selects from the inputs
+- if any relevant state/parameter/input is JAX-like, FluxFEM prefers ``jax``
+- otherwise FluxFEM falls back to the API's default backend
+- use ``backend="numpy"`` or ``backend="jax"`` only when you want an explicit
+  override
 
 One-To-Many Contact
 -------------------
@@ -75,8 +86,7 @@ from ``ContactGroupSpaces``.
        master=master_side,
        slaves=[slave_side_1, slave_side_2],
    ).to_contact_surface_space(
-       quad_order=1,
-       backend="jax",
+      quad_order=1,
    )
 
    def bilin(v1, v2, u1, u2, p):
@@ -150,7 +160,6 @@ Use explicit APIs by family:
        contact,
        rho=5.0,
        multiplier=lm_space,
-       backend="jax",
        # Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.
        weak_form=res_form,
        state={"master": u_master, "slaves": [u_s1, u_s2]},
@@ -166,7 +175,6 @@ Use explicit APIs by family:
        weak_form=res_form,
        state={"master": u_master, "slaves": [u_s1, u_s2]},
        params=params,
-       backend="jax",
    )
 
 Contact Coupling Matrices (Constraint)
@@ -192,7 +200,6 @@ The default output is ``FluxSparseMatrix``.
        rho=5.0,
        multiplier=lm_space,
        facet_conn_master=ops.facet_conn_master,
-       backend="jax",
    )
 
    KKT_bcoo = KKT_flux.to_bcoo()
@@ -207,10 +214,10 @@ You can also request formats explicitly:
        rho=5.0,
        multiplier=lm_space,
        facet_conn_master=ops.facet_conn_master,
-       backend="jax",
        format="dense",
    )
 
+   # Explicit override example: request the JAX/BCOO path directly.
    KKT_bcoo_direct = ff.assemble_contact_kkt(
        ops.coupling_aa,
        ops.coupling_ab,
@@ -224,12 +231,13 @@ You can also request formats explicitly:
 KKT Solve
 ---------
 
-Solve with ``solve_contact_kkt``. For JAX, use ``backend="jax"``.
+Solve with ``solve_contact_kkt``. Leave ``backend`` unset unless you need to
+force a specific solver path.
 
 .. code-block:: python
 
    rhs = jnp.linspace(0.2, 1.0, int(KKT_dense.shape[0]))
-   sol = ff.solve_contact_kkt(KKT_dense, rhs, backend="jax", diagonal_shift=1e-2)
+   sol = ff.solve_contact_kkt(KKT_dense, rhs, diagonal_shift=1e-2)
 
 Notes
 -----
@@ -273,8 +281,25 @@ assemble operators first, then pass them to ``add_contact`` (or ``add_contact_mo
 .. code-block:: python
 
    lm_space = ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master")
-   ops_mortar = ff.assemble_contact_constraint_operators(contact, rho=1.0, multiplier=lm_space, backend="numpy")
+   ops_mortar = ff.assemble_contact_constraint_operators(contact, rho=1.0, multiplier=lm_space)
    builder.add_contact(ops_mortar, master="top", slave="support", value_dim=1)
+
+Mixed NumPy/JAX Inputs
+----------------------
+
+Mixed inputs are allowed. If a contact path receives JAX-traced values together
+with NumPy arrays or Python scalars, FluxFEM prefers the JAX path.
+
+.. code-block:: python
+
+   rho = jnp.array(5.0)
+   KKT = ff.assemble_contact_kkt(
+       ops.coupling_aa,
+       ops.coupling_ab,
+       rho=rho,
+       multiplier=lm_space,
+       facet_conn_master=ops.facet_conn_master,
+   )
 
 When ``ops_mortar`` comes from ``assemble_contact_constraint_operators(...)``,
 ``rho`` and ``multiplier`` are inherited automatically. Override only when needed.

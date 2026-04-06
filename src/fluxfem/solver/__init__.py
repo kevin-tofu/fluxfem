@@ -44,24 +44,37 @@ from .solve_runner import (
 from .solver import LinearSolver, NonlinearSolver
 from .petsc import petsc_solve, petsc_shell_solve, petsc_is_available
 from .dynamics import NewmarkResult, newmark_solve_linear
-from .coupled_system import CoupledSystem, CoupledSystemBuilder
-from .legacy_coupled_system import (
-    LegacyCoupledSystem,
-    LegacyCoupledSystemBuilder,
-    DirichletSpec,
-    ConstraintSpec,
-)
-from .coupled_factory import (
-    make_coupled_system,
-    make_coupled_system_builder,
-    make_jax_coupled_system,
-    make_jax_coupled_system_builder,
-    make_legacy_coupled_system,
-    make_legacy_coupled_system_builder,
-)
+from .coupled_system import CoupledSystem, CoupledSystemBuilder, DirichletSpec, ConstraintSpec
+from .coupled_system_numpy import NumpyCoupledSystem, NumpyCoupledSystemBuilder
 
 JAXCoupledSystem = CoupledSystem
 JAXCoupledSystemBuilder = CoupledSystemBuilder
+
+
+def make_coupled_system(K_u, F_u, *, backend: str | None = None):
+    """Create a coupled system. ``backend=None`` auto-selects from the inputs."""
+    return CoupledSystem.create(K_u, F_u, backend=backend)
+
+
+def make_coupled_system_builder(K_u, F_u, *, backend: str | None = None):
+    """Create a coupled-system builder. ``backend=None`` auto-selects from the inputs."""
+    return CoupledSystemBuilder.create(K_u, F_u, backend=backend)
+
+
+def make_jax_coupled_system(K_u, F_u):
+    return CoupledSystem.from_structural(K_u, F_u)
+
+
+def make_jax_coupled_system_builder(K_u, F_u):
+    return CoupledSystemBuilder.from_structural(K_u, F_u)
+
+
+def make_numpy_coupled_system(K_u, F_u):
+    return NumpyCoupledSystem.from_structural(K_u, F_u)
+
+
+def make_numpy_coupled_system_builder(K_u, F_u):
+    return NumpyCoupledSystemBuilder.from_structural(K_u, F_u)
 
 __all__ = [
     "SparsityPattern",
@@ -117,16 +130,16 @@ __all__ = [
     "petsc_is_available",
     "CoupledSystem",
     "CoupledSystemBuilder",
-    "LegacyCoupledSystem",
-    "LegacyCoupledSystemBuilder",
+    "NumpyCoupledSystem",
+    "NumpyCoupledSystemBuilder",
     "JAXCoupledSystem",
     "JAXCoupledSystemBuilder",
     "make_coupled_system",
     "make_coupled_system_builder",
     "make_jax_coupled_system",
     "make_jax_coupled_system_builder",
-    "make_legacy_coupled_system",
-    "make_legacy_coupled_system_builder",
+    "make_numpy_coupled_system",
+    "make_numpy_coupled_system_builder",
     "DirichletSpec",
     "ConstraintSpec",
 ]

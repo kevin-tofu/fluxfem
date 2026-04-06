@@ -72,6 +72,67 @@ def test_contact_kkt_matches_module_and_class_api():
     assert np.allclose(K_a, K_bcoo_dense, atol=1e-12)
 
 
+def test_contact_kkt_auto_backend_prefers_jax_for_mixed_inputs():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    m_aa, m_ab = contact.assemble_contact_coupling_matrices()
+
+    K = ff.assemble_contact_kkt(
+        m_aa,
+        m_ab,
+        rho=jnp.array(3.0),
+        multiplier=_p0_multiplier(contact),
+        facet_conn_master=facets,
+        format="dense",
+    )
+
+    assert isinstance(K, jax.Array)
+    assert np.allclose(np.asarray(K), np.asarray(ff.assemble_contact_kkt(
+        m_aa,
+        m_ab,
+        rho=3.0,
+        multiplier=_p0_multiplier(contact),
+        facet_conn_master=facets,
+        backend="numpy",
+        format="dense",
+    )), atol=1e-12)
+
+
+def test_solve_contact_kkt_auto_backend_prefers_jax_for_mixed_inputs():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    K = contact.assemble_contact_kkt(
+        rho=jnp.array(3.0),
+        multiplier=_p0_multiplier(contact),
+        format="dense",
+    )
+    rhs = np.linspace(0.2, 1.0, int(K.shape[0]))
+
+    u = ff.solve_contact_kkt(K, rhs, diagonal_shift=1e-2)
+
+    assert isinstance(u, jax.Array)
+
+
 def test_contact_constraint_operators_match_kkt_blocks():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(
@@ -290,11 +351,11 @@ def test_contact_p0_multiplier_vector_value_dim_lifts_into_coupled_system():
         backend="numpy",
     )
 
-    builder = ff.LegacyCoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
+    builder = ff.CoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
     builder.register_field("a", n_dofs=12, value_dim=3, n_nodes=4)
     builder.register_field("b", n_dofs=12, value_dim=3, n_nodes=4)
     builder.add_contact_mortar(ops, master="a", slave="b", value_dim=3)
-    K, _ = builder.build().assemble(format="csr")
+    K = builder.build().to_dense()
     assert K.shape == (27, 27)
 
 
@@ -333,11 +394,11 @@ def test_contact_p0_supermesh_multiplier_tracks_supermesh_triangles():
     assert np.asarray(ops.B_b).shape == (3 * n_tri, 3 * contact.surface_slave.n_nodes)
     assert np.asarray(ops.B).shape == (3 * n_tri, 3 * (contact.surface_master.n_nodes + contact.surface_slave.n_nodes))
 
-    builder = ff.LegacyCoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
+    builder = ff.CoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
     builder.register_field("a", n_dofs=12, value_dim=3, n_nodes=4)
     builder.register_field("b", n_dofs=12, value_dim=3, n_nodes=4)
     builder.add_contact_mortar(ops, master="a", slave="b", value_dim=3)
-    K, _ = builder.build().assemble(format="csr")
+    K = builder.build().to_dense()
     assert K.shape == (24 + 3 * n_tri, 24 + 3 * n_tri)
 
 
@@ -375,11 +436,11 @@ def test_contact_p0_active_multiplier_tracks_active_master_facets():
     assert np.asarray(ops.B_a).shape == (3 * n_active_facets, 3 * contact.surface_master.n_nodes)
     assert np.asarray(ops.B_b).shape == (3 * n_active_facets, 3 * contact.surface_slave.n_nodes)
 
-    builder = ff.LegacyCoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
+    builder = ff.CoupledSystemBuilder.from_structural(np.eye(24), np.zeros(24))
     builder.register_field("a", n_dofs=12, value_dim=3, n_nodes=4)
     builder.register_field("b", n_dofs=12, value_dim=3, n_nodes=4)
     builder.add_contact_mortar(ops, master="a", slave="b", value_dim=3)
-    K, _ = builder.build().assemble(format="csr")
+    K = builder.build().to_dense()
     assert K.shape == (24 + 3 * n_active_facets, 24 + 3 * n_active_facets)
 
 
@@ -787,7 +848,8 @@ def test_solve_contact_kkt_implicit_grad_rho_matches_fd():
     g_custom = float(jax.grad(objective)(rho0))
     g_ref = float(jax.grad(objective_ref)(rho0))
     rel = abs(g_custom - g_ref) / max(1.0, abs(g_ref))
-    assert rel < 2e-4
+    tol = 2e-4 if jax.config.jax_enable_x64 else 2e-3
+    assert rel < tol
 
 
 def test_solve_contact_kkt_implicit_grad_rhs_matches_ref():
@@ -859,7 +921,8 @@ def test_solve_contact_kkt_implicit_grad_diagonal_shift_matches_ref():
     g_custom = float(jax.grad(objective)(shift0))
     g_ref = float(jax.grad(objective_ref)(shift0))
     rel = abs(g_custom - g_ref) / max(1.0, abs(g_ref))
-    assert rel < 2e-4
+    tol = 2e-4 if jax.config.jax_enable_x64 else 2e-3
+    assert rel < tol
 
 
 def test_solve_contact_kkt_sparse_gmres_grad_rhs_matches_dense_ref():

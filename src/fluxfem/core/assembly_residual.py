@@ -9,6 +9,25 @@ import numpy as np
 from .forms import FormContext
 
 
+def _contains_jax_value(obj: Any) -> bool:
+    if isinstance(obj, jax.Array) or isinstance(obj, jax.core.Tracer):
+        return True
+    if isinstance(obj, np.ndarray):
+        return False
+    if isinstance(obj, dict):
+        return any(_contains_jax_value(v) for v in obj.values())
+    if isinstance(obj, (list, tuple)):
+        return any(_contains_jax_value(v) for v in obj)
+    data = getattr(obj, "data", None)
+    if data is not None and data is not obj and not isinstance(obj, np.ndarray):
+        return _contains_jax_value(data)
+    return False
+
+
+def _infer_backend(*values: Any, default: str = "jax") -> str:
+    return "jax" if any(_contains_jax_value(v) for v in values) else default
+
+
 def _assemble_residual_fixed_chunk_tail(
     *,
     space,
@@ -252,7 +271,7 @@ def assemble_residual_scatter(
     u: jnp.ndarray,
     params: Any,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     kernel=None,
     sparse: bool = False,
     vector_accumulation: str = "scatter",
@@ -265,6 +284,7 @@ def assemble_residual_scatter(
     Avoids Python loops; good for JIT stability.
     """
     from . import assembly as _a
+    backend = _infer_backend(u, params, kernel, default="jax") if backend is None else str(backend).lower()
     if backend not in {"jax", "numpy"}:
         raise ValueError("backend must be 'jax' or 'numpy'")
 
@@ -489,7 +509,7 @@ def assemble_residual(
     u: jnp.ndarray,
     params: Any,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     kernel=None,
     sparse: bool = False,
     vector_accumulation: str = "scatter",

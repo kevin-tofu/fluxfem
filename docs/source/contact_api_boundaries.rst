@@ -98,9 +98,9 @@ Implementation priority should follow this order:
 3. one-sided contact
 4. full weak-form Jacobian parity
 
-Until that work is complete, treat ``backend="jax"`` as the default path for
-advanced contact assembly and use ``numpy`` primarily where parity has already
-been validated.
+Until that work is complete, treat the auto-selected JAX path as the default
+route for advanced contact assembly and use explicit ``backend="numpy"``
+primarily where parity has already been validated.
 
 Coordinate Differentiation
 --------------------------

@@ -4,9 +4,29 @@ from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from .dtypes import INDEX_DTYPE
 from .forms import FormContext
+
+
+def _contains_jax_value(obj: Any) -> bool:
+    if isinstance(obj, jax.Array) or isinstance(obj, jax.core.Tracer):
+        return True
+    if isinstance(obj, np.ndarray):
+        return False
+    if isinstance(obj, dict):
+        return any(_contains_jax_value(v) for v in obj.values())
+    if isinstance(obj, (list, tuple)):
+        return any(_contains_jax_value(v) for v in obj)
+    data = getattr(obj, "data", None)
+    if data is not None and data is not obj and not isinstance(obj, np.ndarray):
+        return _contains_jax_value(data)
+    return False
+
+
+def _infer_backend(*values: Any, default: str = "jax") -> str:
+    return "jax" if any(_contains_jax_value(v) for v in values) else default
 
 
 def _assemble_jacobian_fixed_chunk_tail(
@@ -185,7 +205,7 @@ def assemble_jacobian_values(
     u: jnp.ndarray,
     params: Any,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     kernel=None,
     n_chunks: Optional[int] = None,
     pad_trace: bool | None = None,
@@ -195,6 +215,7 @@ def assemble_jacobian_values(
     Assemble only the numeric values for the Jacobian (pattern-free).
     """
     from . import assembly as _a
+    backend = _infer_backend(u, params, kernel, default="jax") if backend is None else str(backend).lower()
     if backend != "jax":
         raise NotImplementedError("assemble_jacobian backend='numpy' is not implemented.")
 
@@ -313,7 +334,7 @@ def assemble_jacobian_scatter(
     u: jnp.ndarray,
     params: Any,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     kernel=None,
     pattern=None,
     n_chunks: Optional[int] = None,
@@ -326,6 +347,7 @@ def assemble_jacobian_scatter(
     """
     from . import assembly as _a
     from ..solver import FluxSparseMatrix
+    backend = _infer_backend(u, params, kernel, default="jax") if backend is None else str(backend).lower()
     if backend != "jax":
         raise NotImplementedError("assemble_jacobian backend='numpy' is not implemented.")
 
@@ -355,7 +377,7 @@ def assemble_jacobian(
     u: jnp.ndarray,
     params: Any,
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     kernel=None,
     pattern=None,
     n_chunks: Optional[int] = None,

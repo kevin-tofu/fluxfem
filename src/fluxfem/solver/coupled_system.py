@@ -8,9 +8,88 @@ import numpy as np
 import scipy.sparse as sp
 
 from .cg import cg_solve_jax
-from .legacy_coupled_system import ConstraintSpec, DirichletSpec
-from .dirichlet import enforce_dirichlet_fluxsparse_jax
+from .dirichlet import enforce_dirichlet_fluxsparse_jax, enforce_dirichlet_sparse
 from .sparse import FluxSparseMatrix, block_diag_flux, concat_flux
+
+
+def _looks_like_jax_array(x: Any) -> bool:
+    try:
+        import jax
+    except Exception:
+        return False
+    return isinstance(x, jax.Array) or isinstance(x, jax.core.Tracer)
+
+
+def _infer_coupled_backend(K_u, F_u) -> str:
+    if _looks_like_jax_array(K_u) or _looks_like_jax_array(F_u):
+        return "jax"
+    data = getattr(K_u, "data", None)
+    if _looks_like_jax_array(data):
+        return "jax"
+    if isinstance(K_u, FluxSparseMatrix) and _looks_like_jax_array(K_u.data):
+        return "jax"
+    return "numpy"
+
+
+@dataclass(frozen=True)
+class DirichletSpec:
+    field: str
+    value: float | Sequence[float] | np.ndarray | jnp.ndarray | None = None
+    nodes: int | Sequence[int] | np.ndarray | None = None
+    components: int | Sequence[int] | np.ndarray | None = None
+    local_dofs: int | Sequence[int] | np.ndarray | None = None
+
+    def __post_init__(self):
+        has_nodes = self.nodes is not None
+        has_local_dofs = self.local_dofs is not None
+        if has_nodes == has_local_dofs:
+            raise ValueError("DirichletSpec requires exactly one of nodes or local_dofs.")
+
+
+@dataclass(frozen=True)
+class ConstraintSpec:
+    kind: str
+    master: str
+    slave: str
+    C: np.ndarray | jnp.ndarray | None = None
+    rho: float = 0.0
+    F_contact: np.ndarray | jnp.ndarray | None = None
+    contact_obj: Any | None = None
+    family: str | None = None
+    enforcement: str | None = None
+    law: str | None = None
+    formulation: str | None = None
+    value_dim: int | None = None
+    weak_form: Any | None = None
+    state: Any | None = None
+    params: Any | None = None
+    residual: Any | None = None
+    scale: float = 1.0
+    residual_sign: float = -1.0
+    normal_source: str = "master"
+    sparse: bool | None = None
+    batch_jac: bool | None = None
+    ref_point: np.ndarray | jnp.ndarray | None = None
+    slave_coords: np.ndarray | jnp.ndarray | None = None
+    weights: np.ndarray | jnp.ndarray | None = None
+    normalize_weights: bool = True
+    embedding: Any | None = None
+
+    def __post_init__(self):
+        kind = str(self.kind).lower()
+        valid_kinds = {"contact", "matrix", "matrix_dof", "embedding", "rbe2", "rbe3"}
+        if kind not in valid_kinds:
+            raise ValueError("ConstraintSpec.kind must be one of: contact, matrix, matrix_dof, embedding, rbe2, rbe3.")
+        if kind == "contact" and self.contact_obj is None:
+            raise ValueError("ConstraintSpec(kind='contact') requires contact_obj.")
+        if kind in {"matrix", "matrix_dof"} and self.C is None:
+            raise ValueError("ConstraintSpec(kind='matrix*') requires C.")
+        if kind == "embedding" and self.embedding is None:
+            raise ValueError("ConstraintSpec(kind='embedding') requires embedding.")
+        if kind == "rbe2" and (self.ref_point is None or self.slave_coords is None):
+            raise ValueError("ConstraintSpec(kind='rbe2') requires ref_point and slave_coords.")
+        if kind == "rbe3" and (self.ref_point is None or self.slave_coords is None):
+            raise ValueError("ConstraintSpec(kind='rbe3') requires ref_point and slave_coords.")
 
 
 @dataclass
@@ -29,15 +108,16 @@ class CoupledSystem:
         return cls(K_u=K, F_u=F)
 
     @classmethod
-    def create(cls, K_u, F_u, *, backend: str = "jax"):
-        """Create a coupled-system implementation for the requested backend."""
+    def create(cls, K_u, F_u, *, backend: str | None = None):
+        """Create a coupled-system implementation. ``backend=None`` auto-selects from the inputs."""
+        backend = _infer_coupled_backend(K_u, F_u) if backend is None else str(backend).lower()
         if backend == "jax":
             return cls.from_structural(K_u, F_u)
         if backend == "numpy":
-            from .legacy_coupled_system import LegacyCoupledSystem
+            from .coupled_system_numpy import NumpyCoupledSystem
 
-            return LegacyCoupledSystem.from_structural(K_u, F_u)
-        raise ValueError("backend must be 'numpy' or 'jax'.")
+            return NumpyCoupledSystem.from_structural(K_u, F_u)
+        raise ValueError("backend must be 'jax' or 'numpy'.")
 
     @staticmethod
     def _as_flux_matrix(K_u) -> FluxSparseMatrix:
@@ -64,6 +144,26 @@ class CoupledSystem:
     @property
     def n_u(self) -> int:
         return int(self.K_u.n_dofs)
+
+    def assemble(self, *, format: str = "fluxsparse", backend: str | None = None):
+        backend_eff = "jax" if backend is None else str(backend).lower()
+        if backend_eff not in {"jax", "numpy"}:
+            raise ValueError("backend must be 'jax' or 'numpy'.")
+        if format not in {"fluxsparse", "csr", "dense"}:
+            raise ValueError("format must be 'fluxsparse', 'csr', or 'dense'.")
+
+        if format == "dense":
+            K = self.K_u.to_dense()
+        elif format == "csr":
+            K = self.K_u.to_csr()
+        else:
+            K = self.K_u
+
+        if backend_eff == "numpy":
+            if format == "dense":
+                return np.asarray(K), np.asarray(self.F_u)
+            return K, np.asarray(self.F_u)
+        return K, self.F_u
 
     def to_dense(self) -> jnp.ndarray:
         return self.K_u.to_dense()
@@ -184,7 +284,10 @@ class CoupledSystem:
         *,
         dirichlet_dofs: np.ndarray | None = None,
         dirichlet_vals=0.0,
+        format: str = "fluxsparse",
         diagonal_shift: float = 0.0,
+        backend: str | None = None,
+        jax_solver: str = "cg",
         solver: str = "cg",
         tol: float = 1e-8,
         maxiter: int | None = None,
@@ -192,7 +295,26 @@ class CoupledSystem:
         """
         Solve the coupled system with the sparse-first JAX CG path.
         """
-        if solver != "cg":
+        backend_eff = ("numpy" if format == "csr" else "jax") if backend is None else str(backend).lower()
+        if backend_eff not in {"jax", "numpy"}:
+            raise ValueError("backend must be 'jax' or 'numpy'.")
+        if format not in {"fluxsparse", "csr"}:
+            raise ValueError("JAX CoupledSystem.solve() supports format='fluxsparse' or 'csr' only.")
+
+        if backend_eff == "numpy":
+            K_csr = self.K_u.to_csr()
+            F_np = np.asarray(self.F_u, dtype=float)
+            dir_dofs = np.asarray(dirichlet_dofs if dirichlet_dofs is not None else [], dtype=int)
+            if dir_dofs.size > 0:
+                K_coo = K_csr.tocoo()
+                K_flux = FluxSparseMatrix(K_coo.row, K_coo.col, K_coo.data, K_csr.shape[0])
+                K_csr, F_np = enforce_dirichlet_sparse(K_flux, F_np, dir_dofs, dirichlet_vals)
+            if float(diagonal_shift) != 0.0:
+                K_csr = K_csr + float(diagonal_shift) * sp.eye(K_csr.shape[0], format="csr")
+            return sp.linalg.spsolve(K_csr, F_np)
+
+        solver_eff = str(jax_solver if solver == "cg" else solver).lower()
+        if solver_eff != "cg":
             raise ValueError("CoupledSystem only supports solver='cg'. Use to_dense() for dense reference solves.")
         dir_dofs = np.asarray(dirichlet_dofs if dirichlet_dofs is not None else [], dtype=int)
         if dir_dofs.size > 0:
@@ -236,15 +358,16 @@ class CoupledSystemBuilder:
         return cls(CoupledSystem.from_structural(K_u, F_u))
 
     @classmethod
-    def create(cls, K_u, F_u, *, backend: str = "jax"):
-        """Create a coupled-system builder for the requested backend."""
+    def create(cls, K_u, F_u, *, backend: str | None = None):
+        """Create a coupled-system builder. ``backend=None`` auto-selects from the inputs."""
+        backend = _infer_coupled_backend(K_u, F_u) if backend is None else str(backend).lower()
         if backend == "jax":
             return cls.from_structural(K_u, F_u)
         if backend == "numpy":
-            from .legacy_coupled_system import LegacyCoupledSystemBuilder
+            from .coupled_system_numpy import NumpyCoupledSystemBuilder
 
-            return LegacyCoupledSystemBuilder.from_structural(K_u, F_u)
-        raise ValueError("backend must be 'numpy' or 'jax'.")
+            return NumpyCoupledSystemBuilder.from_structural(K_u, F_u)
+        raise ValueError("backend must be 'jax' or 'numpy'.")
 
     def _next_offset(self) -> int:
         if not self._blocks:
@@ -283,6 +406,25 @@ class CoupledSystemBuilder:
         else:
             nn = int(n_nodes)
         self._blocks[key] = _JaxFieldBlock(name=key, offset=off, n_dofs=nd, value_dim=vd, n_nodes=nn)
+
+    def register_space(
+        self,
+        name: str,
+        space: Any,
+        *,
+        offset: int | None = None,
+        value_dim: int = 1,
+        n_nodes: int | None = None,
+    ) -> None:
+        nd = int(getattr(space, "n_dofs"))
+        off = self._next_offset() if offset is None else int(offset)
+        self.register_field(
+            name,
+            offset=off,
+            n_dofs=nd,
+            value_dim=value_dim,
+            n_nodes=n_nodes,
+        )
 
     def append_field(
         self,
@@ -1100,7 +1242,10 @@ class CoupledSystemBuilder:
         dirichlet_specs: Sequence[DirichletSpec] | None = None,
         dirichlet_dofs: np.ndarray | None = None,
         dirichlet_vals=0.0,
+        format: str = "fluxsparse",
         diagonal_shift: float = 0.0,
+        backend: str | None = None,
+        jax_solver: str = "cg",
         solver: str = "cg",
         tol: float = 1e-8,
         maxiter: int | None = None,
@@ -1117,7 +1262,10 @@ class CoupledSystemBuilder:
         return self.system.solve(
             dirichlet_dofs=dirichlet_dofs,
             dirichlet_vals=dirichlet_vals,
+            format=format,
             diagonal_shift=diagonal_shift,
+            backend=backend,
+            jax_solver=jax_solver,
             solver=solver,
             tol=tol,
             maxiter=maxiter,
@@ -1132,4 +1280,6 @@ __all__ = [
     "CoupledSystemBuilder",
     "JAXCoupledSystem",
     "JAXCoupledSystemBuilder",
+    "DirichletSpec",
+    "ConstraintSpec",
 ]

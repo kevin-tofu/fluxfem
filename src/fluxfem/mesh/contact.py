@@ -62,6 +62,33 @@ def _warn_contact_legacy_name(old: str, new: str) -> None:
         stacklevel=2,
     )
 
+
+def _is_jax_like(x: Any) -> bool:
+    try:
+        import jax
+    except Exception:
+        return False
+    return isinstance(x, jax.Array) or isinstance(x, jax.core.Tracer)
+
+
+def _contains_jax_value(obj: Any) -> bool:
+    if _is_jax_like(obj):
+        return True
+    if isinstance(obj, np.ndarray):
+        return False
+    if isinstance(obj, Mapping):
+        return any(_contains_jax_value(v) for v in obj.values())
+    if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes)):
+        return any(_contains_jax_value(v) for v in obj)
+    data = getattr(obj, "data", None)
+    if data is not None and not isinstance(obj, np.ndarray) and data is not obj and _contains_jax_value(data):
+        return True
+    return False
+
+
+def _infer_contact_backend(*values: Any, default: str) -> str:
+    return "jax" if any(_contains_jax_value(v) for v in values) else default
+
 ContactJacobianReturn: TypeAlias = Union[np.ndarray, "FluxSparseMatrix", "FluxSparseOperator"]
 MixedSurfaceResidualForm: TypeAlias = Callable[
     ["SurfaceMixedFormContext", Mapping[str, npt.ArrayLike], Any],
@@ -113,9 +140,10 @@ def _compile_contact_bilinear(
     *,
     field_master: str = "a",
     field_slave: str = "b",
-    backend: str = "jax",
+    backend: str | None = None,
 ) -> MixedSurfaceResidualForm:
     """Compile a contact bilinear callable into a reusable mixed-surface residual form."""
+    backend = _infer_contact_backend(bilin, default="jax") if backend is None else str(backend).lower()
     normalized = _ensure_role_compiled_contact_bilinear(bilin)
     if _is_compiled_contact_bilinear(normalized):
         return cast(MixedSurfaceResidualForm, normalized)
@@ -236,7 +264,7 @@ def make_tagged_pair_nitsche_penalty_bilinear(
 def compile_tagged_pair_nitsche_penalty_residual(
     residuals: Mapping[str, Callable[..., Any]],
     *,
-    backend: str = "jax",
+    backend: str | None = None,
     backend_fastpath: str = "numpy_local_kernel",
 ) -> Callable[..., Any]:
     """Internal helper for comparison/debug code that needs a tagged pair-Nitsche residual."""
@@ -245,6 +273,7 @@ def compile_tagged_pair_nitsche_penalty_residual(
         compile_mixed_surface_residual_numpy,
     )
 
+    backend = _infer_contact_backend(residuals, default="jax") if backend is None else str(backend).lower()
     if backend == "jax":
         res_form = compile_mixed_surface_residual(residuals)
     elif backend == "numpy":
@@ -357,7 +386,7 @@ class ContactSpaces:
         *,
         quad_order: int = 0,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
         _warn_contact_legacy_name("ContactSpaces.to_contact_surface_space()", "ContactPairSpec.prepare()")
@@ -368,7 +397,7 @@ class ContactSpaces:
             field_slave=str(self.field_slave),
             quad_order=int(quad_order),
             tol=float(tol),
-            backend=str(backend),
+            backend=backend,
             batch_jac=batch_jac,
         )
 
@@ -377,7 +406,7 @@ class ContactSpaces:
         *,
         quad_order: int = 0,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
         """Public alias for heavy contact-interface setup."""
@@ -388,7 +417,7 @@ class ContactSpaces:
             field_slave=str(self.field_slave),
             quad_order=int(quad_order),
             tol=float(tol),
-            backend=str(backend),
+            backend=backend,
             batch_jac=batch_jac,
         )
 
@@ -420,7 +449,7 @@ class ContactGroupSpaces:
         facet_dofs_slave: np.ndarray | None = None,
         normal_sign: float | None = None,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -438,7 +467,7 @@ class ContactGroupSpaces:
             facet_dofs_slave=facet_dofs_slave,
             normal_sign=normal_sign,
             tol=float(tol),
-            backend=str(backend),
+            backend=backend,
             batch_jac=batch_jac,
             setup_cache_enabled=setup_cache_enabled,
             setup_cache_trace=setup_cache_trace,
@@ -454,7 +483,7 @@ class ContactGroupSpaces:
         facet_dofs_slave: np.ndarray | None = None,
         normal_sign: float | None = None,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -472,7 +501,7 @@ class ContactGroupSpaces:
             facet_dofs_slave=facet_dofs_slave,
             normal_sign=normal_sign,
             tol=float(tol),
-            backend=str(backend),
+            backend=backend,
             batch_jac=batch_jac,
             setup_cache_enabled=setup_cache_enabled,
             setup_cache_trace=setup_cache_trace,
@@ -603,8 +632,8 @@ class ContactKKTSolveConfig:
     jax_atol: float = 0.0
     jax_restart: int = 20
     jax_maxiter: int | None = None
-    # Prefer iterative path even when a dense matrix is passed.
-    jax_dense_mode: str = "iterative"  # "iterative" | "direct_custom_vjp"
+    # Dense inputs default to the direct solve path for more stable autodiff.
+    jax_dense_mode: str = "direct_custom_vjp"  # "iterative" | "direct_custom_vjp"
     petsc_ksp_type: str = "gmres"
     petsc_pc_type: str = "none"
     petsc_preconditioner: str | None = "diag0"
@@ -898,13 +927,14 @@ def assemble_embedding_constraint_matrix(
     n_master_nodes: int,
     n_slave_nodes: int,
     value_dim: int = 1,
-    backend: str = "numpy",
+    backend: str | None = None,
 ):
     """
     Assemble ``C`` for equality constraints ``W*u_master - u_slave = 0``.
 
     Returns matrix with shape ``(n_slave_nodes*value_dim, (n_master_nodes+n_slave_nodes)*value_dim)``.
     """
+    backend = _infer_contact_backend(embedding, default="numpy") if backend is None else str(backend).lower()
     if backend not in {"numpy", "jax"}:
         raise ValueError("backend must be 'numpy' or 'jax'")
     n_m = int(n_master_nodes)
@@ -960,7 +990,7 @@ def assemble_rbe2_constraint_matrix(
     ref_point: np.ndarray,
     slave_coords: np.ndarray,
     *,
-    backend: str = "numpy",
+    backend: str | None = None,
 ):
     """
     Assemble 3D RBE2-style rigid kinematic constraints.
@@ -971,6 +1001,7 @@ def assemble_rbe2_constraint_matrix(
     Constraint for each slave node i:
       u_slave_i - u_ref - (omega_ref x (x_i - x_ref)) = 0
     """
+    backend = "numpy" if backend is None else str(backend).lower()
     if backend != "numpy":
         raise ValueError("RBE2 constraint assembly currently supports backend='numpy' only.")
     x_ref = np.asarray(ref_point, dtype=float).reshape(-1)
@@ -1010,7 +1041,7 @@ def assemble_rbe3_constraint_matrix(
     *,
     weights: np.ndarray | None = None,
     normalize_weights: bool = True,
-    backend: str = "numpy",
+    backend: str | None = None,
 ):
     """
     Assemble a weighted 3D RBE3-style interpolation constraint.
@@ -1028,6 +1059,7 @@ def assemble_rbe3_constraint_matrix(
     This yields a 6 x (6 + 3*n_slave) matrix. Repeated use of this helper allows
     multiple user-defined RBE3 couplings to be added to one system.
     """
+    backend = "numpy" if backend is None else str(backend).lower()
     if backend != "numpy":
         raise ValueError("RBE3 constraint assembly currently supports backend='numpy' only.")
     x_ref = np.asarray(ref_point, dtype=float).reshape(-1)
@@ -1569,7 +1601,7 @@ def assemble_contact_constraint_operators(
     formulation: str | None = None,
     rho: float = 0.0,
     multiplier: ContactMultiplierSpace,
-    backend: str = "numpy",
+    backend: str | None = None,
     weak_form: MixedSurfaceResidualForm | None = None,
     state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
     res_form: MixedSurfaceResidualForm | None = None,
@@ -1581,6 +1613,7 @@ def assemble_contact_constraint_operators(
 ) -> ContactOperators:
     warn_float32_assembly_once(context="contact constraint assembly")
     """Assemble constraint-family operators (coupling/B/Kuu, optionally residual/jacobian metadata)."""
+    backend = _infer_contact_backend(state, u, params, res_form, weak_form, rho, default="numpy") if backend is None else str(backend).lower()
     if weak_form is not None and res_form is not None and weak_form is not res_form:
         raise ValueError("weak_form and res_form are aliases; provide only one.")
     if state is not None and u is not None and state is not u:
@@ -1731,7 +1764,7 @@ def assemble_contact_penalty_operators(
     *,
     law: str | None = None,
     formulation: str | None = None,
-    backend: str = "jax",
+    backend: str | None = None,
     weak_form: MixedSurfaceResidualForm | None = None,
     state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
     res_form: MixedSurfaceResidualForm | None = None,
@@ -1758,6 +1791,7 @@ def assemble_contact_penalty_operators(
 
     law_resolved = str(law) if law is not None else "one_sided_normal_frictionless"
     formulation_resolved = str(formulation) if formulation is not None else "penalty_consistent"
+    backend = _infer_contact_backend(contact, res_form_eff, u_eff, params, default="jax") if backend is None else str(backend).lower()
     if backend not in {"numpy", "jax"}:
         raise ValueError("backend must be 'numpy' or 'jax'")
     if backend != "jax":
@@ -1795,7 +1829,7 @@ def assemble_contact_kkt(
     rho: float = 0.0,
     multiplier: ContactMultiplierSpace,
     facet_conn_master: np.ndarray | None = None,
-    backend: str = "numpy",
+    backend: str | None = None,
     format: str = "fluxsparse",
     return_blocks: bool = False,
 ):
@@ -1813,6 +1847,7 @@ def assemble_contact_kkt(
     - ``family="p0"``: lambda is facet-wise constant on master side (B_* = S * M_*)
     - ``family="p0_active"``/``family="p0_supermesh"``: use ``assemble_contact_constraint_operators`` and pass ``ops`` to the builder
     """
+    backend = _infer_contact_backend(coupling_aa, coupling_ab, rho, multiplier, default="numpy") if backend is None else str(backend).lower()
     if backend not in {"numpy", "jax"}:
         raise ValueError("backend must be 'numpy' or 'jax'")
     mult_space, facet_conn_master, _ = _resolve_multiplier_spec(
@@ -1896,11 +1931,15 @@ def assemble_contact_kkt(
 
 def _resolve_kkt_solve_config(
     *,
-    backend: str,
+    backend: str | None,
     diagonal_shift: float,
     config: ContactKKTSolveConfig | None,
+    kkt_matrix: Any | None = None,
+    rhs: Any | None = None,
 ) -> ContactKKTSolveConfig:
     if config is None:
+        if backend is None:
+            backend = _infer_contact_backend(kkt_matrix, rhs, default="numpy")
         return ContactKKTSolveConfig(backend=backend, diagonal_shift=diagonal_shift).validate()
     return config.validate()
 
@@ -2424,16 +2463,23 @@ def solve_contact_kkt(
     kkt_matrix,
     rhs,
     *,
-    backend: str = "numpy",
+    backend: str | None = None,
     diagonal_shift: float = 0.0,
     config: ContactKKTSolveConfig | None = None,
 ):
     """
     Solve KKT linear system ``KKT * x = rhs``.
 
-    `config` is the preferred control surface. `backend`/`diagonal_shift` are kept for compatibility.
+    `config` is the preferred control surface. `backend=None` auto-selects from
+    ``kkt_matrix``/``rhs`` when no explicit config is provided.
     """
-    cfg = _resolve_kkt_solve_config(backend=backend, diagonal_shift=diagonal_shift, config=config)
+    cfg = _resolve_kkt_solve_config(
+        backend=backend,
+        diagonal_shift=diagonal_shift,
+        config=config,
+        kkt_matrix=kkt_matrix,
+        rhs=rhs,
+    )
     if cfg.backend == "petsc4py":
         return _solve_kkt_petsc(kkt_matrix, rhs, cfg)
     if cfg.backend == "numpy":
@@ -2805,13 +2851,14 @@ class ContactSurfaceSpace:
         quad_order: int = 0,
         normal_sign: float | None = None,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
     ) -> "ContactSurfaceSpace":
         import hashlib
         import os
+        backend = "jax" if backend is None else str(backend).lower()
 
         if setup_cache_enabled is None:
             setup_cache_enabled = os.getenv("FLUXFEM_CONTACT_SETUP_CACHE", "0") not in ("0", "", "false", "False")
@@ -2941,7 +2988,7 @@ class ContactSurfaceSpace:
         quad_order: int = 0,
         normal_sign: float | None = None,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -2988,7 +3035,7 @@ class ContactSurfaceSpace:
         quad_order: int = 0,
         normal_sign: float | None = None,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
     ) -> "ContactSurfaceSpace":
         if value_dim_master is None:
@@ -3030,7 +3077,7 @@ class ContactSurfaceSpace:
         facet_dofs_slave: np.ndarray | None = None,
         normal_sign: float | None = None,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -3078,7 +3125,7 @@ class ContactSurfaceSpace:
         quad_order: int = 0,
         normal_sign: float | None = None,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -3215,7 +3262,7 @@ class ContactSurfaceSpace:
         *,
         rho: float = 0.0,
         multiplier: ContactMultiplierSpace,
-        backend: str = "numpy",
+        backend: str | None = None,
         format: str = "fluxsparse",
         return_blocks: bool = False,
     ):
@@ -3238,7 +3285,7 @@ class ContactSurfaceSpace:
         formulation: str | None = None,
         rho: float = 0.0,
         multiplier: ContactMultiplierSpace,
-        backend: str = "numpy",
+        backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
@@ -3272,7 +3319,7 @@ class ContactSurfaceSpace:
         formulation: str | None = None,
         rho: float = 0.0,
         multiplier: ContactMultiplierSpace,
-        backend: str = "numpy",
+        backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
@@ -3307,7 +3354,7 @@ class ContactSurfaceSpace:
         formulation: str | None = None,
         rho: float = 0.0,
         multiplier: ContactMultiplierSpace,
-        backend: str = "numpy",
+        backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
@@ -3339,7 +3386,7 @@ class ContactSurfaceSpace:
         *,
         law: str | None = None,
         formulation: str | None = None,
-        backend: str = "numpy",
+        backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
@@ -3369,7 +3416,7 @@ class ContactSurfaceSpace:
         *,
         law: str | None = None,
         formulation: str | None = None,
-        backend: str = "numpy",
+        backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
@@ -3400,7 +3447,7 @@ class ContactSurfaceSpace:
         *,
         law: str | None = None,
         formulation: str | None = None,
-        backend: str = "numpy",
+        backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
@@ -3771,7 +3818,7 @@ class OneToManyContactSurfaceSpace:
         facet_dofs_slave: np.ndarray | None = None,
         normal_sign: float | None = None,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -3874,7 +3921,7 @@ class OneToManyContactSurfaceSpace:
         facet_dofs_slave: np.ndarray | None = None,
         normal_sign: float | None = None,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -3922,7 +3969,7 @@ class OneToManyContactSurfaceSpace:
         facet_dofs_slave: np.ndarray | None = None,
         normal_sign: float | None = None,
         tol: float = 1e-8,
-        backend: str = "jax",
+        backend: str | None = None,
         batch_jac: bool | None = None,
         setup_cache_enabled: bool | None = None,
         setup_cache_trace: bool | None = None,
@@ -4331,7 +4378,7 @@ class OneToManyContactSurfaceSpace:
         *,
         rho: float = 0.0,
         multiplier: ContactMultiplierSpace,
-        backend: str = "numpy",
+        backend: str | None = None,
         format: str = "fluxsparse",
         return_blocks: bool = False,
     ):
@@ -4355,7 +4402,7 @@ class OneToManyContactSurfaceSpace:
         formulation: str | None = None,
         rho: float = 0.0,
         multiplier: ContactMultiplierSpace,
-        backend: str = "numpy",
+        backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
@@ -4389,7 +4436,7 @@ class OneToManyContactSurfaceSpace:
         formulation: str | None = None,
         rho: float = 0.0,
         multiplier: ContactMultiplierSpace,
-        backend: str = "numpy",
+        backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
@@ -4421,7 +4468,7 @@ class OneToManyContactSurfaceSpace:
         *,
         law: str | None = None,
         formulation: str | None = None,
-        backend: str = "numpy",
+        backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
@@ -4451,7 +4498,7 @@ class OneToManyContactSurfaceSpace:
         *,
         law: str | None = None,
         formulation: str | None = None,
-        backend: str = "numpy",
+        backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
         res_form: MixedSurfaceResidualForm | None = None,
