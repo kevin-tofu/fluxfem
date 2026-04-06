@@ -393,7 +393,7 @@ see <a class="reference internal" href="contact_api_boundaries.html"><span class
 <p>For new code, prefer explicit role specs over ad-hoc positional wiring.</p>
 <p>Pair contact:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pair_spec</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactSpaces</span><span class="p">(</span><span class="n">master</span><span class="o">=</span><span class="n">master_side</span><span class="p">,</span> <span class="n">slave</span><span class="o">=</span><span class="n">slave_side</span><span class="p">)</span>
-<span class="n">contact</span> <span class="o">=</span> <span class="n">pair_spec</span><span class="o">.</span><span class="n">to_contact_surface_space</span><span class="p">(</span><span class="n">quad_order</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">)</span>
+<span class="n">contact</span> <span class="o">=</span> <span class="n">pair_spec</span><span class="o">.</span><span class="n">to_contact_surface_space</span><span class="p">(</span><span class="n">quad_order</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>One-sided contact:</p>
@@ -403,9 +403,20 @@ see <a class="reference internal" href="contact_api_boundaries.html"><span class
 </div>
 <p>One-to-many contact:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">group_spec</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactGroupSpaces</span><span class="p">(</span><span class="n">master</span><span class="o">=</span><span class="n">master_side</span><span class="p">,</span> <span class="n">slaves</span><span class="o">=</span><span class="p">[</span><span class="n">slave_side_1</span><span class="p">,</span> <span class="n">slave_side_2</span><span class="p">])</span>
-<span class="n">contact</span> <span class="o">=</span> <span class="n">group_spec</span><span class="o">.</span><span class="n">to_contact_surface_space</span><span class="p">(</span><span class="n">quad_order</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">)</span>
+<span class="n">contact</span> <span class="o">=</span> <span class="n">group_spec</span><span class="o">.</span><span class="n">to_contact_surface_space</span><span class="p">(</span><span class="n">quad_order</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 </pre></div>
 </div>
+</section>
+<section id="backend-selection">
+<h2>Backend Selection<a class="headerlink" href="#backend-selection" title="Link to this heading">#</a></h2>
+<p>Contact entry points accept <code class="docutils literal notranslate"><span class="pre">backend=None</span></code> by default.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">backend=None</span></code> auto-selects from the inputs</p></li>
+<li><p>if any relevant state/parameter/input is JAX-like, FluxFEM prefers <code class="docutils literal notranslate"><span class="pre">jax</span></code></p></li>
+<li><p>otherwise FluxFEM falls back to the API’s default backend</p></li>
+<li><p>use <code class="docutils literal notranslate"><span class="pre">backend=&quot;numpy&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">backend=&quot;jax&quot;</span></code> only when you want an explicit
+override</p></li>
+</ul>
 </section>
 <section id="one-to-many-contact">
 <h2>One-To-Many Contact<a class="headerlink" href="#one-to-many-contact" title="Link to this heading">#</a></h2>
@@ -443,8 +454,7 @@ from <code class="docutils literal notranslate"><span class="pre">ContactGroupSp
     <span class="n">master</span><span class="o">=</span><span class="n">master_side</span><span class="p">,</span>
     <span class="n">slaves</span><span class="o">=</span><span class="p">[</span><span class="n">slave_side_1</span><span class="p">,</span> <span class="n">slave_side_2</span><span class="p">],</span>
 <span class="p">)</span><span class="o">.</span><span class="n">to_contact_surface_space</span><span class="p">(</span>
-    <span class="n">quad_order</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
+   <span class="n">quad_order</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">bilin</span><span class="p">(</span><span class="n">v1</span><span class="p">,</span> <span class="n">v2</span><span class="p">,</span> <span class="n">u1</span><span class="p">,</span> <span class="n">u2</span><span class="p">,</span> <span class="n">p</span><span class="p">):</span>
@@ -510,7 +520,6 @@ explicit when contact wiring matters.</p>
     <span class="n">contact</span><span class="p">,</span>
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
     <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span>
-    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
     <span class="c1"># Optional: also evaluate and store residual/jacobian metadata on the same ContactOperators.</span>
     <span class="n">weak_form</span><span class="o">=</span><span class="n">res_form</span><span class="p">,</span>
     <span class="n">state</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;master&quot;</span><span class="p">:</span> <span class="n">u_master</span><span class="p">,</span> <span class="s2">&quot;slaves&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">u_s1</span><span class="p">,</span> <span class="n">u_s2</span><span class="p">]},</span>
@@ -526,7 +535,6 @@ explicit when contact wiring matters.</p>
     <span class="n">weak_form</span><span class="o">=</span><span class="n">res_form</span><span class="p">,</span>
     <span class="n">state</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;master&quot;</span><span class="p">:</span> <span class="n">u_master</span><span class="p">,</span> <span class="s2">&quot;slaves&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">u_s1</span><span class="p">,</span> <span class="n">u_s2</span><span class="p">]},</span>
     <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span>
-    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 </div>
@@ -548,7 +556,6 @@ The default output is <code class="docutils literal notranslate"><span class="pr
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
     <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span>
     <span class="n">facet_conn_master</span><span class="o">=</span><span class="n">ops</span><span class="o">.</span><span class="n">facet_conn_master</span><span class="p">,</span>
-    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="n">KKT_bcoo</span> <span class="o">=</span> <span class="n">KKT_flux</span><span class="o">.</span><span class="n">to_bcoo</span><span class="p">()</span>
@@ -561,10 +568,10 @@ The default output is <code class="docutils literal notranslate"><span class="pr
     <span class="n">rho</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
     <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span>
     <span class="n">facet_conn_master</span><span class="o">=</span><span class="n">ops</span><span class="o">.</span><span class="n">facet_conn_master</span><span class="p">,</span>
-    <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
     <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;dense&quot;</span><span class="p">,</span>
 <span class="p">)</span>
 
+<span class="c1"># Explicit override example: request the JAX/BCOO path directly.</span>
 <span class="n">KKT_bcoo_direct</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_kkt</span><span class="p">(</span>
     <span class="n">ops</span><span class="o">.</span><span class="n">coupling_aa</span><span class="p">,</span>
     <span class="n">ops</span><span class="o">.</span><span class="n">coupling_ab</span><span class="p">,</span>
@@ -579,9 +586,10 @@ The default output is <code class="docutils literal notranslate"><span class="pr
 </section>
 <section id="kkt-solve">
 <h2>KKT Solve<a class="headerlink" href="#kkt-solve" title="Link to this heading">#</a></h2>
-<p>Solve with <code class="docutils literal notranslate"><span class="pre">solve_contact_kkt</span></code>. For JAX, use <code class="docutils literal notranslate"><span class="pre">backend=&quot;jax&quot;</span></code>.</p>
+<p>Solve with <code class="docutils literal notranslate"><span class="pre">solve_contact_kkt</span></code>. Leave <code class="docutils literal notranslate"><span class="pre">backend</span></code> unset unless you need to
+force a specific solver path.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">rhs</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.2</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">KKT_dense</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
-<span class="n">sol</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">solve_contact_kkt</span><span class="p">(</span><span class="n">KKT_dense</span><span class="p">,</span> <span class="n">rhs</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span> <span class="n">diagonal_shift</span><span class="o">=</span><span class="mf">1e-2</span><span class="p">)</span>
+<span class="n">sol</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">solve_contact_kkt</span><span class="p">(</span><span class="n">KKT_dense</span><span class="p">,</span> <span class="n">rhs</span><span class="p">,</span> <span class="n">diagonal_shift</span><span class="o">=</span><span class="mf">1e-2</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -620,8 +628,23 @@ The default output is <code class="docutils literal notranslate"><span class="pr
 <p><code class="docutils literal notranslate"><span class="pre">assemble_contact_constraint_operators(...)</span></code> and builder are consistent:
 assemble operators first, then pass them to <code class="docutils literal notranslate"><span class="pre">add_contact</span></code> (or <code class="docutils literal notranslate"><span class="pre">add_contact_mortar</span></code>).</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">lm_space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactMultiplierSpace</span><span class="o">.</span><span class="n">from_contact</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">family</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span> <span class="n">side</span><span class="o">=</span><span class="s2">&quot;master&quot;</span><span class="p">)</span>
-<span class="n">ops_mortar</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_constraint_operators</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">)</span>
+<span class="n">ops_mortar</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_constraint_operators</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">)</span>
 <span class="n">builder</span><span class="o">.</span><span class="n">add_contact</span><span class="p">(</span><span class="n">ops_mortar</span><span class="p">,</span> <span class="n">master</span><span class="o">=</span><span class="s2">&quot;top&quot;</span><span class="p">,</span> <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support&quot;</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="mixed-numpy-jax-inputs">
+<h2>Mixed NumPy/JAX Inputs<a class="headerlink" href="#mixed-numpy-jax-inputs" title="Link to this heading">#</a></h2>
+<p>Mixed inputs are allowed. If a contact path receives JAX-traced values together
+with NumPy arrays or Python scalars, FluxFEM prefers the JAX path.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">rho</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mf">5.0</span><span class="p">)</span>
+<span class="n">KKT</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_kkt</span><span class="p">(</span>
+    <span class="n">ops</span><span class="o">.</span><span class="n">coupling_aa</span><span class="p">,</span>
+    <span class="n">ops</span><span class="o">.</span><span class="n">coupling_ab</span><span class="p">,</span>
+    <span class="n">rho</span><span class="o">=</span><span class="n">rho</span><span class="p">,</span>
+    <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">,</span>
+    <span class="n">facet_conn_master</span><span class="o">=</span><span class="n">ops</span><span class="o">.</span><span class="n">facet_conn_master</span><span class="p">,</span>
+<span class="p">)</span>
 </pre></div>
 </div>
 <p>When <code class="docutils literal notranslate"><span class="pre">ops_mortar</span></code> comes from <code class="docutils literal notranslate"><span class="pre">assemble_contact_constraint_operators(...)</span></code>,
@@ -696,6 +719,7 @@ assemble operators first, then pass them to <code class="docutils literal notran
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#role-specs">Role Specs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backend-selection">Backend Selection</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-to-many-contact">One-To-Many Contact</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#penalty-style-jacobian-assembly">Penalty-Style Jacobian Assembly</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#volume-vs-contact-api-style">Volume vs Contact API Style</a></li>
@@ -706,6 +730,7 @@ assemble operators first, then pass them to <code class="docutils literal notran
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notes">Notes</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#coupledsystembuilder-penalty">CoupledSystemBuilder (Penalty)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#constraint-with-builder">Constraint with Builder</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mixed-numpy-jax-inputs">Mixed NumPy/JAX Inputs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#embedding-map-with-unmapped-report">Embedding Map (With Unmapped Report)</a></li>
 </ul>
   </nav></div>
