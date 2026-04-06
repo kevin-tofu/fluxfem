@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Contact API Boundaries &#8212; FluxFEM 0.3.4 documentation</title>
+    <title>Contact API Boundaries &#8212; FluxFEM 0.3.5 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=39bb16ab"></script>
+    <script src="_static/documentation_options.js?v=90fb62cd"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'contact_api_boundaries';</script>
@@ -46,7 +46,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Tutorial Page" href="tutorial.html" />
-    <link rel="prev" title="Contact Interface Usage" href="usage_contact.html" />
+    <link rel="prev" title="Remote Constraints and Virtual Springs" href="usage_remote_constraints.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.4 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.5 documentation</p>
   
 </a></div>
     
@@ -319,6 +319,7 @@
 <li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="space.html">FE Spaces</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_contact.html">Contact Interface Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage_remote_constraints.html">Remote Constraints and Virtual Springs</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Contact API Boundaries</a></li>
 </ul>
 </div>
@@ -471,9 +472,9 @@ contact assembly</p></li>
 <li><p>one-sided contact</p></li>
 <li><p>full weak-form Jacobian parity</p></li>
 </ol>
-<p>Until that work is complete, treat <code class="docutils literal notranslate"><span class="pre">backend=&quot;jax&quot;</span></code> as the default path for
-advanced contact assembly and use <code class="docutils literal notranslate"><span class="pre">numpy</span></code> primarily where parity has already
-been validated.</p>
+<p>Until that work is complete, treat the auto-selected JAX path as the default
+route for advanced contact assembly and use explicit <code class="docutils literal notranslate"><span class="pre">backend=&quot;numpy&quot;</span></code>
+primarily where parity has already been validated.</p>
 </section>
 <section id="coordinate-differentiation">
 <h2>Coordinate Differentiation<a class="headerlink" href="#coordinate-differentiation" title="Link to this heading">#</a></h2>
@@ -520,12 +521,12 @@ one-to-many and one-sided paths</p></li>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="usage_contact.html"
+       href="usage_remote_constraints.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Contact Interface Usage</p>
+        <p class="prev-next-title">Remote Constraints and Virtual Springs</p>
       </div>
     </a>
     <a class="right-next"

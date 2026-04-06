@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Remote Constraints and Virtual Springs &#8212; FluxFEM 0.3.4 documentation</title>
+    <title>Remote Constraints and Virtual Springs &#8212; FluxFEM 0.3.5 documentation</title>
   
   
   
@@ -38,13 +38,15 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=39bb16ab"></script>
+    <script src="_static/documentation_options.js?v=90fb62cd"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'usage_remote_constraints';</script>
     <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/usage_remote_constraints.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Contact API Boundaries" href="contact_api_boundaries.html" />
+    <link rel="prev" title="Contact Interface Usage" href="usage_contact.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -109,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.4 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.5 documentation</p>
   
 </a></div>
     
@@ -130,7 +132,7 @@
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="usage.html">
     Usage
   </a>
@@ -223,10 +225,8 @@
       
       
       
-        
-      
       <dialog id="pst-primary-sidebar-modal"></dialog>
-      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
         
 
   
@@ -248,7 +248,7 @@
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="usage.html">
     Usage
   </a>
@@ -306,6 +306,26 @@
     
   </div>
   
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Usage</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="assembly.html">Assembly</a></li>
+<li class="toctree-l1"><a class="reference internal" href="migration_role_spaces.html">Role-Explicit API Migration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage_chunked_assembly.html">Chunked Assembly</a></li>
+<li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="space.html">FE Spaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage_contact.html">Contact Interface Usage</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Remote Constraints and Virtual Springs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="contact_api_boundaries.html">Contact API Boundaries</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
       <div class="sidebar-primary-item">
@@ -341,6 +361,9 @@
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
+    
+    <li class="breadcrumb-item"><a href="usage.html" class="nav-link">Usage</a></li>
+    
     <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Remote Constraints and Virtual Springs</span></li>
   </ul>
 </nav>
@@ -379,6 +402,9 @@ offsets and constraint matrices.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.CoupledSystemBuilder.add_rbe3_constraint(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.CoupledSystemBuilder.add_dof_spring(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.CoupledSystemBuilder.add_remote_spring(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ff.CoupledSystemBuilder.add_field_matrix(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ff.CoupledSystemBuilder.add_constraint_matrix_dof(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ff.ConstraintSpec(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.build_rbe3_weights(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.build_rbe3_remote_resultant(...)</span></code></p></li>
 </ul>
@@ -520,6 +546,99 @@ virtual displacement.</p>
 <li><p>If <code class="docutils literal notranslate"><span class="pre">force</span> <span class="pre">==</span> <span class="pre">0</span></code> and <code class="docutils literal notranslate"><span class="pre">target</span> <span class="pre">==</span> <span class="pre">0</span></code>, the inferred stiffness is zero.</p></li>
 </ul>
 </section>
+<section id="field-local-matrix-contributions">
+<h2>Field-Local Matrix Contributions<a class="headerlink" href="#field-local-matrix-contributions" title="Link to this heading">#</a></h2>
+<p>When a spring is too restrictive as an abstraction, use
+<code class="docutils literal notranslate"><span class="pre">add_field_matrix(...)</span></code> to add a local stiffness matrix and optional load
+directly to a registered field.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">builder</span><span class="o">.</span><span class="n">append_field</span><span class="p">(</span><span class="s2">&quot;remote_aux&quot;</span><span class="p">,</span> <span class="n">n_dofs</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">add_field_matrix</span><span class="p">(</span>
+    <span class="s2">&quot;remote_aux&quot;</span><span class="p">,</span>
+    <span class="p">[[</span><span class="mf">2.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">],</span> <span class="p">[</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">]],</span>
+    <span class="n">F_local</span><span class="o">=</span><span class="p">[</span><span class="mf">0.5</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.5</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>This is useful for:</p>
+<ul class="simple">
+<li><p>reduced support models beyond diagonal springs</p></li>
+<li><p>user-defined auxiliary structural DOFs</p></li>
+<li><p>remote-point compliance models with coupling between DOFs</p></li>
+</ul>
+</section>
+<section id="dof-level-constraint-wiring">
+<h2>DOF-Level Constraint Wiring<a class="headerlink" href="#dof-level-constraint-wiring" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">RBE2</span></code> and <code class="docutils literal notranslate"><span class="pre">RBE3</span></code> often need an intermediate slave field rather than being
+connected directly to the full structural vector. For that wiring,
+<code class="docutils literal notranslate"><span class="pre">add_constraint_matrix_dof(...)</span></code> is the key helper.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">builder</span><span class="o">.</span><span class="n">append_field</span><span class="p">(</span><span class="s2">&quot;support_face&quot;</span><span class="p">,</span> <span class="n">n_dofs</span><span class="o">=</span><span class="n">left_local_dofs</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="n">C_face</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">left_local_dofs</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="n">space</span><span class="o">.</span><span class="n">n_dofs</span> <span class="o">+</span> <span class="n">left_local_dofs</span><span class="o">.</span><span class="n">size</span><span class="p">))</span>
+<span class="k">for</span> <span class="n">row</span><span class="p">,</span> <span class="n">dof</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">left_local_dofs</span><span class="p">):</span>
+    <span class="n">C_face</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="n">dof</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="n">C_face</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="n">space</span><span class="o">.</span><span class="n">n_dofs</span> <span class="o">+</span> <span class="n">row</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="mf">1.0</span>
+
+<span class="n">builder</span><span class="o">.</span><span class="n">add_constraint_matrix_dof</span><span class="p">(</span>
+    <span class="n">C_face</span><span class="p">,</span>
+    <span class="n">master</span><span class="o">=</span><span class="s2">&quot;u&quot;</span><span class="p">,</span>
+    <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support_face&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Conceptually this enforces:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>u[selected_dofs] = support_face
+</pre></div>
+</div>
+<p>Use this helper when you want explicit DOF-level equality constraints between
+registered blocks without node/value-dimension interpretation.</p>
+</section>
+<section id="constraintspec-for-unified-constraint-descriptors">
+<h2>ConstraintSpec for Unified Constraint Descriptors<a class="headerlink" href="#constraintspec-for-unified-constraint-descriptors" title="Link to this heading">#</a></h2>
+<p>If you want to describe constraints declaratively, use <code class="docutils literal notranslate"><span class="pre">ff.ConstraintSpec</span></code>.
+This is useful for configuration-driven assembly, higher-level wrappers, or
+cases where you want one uniform constraint list.</p>
+<p>RBE2:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">spec</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ConstraintSpec</span><span class="p">(</span>
+    <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;rbe2&quot;</span><span class="p">,</span>
+    <span class="n">master</span><span class="o">=</span><span class="s2">&quot;remote&quot;</span><span class="p">,</span>
+    <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support_face&quot;</span><span class="p">,</span>
+    <span class="n">ref_point</span><span class="o">=</span><span class="n">x_ref</span><span class="p">,</span>
+    <span class="n">slave_coords</span><span class="o">=</span><span class="n">slave_coords</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">add_constraint</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>RBE3:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">spec</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ConstraintSpec</span><span class="p">(</span>
+    <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;rbe3&quot;</span><span class="p">,</span>
+    <span class="n">master</span><span class="o">=</span><span class="s2">&quot;remote&quot;</span><span class="p">,</span>
+    <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support_face&quot;</span><span class="p">,</span>
+    <span class="n">ref_point</span><span class="o">=</span><span class="n">x_ref</span><span class="p">,</span>
+    <span class="n">slave_coords</span><span class="o">=</span><span class="n">slave_coords</span><span class="p">,</span>
+    <span class="n">weights</span><span class="o">=</span><span class="n">weights</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">add_constraint</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>DOF matrix constraint:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">spec</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ConstraintSpec</span><span class="p">(</span>
+    <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;matrix_dof&quot;</span><span class="p">,</span>
+    <span class="n">master</span><span class="o">=</span><span class="s2">&quot;u&quot;</span><span class="p">,</span>
+    <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support_face&quot;</span><span class="p">,</span>
+    <span class="n">C</span><span class="o">=</span><span class="n">C_face</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">add_constraint</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This is a typed routing layer over:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">add_constraint_matrix(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">add_constraint_matrix_dof(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">add_embedding_constraint(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">add_rbe2_constraint(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">add_rbe3_constraint(...)</span></code></p></li>
+</ul>
+</section>
 <section id="equivalent-remote-resultant-for-rbe3">
 <h2>Equivalent Remote Resultant for RBE3<a class="headerlink" href="#equivalent-remote-resultant-for-rbe3" title="Link to this heading">#</a></h2>
 <p>When the slave surface represents a distributed load patch, you often need the
@@ -593,6 +712,14 @@ support:</p>
 <span class="n">u</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">build</span><span class="p">()</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="nb">format</span><span class="o">=</span><span class="s2">&quot;csr&quot;</span><span class="p">,</span> <span class="n">diagonal_shift</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>This same workflow can also be expressed in a more declarative style by mixing:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">append_remote_point(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">append_field(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">add_constraint_matrix_dof(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ConstraintSpec(kind=&quot;rbe3&quot;,</span> <span class="pre">...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">add_remote_spring(...)</span></code></p></li>
+</ul>
 </section>
 <section id="reference-script">
 <h2>Reference Script<a class="headerlink" href="#reference-script" title="Link to this heading">#</a></h2>
@@ -626,6 +753,24 @@ required.</p></li>
                 <footer class="prev-next-footer d-print-none">
                   
 <div class="prev-next-area">
+    <a class="left-prev"
+       href="usage_contact.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Contact Interface Usage</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="contact_api_boundaries.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Contact API Boundaries</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
 </div>
                 </footer>
               
@@ -652,6 +797,9 @@ required.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rbe3-weight-helpers">RBE3 Weight Helpers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#virtual-springs">Virtual Springs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inferring-spring-stiffness-from-force-and-target">Inferring Spring Stiffness from Force and Target</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#field-local-matrix-contributions">Field-Local Matrix Contributions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dof-level-constraint-wiring">DOF-Level Constraint Wiring</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#constraintspec-for-unified-constraint-descriptors">ConstraintSpec for Unified Constraint Descriptors</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#equivalent-remote-resultant-for-rbe3">Equivalent Remote Resultant for RBE3</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#typical-rbe3-spring-workflow">Typical RBE3 + Spring Workflow</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reference-script">Reference Script</a></li>

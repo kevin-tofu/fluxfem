@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Role-Explicit API Migration &#8212; FluxFEM 0.3.4 documentation</title>
+    <title>Role-Explicit API Migration &#8212; FluxFEM 0.3.5 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=39bb16ab"></script>
+    <script src="_static/documentation_options.js?v=90fb62cd"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'migration_role_spaces';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.4 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.5 documentation</p>
   
 </a></div>
     
@@ -319,6 +319,7 @@
 <li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="space.html">FE Spaces</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage_contact.html">Contact Interface Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage_remote_constraints.html">Remote Constraints and Virtual Springs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="contact_api_boundaries.html">Contact API Boundaries</a></li>
 </ul>
 </div>
@@ -507,6 +508,9 @@ warnings.</p>
 <h2>NumPy Backend Scope<a class="headerlink" href="#numpy-backend-scope" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">numpy</span></code> backend is supported, but not uniformly across every new public
 API path.</p>
+<p>When an API accepts <code class="docutils literal notranslate"><span class="pre">backend=None</span></code>, that means auto-select rather than
+<code class="docutils literal notranslate"><span class="pre">numpy</span></code>. JAX-like inputs prefer <code class="docutils literal notranslate"><span class="pre">jax</span></code>; otherwise the API falls back to its
+default backend.</p>
 <p>Supported today:</p>
 <ul class="simple">
 <li><p>same-space volume bilinear assembly
@@ -538,6 +542,7 @@ with <code class="docutils literal notranslate"><span class="pre">backend=&quot;
 </ul>
 <p>In practice:</p>
 <ul class="simple">
+<li><p>leave <code class="docutils literal notranslate"><span class="pre">backend</span></code> unset for normal usage unless you need an explicit override</p></li>
 <li><p>use <code class="docutils literal notranslate"><span class="pre">backend=&quot;numpy&quot;</span></code> for same-space volume assembly and comparison/debug flows</p></li>
 <li><p>use <code class="docutils literal notranslate"><span class="pre">backend=&quot;numpy&quot;</span></code> for distinct-space bilinear assembly when functional
 coverage is sufficient and performance is not the primary concern</p></li>
@@ -565,9 +570,9 @@ workflows</p></li>
 <li><p>one-sided contact next</p></li>
 <li><p>full weak-form Jacobian parity later</p></li>
 </ol>
-<p>Until that parity is in place, contact users should treat <code class="docutils literal notranslate"><span class="pre">backend=&quot;jax&quot;</span></code>
-as the default safe path for role-explicit and nonlinear assembly, and use
-<code class="docutils literal notranslate"><span class="pre">numpy</span></code> mainly for validated comparison/debug routes.</p>
+<p>Until that parity is in place, contact users should treat auto-selected JAX
+paths as the default safe route for role-explicit and nonlinear assembly, and
+use explicit <code class="docutils literal notranslate"><span class="pre">backend=&quot;numpy&quot;</span></code> mainly for validated comparison/debug routes.</p>
 </section>
 </section>
 

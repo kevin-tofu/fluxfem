@@ -68,3 +68,11 @@ space classes remain available as lower-level constructors.
 
 .. autofunction:: fluxfem.mesh.facet_gap_values
 .. autofunction:: fluxfem.mesh.active_contact_facets
+
+Remote Constraints
+------------------
+
+.. autofunction:: fluxfem.mesh.assemble_rbe2_constraint_matrix
+.. autofunction:: fluxfem.mesh.assemble_rbe3_constraint_matrix
+.. autofunction:: fluxfem.mesh.build_rbe3_weights
+.. autofunction:: fluxfem.mesh.build_rbe3_remote_resultant
