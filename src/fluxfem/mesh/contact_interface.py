@@ -194,7 +194,7 @@ def _is_jax_value(x: Any) -> bool:
 
 def _uses_jax_geometry(*xs: Any) -> bool:
     for x in xs:
-        if _is_jax_value(x):
+        if isinstance(x, jax.core.Tracer):
             return True
     return False
 
