@@ -890,6 +890,9 @@ gap/contact variables behind modal coordinates.
   a mixed active/inactive contact patch.
 - Extended it again to a 3D quad surface-pair with four vertex quadrature points
   and a mixed active/inactive patch.
+- Added the same independent residual/Jacobian check for a
+  `SurfaceQuadratureContactSearchManager` workflow, including a refreshed
+  pairing/cache after large slave-surface motion.
 - The test builds an independent NumPy contact-row form:
   - `gap_q = gap0_q + B_q u`,
   - active residual `R += penalty * weight_q * gap_q * B_q`,
@@ -899,8 +902,10 @@ gap/contact variables behind modal coordinates.
 - Verification:
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_penalty_form or independent_weighted_penalty_form"`
     passed: 3 tests.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_reference or independent_penalty_form or independent_weighted_penalty_form"`
+    passed: 4 tests.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-    passed: 62 tests.
+    passed: 63 tests.
 
 ## AD/contact design
 

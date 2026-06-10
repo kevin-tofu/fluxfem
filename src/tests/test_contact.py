@@ -1245,6 +1245,57 @@ def test_surface_quadrature_contact_search_manager_builds_and_refreshes_contact(
     np.testing.assert_array_equal(np.asarray(contact2.kinematics.master_facet_ids), np.array([1, 1]))
     assert manager3.search_cache is not None
 
+def test_surface_quadrature_search_manager_contact_matches_independent_reference_after_refresh():
+    class SlaveSurface:
+        coords = np.array([[0.25, -0.05], [0.75, -0.05], [0.0, 0.0], [1.0, 0.0], [5.0, 0.0], [6.0, 0.0]])
+        conn = np.array([[0, 1]])
+
+    class MasterSurface:
+        coords = SlaveSurface.coords
+        conn = np.array([[2, 3], [4, 5]])
+
+    manager0 = ff.make_surface_quadrature_contact_search_manager(
+        SlaveSurface(),
+        MasterSurface(),
+        dim=2,
+        n_total_nodes=6,
+        search_radius=0.2,
+        skin=1.0,
+        penalty=10.0,
+        normal=jnp.array([0.0, 1.0]),
+        quadrature_rule="vertices",
+        cell_size=1.0,
+    )
+    u0 = jnp.zeros(12, dtype=jnp.float32)
+    contact0, manager1 = manager0.build_contact(u0)
+    gaps0, active0, residual0, jacobian0 = _independent_surface_quadrature_penalty_reference(
+        contact0.kinematics,
+        contact0.penalty,
+        u0,
+    )
+
+    np.testing.assert_array_equal(np.asarray(contact0.kinematics.master_facet_ids), np.array([0, 0]))
+    np.testing.assert_array_equal(active0, np.array([True, True]))
+    np.testing.assert_allclose(np.asarray(contact0.gaps(u0)), gaps0, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(contact0.residual(u0)), residual0, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(jax.jacrev(contact0.residual)(u0)), jacobian0, atol=1e-6)
+
+    u_refresh = u0.at[0].set(5.0).at[2].set(5.0).at[3].set(0.08)
+    contact1, manager2 = manager1.with_search_cache(None).build_contact(u_refresh)
+    gaps1, active1, residual1, jacobian1 = _independent_surface_quadrature_penalty_reference(
+        contact1.kinematics,
+        contact1.penalty,
+        u_refresh,
+    )
+
+    np.testing.assert_array_equal(np.asarray(contact1.kinematics.master_facet_ids), np.array([1, 1]))
+    np.testing.assert_array_equal(active1, np.array([True, False]))
+    assert int(contact1.active_count(u_refresh)) == 1
+    assert manager2.search_cache is not None
+    np.testing.assert_allclose(np.asarray(contact1.gaps(u_refresh)), gaps1, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(contact1.residual(u_refresh)), residual1, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(jax.jacrev(contact1.residual)(u_refresh)), jacobian1, atol=1e-6)
+
 def test_contact_search_inputs_validate_shape_and_ids():
     cache = ff.ContactSearchCache(master_facet_ids=jnp.array([0, 1]))
 
