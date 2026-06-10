@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 import jax
 import jax.numpy as jnp
@@ -260,6 +260,25 @@ class ActiveContactNewmarkStepInfo:
     stop_reason: str
 
 
+@runtime_checkable
+class ContactSearchManagerLike(Protocol):
+    """Protocol for stateful contact-search managers used by ROM facades."""
+
+    def build_contact(self, displacement: Array) -> tuple[Any, "ContactSearchManagerLike"]:
+        ...
+
+
+@runtime_checkable
+class FrictionManagerLike(Protocol):
+    """Protocol for explicit friction-history managers used by ROM facades."""
+
+    def snapshot(self, contact: Any, u: Array) -> Any:
+        ...
+
+    def advance(self, contact: Any, u: Array) -> "FrictionManagerLike":
+        ...
+
+
 @dataclass
 class ReducedContactDynamics:
     """
@@ -274,10 +293,14 @@ class ReducedContactDynamics:
     stiffness: Array
     mass: Array
     damping: Array | None
-    search_manager: object
-    friction_manager: object | None = None
+    search_manager: ContactSearchManagerLike
+    friction_manager: FrictionManagerLike | None = None
 
     def __post_init__(self):
+        if not isinstance(self.search_manager, ContactSearchManagerLike):
+            raise TypeError("search_manager must implement build_contact(displacement).")
+        if self.friction_manager is not None and not isinstance(self.friction_manager, FrictionManagerLike):
+            raise TypeError("friction_manager must implement snapshot(contact, u) and advance(contact, u).")
         stiffness = jnp.asarray(self.stiffness)
         mass = jnp.asarray(self.mass)
         if stiffness.shape != (self.cb.n_full, self.cb.n_full):

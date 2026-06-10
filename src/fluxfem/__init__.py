@@ -65,6 +65,8 @@ __all__ = [
     "assemble_functional",
     "assemble_mass_matrix",
     "CraigBamptonBasis",
+    "ContactSearchManagerLike",
+    "FrictionManagerLike",
     "ReducedContactDynamics",
     "ActiveContactState",
     "ActiveContactIterationRecord",

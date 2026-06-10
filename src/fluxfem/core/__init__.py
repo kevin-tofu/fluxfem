@@ -53,6 +53,8 @@ from .assembly import (
 )
 from .rom import (
     CraigBamptonBasis,
+    ContactSearchManagerLike,
+    FrictionManagerLike,
     ReducedContactDynamics,
     ActiveContactIterationRecord,
     ActiveContactNewmarkStepInfo,
@@ -300,6 +302,8 @@ __all__ = [
     "make_scalar_body_force_form",
     "constant_body_force_form",
     "CraigBamptonBasis",
+    "ContactSearchManagerLike",
+    "FrictionManagerLike",
     "ReducedContactDynamics",
     "ActiveContactState",
     "ActiveContactIterationRecord",

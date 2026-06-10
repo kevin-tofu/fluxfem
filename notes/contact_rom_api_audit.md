@@ -296,15 +296,19 @@ state explicitly.
 - Reduced node-surface and surface-quadrature contact search-manager
   duplication by sharing validation, AABB-index rebuild, refresh decision, and
   candidate/cache selection helpers.
+- Added public `ContactSearchManagerLike` and `FrictionManagerLike` protocols
+  and runtime validation in `ReducedContactDynamics`.
 
 ## Verification snapshot
 
 - `PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-  passed with 57 tests.
+  passed with 58 tests.
 - `python -m py_compile` passed for the ROM/contact modules, public package
   exports, and all current contact tutorials.
 - Top-level API smoke check passed for:
   - `CraigBamptonBasis`
+  - `ContactSearchManagerLike`
+  - `FrictionManagerLike`
   - `ReducedContactDynamics`
   - `ContactCandidateSet`
   - `ContactSearchCache`

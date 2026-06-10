@@ -832,6 +832,27 @@ gap/contact variables behind modal coordinates.
   - Node-surface and surface-quadrature friction active Newmark tutorials
     completed successfully.
 
+## Current forty-fifth slice
+
+- Added typed runtime-checkable manager protocols:
+  - `ContactSearchManagerLike`,
+  - `FrictionManagerLike`.
+- `ReducedContactDynamics` now annotates its manager fields with these protocols
+  instead of plain `object`.
+- The facade validates manager capabilities at construction time:
+  - `search_manager` must implement `build_contact(displacement)`,
+  - `friction_manager`, when present, must implement `snapshot(contact, u)` and
+    `advance(contact, u)`.
+- Exported the protocols through `fluxfem.core` and top-level `fluxfem`.
+- Added tests that invalid managers fail early with clear `TypeError` messages.
+- Verification:
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "manager_protocols or reduced_contact_dynamics_facade"`
+    passed: 2 tests.
+  - top-level smoke passed for `ContactSearchManagerLike` and
+    `FrictionManagerLike`.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
+    passed: 58 tests.
+
 ## AD/contact design
 
 The important design choice is to avoid special ROM element kernels at first.
@@ -851,8 +872,8 @@ surface set, the model will need either a larger retained set or enrichment.
    for large production meshes.
 2. Extend analytical/reference validation toward a small 2D or surface-contact
    case, or compare against an independent FE assembly path.
-3. Consider a typed protocol for contact search/friction managers so the facade
-   contract is clearer without importing concrete manager classes.
+3. Consider adding a small user-facing API guide for `ReducedContactDynamics`
+   and the manager protocols once the next validation case is in place.
 
 ## Open questions
 

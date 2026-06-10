@@ -325,6 +325,38 @@ def test_reduced_contact_dynamics_facade_runs_search_friction_newmark_step():
     assert dynamics.search_manager.search_cache is not None
     assert int(info.contact_state.contact.active_count(dynamics.expand(next_state.q))) == 1
 
+def test_reduced_contact_dynamics_validates_manager_protocols():
+    stiffness = jnp.eye(2, dtype=jnp.float32)
+    mass = jnp.eye(2, dtype=jnp.float32)
+    cb = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=jnp.array([0]), n_modes=1)
+
+    class SearchManager:
+        def build_contact(self, displacement):
+            raise AssertionError("not used")
+
+    class BadFrictionManager:
+        def snapshot(self, contact, u):
+            raise AssertionError("not used")
+
+    with np.testing.assert_raises_regex(TypeError, "search_manager"):
+        ff.ReducedContactDynamics(
+            cb=cb,
+            stiffness=stiffness,
+            mass=mass,
+            damping=None,
+            search_manager=object(),
+        )
+
+    with np.testing.assert_raises_regex(TypeError, "friction_manager"):
+        ff.ReducedContactDynamics(
+            cb=cb,
+            stiffness=stiffness,
+            mass=mass,
+            damping=None,
+            search_manager=SearchManager(),
+            friction_manager=BadFrictionManager(),
+        )
+
 def test_reduced_contact_dynamics_matches_manual_callbacks():
     coords = np.array([[0.25, 0.04], [0.0, 0.0], [1.0, 0.0]], dtype=np.float32)
     slave = ff.make_surface_from_facets(coords, np.array([[0]], dtype=np.int32))
