@@ -880,6 +880,24 @@ gap/contact variables behind modal coordinates.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 59 tests.
 
+## Current forty-seventh slice
+
+- Started the independent-reference validation branch for contact.
+- Added a low-level surface-quadrature penalty-contact check that does not use
+  the `SurfaceQuadraturePenaltyContact.residual(...)` implementation as its
+  reference.
+- The test builds an independent NumPy contact-row form:
+  - `gap_q = gap0_q + B_q u`,
+  - active residual `R += penalty * weight_q * gap_q * B_q`,
+  - active tangent `K += penalty * weight_q * outer(B_q, B_q)`.
+- It verifies residual, active mask, gaps, and AD Jacobian against that
+  independently assembled weighted penalty form.
+- Verification:
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_weighted_penalty_form"`
+    passed.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
+    passed: 60 tests.
+
 ## AD/contact design
 
 The important design choice is to avoid special ROM element kernels at first.
@@ -897,8 +915,8 @@ surface set, the model will need either a larger retained set or enrichment.
 1. Add sparse/iterative CB path later. The current basis builder densifies
    `K_ii` and `M_ii`, which is acceptable for the first ROM experiments but not
    for large production meshes.
-2. Compare against an independent FE assembly path or external contact
-   benchmark for a larger validation step.
+2. Extend the independent contact reference from the current one-facet
+   weighted penalty form to a multi-facet FE assembly or external benchmark.
 3. Consider adding a small user-facing API guide for `ReducedContactDynamics`
    and the manager protocols once the next validation case is in place.
 

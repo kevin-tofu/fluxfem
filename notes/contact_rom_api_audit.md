@@ -299,11 +299,15 @@ state explicitly.
 - Added public `ContactSearchManagerLike` and `FrictionManagerLike` protocols
   and runtime validation in `ReducedContactDynamics`.
 - Added a surface-quadrature full-order vs CB-ROM reference test and tutorial.
+- Added an independent weighted-penalty surface-quadrature contact reference
+  test that assembles `B_q`, residual, and tangent outside the contact class.
 
 ## Verification snapshot
 
-- `PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-  passed with 59 tests.
+- `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_weighted_penalty_form"`
+  passed.
+- `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
+  passed with 60 tests.
 - `python -m py_compile` passed for the ROM/contact modules, public package
   exports, and all current contact tutorials.
 - Top-level API smoke check passed for:

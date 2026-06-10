@@ -427,6 +427,74 @@ def test_surface_quadrature_contact_quad_vertices_rule_has_four_points():
     np.testing.assert_allclose(np.asarray(jnp.sum(residual.reshape(-1, 3), axis=0)), np.zeros(3), atol=1e-6)
     assert int(contact.active_count(jnp.zeros(24))) == 4
 
+def test_surface_quadrature_contact_matches_independent_weighted_penalty_form():
+    class SlaveSurface:
+        coords = np.array([[0.0, -0.05], [1.0, -0.05], [0.0, 0.0], [1.0, 0.0]])
+        conn = np.array([[0, 1]])
+
+    class MasterSurface:
+        coords = SlaveSurface.coords
+        conn = np.array([[2, 3]])
+
+    kin = ff.surface_quadrature_contact_kinematics_from_surfaces(
+        SlaveSurface(),
+        MasterSurface(),
+        dim=2,
+        normal=jnp.array([0.0, 1.0]),
+        quadrature_rule="vertices",
+    )
+    contact = ff.SurfaceQuadraturePenaltyContact(kin, penalty=12.0)
+    u = jnp.array(
+        [
+            0.02,
+            0.0,
+            -0.01,
+            0.08,
+            0.03,
+            0.0,
+            -0.02,
+            -0.01,
+        ],
+        dtype=jnp.float32,
+    )
+
+    n_dofs = int(kin.n_dofs)
+    displacement = np.asarray(u)
+    normal = np.asarray(kin.normals)
+    gaps0 = np.asarray(kin.gaps0)
+    quadrature_weights = np.asarray(kin.quadrature_weights)
+    slave_dofs = np.asarray(kin.slave_dofs)
+    master_dofs = np.asarray(kin.master_dofs)
+    slave_weights = np.asarray(kin.slave_weights)
+    master_weights = np.asarray(kin.master_weights)
+
+    reference_gaps = []
+    contact_rows = []
+    for q in range(gaps0.shape[0]):
+        row = np.zeros(n_dofs)
+        for a, weight in enumerate(slave_weights[q]):
+            row[slave_dofs[q, a]] += weight * normal[q]
+        for a, weight in enumerate(master_weights[q]):
+            row[master_dofs[q, a]] -= weight * normal[q]
+        contact_rows.append(row)
+        reference_gaps.append(gaps0[q] + row @ displacement)
+
+    reference_gaps = np.asarray(reference_gaps)
+    contact_rows = np.asarray(contact_rows)
+    active = reference_gaps < 0.0
+    reference_residual = np.zeros(n_dofs)
+    reference_jacobian = np.zeros((n_dofs, n_dofs))
+    for q in range(gaps0.shape[0]):
+        if active[q]:
+            scale = float(contact.penalty) * quadrature_weights[q]
+            reference_residual += scale * reference_gaps[q] * contact_rows[q]
+            reference_jacobian += scale * np.outer(contact_rows[q], contact_rows[q])
+
+    np.testing.assert_allclose(np.asarray(contact.gaps(u)), reference_gaps, atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(contact.active_mask(u)), active)
+    np.testing.assert_allclose(np.asarray(contact.residual(u)), reference_residual, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(jax.jacrev(contact.residual)(u)), reference_jacobian, atol=1e-6)
+
 def test_node_surface_contact_quad_shape_weights():
     class SlaveSurface:
         coords = np.array(
