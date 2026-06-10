@@ -298,11 +298,12 @@ state explicitly.
   candidate/cache selection helpers.
 - Added public `ContactSearchManagerLike` and `FrictionManagerLike` protocols
   and runtime validation in `ReducedContactDynamics`.
+- Added a surface-quadrature full-order vs CB-ROM reference test and tutorial.
 
 ## Verification snapshot
 
 - `PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-  passed with 58 tests.
+  passed with 59 tests.
 - `python -m py_compile` passed for the ROM/contact modules, public package
   exports, and all current contact tutorials.
 - Top-level API smoke check passed for:
@@ -340,6 +341,7 @@ state explicitly.
   - `craig_bampton_contact_rom.py`
   - `craig_bampton_1d_obstacle_contact_reference.py`
   - `craig_bampton_full_order_contact_benchmark.py`
+  - `craig_bampton_surface_contact_reference.py`
   - `craig_bampton_fe_surface_contact.py`
   - `node_surface_contact_demo.py`
   - `paired_surface_contact_demo.py`

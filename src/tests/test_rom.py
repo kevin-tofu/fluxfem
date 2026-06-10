@@ -559,6 +559,122 @@ def test_cb_rom_contact_step_matches_full_order_when_all_internal_modes_kept():
     assert float(err1) < float(err0)
     np.testing.assert_allclose(np.asarray(u_rom_all), np.asarray(full_state.q), atol=2e-5)
 
+def test_cb_rom_surface_quadrature_contact_matches_full_order_with_all_modes():
+    dim = 2
+    coords = np.array(
+        [
+            [0.0, 0.04],
+            [1.0, 0.04],
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.25, 0.35],
+            [0.75, 0.35],
+        ],
+        dtype=np.float32,
+    )
+    n_nodes = coords.shape[0]
+    n_full = n_nodes * dim
+    slave = ff.make_surface_from_facets(coords, np.array([[0, 1]], dtype=np.int32))
+    master = ff.make_surface_from_facets(coords, np.array([[2, 3]], dtype=np.int32))
+    stiffness = 1.0 * np.eye(n_full, dtype=np.float32)
+    for a, b in [(0, 4), (1, 5), (4, 5), (4, 2), (5, 3), (2, 3)]:
+        for d in range(dim):
+            ia = a * dim + d
+            ib = b * dim + d
+            stiffness[ia, ia] += 18.0
+            stiffness[ib, ib] += 18.0
+            stiffness[ia, ib] -= 18.0
+            stiffness[ib, ia] -= 18.0
+    stiffness = jnp.asarray(stiffness)
+    mass = jnp.eye(n_full, dtype=jnp.float32)
+    damping = 0.02 * mass
+    external_force = jnp.zeros(n_full, dtype=jnp.float32)
+    external_force = external_force.at[0 * dim + 1].set(-2.0)
+    external_force = external_force.at[1 * dim + 1].set(-2.0)
+    external_force = external_force.at[0 * dim + 0].set(0.12)
+    contact = ff.SurfaceQuadraturePenaltyContact(
+        ff.surface_quadrature_contact_kinematics_from_surfaces(
+            slave,
+            master,
+            dim=dim,
+            n_total_nodes=n_nodes,
+            normal=jnp.array([0.0, 1.0], dtype=jnp.float32),
+            quadrature_rule="vertices",
+        ),
+        penalty=180.0,
+    )
+    config = ff.NewmarkConfig(dt=0.5, tol=1e-8, atol=2e-5, maxiter=30)
+    full_state0 = ff.NewmarkState(
+        q=jnp.zeros(n_full, dtype=jnp.float32),
+        qd=jnp.zeros(n_full, dtype=jnp.float32),
+        qdd=jnp.zeros(n_full, dtype=jnp.float32),
+    )
+
+    def full_internal_from_snapshot(snapshot):
+        contact_residual = snapshot.residual()
+
+        def full_internal(u):
+            return stiffness @ u + contact_residual(u)
+
+        return full_internal
+
+    full_state, full_info = ff.active_contact_newmark_step(
+        mass,
+        damping,
+        full_internal_from_snapshot,
+        external_force,
+        full_state0,
+        config,
+        initial_contact_state=ff.ContactUpdateSnapshot.from_contact(contact, full_state0.q),
+        update_contact_state=lambda u: ff.ContactUpdateSnapshot.from_contact(contact, u),
+        max_active_updates=8,
+    )
+    assert full_info.converged
+
+    retained = ff.retained_dofs_from_surface(
+        ff.make_surface_from_facets(coords, np.array([[0, 1], [2, 3]], dtype=np.int32)),
+        dim,
+    )
+
+    def solve_rom(n_modes: int):
+        cb = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=retained, n_modes=n_modes)
+        q0 = jnp.zeros(cb.n_reduced, dtype=jnp.float32)
+        state0 = ff.NewmarkState(q=q0, qd=jnp.zeros_like(q0), qdd=jnp.zeros_like(q0))
+
+        def rom_internal_from_snapshot(snapshot):
+            contact_residual = snapshot.residual()
+
+            def full_internal(u):
+                return stiffness @ u + contact_residual(u)
+
+            return ff.reduced_residual_from_full(cb, full_internal)
+
+        state, info = ff.active_contact_newmark_step(
+            cb.project_matrix(mass),
+            cb.project_matrix(damping),
+            rom_internal_from_snapshot,
+            cb.project_vector(external_force),
+            state0,
+            config,
+            initial_contact_state=ff.ContactUpdateSnapshot.from_contact(contact, cb.expand(q0)),
+            update_contact_state=lambda q: ff.ContactUpdateSnapshot.from_contact(contact, cb.expand(q)),
+            max_active_updates=8,
+        )
+        assert info.converged
+        return cb.expand(state.q)
+
+    u_rom0 = solve_rom(0)
+    u_rom2 = solve_rom(2)
+    u_rom_all = solve_rom(4)
+    err0 = jnp.linalg.norm(u_rom0 - full_state.q)
+    err2 = jnp.linalg.norm(u_rom2 - full_state.q)
+    err_all = jnp.linalg.norm(u_rom_all - full_state.q)
+
+    assert int(contact.active_count(full_state.q)) == 2
+    assert float(err_all) < 2e-5
+    assert float(err2) < float(err0)
+    np.testing.assert_allclose(np.asarray(u_rom_all), np.asarray(full_state.q), atol=2e-5)
+
 def test_1d_obstacle_penalty_contact_matches_closed_form_reference():
     stiffness = jnp.array(
         [

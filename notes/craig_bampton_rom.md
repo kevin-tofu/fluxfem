@@ -853,6 +853,33 @@ gap/contact variables behind modal coordinates.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 58 tests.
 
+## Current forty-sixth slice
+
+- Added a surface-quadrature contact reference validation.
+- The test solves the same active Newmark surface-contact problem in:
+  - full-order coordinates,
+  - CB-ROM coordinates with retained surface/contact DOFs.
+- It verifies:
+  - all internal modes kept by CB reproduces the full-order displacement,
+  - reduced models preserve the active surface-contact state,
+  - an intermediate mode count improves error over the retained-only ROM.
+- Added `tutorials/craig_bampton_surface_contact_reference.py`.
+- Representative tutorial output:
+  - full active count: `2`,
+  - full gaps: `[-0.00277478, -0.00277478]`,
+  - `n_modes=0`: abs error `1.503429e-02`,
+  - `n_modes=1`: abs error `1.502753e-02`,
+  - `n_modes=2`: abs error `1.226242e-04`,
+  - `n_modes=3`: abs error `1.226242e-04`,
+  - `n_modes=4`: abs error `1.020350e-08`.
+- Verification:
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "surface_quadrature_contact_matches_full_order"`
+    passed.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_surface_contact_reference.py`
+    completed successfully.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
+    passed: 59 tests.
+
 ## AD/contact design
 
 The important design choice is to avoid special ROM element kernels at first.
@@ -870,8 +897,8 @@ surface set, the model will need either a larger retained set or enrichment.
 1. Add sparse/iterative CB path later. The current basis builder densifies
    `K_ii` and `M_ii`, which is acceptable for the first ROM experiments but not
    for large production meshes.
-2. Extend analytical/reference validation toward a small 2D or surface-contact
-   case, or compare against an independent FE assembly path.
+2. Compare against an independent FE assembly path or external contact
+   benchmark for a larger validation step.
 3. Consider adding a small user-facing API guide for `ReducedContactDynamics`
    and the manager protocols once the next validation case is in place.
 
