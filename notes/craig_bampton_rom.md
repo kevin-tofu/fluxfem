@@ -886,6 +886,8 @@ gap/contact variables behind modal coordinates.
 - Added a low-level surface-quadrature penalty-contact check that does not use
   the `SurfaceQuadraturePenaltyContact.residual(...)` implementation as its
   reference.
+- Extended it to a two-facet line-surface case with four quadrature points and
+  a mixed active/inactive contact patch.
 - The test builds an independent NumPy contact-row form:
   - `gap_q = gap0_q + B_q u`,
   - active residual `R += penalty * weight_q * gap_q * B_q`,
@@ -893,10 +895,10 @@ gap/contact variables behind modal coordinates.
 - It verifies residual, active mask, gaps, and AD Jacobian against that
   independently assembled weighted penalty form.
 - Verification:
-  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_weighted_penalty_form"`
-    passed.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_penalty_form or independent_weighted_penalty_form"`
+    passed: 2 tests.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-    passed: 60 tests.
+    passed: 61 tests.
 
 ## AD/contact design
 
