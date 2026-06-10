@@ -301,14 +301,14 @@ state explicitly.
 - Added a surface-quadrature full-order vs CB-ROM reference test and tutorial.
 - Added independent weighted-penalty surface-quadrature contact reference tests
   that assemble `B_q`, residual, and tangent outside the contact class,
-  including a multi-facet mixed-active patch.
+  including a multi-facet mixed-active patch and a 3D quad surface-pair.
 
 ## Verification snapshot
 
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_penalty_form or independent_weighted_penalty_form"`
-  passed with 2 tests.
+  passed with 3 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-  passed with 61 tests.
+  passed with 62 tests.
 - `python -m py_compile` passed for the ROM/contact modules, public package
   exports, and all current contact tutorials.
 - Top-level API smoke check passed for:

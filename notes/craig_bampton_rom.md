@@ -888,6 +888,8 @@ gap/contact variables behind modal coordinates.
   reference.
 - Extended it to a two-facet line-surface case with four quadrature points and
   a mixed active/inactive contact patch.
+- Extended it again to a 3D quad surface-pair with four vertex quadrature points
+  and a mixed active/inactive patch.
 - The test builds an independent NumPy contact-row form:
   - `gap_q = gap0_q + B_q u`,
   - active residual `R += penalty * weight_q * gap_q * B_q`,
@@ -896,9 +898,9 @@ gap/contact variables behind modal coordinates.
   independently assembled weighted penalty form.
 - Verification:
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_penalty_form or independent_weighted_penalty_form"`
-    passed: 2 tests.
+    passed: 3 tests.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-    passed: 61 tests.
+    passed: 62 tests.
 
 ## AD/contact design
 

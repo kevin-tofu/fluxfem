@@ -564,6 +564,59 @@ def test_surface_quadrature_multifacet_contact_matches_independent_penalty_form(
     np.testing.assert_allclose(np.asarray(contact.residual(u)), reference_residual, atol=1e-6)
     np.testing.assert_allclose(np.asarray(jax.jacrev(contact.residual)(u)), reference_jacobian, atol=1e-6)
 
+def test_surface_quadrature_3d_quad_contact_matches_independent_penalty_form():
+    coords = np.array(
+        [
+            [0.0, 0.0, -0.03],
+            [1.0, 0.0, -0.03],
+            [1.0, 1.0, -0.03],
+            [0.0, 1.0, -0.03],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ]
+    )
+
+    class SlaveSurface:
+        pass
+
+    SlaveSurface.coords = coords
+    SlaveSurface.conn = np.array([[0, 1, 2, 3]])
+
+    class MasterSurface:
+        pass
+
+    MasterSurface.coords = coords
+    MasterSurface.conn = np.array([[4, 5, 6, 7]])
+
+    kin = ff.surface_quadrature_contact_kinematics_from_surfaces(
+        SlaveSurface(),
+        MasterSurface(),
+        dim=3,
+        normal=jnp.array([0.0, 0.0, 1.0]),
+        quadrature_rule="vertices",
+    )
+    contact = ff.SurfaceQuadraturePenaltyContact(kin, penalty=25.0)
+    u = jnp.zeros(24, dtype=jnp.float32)
+    u = u.at[0 * 3 + 2].set(0.00)
+    u = u.at[1 * 3 + 2].set(0.05)
+    u = u.at[2 * 3 + 2].set(-0.02)
+    u = u.at[3 * 3 + 2].set(0.04)
+    u = u.at[0 * 3 + 0].set(0.01)
+    u = u.at[2 * 3 + 1].set(-0.02)
+    reference_gaps, active, reference_residual, reference_jacobian = (
+        _independent_surface_quadrature_penalty_reference(kin, contact.penalty, u)
+    )
+
+    np.testing.assert_allclose(np.asarray(kin.quadrature_weights), 0.25 * np.ones(4), atol=1e-6)
+    np.testing.assert_array_equal(active, np.array([True, False, True, False]))
+    assert int(contact.active_count(u)) == 2
+    np.testing.assert_allclose(np.asarray(contact.gaps(u)), reference_gaps, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(contact.residual(u)), reference_residual, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(jnp.sum(contact.residual(u).reshape(-1, 3), axis=0)), np.zeros(3), atol=1e-6)
+    np.testing.assert_allclose(np.asarray(jax.jacrev(contact.residual)(u)), reference_jacobian, atol=1e-6)
+
 def test_node_surface_contact_quad_shape_weights():
     class SlaveSurface:
         coords = np.array(
