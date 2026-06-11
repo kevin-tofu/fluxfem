@@ -308,9 +308,13 @@ state explicitly.
   frozen-friction zero Jacobian.
 - Added a `ReducedContactDynamics` surface-quadrature friction
   facade-vs-manual callback equivalence test for the public manager interface.
+- Added `notes/contact_rom_api_guide.md` as the compact user-facing guide for
+  the current CB contact ROM API.
 
 ## Verification snapshot
 
+- `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py`
+  completed successfully.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_penalty_form or independent_weighted_penalty_form"`
   passed with 3 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_reference or independent_penalty_form or independent_weighted_penalty_form"`

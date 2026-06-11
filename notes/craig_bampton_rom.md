@@ -901,6 +901,9 @@ gap/contact variables behind modal coordinates.
   for surface-quadrature contact with a friction manager. This checks the public
   manager interface path, reduced Newmark state, active state, search cache, and
   advanced friction history.
+- Added `notes/contact_rom_api_guide.md` as a user-facing entry point for the
+  recommended CB contact ROM workflow, manager roles, AD behavior, and active
+  contact applicability.
 - The test builds an independent NumPy contact-row form:
   - `gap_q = gap0_q + B_q u`,
   - active residual `R += penalty * weight_q * gap_q * B_q`,
@@ -908,6 +911,8 @@ gap/contact variables behind modal coordinates.
 - It verifies residual, active mask, gaps, and AD Jacobian against that
   independently assembled weighted penalty form.
 - Verification:
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py`
+    completed successfully.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_penalty_form or independent_weighted_penalty_form"`
     passed: 3 tests.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_reference or independent_penalty_form or independent_weighted_penalty_form"`
@@ -938,8 +943,8 @@ surface set, the model will need either a larger retained set or enrichment.
    for large production meshes.
 2. Extend the independent contact reference from the current one-facet
    weighted penalty form to a multi-facet FE assembly or external benchmark.
-3. Consider adding a small user-facing API guide for `ReducedContactDynamics`
-   and the manager protocols once the next validation case is in place.
+3. Consider a higher-level convenience constructor once multiple real examples
+   use the same retained-surface/search/friction setup.
 
 ## Open questions
 
