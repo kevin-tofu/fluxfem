@@ -27,6 +27,24 @@ validation details live in `notes/craig_bampton_rom.md` and
    candidate set. If the active patch moves outside the retained band, the ROM
    basis no longer gives the contact residual enough physical coordinates.
 
+   For larger internal blocks, the static constraint-mode solve can be swapped:
+
+   ```python
+   cb = ff.make_craig_bampton_basis(
+       K,
+       M,
+       retained_dofs=retained,
+       n_modes=n_modes,
+       constraint_solver="cg",
+       cg_tol=1e-8,
+       cg_maxiter=200,
+   )
+   ```
+
+   Fixed-interface modal extraction is still dense. Use the CG option as an
+   incremental scaling aid for constraint modes, not as a full sparse modal
+   extraction path.
+
 3. Choose a search manager.
 
    Node-to-surface:

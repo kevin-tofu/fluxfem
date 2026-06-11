@@ -73,6 +73,7 @@ from .rom import (
     newmark_step,
     reduced_jacobian_from_full,
     reduced_residual_from_full,
+    solve_constraint_modes,
 )
 from .contact import (
     ActiveContactState,

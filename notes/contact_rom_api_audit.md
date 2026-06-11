@@ -312,6 +312,9 @@ state explicitly.
   the current CB contact ROM API.
 - Added `notes/contact_independent_reference_pr_summary.md` as the merge/PR
   summary for this validation branch.
+- Added `solve_constraint_modes(...)` and `constraint_solver="cg"` /
+  custom-callable support to `make_craig_bampton_basis(...)` as the first
+  sparse/iterative CB extension point.
 
 ## Verification snapshot
 
@@ -325,8 +328,10 @@ state explicitly.
   passed with 7 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "reduced_contact_dynamics"`
   passed with 4 tests.
+- `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "craig_bampton"`
+  passed with 4 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-  passed with 65 tests.
+  passed with 67 tests.
 - `python -m py_compile` passed for the ROM/contact modules, public package
   exports, and all current contact tutorials.
 - Top-level API smoke check passed for:

@@ -123,6 +123,7 @@ __all__ = [
     "reduced_jacobian_from_full",
     "reduced_residual_from_full",
     "retained_dofs_from_surface",
+    "solve_constraint_modes",
     "slip_norm",
     "stick_count",
     "surface_quadrature_contact_kinematics_from_surfaces",

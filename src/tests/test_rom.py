@@ -59,6 +59,72 @@ def test_craig_bampton_basis_all_retained_is_identity():
     assert cb.n_retained == 3
     assert cb.n_modes == 0
 
+def test_craig_bampton_cg_constraint_solver_matches_dense():
+    stiffness = jnp.array(
+        [
+            [6.0, -1.0, 0.0, 0.0, 0.0],
+            [-1.0, 7.0, -1.5, 0.0, 0.0],
+            [0.0, -1.5, 8.0, -1.0, 0.0],
+            [0.0, 0.0, -1.0, 7.0, -1.0],
+            [0.0, 0.0, 0.0, -1.0, 5.0],
+        ],
+        dtype=jnp.float32,
+    )
+    mass = jnp.eye(5, dtype=jnp.float32)
+    retained = jnp.array([0, 4])
+    dense = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=retained, n_modes=2)
+    cg = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=retained,
+        n_modes=2,
+        constraint_solver="cg",
+        cg_tol=1e-8,
+        cg_maxiter=50,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(cg.basis[:, : dense.n_retained]),
+        np.asarray(dense.basis[:, : dense.n_retained]),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        np.asarray(cg.basis[:, dense.n_retained :]),
+        np.asarray(dense.basis[:, dense.n_retained :]),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(np.asarray(cg.eigenvalues), np.asarray(dense.eigenvalues), rtol=1e-6, atol=1e-6)
+
+def test_craig_bampton_accepts_custom_constraint_solver():
+    stiffness = jnp.array(
+        [
+            [4.0, -1.0, 0.0],
+            [-1.0, 5.0, -1.0],
+            [0.0, -1.0, 4.0],
+        ],
+        dtype=jnp.float32,
+    )
+    mass = jnp.eye(3, dtype=jnp.float32)
+    calls = {"count": 0}
+
+    def solver(k_ii, rhs):
+        calls["count"] += 1
+        return jnp.linalg.solve(k_ii, rhs)
+
+    custom = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=jnp.array([0, 2]),
+        n_modes=0,
+        constraint_solver=solver,
+    )
+    dense = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=jnp.array([0, 2]), n_modes=0)
+
+    assert calls["count"] == 1
+    np.testing.assert_allclose(np.asarray(custom.basis), np.asarray(dense.basis), rtol=1e-6, atol=1e-6)
+
 def test_newmark_step_solves_linear_reduced_dynamics():
     mass = jnp.array([[2.0]])
     damping = None

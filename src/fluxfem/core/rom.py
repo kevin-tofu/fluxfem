@@ -29,6 +29,90 @@ def _mass_normalize(modes: Array, mass: Array) -> Array:
     return modes / jnp.sqrt(jnp.maximum(norms2, jnp.finfo(modes.dtype).eps))[None, :]
 
 
+def _cg_solve_matrix(
+    matrix: Array,
+    rhs: Array,
+    *,
+    tol: float,
+    maxiter: int | None,
+) -> Array:
+    """Solve SPD multi-RHS systems with a small dense-matvec CG loop."""
+    matrix = jnp.asarray(matrix)
+    rhs = jnp.asarray(rhs)
+    if rhs.ndim != 2:
+        raise ValueError("rhs must have shape (n, n_rhs).")
+    n = int(matrix.shape[0])
+    if matrix.shape != (n, n):
+        raise ValueError("matrix must be square.")
+    if rhs.shape[0] != n:
+        raise ValueError("rhs row count must match matrix size.")
+    if rhs.shape[1] == 0 or n == 0:
+        return jnp.zeros_like(rhs)
+
+    maxiter = n if maxiter is None else int(maxiter)
+    if maxiter <= 0:
+        raise ValueError("maxiter must be positive.")
+    tol = float(tol)
+    if tol < 0.0:
+        raise ValueError("tol must be non-negative.")
+
+    x = jnp.zeros_like(rhs)
+    r = rhs - matrix @ x
+    p = r
+    rs_old = jnp.sum(r * r, axis=0)
+    rhs_norm = jnp.sqrt(jnp.maximum(jnp.sum(rhs * rhs, axis=0), jnp.finfo(rhs.dtype).eps))
+    eps = jnp.finfo(rhs.dtype).eps
+    active = jnp.ones((rhs.shape[1],), dtype=bool)
+
+    for _ in range(maxiter):
+        ap = matrix @ p
+        denom = jnp.sum(p * ap, axis=0)
+        alpha = jnp.where(active, rs_old / jnp.maximum(denom, eps), 0.0)
+        x = x + p * alpha[None, :]
+        r = r - ap * alpha[None, :]
+        rs_new = jnp.sum(r * r, axis=0)
+        converged = jnp.sqrt(jnp.maximum(rs_new, 0.0)) <= tol * rhs_norm
+        active = active & ~converged
+        beta = jnp.where(active, rs_new / jnp.maximum(rs_old, eps), 0.0)
+        p = r + p * beta[None, :]
+        rs_old = rs_new
+        if not bool(jnp.any(active)):
+            break
+    return x
+
+
+def solve_constraint_modes(
+    stiffness_ii: Array,
+    stiffness_ir: Array,
+    *,
+    solver: str | Callable[[Array, Array], Array] = "dense",
+    cg_tol: float = 1e-10,
+    cg_maxiter: int | None = None,
+) -> Array:
+    """
+    Solve CB static constraint modes `K_ii Psi = -K_ir`.
+
+    `solver="dense"` uses `jnp.linalg.solve`. `solver="cg"` uses an in-tree
+    conjugate-gradient loop for SPD internal stiffness blocks. A callable solver
+    can be supplied as `solver(K_ii, rhs)` and must return the solution of
+    `K_ii X = rhs`.
+    """
+    stiffness_ii = jnp.asarray(stiffness_ii)
+    stiffness_ir = jnp.asarray(stiffness_ir)
+    if stiffness_ir.ndim != 2:
+        raise ValueError("stiffness_ir must have shape (n_internal, n_retained).")
+    if stiffness_ir.shape[1] == 0:
+        return jnp.zeros((stiffness_ii.shape[0], 0), dtype=jnp.result_type(stiffness_ii, stiffness_ir))
+    rhs = -stiffness_ir
+    if callable(solver):
+        return jnp.asarray(solver(stiffness_ii, rhs))
+    if solver == "dense":
+        return jnp.linalg.solve(stiffness_ii, rhs)
+    if solver == "cg":
+        return _cg_solve_matrix(stiffness_ii, rhs, tol=cg_tol, maxiter=cg_maxiter)
+    raise ValueError("constraint_solver must be 'dense', 'cg', or a callable.")
+
+
 def fixed_interface_modes(stiffness_ii: Array, mass_ii: Array, n_modes: int) -> tuple[Array, Array]:
     """
     Compute fixed-interface modes from K_ii phi = lambda M_ii phi.
@@ -121,13 +205,21 @@ def make_craig_bampton_basis(
     mass: Array,
     retained_dofs: Array,
     n_modes: int,
+    *,
+    constraint_solver: str | Callable[[Array, Array], Array] = "dense",
+    cg_tol: float = 1e-10,
+    cg_maxiter: int | None = None,
 ) -> CraigBamptonBasis:
     """
-    Build a dense Craig-Bampton reduction basis.
+    Build a Craig-Bampton reduction basis.
 
     The reduced coordinate ordering is:
     1. retained physical DOFs
     2. fixed-interface internal modal amplitudes
+
+    Fixed-interface modal extraction is currently dense. Static constraint modes
+    can use `constraint_solver="dense"`, `constraint_solver="cg"`, or a custom
+    callable `solver(K_ii, rhs)`.
     """
     stiffness = jnp.asarray(stiffness)
     mass = jnp.asarray(mass)
@@ -159,7 +251,13 @@ def make_craig_bampton_basis(
     m_ii = _take_block(mass, internal, internal)
 
     if retained.size:
-        constraint_modes = -jnp.linalg.solve(k_ii, k_ir)
+        constraint_modes = solve_constraint_modes(
+            k_ii,
+            k_ir,
+            solver=constraint_solver,
+            cg_tol=cg_tol,
+            cg_maxiter=cg_maxiter,
+        )
     else:
         constraint_modes = jnp.zeros((internal.size, 0), dtype=stiffness.dtype)
     normal_modes, eigenvalues = fixed_interface_modes(k_ii, m_ii, n_modes)

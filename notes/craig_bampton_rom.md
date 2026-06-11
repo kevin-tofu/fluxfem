@@ -924,6 +924,28 @@ gap/contact variables behind modal coordinates.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 65 tests.
 
+## Current forty-eighth slice
+
+- Started the sparse/iterative CB branch.
+- Added `solve_constraint_modes(...)` as the first replaceable solve boundary
+  inside CB basis construction.
+- `make_craig_bampton_basis(...)` now accepts:
+  - `constraint_solver="dense"` for the existing direct dense solve,
+  - `constraint_solver="cg"` for an in-tree SPD conjugate-gradient multi-RHS
+    solve,
+  - a custom callable `solver(K_ii, rhs)` for external sparse/direct/iterative
+    solvers.
+- Fixed-interface modal extraction is still dense in this slice; the new solver
+  option only targets static constraint modes.
+- Verification:
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "craig_bampton"`
+    passed: 4 tests.
+  - `PYENV_VERSION=jaxfem python -m py_compile src/fluxfem/core/rom.py src/fluxfem/core/__init__.py src/fluxfem/__init__.py`
+    passed.
+  - top-level smoke passed for `solve_constraint_modes`.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
+    passed: 67 tests.
+
 ## AD/contact design
 
 The important design choice is to avoid special ROM element kernels at first.
@@ -938,9 +960,8 @@ surface set, the model will need either a larger retained set or enrichment.
 
 ## Next implementation steps
 
-1. Add sparse/iterative CB path later. The current basis builder densifies
-   `K_ii` and `M_ii`, which is acceptable for the first ROM experiments but not
-   for large production meshes.
+1. Extend the sparse/iterative CB path from constraint modes to fixed-interface
+   modal extraction. The current eigensolve still densifies `K_ii` and `M_ii`.
 2. Extend the independent contact reference from the current one-facet
    weighted penalty form to a multi-facet FE assembly or external benchmark.
 3. Consider a higher-level convenience constructor once multiple real examples
