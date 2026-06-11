@@ -310,6 +310,8 @@ state explicitly.
   facade-vs-manual callback equivalence test for the public manager interface.
 - Added `notes/contact_rom_api_guide.md` as the compact user-facing guide for
   the current CB contact ROM API.
+- Added `notes/contact_independent_reference_pr_summary.md` as the merge/PR
+  summary for this validation branch.
 
 ## Verification snapshot
 
