@@ -41,6 +41,25 @@ def _independent_surface_quadrature_penalty_reference(kin, penalty: float, u):
     return gaps, active, residual, jacobian
 
 
+def _independent_surface_quadrature_friction_residual(kin, friction_force):
+    n_dofs = int(kin.n_dofs)
+    residual = np.zeros(n_dofs)
+    force = np.asarray(friction_force)
+    quadrature_weights = np.asarray(kin.quadrature_weights)
+    slave_dofs = np.asarray(kin.slave_dofs)
+    master_dofs = np.asarray(kin.master_dofs)
+    slave_weights = np.asarray(kin.slave_weights)
+    master_weights = np.asarray(kin.master_weights)
+
+    for q in range(force.shape[0]):
+        weighted_force = quadrature_weights[q] * force[q]
+        for a, weight in enumerate(slave_weights[q]):
+            residual[slave_dofs[q, a]] += weight * weighted_force
+        for a, weight in enumerate(master_weights[q]):
+            residual[master_dofs[q, a]] -= weight * weighted_force
+    return residual
+
+
 def test_plane_contact_residual_scatter_and_jacobian():
     contact = ff.PlanePenaltyContact(
         ff.ContactKinematics(
@@ -203,6 +222,48 @@ def test_friction_residual_from_history_scatters_for_contact_types():
         np.array([-0.4, 0.0, 0.1, 0.0, 0.3, 0.0]),
         atol=1e-6,
     )
+
+def test_surface_quadrature_friction_history_and_scatter_match_independent_reference():
+    class SlaveSurface:
+        coords = np.array([[0.0, -0.05], [1.0, -0.05], [0.0, 0.0], [1.0, 0.0]])
+        conn = np.array([[0, 1]])
+
+    class MasterSurface:
+        coords = SlaveSurface.coords
+        conn = np.array([[2, 3]])
+
+    contact = ff.SurfaceQuadraturePenaltyContact(
+        ff.surface_quadrature_contact_kinematics_from_surfaces(
+            SlaveSurface(),
+            MasterSurface(),
+            dim=2,
+            normal=jnp.array([0.0, 1.0]),
+            quadrature_rule="vertices",
+        ),
+        penalty=10.0,
+    )
+    u_prev = jnp.zeros(8, dtype=jnp.float32)
+    u = u_prev.at[0].set(0.02).at[2].set(0.2)
+    history = ff.update_tangential_penalty_history(
+        contact,
+        u,
+        u_prev,
+        None,
+        mu=0.5,
+        tangential_penalty=4.0,
+    )
+    reference_residual = _independent_surface_quadrature_friction_residual(
+        contact.kinematics,
+        np.array([[-0.08, 0.0], [-0.25, 0.0]]),
+    )
+    residual_fn = ff.make_friction_residual(contact, history)
+
+    np.testing.assert_allclose(np.asarray(history.tangential_slip), np.array([[0.02], [0.0625]]), atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(history.stick), np.array([True, False]))
+    np.testing.assert_allclose(np.asarray(history.friction_force), np.array([[-0.08, 0.0], [-0.25, 0.0]]), atol=1e-6)
+    np.testing.assert_allclose(np.asarray(ff.friction_residual_from_history(contact, history)), reference_residual, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(residual_fn(u)), reference_residual, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(jax.jacrev(residual_fn)(u)), np.zeros((8, 8)), atol=1e-6)
 
 def test_active_contact_state_freezes_active_set():
     contact = ff.PlanePenaltyContact(

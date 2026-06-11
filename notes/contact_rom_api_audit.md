@@ -303,6 +303,9 @@ state explicitly.
   that assemble `B_q`, residual, and tangent outside the contact class,
   including a multi-facet mixed-active patch, a 3D quad surface-pair, and a
   search-manager refresh workflow.
+- Added an independent surface-quadrature friction-history/scatter reference
+  test covering stick/slip clipping, quadrature-weighted scatter, and the
+  frozen-friction zero Jacobian.
 
 ## Verification snapshot
 
@@ -310,8 +313,10 @@ state explicitly.
   passed with 3 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_reference or independent_penalty_form or independent_weighted_penalty_form"`
   passed with 4 tests.
+- `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "friction or independent_reference"`
+  passed with 7 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-  passed with 63 tests.
+  passed with 64 tests.
 - `python -m py_compile` passed for the ROM/contact modules, public package
   exports, and all current contact tutorials.
 - Top-level API smoke check passed for:

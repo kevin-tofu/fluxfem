@@ -893,6 +893,10 @@ gap/contact variables behind modal coordinates.
 - Added the same independent residual/Jacobian check for a
   `SurfaceQuadratureContactSearchManager` workflow, including a refreshed
   pairing/cache after large slave-surface motion.
+- Added an independent surface-quadrature friction-history/scatter check:
+  tangential slip, stick/slip clipping, quadrature-weighted residual scatter,
+  and frozen-friction zero Jacobian are verified outside the contact residual
+  implementation.
 - The test builds an independent NumPy contact-row form:
   - `gap_q = gap0_q + B_q u`,
   - active residual `R += penalty * weight_q * gap_q * B_q`,
@@ -904,8 +908,10 @@ gap/contact variables behind modal coordinates.
     passed: 3 tests.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_reference or independent_penalty_form or independent_weighted_penalty_form"`
     passed: 4 tests.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "friction or independent_reference"`
+    passed: 7 tests.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-    passed: 63 tests.
+    passed: 64 tests.
 
 ## AD/contact design
 
