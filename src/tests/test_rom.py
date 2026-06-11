@@ -465,6 +465,123 @@ def test_reduced_contact_dynamics_matches_manual_callbacks():
         atol=1e-6,
     )
 
+def test_reduced_contact_dynamics_surface_quadrature_friction_matches_manual_callbacks():
+    coords = np.array([[0.0, -0.04], [1.0, -0.04], [0.0, 0.0], [1.0, 0.0]], dtype=np.float32)
+    slave = ff.make_surface_from_facets(coords, np.array([[0, 1]], dtype=np.int32))
+    master = ff.make_surface_from_facets(coords, np.array([[2, 3]], dtype=np.int32))
+    n_full = 8
+    stiffness = 3.0 * jnp.eye(n_full, dtype=jnp.float32)
+    mass = jnp.eye(n_full, dtype=jnp.float32)
+    damping = 0.01 * mass
+    cb = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=ff.vector_dofs_from_nodes(jnp.array([0, 1, 2, 3]), dim=2),
+        n_modes=2,
+    )
+    state = ff.NewmarkState(
+        q=jnp.zeros(cb.n_reduced, dtype=jnp.float32),
+        qd=jnp.zeros(cb.n_reduced, dtype=jnp.float32),
+        qdd=jnp.zeros(cb.n_reduced, dtype=jnp.float32),
+    )
+    config = ff.NewmarkConfig(dt=0.5, tol=1e-8, atol=1e-5, maxiter=24)
+    external_force = jnp.zeros(n_full, dtype=jnp.float32)
+    external_force = external_force.at[0].set(0.25).at[2].set(0.10)
+    external_force = external_force.at[1].set(-0.8).at[3].set(-0.3)
+
+    def make_search_manager():
+        return ff.make_surface_quadrature_contact_search_manager(
+            slave,
+            master,
+            dim=2,
+            n_total_nodes=4,
+            search_radius=0.2,
+            skin=0.1,
+            penalty=25.0,
+            normal=jnp.array([0.0, 1.0], dtype=jnp.float32),
+            quadrature_rule="vertices",
+            cell_size=1.0,
+        )
+
+    def make_friction_manager():
+        return ff.TangentialPenaltyFrictionManager(
+            mu=0.45,
+            tangential_penalty=6.0,
+            previous_displacement=jnp.zeros(n_full, dtype=jnp.float32),
+        )
+
+    dynamics = ff.ReducedContactDynamics(
+        cb=cb,
+        stiffness=stiffness,
+        mass=mass,
+        damping=damping,
+        search_manager=make_search_manager(),
+        friction_manager=make_friction_manager(),
+    )
+    facade_state, facade_info = dynamics.active_newmark_step(
+        external_force,
+        state,
+        config,
+        max_active_updates=6,
+    )
+
+    search_manager = {"value": make_search_manager()}
+    friction_manager = {"value": make_friction_manager()}
+
+    def build_contact(u_full):
+        contact, next_manager = search_manager["value"].build_contact(u_full)
+        search_manager["value"] = next_manager
+        return contact
+
+    def build_snapshot(q):
+        u_full = cb.expand(q)
+        return friction_manager["value"].snapshot(build_contact(u_full), u_full)
+
+    def internal_force_from_snapshot(snapshot):
+        contact_residual = snapshot.residual()
+
+        def full_residual(u):
+            return stiffness @ u + contact_residual(u)
+
+        return ff.reduced_residual_from_full(cb, full_residual)
+
+    manual_state, manual_info = ff.active_contact_newmark_step(
+        cb.project_matrix(mass),
+        cb.project_matrix(damping),
+        internal_force_from_snapshot,
+        cb.project_vector(external_force),
+        state,
+        config,
+        initial_contact_state=build_snapshot(state.q),
+        update_contact_state=build_snapshot,
+        max_active_updates=6,
+    )
+    friction_manager["value"] = friction_manager["value"].advance(
+        manual_info.contact_state.contact,
+        cb.expand(manual_state.q),
+    )
+
+    assert facade_info.converged
+    assert manual_info.converged
+    assert isinstance(facade_info.contact_state.contact, ff.SurfaceQuadraturePenaltyContact)
+    np.testing.assert_allclose(np.asarray(facade_state.q), np.asarray(manual_state.q), atol=1e-6)
+    np.testing.assert_allclose(np.asarray(facade_state.qd), np.asarray(manual_state.qd), atol=1e-6)
+    np.testing.assert_allclose(np.asarray(facade_state.qdd), np.asarray(manual_state.qdd), atol=1e-6)
+    np.testing.assert_array_equal(
+        np.asarray(facade_info.contact_state.active_state.active),
+        np.asarray(manual_info.contact_state.active_state.active),
+    )
+    np.testing.assert_array_equal(
+        np.asarray(facade_info.contact_state.contact.kinematics.master_facet_ids),
+        np.asarray(manual_info.contact_state.contact.kinematics.master_facet_ids),
+    )
+    np.testing.assert_allclose(
+        np.asarray(dynamics.friction_manager.history.friction_force),
+        np.asarray(friction_manager["value"].history.friction_force),
+        atol=1e-6,
+    )
+    assert dynamics.search_manager.search_cache is not None
+
 def test_cb_rom_contact_step_matches_full_order_when_all_internal_modes_kept():
     stiffness = jnp.array(
         [

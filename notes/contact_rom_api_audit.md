@@ -306,6 +306,8 @@ state explicitly.
 - Added an independent surface-quadrature friction-history/scatter reference
   test covering stick/slip clipping, quadrature-weighted scatter, and the
   frozen-friction zero Jacobian.
+- Added a `ReducedContactDynamics` surface-quadrature friction
+  facade-vs-manual callback equivalence test for the public manager interface.
 
 ## Verification snapshot
 
@@ -315,8 +317,10 @@ state explicitly.
   passed with 4 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "friction or independent_reference"`
   passed with 7 tests.
+- `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "reduced_contact_dynamics"`
+  passed with 4 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-  passed with 64 tests.
+  passed with 65 tests.
 - `python -m py_compile` passed for the ROM/contact modules, public package
   exports, and all current contact tutorials.
 - Top-level API smoke check passed for:

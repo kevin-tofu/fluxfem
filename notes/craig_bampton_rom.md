@@ -897,6 +897,10 @@ gap/contact variables behind modal coordinates.
   tangential slip, stick/slip clipping, quadrature-weighted residual scatter,
   and frozen-friction zero Jacobian are verified outside the contact residual
   implementation.
+- Added a `ReducedContactDynamics` facade-vs-manual callback equivalence test
+  for surface-quadrature contact with a friction manager. This checks the public
+  manager interface path, reduced Newmark state, active state, search cache, and
+  advanced friction history.
 - The test builds an independent NumPy contact-row form:
   - `gap_q = gap0_q + B_q u`,
   - active residual `R += penalty * weight_q * gap_q * B_q`,
@@ -910,8 +914,10 @@ gap/contact variables behind modal coordinates.
     passed: 4 tests.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "friction or independent_reference"`
     passed: 7 tests.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "reduced_contact_dynamics"`
+    passed: 4 tests.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-    passed: 64 tests.
+    passed: 65 tests.
 
 ## AD/contact design
 
