@@ -988,6 +988,24 @@ gap/contact variables behind modal coordinates.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 72 tests.
 
+## Current fifty-first slice
+
+- Added sparse-aware CB block partitioning for `make_craig_bampton_basis(...)`.
+- `_take_block(...)` now preserves SciPy CSR blocks for sparse inputs and
+  `FluxSparseMatrix` inputs via `to_csr()`.
+- Added `constraint_solver="spsolve"` as an optional SciPy sparse direct solve
+  path for static constraint modes.
+- `modal_solver="eigsh"` can now receive sparse `K_ii` and `M_ii` blocks
+  directly instead of only CSR-wrapping dense blocks.
+- Dense/subspace paths still convert to dense where their algorithms require it.
+- Verification:
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "craig_bampton or fixed_interface"`
+    passed: 10 tests.
+  - `PYENV_VERSION=jaxfem python -m py_compile src/fluxfem/core/rom.py`
+    passed.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
+    passed: 73 tests.
+
 ## AD/contact design
 
 The important design choice is to avoid special ROM element kernels at first.
@@ -1002,8 +1020,8 @@ surface set, the model will need either a larger retained set or enrichment.
 
 ## Next implementation steps
 
-1. Add a truly sparse CB assembly path that preserves sparse internal blocks
-   through DOF partitioning instead of extracting dense `K_ii` and `M_ii`.
+1. Add larger sparse benchmark coverage for `constraint_solver="spsolve"` and
+   `modal_solver="eigsh"` on assembled FE matrices.
 2. Extend the independent contact reference from the current one-facet
    weighted penalty form to a multi-facet FE assembly or external benchmark.
 3. Consider a higher-level convenience constructor once multiple real examples

@@ -320,6 +320,8 @@ state explicitly.
   `make_craig_bampton_basis(...)`.
 - Added optional `modal_solver="eigsh"` support through
   `scipy.sparse.linalg.eigsh` when SciPy is installed.
+- Added sparse-aware CB block partitioning for SciPy sparse and
+  `FluxSparseMatrix` inputs, plus `constraint_solver="spsolve"`.
 
 ## Verification snapshot
 
@@ -338,9 +340,9 @@ state explicitly.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "craig_bampton or fixed_interface_subspace"`
   passed with 7 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "craig_bampton or fixed_interface"`
-  passed with 9 tests.
+  passed with 10 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-  passed with 72 tests.
+  passed with 73 tests.
 - `python -m py_compile` passed for the ROM/contact modules, public package
   exports, and all current contact tutorials.
 - Top-level API smoke check passed for:

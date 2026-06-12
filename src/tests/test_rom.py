@@ -4,6 +4,21 @@ import numpy as np
 
 import fluxfem as ff
 
+
+def _flux_sparse_from_dense(matrix):
+    matrix_np = np.asarray(matrix)
+    rows, cols = np.nonzero(matrix_np)
+    data = matrix_np[rows, cols]
+    return ff.FluxSparseMatrix(
+        ff.SparsityPattern(
+            rows=jnp.asarray(rows, dtype=jnp.int32),
+            cols=jnp.asarray(cols, dtype=jnp.int32),
+            n_dofs=matrix_np.shape[0],
+        ),
+        jnp.asarray(data, dtype=jnp.asarray(matrix).dtype),
+    )
+
+
 def test_craig_bampton_basis_keeps_retained_dofs_physical():
     stiffness = jnp.array(
         [
@@ -303,6 +318,45 @@ def test_craig_bampton_eigsh_modal_solver_matches_dense():
     )
     np.testing.assert_allclose(
         np.asarray(eigsh.basis @ eigsh.basis.T),
+        np.asarray(dense.basis @ dense.basis.T),
+        rtol=3e-5,
+        atol=3e-5,
+    )
+
+def test_craig_bampton_flux_sparse_blocks_match_dense():
+    stiffness = jnp.array(
+        [
+            [7.0, -1.0, 0.0, 0.0, 0.0, 0.0],
+            [-1.0, 8.0, -1.0, 0.0, 0.0, 0.0],
+            [0.0, -1.0, 9.0, -1.0, 0.0, 0.0],
+            [0.0, 0.0, -1.0, 8.0, -1.0, 0.0],
+            [0.0, 0.0, 0.0, -1.0, 7.0, -1.0],
+            [0.0, 0.0, 0.0, 0.0, -1.0, 6.0],
+        ],
+        dtype=jnp.float32,
+    )
+    mass = jnp.eye(6, dtype=jnp.float32)
+    retained = jnp.array([0, 5])
+    dense = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=retained, n_modes=2)
+    sparse = ff.make_craig_bampton_basis(
+        _flux_sparse_from_dense(stiffness),
+        _flux_sparse_from_dense(mass),
+        retained_dofs=retained,
+        n_modes=2,
+        constraint_solver="spsolve",
+        modal_solver="eigsh",
+        modal_tol=1e-9,
+        modal_maxiter=200,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(sparse.eigenvalues),
+        np.asarray(dense.eigenvalues),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        np.asarray(sparse.basis @ sparse.basis.T),
         np.asarray(dense.basis @ dense.basis.T),
         rtol=3e-5,
         atol=3e-5,

@@ -13,6 +13,14 @@ from .contact import ContactUpdateSnapshot
 Array = jnp.ndarray
 
 
+def _optional_scipy_sparse():
+    try:
+        import scipy.sparse as sp
+    except Exception:  # pragma: no cover
+        return None
+    return sp
+
+
 def complement_dofs(n_dofs: int, retained_dofs: Array) -> Array:
     """Return sorted DOFs not listed in retained_dofs."""
     retained = jnp.asarray(retained_dofs, dtype=jnp.int32)
@@ -21,10 +29,47 @@ def complement_dofs(n_dofs: int, retained_dofs: Array) -> Array:
 
 
 def _take_block(matrix: Array, rows: Array, cols: Array) -> Array:
-    return matrix[jnp.asarray(rows, dtype=jnp.int32)[:, None], jnp.asarray(cols, dtype=jnp.int32)[None, :]]
+    sp = _optional_scipy_sparse()
+    if hasattr(matrix, "to_csr"):
+        matrix = matrix.to_csr()
+    if sp is not None and sp.issparse(matrix):
+        rows_np = np.asarray(rows, dtype=np.int32).reshape(-1)
+        cols_np = np.asarray(cols, dtype=np.int32).reshape(-1)
+        return matrix.tocsr()[rows_np, :][:, cols_np].tocsr()
+    return jnp.asarray(matrix)[jnp.asarray(rows, dtype=jnp.int32)[:, None], jnp.asarray(cols, dtype=jnp.int32)[None, :]]
+
+
+def _matrix_shape(matrix) -> tuple[int, int]:
+    if hasattr(matrix, "shape"):
+        return tuple(int(v) for v in matrix.shape)
+    if hasattr(matrix, "to_csr"):
+        return tuple(int(v) for v in matrix.to_csr().shape)
+    arr = jnp.asarray(matrix)
+    return tuple(int(v) for v in arr.shape)
+
+
+def _as_dense_array(matrix) -> Array:
+    if hasattr(matrix, "to_dense"):
+        return jnp.asarray(matrix.to_dense())
+    if hasattr(matrix, "toarray"):
+        return jnp.asarray(matrix.toarray())
+    return jnp.asarray(matrix)
+
+
+def _matrix_dtype(matrix):
+    if hasattr(matrix, "data"):
+        return jnp.asarray(matrix.data).dtype
+    if hasattr(matrix, "dtype"):
+        return jnp.asarray(np.empty((), dtype=matrix.dtype)).dtype
+    return jnp.asarray(matrix).dtype
+
+
+def _result_dtype(*matrices):
+    return jnp.result_type(*[jnp.empty((), dtype=_matrix_dtype(matrix)) for matrix in matrices])
 
 
 def _mass_normalize(modes: Array, mass: Array) -> Array:
+    mass = _as_dense_array(mass)
     norms2 = jnp.einsum("ia,ij,ja->a", modes, mass, modes)
     return modes / jnp.sqrt(jnp.maximum(norms2, jnp.finfo(modes.dtype).eps))[None, :]
 
@@ -37,7 +82,7 @@ def _cg_solve_matrix(
     maxiter: int | None,
 ) -> Array:
     """Solve SPD multi-RHS systems with a small dense-matvec CG loop."""
-    matrix = jnp.asarray(matrix)
+    matrix = _as_dense_array(matrix)
     rhs = jnp.asarray(rhs)
     if rhs.ndim != 2:
         raise ValueError("rhs must have shape (n, n_rhs).")
@@ -97,23 +142,45 @@ def solve_constraint_modes(
     can be supplied as `solver(K_ii, rhs)` and must return the solution of
     `K_ii X = rhs`.
     """
-    stiffness_ii = jnp.asarray(stiffness_ii)
-    stiffness_ir = jnp.asarray(stiffness_ir)
+    stiffness_shape = _matrix_shape(stiffness_ii)
+    stiffness_ir = _as_dense_array(stiffness_ir)
+    if stiffness_shape[0] != stiffness_shape[1]:
+        raise ValueError("stiffness_ii must be square.")
+    if stiffness_ir.shape[0] != stiffness_shape[0]:
+        raise ValueError("stiffness_ir row count must match stiffness_ii.")
     if stiffness_ir.ndim != 2:
         raise ValueError("stiffness_ir must have shape (n_internal, n_retained).")
     if stiffness_ir.shape[1] == 0:
-        return jnp.zeros((stiffness_ii.shape[0], 0), dtype=jnp.result_type(stiffness_ii, stiffness_ir))
+        return jnp.zeros((stiffness_shape[0], 0), dtype=_result_dtype(stiffness_ii, stiffness_ir))
     rhs = -stiffness_ir
     if callable(solver):
         return jnp.asarray(solver(stiffness_ii, rhs))
     if solver == "dense":
-        return jnp.linalg.solve(stiffness_ii, rhs)
+        return jnp.linalg.solve(_as_dense_array(stiffness_ii), rhs)
+    if solver == "spsolve":
+        try:
+            import scipy.sparse as sp
+            import scipy.sparse.linalg as spla
+        except Exception as exc:  # pragma: no cover
+            raise ImportError("scipy is required for constraint_solver='spsolve'.") from exc
+        if hasattr(stiffness_ii, "to_csr"):
+            k_csr = stiffness_ii.to_csr()
+        elif sp.issparse(stiffness_ii):
+            k_csr = stiffness_ii.tocsr()
+        else:
+            k_csr = sp.csr_matrix(np.asarray(stiffness_ii))
+        solution = spla.spsolve(k_csr, np.asarray(rhs))
+        if solution.ndim == 1:
+            solution = solution[:, None]
+        return jnp.asarray(solution, dtype=_result_dtype(stiffness_ii, rhs))
     if solver == "cg":
         return _cg_solve_matrix(stiffness_ii, rhs, tol=cg_tol, maxiter=cg_maxiter)
-    raise ValueError("constraint_solver must be 'dense', 'cg', or a callable.")
+    raise ValueError("constraint_solver must be 'dense', 'cg', 'spsolve', or a callable.")
 
 
 def _dense_fixed_interface_modes(stiffness_ii: Array, mass_ii: Array, n_modes: int) -> tuple[Array, Array]:
+    stiffness_ii = _as_dense_array(stiffness_ii)
+    mass_ii = _as_dense_array(mass_ii)
     chol_m = jnp.linalg.cholesky(mass_ii)
     tmp = jnp.linalg.solve(chol_m, stiffness_ii)
     standard_op = jnp.linalg.solve(chol_m, tmp.T).T
@@ -126,6 +193,7 @@ def _dense_fixed_interface_modes(stiffness_ii: Array, mass_ii: Array, n_modes: i
 
 
 def _m_orthonormalize(vectors: Array, mass: Array) -> Array:
+    mass = _as_dense_array(mass)
     gram = vectors.T @ mass @ vectors
     chol = jnp.linalg.cholesky(0.5 * (gram + gram.T))
     return jnp.linalg.solve(chol, vectors.T).T
@@ -144,10 +212,11 @@ def _subspace_fixed_interface_modes(
     cg_maxiter: int | None,
 ) -> tuple[Array, Array]:
     """Block inverse/subspace iteration for the lowest fixed-interface modes."""
-    n_internal = int(stiffness_ii.shape[0])
+    n_internal = int(_matrix_shape(stiffness_ii)[0])
+    mass_dense = _as_dense_array(mass_ii)
     block_size = min(n_internal, max(int(n_modes), int(n_modes) + int(oversample)))
     if block_size <= 0:
-        dtype = jnp.result_type(stiffness_ii, mass_ii)
+        dtype = _result_dtype(stiffness_ii, mass_ii)
         return jnp.zeros((n_internal, 0), dtype=dtype), jnp.zeros((0,), dtype=dtype)
     maxiter = int(maxiter)
     if maxiter <= 0:
@@ -156,22 +225,22 @@ def _subspace_fixed_interface_modes(
     if tol < 0.0:
         raise ValueError("modal_tol must be non-negative.")
 
-    dtype = jnp.result_type(stiffness_ii, mass_ii)
+    dtype = _result_dtype(stiffness_ii, mass_ii)
     q = jnp.eye(n_internal, block_size, dtype=dtype)
-    q = _m_orthonormalize(q, mass_ii)
+    q = _m_orthonormalize(q, mass_dense)
     previous = None
     theta = None
 
     for _ in range(maxiter):
         z = solve_constraint_modes(
             stiffness_ii,
-            -(mass_ii @ q),
+            -(mass_dense @ q),
             solver=linear_solver,
             cg_tol=cg_tol,
             cg_maxiter=cg_maxiter,
         )
-        q = _m_orthonormalize(z, mass_ii)
-        projected_k = q.T @ stiffness_ii @ q
+        q = _m_orthonormalize(z, mass_dense)
+        projected_k = q.T @ _as_dense_array(stiffness_ii) @ q
         projected_k = 0.5 * (projected_k + projected_k.T)
         theta_all, y = jnp.linalg.eigh(projected_k)
         q = q @ y
@@ -183,8 +252,8 @@ def _subspace_fixed_interface_modes(
                 break
         previous = current
 
-    modes = _mass_normalize(q[:, :n_modes], mass_ii)
-    eigenvalues = jnp.einsum("ia,ij,ja->a", modes, stiffness_ii, modes)
+    modes = _mass_normalize(q[:, :n_modes], mass_dense)
+    eigenvalues = jnp.einsum("ia,ij,ja->a", modes, _as_dense_array(stiffness_ii), modes)
     if theta is not None:
         eigenvalues = theta[:n_modes]
     return modes, eigenvalues
@@ -205,14 +274,22 @@ def _scipy_eigsh_fixed_interface_modes(
     except Exception as exc:  # pragma: no cover
         raise ImportError("scipy is required for modal_solver='eigsh'.") from exc
 
-    n_internal = int(stiffness_ii.shape[0])
+    n_internal = int(_matrix_shape(stiffness_ii)[0])
     if n_modes >= n_internal:
         return _dense_fixed_interface_modes(stiffness_ii, mass_ii, n_modes)
 
-    k_np = np.asarray(stiffness_ii)
-    m_np = np.asarray(mass_ii)
-    k_csr = sp.csr_matrix(k_np)
-    m_csr = sp.csr_matrix(m_np)
+    if hasattr(stiffness_ii, "to_csr"):
+        k_csr = stiffness_ii.to_csr()
+    elif sp.issparse(stiffness_ii):
+        k_csr = stiffness_ii.tocsr()
+    else:
+        k_csr = sp.csr_matrix(np.asarray(stiffness_ii))
+    if hasattr(mass_ii, "to_csr"):
+        m_csr = mass_ii.to_csr()
+    elif sp.issparse(mass_ii):
+        m_csr = mass_ii.tocsr()
+    else:
+        m_csr = sp.csr_matrix(np.asarray(mass_ii))
     eigvals, eigvecs = spla.eigsh(
         k_csr,
         k=int(n_modes),
@@ -252,9 +329,9 @@ def fixed_interface_modes(
     """
     if n_modes < 0:
         raise ValueError("n_modes must be non-negative.")
-    n_internal = int(stiffness_ii.shape[0])
+    n_internal = int(_matrix_shape(stiffness_ii)[0])
     if n_modes == 0 or n_internal == 0:
-        dtype = jnp.result_type(stiffness_ii, mass_ii)
+        dtype = _result_dtype(stiffness_ii, mass_ii)
         return (
             jnp.zeros((n_internal, 0), dtype=dtype),
             jnp.zeros((0,), dtype=dtype),
@@ -375,14 +452,14 @@ def make_craig_bampton_basis(
     `modal_solver="subspace"`, `modal_solver="eigsh"` when SciPy is available,
     or a custom callable `solver(K_ii, M_ii, n_modes)`.
     """
-    stiffness = jnp.asarray(stiffness)
-    mass = jnp.asarray(mass)
-    if stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1]:
+    stiffness_shape = _matrix_shape(stiffness)
+    mass_shape = _matrix_shape(mass)
+    if len(stiffness_shape) != 2 or stiffness_shape[0] != stiffness_shape[1]:
         raise ValueError("stiffness must be a square matrix.")
-    if mass.shape != stiffness.shape:
+    if mass_shape != stiffness_shape:
         raise ValueError("mass must have the same shape as stiffness.")
 
-    n_full = int(stiffness.shape[0])
+    n_full = int(stiffness_shape[0])
     retained_np = np.asarray(retained_dofs, dtype=np.int32).reshape(-1)
     if retained_np.size and (retained_np.min() < 0 or retained_np.max() >= n_full):
         raise ValueError("retained_dofs contains an index outside the full DOF range.")
@@ -394,10 +471,10 @@ def make_craig_bampton_basis(
 
     if internal.size == 0:
         return CraigBamptonBasis(
-            basis=jnp.eye(n_full, dtype=jnp.result_type(stiffness, mass)),
+            basis=jnp.eye(n_full, dtype=_result_dtype(stiffness, mass)),
             retained_dofs=retained,
             internal_dofs=internal,
-            eigenvalues=jnp.zeros((0,), dtype=jnp.result_type(stiffness, mass)),
+            eigenvalues=jnp.zeros((0,), dtype=_result_dtype(stiffness, mass)),
         )
 
     k_ii = _take_block(stiffness, internal, internal)
@@ -413,7 +490,7 @@ def make_craig_bampton_basis(
             cg_maxiter=cg_maxiter,
         )
     else:
-        constraint_modes = jnp.zeros((internal.size, 0), dtype=stiffness.dtype)
+        constraint_modes = jnp.zeros((internal.size, 0), dtype=_result_dtype(stiffness, mass))
     normal_modes, eigenvalues = fixed_interface_modes(
         k_ii,
         m_ii,
@@ -428,7 +505,7 @@ def make_craig_bampton_basis(
     )
 
     n_reduced = int(retained.size) + int(normal_modes.shape[1])
-    basis = jnp.zeros((n_full, n_reduced), dtype=jnp.result_type(stiffness, mass))
+    basis = jnp.zeros((n_full, n_reduced), dtype=_result_dtype(stiffness, mass))
     if retained.size:
         basis = basis.at[internal, : retained.size].set(constraint_modes)
         basis = basis.at[retained, : retained.size].set(

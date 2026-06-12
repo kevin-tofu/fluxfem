@@ -48,6 +48,20 @@ validation details live in `notes/craig_bampton_rom.md` and
    installed. For project-specific sparse backends, pass a custom
    `modal_solver` callable.
 
+   If `K` and `M` are `FluxSparseMatrix` or SciPy sparse matrices, the CB block
+   partition keeps internal blocks sparse for sparse-aware solver paths:
+
+   ```python
+   cb = ff.make_craig_bampton_basis(
+       K_sparse,
+       M_sparse,
+       retained_dofs=retained,
+       n_modes=n_modes,
+       constraint_solver="spsolve",
+       modal_solver="eigsh",
+   )
+   ```
+
 3. Choose a search manager.
 
    Node-to-surface:
