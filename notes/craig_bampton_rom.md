@@ -1006,6 +1006,32 @@ gap/contact variables behind modal coordinates.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 73 tests.
 
+## Current fifty-second slice
+
+- Added assembled FE sparse CB coverage.
+- New regression builds scalar diffusion stiffness/mass matrices via FluxFEM
+  assembly, then compares:
+  - dense CB from `to_dense()` matrices,
+  - sparse CB from `FluxSparseMatrix` inputs with
+    `constraint_solver="spsolve"` and `modal_solver="eigsh"`.
+- Added `tutorials/craig_bampton_sparse_fe_basis.py` to print a dense-vs-sparse
+  CB comparison over mode counts.
+- Representative tutorial output:
+  - full DOFs: `28`,
+  - retained DOFs: `8`,
+  - stiffness nnz: `384`,
+  - `n_modes=1`: eigenvalue error `3.051758e-05`,
+  - `n_modes=4`: eigenvalue error `2.439487e-04`.
+- Verification:
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "assembled_sparse_fe_matrices or craig_bampton_flux_sparse"`
+    passed: 2 tests.
+  - `PYENV_VERSION=jaxfem python -m py_compile tutorials/craig_bampton_sparse_fe_basis.py src/fluxfem/core/rom.py`
+    passed.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_sparse_fe_basis.py`
+    completed successfully.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
+    passed: 74 tests.
+
 ## AD/contact design
 
 The important design choice is to avoid special ROM element kernels at first.
@@ -1020,8 +1046,8 @@ surface set, the model will need either a larger retained set or enrichment.
 
 ## Next implementation steps
 
-1. Add larger sparse benchmark coverage for `constraint_solver="spsolve"` and
-   `modal_solver="eigsh"` on assembled FE matrices.
+1. Add timing/memory-oriented sparse CB benchmark coverage on larger assembled
+   FE matrices, with clear dense-vs-sparse scaling numbers.
 2. Extend the independent contact reference from the current one-facet
    weighted penalty form to a multi-facet FE assembly or external benchmark.
 3. Consider a higher-level convenience constructor once multiple real examples

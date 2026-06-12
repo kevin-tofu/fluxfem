@@ -322,6 +322,8 @@ state explicitly.
   `scipy.sparse.linalg.eigsh` when SciPy is installed.
 - Added sparse-aware CB block partitioning for SciPy sparse and
   `FluxSparseMatrix` inputs, plus `constraint_solver="spsolve"`.
+- Added assembled FE sparse CB regression coverage and
+  `tutorials/craig_bampton_sparse_fe_basis.py`.
 
 ## Verification snapshot
 
@@ -341,8 +343,12 @@ state explicitly.
   passed with 7 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "craig_bampton or fixed_interface"`
   passed with 10 tests.
+- `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "assembled_sparse_fe_matrices or craig_bampton_flux_sparse"`
+  passed with 2 tests.
+- `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_sparse_fe_basis.py`
+  completed successfully.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-  passed with 73 tests.
+  passed with 74 tests.
 - `python -m py_compile` passed for the ROM/contact modules, public package
   exports, and all current contact tutorials.
 - Top-level API smoke check passed for:
@@ -381,6 +387,7 @@ state explicitly.
   - `craig_bampton_1d_obstacle_contact_reference.py`
   - `craig_bampton_full_order_contact_benchmark.py`
   - `craig_bampton_surface_contact_reference.py`
+  - `craig_bampton_sparse_fe_basis.py`
   - `craig_bampton_fe_surface_contact.py`
   - `node_surface_contact_demo.py`
   - `paired_surface_contact_demo.py`

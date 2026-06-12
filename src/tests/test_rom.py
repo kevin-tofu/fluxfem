@@ -362,6 +362,46 @@ def test_craig_bampton_flux_sparse_blocks_match_dense():
         atol=3e-5,
     )
 
+def test_craig_bampton_assembled_sparse_fe_matrices_match_dense():
+    mesh = ff.StructuredHexBox(nx=3, ny=1, nz=1, lx=1.0, ly=0.2, lz=0.2).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    stiffness = space.assemble_bilinear_form(ff.diffusion_form, params=1.0)
+    mass = space.assemble_mass_matrix()
+    coords = np.asarray(mesh.coords)
+    retained_nodes = np.flatnonzero(
+        np.isclose(coords[:, 0], coords[:, 0].min()) | np.isclose(coords[:, 0], coords[:, 0].max())
+    )
+    retained = ff.vector_dofs_from_nodes(jnp.asarray(retained_nodes, dtype=jnp.int32), dim=1)
+    dense = ff.make_craig_bampton_basis(
+        stiffness.to_dense(),
+        mass.to_dense(),
+        retained_dofs=retained,
+        n_modes=2,
+    )
+    sparse = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=retained,
+        n_modes=2,
+        constraint_solver="spsolve",
+        modal_solver="eigsh",
+        modal_tol=1e-9,
+        modal_maxiter=300,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(sparse.eigenvalues),
+        np.asarray(dense.eigenvalues),
+        rtol=3e-5,
+        atol=3e-5,
+    )
+    np.testing.assert_allclose(
+        np.asarray(sparse.basis @ sparse.basis.T),
+        np.asarray(dense.basis @ dense.basis.T),
+        rtol=4e-5,
+        atol=4e-5,
+    )
+
 def test_newmark_step_solves_linear_reduced_dynamics():
     mass = jnp.array([[2.0]])
     damping = None
