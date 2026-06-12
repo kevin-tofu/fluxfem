@@ -315,6 +315,9 @@ state explicitly.
 - Added `solve_constraint_modes(...)` and `constraint_solver="cg"` /
   custom-callable support to `make_craig_bampton_basis(...)` as the first
   sparse/iterative CB extension point.
+- Added `modal_solver="subspace"` / custom-callable support for
+  fixed-interface modes in `fixed_interface_modes(...)` and
+  `make_craig_bampton_basis(...)`.
 
 ## Verification snapshot
 
@@ -330,8 +333,10 @@ state explicitly.
   passed with 4 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "craig_bampton"`
   passed with 4 tests.
+- `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "craig_bampton or fixed_interface_subspace"`
+  passed with 7 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
-  passed with 67 tests.
+  passed with 70 tests.
 - `python -m py_compile` passed for the ROM/contact modules, public package
   exports, and all current contact tutorials.
 - Top-level API smoke check passed for:

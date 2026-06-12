@@ -36,14 +36,16 @@ validation details live in `notes/craig_bampton_rom.md` and
        retained_dofs=retained,
        n_modes=n_modes,
        constraint_solver="cg",
+       modal_solver="subspace",
+       modal_linear_solver="cg",
        cg_tol=1e-8,
        cg_maxiter=200,
    )
    ```
 
-   Fixed-interface modal extraction is still dense. Use the CG option as an
-   incremental scaling aid for constraint modes, not as a full sparse modal
-   extraction path.
+   The subspace modal solver is an in-tree block inverse iteration path. For
+   production sparse modal extraction, pass a custom `modal_solver` callable or
+   use a future sparse eigensolver adapter.
 
 3. Choose a search manager.
 

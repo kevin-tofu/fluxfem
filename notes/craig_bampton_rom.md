@@ -946,6 +946,30 @@ gap/contact variables behind modal coordinates.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 67 tests.
 
+## Current forty-ninth slice
+
+- Extended the sparse/iterative CB branch to fixed-interface modal extraction.
+- `fixed_interface_modes(...)` now accepts:
+  - `solver="dense"` for the existing generalized dense eigensolve,
+  - `solver="subspace"` for block inverse/subspace iteration,
+  - a custom callable `solver(K_ii, M_ii, n_modes)`.
+- `make_craig_bampton_basis(...)` forwards modal options:
+  - `modal_solver`,
+  - `modal_linear_solver`,
+  - `modal_oversample`,
+  - `modal_maxiter`,
+  - `modal_tol`.
+- The subspace path reuses `solve_constraint_modes(...)` as its internal
+  linear-solve hook, so it can use dense, CG, or external callables.
+- Verification:
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "craig_bampton or fixed_interface_subspace"`
+    passed: 7 tests.
+  - `PYENV_VERSION=jaxfem python -m py_compile src/fluxfem/core/rom.py src/fluxfem/core/__init__.py src/fluxfem/__init__.py`
+    passed.
+  - top-level smoke passed for `fixed_interface_modes`.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
+    passed: 70 tests.
+
 ## AD/contact design
 
 The important design choice is to avoid special ROM element kernels at first.
@@ -960,8 +984,9 @@ surface set, the model will need either a larger retained set or enrichment.
 
 ## Next implementation steps
 
-1. Extend the sparse/iterative CB path from constraint modes to fixed-interface
-   modal extraction. The current eigensolve still densifies `K_ii` and `M_ii`.
+1. Add a production sparse eigensolver adapter, likely via optional SciPy
+   `eigsh`/LOBPCG or an existing project sparse backend, while preserving the
+   current callable modal-solver hook.
 2. Extend the independent contact reference from the current one-facet
    weighted penalty form to a multi-facet FE assembly or external benchmark.
 3. Consider a higher-level convenience constructor once multiple real examples

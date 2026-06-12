@@ -113,12 +113,103 @@ def solve_constraint_modes(
     raise ValueError("constraint_solver must be 'dense', 'cg', or a callable.")
 
 
-def fixed_interface_modes(stiffness_ii: Array, mass_ii: Array, n_modes: int) -> tuple[Array, Array]:
+def _dense_fixed_interface_modes(stiffness_ii: Array, mass_ii: Array, n_modes: int) -> tuple[Array, Array]:
+    chol_m = jnp.linalg.cholesky(mass_ii)
+    tmp = jnp.linalg.solve(chol_m, stiffness_ii)
+    standard_op = jnp.linalg.solve(chol_m, tmp.T).T
+    standard_op = 0.5 * (standard_op + standard_op.T)
+    eigvals, eigvecs = jnp.linalg.eigh(standard_op)
+    z = eigvecs[:, :n_modes]
+    modes = jnp.linalg.solve(chol_m.T, z)
+    modes = _mass_normalize(modes, mass_ii)
+    return modes, eigvals[:n_modes]
+
+
+def _m_orthonormalize(vectors: Array, mass: Array) -> Array:
+    gram = vectors.T @ mass @ vectors
+    chol = jnp.linalg.cholesky(0.5 * (gram + gram.T))
+    return jnp.linalg.solve(chol, vectors.T).T
+
+
+def _subspace_fixed_interface_modes(
+    stiffness_ii: Array,
+    mass_ii: Array,
+    n_modes: int,
+    *,
+    oversample: int,
+    maxiter: int,
+    tol: float,
+    linear_solver: str | Callable[[Array, Array], Array],
+    cg_tol: float,
+    cg_maxiter: int | None,
+) -> tuple[Array, Array]:
+    """Block inverse/subspace iteration for the lowest fixed-interface modes."""
+    n_internal = int(stiffness_ii.shape[0])
+    block_size = min(n_internal, max(int(n_modes), int(n_modes) + int(oversample)))
+    if block_size <= 0:
+        dtype = jnp.result_type(stiffness_ii, mass_ii)
+        return jnp.zeros((n_internal, 0), dtype=dtype), jnp.zeros((0,), dtype=dtype)
+    maxiter = int(maxiter)
+    if maxiter <= 0:
+        raise ValueError("modal_maxiter must be positive.")
+    tol = float(tol)
+    if tol < 0.0:
+        raise ValueError("modal_tol must be non-negative.")
+
+    dtype = jnp.result_type(stiffness_ii, mass_ii)
+    q = jnp.eye(n_internal, block_size, dtype=dtype)
+    q = _m_orthonormalize(q, mass_ii)
+    previous = None
+    theta = None
+
+    for _ in range(maxiter):
+        z = solve_constraint_modes(
+            stiffness_ii,
+            -(mass_ii @ q),
+            solver=linear_solver,
+            cg_tol=cg_tol,
+            cg_maxiter=cg_maxiter,
+        )
+        q = _m_orthonormalize(z, mass_ii)
+        projected_k = q.T @ stiffness_ii @ q
+        projected_k = 0.5 * (projected_k + projected_k.T)
+        theta_all, y = jnp.linalg.eigh(projected_k)
+        q = q @ y
+        theta = theta_all
+        current = theta_all[:n_modes]
+        if previous is not None:
+            denom = jnp.maximum(jnp.linalg.norm(current), jnp.finfo(dtype).eps)
+            if float(jnp.linalg.norm(current - previous) / denom) <= tol:
+                break
+        previous = current
+
+    modes = _mass_normalize(q[:, :n_modes], mass_ii)
+    eigenvalues = jnp.einsum("ia,ij,ja->a", modes, stiffness_ii, modes)
+    if theta is not None:
+        eigenvalues = theta[:n_modes]
+    return modes, eigenvalues
+
+
+def fixed_interface_modes(
+    stiffness_ii: Array,
+    mass_ii: Array,
+    n_modes: int,
+    *,
+    solver: str | Callable[[Array, Array, int], tuple[Array, Array]] = "dense",
+    modal_linear_solver: str | Callable[[Array, Array], Array] = "dense",
+    modal_oversample: int = 2,
+    modal_maxiter: int = 30,
+    modal_tol: float = 1e-8,
+    cg_tol: float = 1e-10,
+    cg_maxiter: int | None = None,
+) -> tuple[Array, Array]:
     """
     Compute fixed-interface modes from K_ii phi = lambda M_ii phi.
 
-    The returned modes are M_ii-orthonormal. This dense helper is intended for
-    initial ROM prototyping and small/medium substructures.
+    The returned modes are M_ii-orthonormal. `solver="dense"` computes the
+    generalized eigensystem directly. `solver="subspace"` uses block inverse
+    iteration with a configurable linear solver. A callable can be supplied as
+    `solver(K_ii, M_ii, n_modes)` and must return `(modes, eigenvalues)`.
     """
     if n_modes < 0:
         raise ValueError("n_modes must be non-negative.")
@@ -131,15 +222,24 @@ def fixed_interface_modes(stiffness_ii: Array, mass_ii: Array, n_modes: int) -> 
         )
 
     n_keep = min(int(n_modes), n_internal)
-    chol_m = jnp.linalg.cholesky(mass_ii)
-    tmp = jnp.linalg.solve(chol_m, stiffness_ii)
-    standard_op = jnp.linalg.solve(chol_m, tmp.T).T
-    standard_op = 0.5 * (standard_op + standard_op.T)
-    eigvals, eigvecs = jnp.linalg.eigh(standard_op)
-    z = eigvecs[:, :n_keep]
-    modes = jnp.linalg.solve(chol_m.T, z)
-    modes = _mass_normalize(modes, mass_ii)
-    return modes, eigvals[:n_keep]
+    if callable(solver):
+        modes, eigenvalues = solver(stiffness_ii, mass_ii, n_keep)
+        return _mass_normalize(jnp.asarray(modes), mass_ii), jnp.asarray(eigenvalues)[:n_keep]
+    if solver == "dense":
+        return _dense_fixed_interface_modes(stiffness_ii, mass_ii, n_keep)
+    if solver == "subspace":
+        return _subspace_fixed_interface_modes(
+            stiffness_ii,
+            mass_ii,
+            n_keep,
+            oversample=modal_oversample,
+            maxiter=modal_maxiter,
+            tol=modal_tol,
+            linear_solver=modal_linear_solver,
+            cg_tol=cg_tol,
+            cg_maxiter=cg_maxiter,
+        )
+    raise ValueError("modal_solver must be 'dense', 'subspace', or a callable.")
 
 
 @jax.tree_util.register_pytree_node_class
@@ -207,6 +307,11 @@ def make_craig_bampton_basis(
     n_modes: int,
     *,
     constraint_solver: str | Callable[[Array, Array], Array] = "dense",
+    modal_solver: str | Callable[[Array, Array, int], tuple[Array, Array]] = "dense",
+    modal_linear_solver: str | Callable[[Array, Array], Array] = "dense",
+    modal_oversample: int = 2,
+    modal_maxiter: int = 30,
+    modal_tol: float = 1e-8,
     cg_tol: float = 1e-10,
     cg_maxiter: int | None = None,
 ) -> CraigBamptonBasis:
@@ -217,9 +322,11 @@ def make_craig_bampton_basis(
     1. retained physical DOFs
     2. fixed-interface internal modal amplitudes
 
-    Fixed-interface modal extraction is currently dense. Static constraint modes
-    can use `constraint_solver="dense"`, `constraint_solver="cg"`, or a custom
-    callable `solver(K_ii, rhs)`.
+    Static constraint modes can use `constraint_solver="dense"`,
+    `constraint_solver="cg"`, or a custom callable `solver(K_ii, rhs)`.
+    Fixed-interface modes can use `modal_solver="dense"`,
+    `modal_solver="subspace"`, or a custom callable `solver(K_ii, M_ii,
+    n_modes)`.
     """
     stiffness = jnp.asarray(stiffness)
     mass = jnp.asarray(mass)
@@ -260,7 +367,18 @@ def make_craig_bampton_basis(
         )
     else:
         constraint_modes = jnp.zeros((internal.size, 0), dtype=stiffness.dtype)
-    normal_modes, eigenvalues = fixed_interface_modes(k_ii, m_ii, n_modes)
+    normal_modes, eigenvalues = fixed_interface_modes(
+        k_ii,
+        m_ii,
+        n_modes,
+        solver=modal_solver,
+        modal_linear_solver=modal_linear_solver,
+        modal_oversample=modal_oversample,
+        modal_maxiter=modal_maxiter,
+        modal_tol=modal_tol,
+        cg_tol=cg_tol,
+        cg_maxiter=cg_maxiter,
+    )
 
     n_reduced = int(retained.size) + int(normal_modes.shape[1])
     basis = jnp.zeros((n_full, n_reduced), dtype=jnp.result_type(stiffness, mass))

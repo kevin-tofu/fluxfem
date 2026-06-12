@@ -125,6 +125,116 @@ def test_craig_bampton_accepts_custom_constraint_solver():
     assert calls["count"] == 1
     np.testing.assert_allclose(np.asarray(custom.basis), np.asarray(dense.basis), rtol=1e-6, atol=1e-6)
 
+def test_fixed_interface_subspace_modes_match_dense_eigenvalues():
+    stiffness = jnp.array(
+        [
+            [7.0, -1.0, 0.0, 0.0],
+            [-1.0, 6.0, -1.0, 0.0],
+            [0.0, -1.0, 5.0, -1.0],
+            [0.0, 0.0, -1.0, 4.0],
+        ],
+        dtype=jnp.float32,
+    )
+    mass = jnp.diag(jnp.array([1.0, 1.1, 0.9, 1.2], dtype=jnp.float32))
+    dense_modes, dense_eigvals = ff.fixed_interface_modes(stiffness, mass, n_modes=2)
+    subspace_modes, subspace_eigvals = ff.fixed_interface_modes(
+        stiffness,
+        mass,
+        n_modes=2,
+        solver="subspace",
+        modal_linear_solver="cg",
+        modal_oversample=2,
+        modal_maxiter=40,
+        modal_tol=1e-8,
+        cg_tol=1e-9,
+        cg_maxiter=80,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(subspace_eigvals),
+        np.asarray(dense_eigvals),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    overlap = np.abs(np.asarray(dense_modes.T @ mass @ subspace_modes))
+    np.testing.assert_allclose(overlap, np.eye(2), rtol=2e-5, atol=2e-5)
+
+def test_craig_bampton_subspace_modal_solver_matches_dense():
+    stiffness = jnp.array(
+        [
+            [6.0, -1.0, 0.0, 0.0, 0.0],
+            [-1.0, 7.0, -1.5, 0.0, 0.0],
+            [0.0, -1.5, 8.0, -1.0, 0.0],
+            [0.0, 0.0, -1.0, 7.0, -1.0],
+            [0.0, 0.0, 0.0, -1.0, 5.0],
+        ],
+        dtype=jnp.float32,
+    )
+    mass = jnp.eye(5, dtype=jnp.float32)
+    retained = jnp.array([0, 4])
+    dense = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=retained, n_modes=2)
+    subspace = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=retained,
+        n_modes=2,
+        constraint_solver="cg",
+        modal_solver="subspace",
+        modal_linear_solver="cg",
+        modal_oversample=1,
+        modal_maxiter=50,
+        modal_tol=1e-8,
+        cg_tol=1e-9,
+        cg_maxiter=100,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(subspace.eigenvalues),
+        np.asarray(dense.eigenvalues),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        np.asarray(subspace.basis @ subspace.basis.T),
+        np.asarray(dense.basis @ dense.basis.T),
+        rtol=3e-5,
+        atol=3e-5,
+    )
+
+def test_craig_bampton_accepts_custom_modal_solver():
+    stiffness = jnp.array(
+        [
+            [4.0, -1.0, 0.0],
+            [-1.0, 5.0, -1.0],
+            [0.0, -1.0, 4.0],
+        ],
+        dtype=jnp.float32,
+    )
+    mass = jnp.eye(3, dtype=jnp.float32)
+    calls = {"count": 0}
+
+    def modal_solver(k_ii, m_ii, n_modes):
+        calls["count"] += 1
+        return ff.fixed_interface_modes(k_ii, m_ii, n_modes)
+
+    custom = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=jnp.array([0]),
+        n_modes=1,
+        modal_solver=modal_solver,
+    )
+    dense = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=jnp.array([0]), n_modes=1)
+
+    assert calls["count"] == 1
+    np.testing.assert_allclose(
+        np.asarray(custom.eigenvalues),
+        np.asarray(dense.eigenvalues),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(np.asarray(custom.basis), np.asarray(dense.basis), rtol=1e-6, atol=1e-6)
+
 def test_newmark_step_solves_linear_reduced_dynamics():
     mass = jnp.array([[2.0]])
     damping = None
