@@ -190,6 +190,44 @@ def _subspace_fixed_interface_modes(
     return modes, eigenvalues
 
 
+def _scipy_eigsh_fixed_interface_modes(
+    stiffness_ii: Array,
+    mass_ii: Array,
+    n_modes: int,
+    *,
+    tol: float,
+    maxiter: int,
+) -> tuple[Array, Array]:
+    """Optional SciPy generalized sparse eigensolver adapter."""
+    try:
+        import scipy.sparse as sp
+        import scipy.sparse.linalg as spla
+    except Exception as exc:  # pragma: no cover
+        raise ImportError("scipy is required for modal_solver='eigsh'.") from exc
+
+    n_internal = int(stiffness_ii.shape[0])
+    if n_modes >= n_internal:
+        return _dense_fixed_interface_modes(stiffness_ii, mass_ii, n_modes)
+
+    k_np = np.asarray(stiffness_ii)
+    m_np = np.asarray(mass_ii)
+    k_csr = sp.csr_matrix(k_np)
+    m_csr = sp.csr_matrix(m_np)
+    eigvals, eigvecs = spla.eigsh(
+        k_csr,
+        k=int(n_modes),
+        M=m_csr,
+        which="SM",
+        tol=float(tol),
+        maxiter=int(maxiter),
+    )
+    order = np.argsort(eigvals)
+    eigvals = eigvals[order]
+    eigvecs = eigvecs[:, order]
+    modes = _mass_normalize(jnp.asarray(eigvecs), mass_ii)
+    return modes, jnp.asarray(eigvals, dtype=modes.dtype)
+
+
 def fixed_interface_modes(
     stiffness_ii: Array,
     mass_ii: Array,
@@ -210,6 +248,7 @@ def fixed_interface_modes(
     generalized eigensystem directly. `solver="subspace"` uses block inverse
     iteration with a configurable linear solver. A callable can be supplied as
     `solver(K_ii, M_ii, n_modes)` and must return `(modes, eigenvalues)`.
+    `solver="eigsh"` uses SciPy when available.
     """
     if n_modes < 0:
         raise ValueError("n_modes must be non-negative.")
@@ -239,7 +278,15 @@ def fixed_interface_modes(
             cg_tol=cg_tol,
             cg_maxiter=cg_maxiter,
         )
-    raise ValueError("modal_solver must be 'dense', 'subspace', or a callable.")
+    if solver == "eigsh":
+        return _scipy_eigsh_fixed_interface_modes(
+            stiffness_ii,
+            mass_ii,
+            n_keep,
+            tol=modal_tol,
+            maxiter=modal_maxiter,
+        )
+    raise ValueError("modal_solver must be 'dense', 'subspace', 'eigsh', or a callable.")
 
 
 @jax.tree_util.register_pytree_node_class
@@ -325,8 +372,8 @@ def make_craig_bampton_basis(
     Static constraint modes can use `constraint_solver="dense"`,
     `constraint_solver="cg"`, or a custom callable `solver(K_ii, rhs)`.
     Fixed-interface modes can use `modal_solver="dense"`,
-    `modal_solver="subspace"`, or a custom callable `solver(K_ii, M_ii,
-    n_modes)`.
+    `modal_solver="subspace"`, `modal_solver="eigsh"` when SciPy is available,
+    or a custom callable `solver(K_ii, M_ii, n_modes)`.
     """
     stiffness = jnp.asarray(stiffness)
     mass = jnp.asarray(mass)

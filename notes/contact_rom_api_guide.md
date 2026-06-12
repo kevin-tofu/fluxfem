@@ -44,8 +44,9 @@ validation details live in `notes/craig_bampton_rom.md` and
    ```
 
    The subspace modal solver is an in-tree block inverse iteration path. For
-   production sparse modal extraction, pass a custom `modal_solver` callable or
-   use a future sparse eigensolver adapter.
+   SciPy-backed modal extraction, use `modal_solver="eigsh"` when SciPy is
+   installed. For project-specific sparse backends, pass a custom
+   `modal_solver` callable.
 
 3. Choose a search manager.
 

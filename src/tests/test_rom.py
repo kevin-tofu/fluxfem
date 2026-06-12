@@ -235,6 +235,79 @@ def test_craig_bampton_accepts_custom_modal_solver():
     )
     np.testing.assert_allclose(np.asarray(custom.basis), np.asarray(dense.basis), rtol=1e-6, atol=1e-6)
 
+def test_fixed_interface_eigsh_modes_match_dense_eigenvalues():
+    stiffness = jnp.array(
+        [
+            [9.0, -1.0, 0.0, 0.0, 0.0, 0.0],
+            [-1.0, 8.0, -1.0, 0.0, 0.0, 0.0],
+            [0.0, -1.0, 7.0, -1.0, 0.0, 0.0],
+            [0.0, 0.0, -1.0, 6.0, -1.0, 0.0],
+            [0.0, 0.0, 0.0, -1.0, 5.0, -1.0],
+            [0.0, 0.0, 0.0, 0.0, -1.0, 4.0],
+        ],
+        dtype=jnp.float32,
+    )
+    mass = jnp.diag(jnp.array([1.0, 1.1, 0.9, 1.2, 1.0, 0.8], dtype=jnp.float32))
+    dense_modes, dense_eigvals = ff.fixed_interface_modes(stiffness, mass, n_modes=2)
+    eigsh_modes, eigsh_eigvals = ff.fixed_interface_modes(
+        stiffness,
+        mass,
+        n_modes=2,
+        solver="eigsh",
+        modal_tol=1e-9,
+        modal_maxiter=200,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(eigsh_eigvals),
+        np.asarray(dense_eigvals),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    overlap = np.abs(np.asarray(dense_modes.T @ mass @ eigsh_modes))
+    np.testing.assert_allclose(overlap, np.eye(2), rtol=3e-5, atol=3e-5)
+
+def test_craig_bampton_eigsh_modal_solver_matches_dense():
+    stiffness = jnp.array(
+        [
+            [7.0, -1.0, 0.0, 0.0, 0.0, 0.0],
+            [-1.0, 8.0, -1.0, 0.0, 0.0, 0.0],
+            [0.0, -1.0, 9.0, -1.0, 0.0, 0.0],
+            [0.0, 0.0, -1.0, 8.0, -1.0, 0.0],
+            [0.0, 0.0, 0.0, -1.0, 7.0, -1.0],
+            [0.0, 0.0, 0.0, 0.0, -1.0, 6.0],
+        ],
+        dtype=jnp.float32,
+    )
+    mass = jnp.eye(6, dtype=jnp.float32)
+    retained = jnp.array([0, 5])
+    dense = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=retained, n_modes=2)
+    eigsh = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=retained,
+        n_modes=2,
+        constraint_solver="cg",
+        modal_solver="eigsh",
+        modal_tol=1e-9,
+        modal_maxiter=200,
+        cg_tol=1e-9,
+        cg_maxiter=100,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(eigsh.eigenvalues),
+        np.asarray(dense.eigenvalues),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        np.asarray(eigsh.basis @ eigsh.basis.T),
+        np.asarray(dense.basis @ dense.basis.T),
+        rtol=3e-5,
+        atol=3e-5,
+    )
+
 def test_newmark_step_solves_linear_reduced_dynamics():
     mass = jnp.array([[2.0]])
     damping = None

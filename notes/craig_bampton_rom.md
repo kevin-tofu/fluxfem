@@ -970,6 +970,24 @@ gap/contact variables behind modal coordinates.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 70 tests.
 
+## Current fiftieth slice
+
+- Added an optional SciPy `eigsh` adapter for fixed-interface modal extraction.
+- `fixed_interface_modes(..., solver="eigsh")` now uses
+  `scipy.sparse.linalg.eigsh` when SciPy is installed.
+- `make_craig_bampton_basis(..., modal_solver="eigsh")` forwards the same path.
+- SciPy remains optional at runtime; requesting `solver="eigsh"` without SciPy
+  raises an explicit `ImportError`.
+- Small all-mode requests still fall back to the dense modal path because ARPACK
+  cannot compute `k >= n` modes.
+- Verification:
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "craig_bampton or fixed_interface"`
+    passed: 9 tests.
+  - `PYENV_VERSION=jaxfem python -m py_compile src/fluxfem/core/rom.py`
+    passed.
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
+    passed: 72 tests.
+
 ## AD/contact design
 
 The important design choice is to avoid special ROM element kernels at first.
@@ -984,9 +1002,8 @@ surface set, the model will need either a larger retained set or enrichment.
 
 ## Next implementation steps
 
-1. Add a production sparse eigensolver adapter, likely via optional SciPy
-   `eigsh`/LOBPCG or an existing project sparse backend, while preserving the
-   current callable modal-solver hook.
+1. Add a truly sparse CB assembly path that preserves sparse internal blocks
+   through DOF partitioning instead of extracting dense `K_ii` and `M_ii`.
 2. Extend the independent contact reference from the current one-facet
    weighted penalty form to a multi-facet FE assembly or external benchmark.
 3. Consider a higher-level convenience constructor once multiple real examples
