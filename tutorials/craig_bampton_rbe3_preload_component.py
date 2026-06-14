@@ -215,11 +215,34 @@ def preload_terms(fixtures: list[Fixture], *, n_workpiece: int, active: set[str]
     return k, f
 
 
-def solve_full(model: Model, fixtures: list[Fixture], active: set[str], fixed_dofs: np.ndarray) -> np.ndarray:
+def reference_dirichlet(fixtures: list[Fixture], active: set[str], *, offset: int) -> tuple[np.ndarray, np.ndarray]:
+    dofs = []
+    values = []
+    for i, fixture in enumerate(fixtures):
+        if fixture.name not in active:
+            continue
+        refs = offset + 3 * i + np.arange(3, dtype=int)
+        dofs.extend(refs.tolist())
+        values.extend((fixture.target * fixture.direction).tolist())
+    return np.asarray(dofs, dtype=int), np.asarray(values, dtype=float)
+
+
+def solve_full(
+    model: Model,
+    fixtures: list[Fixture],
+    active: set[str],
+    fixed_dofs: np.ndarray,
+    *,
+    fixture_boundary: str,
+) -> np.ndarray:
     n_ref = 3 * len(fixtures)
     total = model.n_dofs + n_ref
     k = sp.block_diag((model.stiffness.to_csr(), sp.csr_matrix((n_ref, n_ref))), format="csr")
-    k_pre, f = preload_terms(fixtures, n_workpiece=model.n_dofs, active=active, total_dofs=total)
+    if fixture_boundary == "preload":
+        k_pre, f = preload_terms(fixtures, n_workpiece=model.n_dofs, active=active, total_dofs=total)
+    else:
+        k_pre = np.zeros((total, total), dtype=float)
+        f = np.zeros((total,), dtype=float)
     f[: model.n_dofs] += external_force(model)
     c = np.vstack(
         [
@@ -232,8 +255,20 @@ def solve_full(model: Model, fixtures: list[Fixture], active: set[str], fixed_do
             for i, fixture in enumerate(fixtures)
         ]
     )
+    all_fixed = np.asarray(fixed_dofs, dtype=int)
+    all_values = np.zeros((all_fixed.size,), dtype=float)
+    if fixture_boundary == "dirichlet":
+        ref_fixed, ref_values = reference_dirichlet(fixtures, active, offset=model.n_dofs)
+        all_fixed = np.concatenate([all_fixed, ref_fixed])
+        all_values = np.concatenate([all_values, ref_values])
     return np.asarray(
-        ff.LinearConstraintSystem(c).solve(k + sp.csr_matrix(k_pre), f, fixed_dofs=fixed_dofs, solver="spsolve")
+        ff.LinearConstraintSystem(c).solve(
+            k + sp.csr_matrix(k_pre),
+            f,
+            fixed_dofs=all_fixed,
+            fixed_values=all_values,
+            solver="spsolve",
+        )
     )
 
 
@@ -254,7 +289,15 @@ def build_cb(model: Model, fixtures: list[Fixture], fixed_dofs: np.ndarray, n_mo
     )
 
 
-def solve_rom(model: Model, cb: ff.CraigBamptonBasis, fixtures: list[Fixture], active: set[str], fixed_dofs: np.ndarray):
+def solve_rom(
+    model: Model,
+    cb: ff.CraigBamptonBasis,
+    fixtures: list[Fixture],
+    active: set[str],
+    fixed_dofs: np.ndarray,
+    *,
+    fixture_boundary: str,
+):
     n_ref = 3 * len(fixtures)
     n_rom = cb.n_reduced
     total = n_rom + n_ref
@@ -264,12 +307,13 @@ def solve_rom(model: Model, cb: ff.CraigBamptonBasis, fixtures: list[Fixture], a
     f[:n_rom] = np.asarray(cb.project_vector(external_force(model)), dtype=float)
 
     full_total = model.n_dofs + n_ref
-    k_pre, f_pre = preload_terms(fixtures, n_workpiece=model.n_dofs, active=active, total_dofs=full_total)
-    for i in range(len(fixtures)):
-        full_refs = model.n_dofs + 3 * i + np.arange(3, dtype=int)
-        rom_refs = n_rom + 3 * i + np.arange(3, dtype=int)
-        k[np.ix_(rom_refs, rom_refs)] += k_pre[np.ix_(full_refs, full_refs)]
-        f[rom_refs] += f_pre[full_refs]
+    if fixture_boundary == "preload":
+        k_pre, f_pre = preload_terms(fixtures, n_workpiece=model.n_dofs, active=active, total_dofs=full_total)
+        for i in range(len(fixtures)):
+            full_refs = model.n_dofs + 3 * i + np.arange(3, dtype=int)
+            rom_refs = n_rom + 3 * i + np.arange(3, dtype=int)
+            k[np.ix_(rom_refs, rom_refs)] += k_pre[np.ix_(full_refs, full_refs)]
+            f[rom_refs] += f_pre[full_refs]
 
     constraints = []
     for i, fixture in enumerate(fixtures):
@@ -284,18 +328,33 @@ def solve_rom(model: Model, cb: ff.CraigBamptonBasis, fixtures: list[Fixture], a
 
     master_to_rom = {int(dof): i for i, dof in enumerate(np.asarray(cb.retained_dofs))}
     fixed_rom = np.array([master_to_rom[int(dof)] for dof in fixed_dofs], dtype=int)
-    q_aug = ff.LinearConstraintSystem(c_rom).solve(k, f, fixed_dofs=fixed_rom, solver="dense")
+    fixed_values = np.zeros((fixed_rom.size,), dtype=float)
+    if fixture_boundary == "dirichlet":
+        ref_fixed, ref_values = reference_dirichlet(fixtures, active, offset=n_rom)
+        fixed_rom = np.concatenate([fixed_rom, ref_fixed])
+        fixed_values = np.concatenate([fixed_values, ref_values])
+    q_aug = ff.LinearConstraintSystem(c_rom).solve(
+        k,
+        f,
+        fixed_dofs=fixed_rom,
+        fixed_values=fixed_values,
+        solver="dense",
+    )
     return np.concatenate([np.asarray(cb.expand(q_aug[:n_rom])), np.asarray(q_aug[n_rom:])])
 
 
-def compliance_like(fixtures: list[Fixture], active: set[str], model: Model, u_aug: np.ndarray) -> float:
-    _, f_pre = preload_terms(
-        fixtures,
-        n_workpiece=model.n_dofs,
-        active=active,
-        total_dofs=model.n_dofs + 3 * len(fixtures),
-    )
-    return float(f_pre @ u_aug)
+def work_like(fixtures: list[Fixture], active: set[str], model: Model, u_aug: np.ndarray, *, fixture_boundary: str) -> float:
+    f = np.zeros((model.n_dofs + 3 * len(fixtures),), dtype=float)
+    if fixture_boundary == "preload":
+        _, f = preload_terms(
+            fixtures,
+            n_workpiece=model.n_dofs,
+            active=active,
+            total_dofs=model.n_dofs + 3 * len(fixtures),
+        )
+    else:
+        f[: model.n_dofs] = external_force(model)
+    return float(f @ u_aug)
 
 
 def main() -> None:
@@ -305,6 +364,7 @@ def main() -> None:
     parser.add_argument("--nz", type=int, default=1)
     parser.add_argument("--modes", type=int, default=8)
     parser.add_argument("--timing-repeats", type=int, default=1)
+    parser.add_argument("--fixture-boundary", choices=["preload", "dirichlet"], default="preload")
     args = parser.parse_args()
 
     model = build_model(args.nx, args.ny, args.nz)
@@ -323,15 +383,16 @@ def main() -> None:
             out = fn()
         return out, (time.perf_counter() - start) / max(args.timing_repeats, 1)
 
-    full_u, full_seconds = timed(lambda: solve_full(model, fixtures, active, fixed))
-    rom_u, rom_seconds = timed(lambda: solve_rom(model, cb, fixtures, active, fixed))
+    full_u, full_seconds = timed(lambda: solve_full(model, fixtures, active, fixed, fixture_boundary=args.fixture_boundary))
+    rom_u, rom_seconds = timed(lambda: solve_rom(model, cb, fixtures, active, fixed, fixture_boundary=args.fixture_boundary))
     full_wp = full_u[: model.n_dofs]
     rom_wp = rom_u[: model.n_dofs]
     rel_error = np.linalg.norm(full_wp - rom_wp) / max(np.linalg.norm(full_wp), 1.0e-15)
     max_error = float(np.max(np.abs(full_wp - rom_wp)))
-    full_c = compliance_like(fixtures, active, model, full_u)
-    rom_c = compliance_like(fixtures, active, model, rom_u)
+    full_c = work_like(fixtures, active, model, full_u, fixture_boundary=args.fixture_boundary)
+    rom_c = work_like(fixtures, active, model, rom_u, fixture_boundary=args.fixture_boundary)
 
+    print("fixture boundary mode:     ", args.fixture_boundary)
     print("workpiece full dofs:       ", model.n_dofs)
     print("workpiece ROM dofs:        ", cb.n_reduced)
     print("retained workpiece dofs:   ", cb.n_retained)
@@ -345,9 +406,9 @@ def main() -> None:
     print("ROM  ||u_workpiece||:      ", f"{np.linalg.norm(rom_wp):.8e}")
     print("relative displacement err: ", f"{rel_error:.3e}")
     print("max abs displacement err:  ", f"{max_error:.3e}")
-    print("full compliance-like work: ", f"{full_c:.8e}")
-    print("ROM  compliance-like work: ", f"{rom_c:.8e}")
-    print("relative compliance err:   ", f"{abs(full_c - rom_c) / max(abs(full_c), 1.0e-15):.3e}")
+    print("full work-like scalar:     ", f"{full_c:.8e}")
+    print("ROM  work-like scalar:     ", f"{rom_c:.8e}")
+    print("relative work scalar err:  ", f"{abs(full_c - rom_c) / max(abs(full_c), 1.0e-15):.3e}")
 
 
 if __name__ == "__main__":

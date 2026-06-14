@@ -417,8 +417,23 @@ class LinearConstraintSystem:
             n_extra_dofs=n_extra_dofs,
         )
 
-    def solve(self, stiffness, force: Array, *, fixed_dofs: Array | None = None, solver: str = "dense") -> Array:
-        return solve_linear_constraint_kkt(stiffness, force, self, fixed_dofs=fixed_dofs, solver=solver)
+    def solve(
+        self,
+        stiffness,
+        force: Array,
+        *,
+        fixed_dofs: Array | None = None,
+        fixed_values: Array | None = None,
+        solver: str = "dense",
+    ) -> Array:
+        return solve_linear_constraint_kkt(
+            stiffness,
+            force,
+            self,
+            fixed_dofs=fixed_dofs,
+            fixed_values=fixed_values,
+            solver=solver,
+        )
 
 
 @dataclass(frozen=True)
@@ -444,11 +459,20 @@ class ReducedLinearConstraintSystem:
             return structural
         return jnp.concatenate([structural, q[self.basis.n_reduced :]])
 
-    def solve(self, stiffness, force: Array, *, fixed_dofs: Array | None = None, solver: str = "dense") -> Array:
+    def solve(
+        self,
+        stiffness,
+        force: Array,
+        *,
+        fixed_dofs: Array | None = None,
+        fixed_values: Array | None = None,
+        solver: str = "dense",
+    ) -> Array:
         return LinearConstraintSystem(self.matrix, self.rhs).solve(
             stiffness,
             force,
             fixed_dofs=fixed_dofs,
+            fixed_values=fixed_values,
             solver=solver,
         )
 
@@ -640,9 +664,10 @@ def solve_linear_constraint_kkt(
     constraints: LinearConstraintSystem,
     *,
     fixed_dofs: Array | None = None,
+    fixed_values: Array | None = None,
     solver: str = "dense",
 ) -> Array:
-    """Solve `K u + C.T lambda = f`, `C u = rhs`, with optional zero fixed DOFs."""
+    """Solve `K u + C.T lambda = f`, `C u = rhs`, with optional fixed DOFs."""
     force = jnp.asarray(force)
     stiffness_shape = _matrix_shape(stiffness)
     n_dofs = int(stiffness_shape[0])
@@ -655,11 +680,21 @@ def solve_linear_constraint_kkt(
 
     free_np = _free_dofs(n_dofs, fixed_dofs)
     free = jnp.asarray(free_np, dtype=jnp.int32)
-    rhs = jnp.concatenate([force[free], constraints.rhs])
+    fixed_np = np.asarray([], dtype=np.int32) if fixed_dofs is None else np.asarray(fixed_dofs, dtype=np.int32).reshape(-1)
+    fixed = jnp.asarray(fixed_np, dtype=jnp.int32)
+    if fixed_values is None:
+        fixed_vals = jnp.zeros((fixed.size,), dtype=force.dtype)
+    else:
+        fixed_vals = jnp.asarray(fixed_values, dtype=force.dtype)
+        if fixed_vals.shape != (fixed.size,):
+            raise ValueError("fixed_values must have shape (fixed_dofs.size,).")
     if solver == "dense":
         stiffness_dense = _as_dense_array(stiffness)
         k_ff = stiffness_dense[free[:, None], free[None, :]]
+        k_fc = stiffness_dense[free[:, None], fixed[None, :]] if fixed.size else jnp.zeros((free.size, 0), dtype=stiffness_dense.dtype)
         c_f = constraints.matrix[:, free]
+        c_c = constraints.matrix[:, fixed] if fixed.size else jnp.zeros((constraints.n_constraints, 0), dtype=constraints.matrix.dtype)
+        rhs = jnp.concatenate([force[free] - k_fc @ fixed_vals, constraints.rhs - c_c @ fixed_vals])
         lhs = jnp.block(
             [
                 [k_ff, c_f.T],
@@ -680,14 +715,20 @@ def solve_linear_constraint_kkt(
         else:
             k_csr = sp.csr_matrix(np.asarray(stiffness))
         k_ff = k_csr[free_np, :][:, free_np].tocsr()
+        k_fc = k_csr[free_np, :][:, fixed_np].tocsr() if fixed_np.size else sp.csr_matrix((free_np.size, 0), dtype=k_ff.dtype)
         c_f = sp.csr_matrix(np.asarray(constraints.matrix[:, free]))
+        c_c = np.asarray(constraints.matrix[:, fixed]) if fixed_np.size else np.zeros((constraints.n_constraints, 0), dtype=np.asarray(constraints.matrix).dtype)
+        rhs = jnp.concatenate([force[free] - jnp.asarray(k_fc @ np.asarray(fixed_vals)), constraints.rhs - jnp.asarray(c_c @ np.asarray(fixed_vals))])
         zero = sp.csr_matrix((constraints.n_constraints, constraints.n_constraints), dtype=k_ff.dtype)
         lhs = sp.bmat([[k_ff, c_f.T], [c_f, zero]], format="csr")
         sol_np = spla.spsolve(lhs, np.asarray(rhs))
         sol = jnp.asarray(sol_np, dtype=jnp.result_type(force, constraints.matrix))
     else:
         raise ValueError("solver must be 'dense' or 'spsolve'.")
-    return jnp.zeros((n_dofs,), dtype=sol.dtype).at[free].set(sol[: free.size])
+    u = jnp.zeros((n_dofs,), dtype=sol.dtype).at[free].set(sol[: free.size])
+    if fixed.size:
+        u = u.at[fixed].set(fixed_vals.astype(sol.dtype))
+    return u
 
 
 def make_craig_bampton_basis(

@@ -18,6 +18,8 @@ CB retained DOFs are the natural location for interface, contact, and remote fix
 
 `tutorials/craig_bampton_rbe3_preload_component.py` is the compact FluxFEM counterpart of `skfem-Craig-Bampton-ROM/experiment-2`: it compares a full explicit-reference RBE3 preload KKT solve with the CB-projected KKT solve on a notched tetrahedral workpiece.
 
+The same tutorial supports `--fixture-boundary preload` and `--fixture-boundary dirichlet`. The Dirichlet path prescribes the explicit RBE3 reference-point displacement using nonzero `fixed_values` in `LinearConstraintSystem.solve`, so a one-sided fixture can be represented either as a preload spring or as a prescribed support motion.
+
 The active-contact/Newmark helpers no longer depend on removed legacy contact classes. They accept user-provided contact-state callbacks:
 
 - `residual_from_contact_state(state) -> residual_fn`
@@ -25,6 +27,13 @@ The active-contact/Newmark helpers no longer depend on removed legacy contact cl
 - `update_contact_state(solution) -> new_state`
 
 This keeps residual/Jacobian evaluation pure and AD-friendly while active sets, broad-phase search, or friction history are updated outside the differentiated residual.
+
+For future uncertain/contact-changing time evolution, the intended shape is:
+
+1. keep candidate contact/interface DOFs in the CB retained set,
+2. evaluate reduced Newmark residuals with `make_newmark_effective_residual`,
+3. update contact state with `active_contact_newmark_step` outside the differentiated residual,
+4. represent changing fixture states as either active preload springs, nonzero Dirichlet reference DOFs, or current `CoupledSystemBuilder` constraints.
 
 ## Important limitation
 

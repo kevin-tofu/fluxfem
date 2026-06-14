@@ -202,6 +202,46 @@ def test_linear_constraint_fixture_projection_matches_full_kkt():
     np.testing.assert_allclose(np.asarray(reduced_constraints.residual(q_rom)), np.zeros(1), atol=1.0e-10)
 
 
+def test_linear_constraint_kkt_supports_nonzero_fixed_values():
+    stiffness = jnp.array(
+        [
+            [4.0, -1.0, 0.0],
+            [-1.0, 5.0, -1.0],
+            [0.0, -1.0, 4.0],
+        ],
+        dtype=jnp.float64,
+    )
+    force = jnp.array([0.0, 1.0, 0.0], dtype=jnp.float64)
+    constraints = ff.LinearConstraintSystem(jnp.array([[0.0, 1.0, -1.0]], dtype=jnp.float64))
+
+    u = constraints.solve(
+        stiffness,
+        force,
+        fixed_dofs=jnp.array([0], dtype=jnp.int32),
+        fixed_values=jnp.array([0.25], dtype=jnp.float64),
+    )
+
+    free = np.array([1, 2])
+    fixed = np.array([0])
+    k_ff = np.asarray(stiffness)[np.ix_(free, free)]
+    k_fc = np.asarray(stiffness)[np.ix_(free, fixed)]
+    c_f = np.asarray(constraints.matrix)[:, free]
+    c_c = np.asarray(constraints.matrix)[:, fixed]
+    rhs = np.concatenate(
+        [
+            np.asarray(force)[free] - k_fc[:, 0] * 0.25,
+            np.asarray(constraints.rhs) - c_c[:, 0] * 0.25,
+        ]
+    )
+    lhs = np.block([[k_ff, c_f.T], [c_f, np.zeros((1, 1))]])
+    expected = np.zeros(3)
+    expected[0] = 0.25
+    expected[free] = np.linalg.solve(lhs, rhs)[:2]
+
+    np.testing.assert_allclose(np.asarray(u), expected, rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(constraints.residual(u)), np.zeros(1), atol=1.0e-12)
+
+
 def test_newmark_and_active_contact_callbacks_are_autodiff_friendly():
     mass = jnp.array([[2.0]], dtype=jnp.float64)
     stiffness = jnp.array([[8.0]], dtype=jnp.float64)
