@@ -116,3 +116,152 @@ def test_craig_bampton_sparse_fluxfem_matrices_match_dense_eigenvalues():
 def test_craig_bampton_top_level_exports_are_available():
     assert ff.CraigBamptonBasis is not None
     assert ff.make_craig_bampton_basis is ff.solver.make_craig_bampton_basis
+
+
+def test_craig_bampton_cg_and_subspace_solvers_match_dense():
+    stiffness = jnp.array(
+        [
+            [6.0, -1.0, 0.0, 0.0, 0.0],
+            [-1.0, 7.0, -1.5, 0.0, 0.0],
+            [0.0, -1.5, 8.0, -1.0, 0.0],
+            [0.0, 0.0, -1.0, 7.0, -1.0],
+            [0.0, 0.0, 0.0, -1.0, 5.0],
+        ],
+        dtype=jnp.float64,
+    )
+    mass = jnp.eye(5, dtype=jnp.float64)
+    retained = jnp.array([0, 4], dtype=jnp.int32)
+
+    dense = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=retained, n_modes=2)
+    iterative = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=retained,
+        n_modes=2,
+        constraint_solver="cg",
+        modal_solver="subspace",
+        modal_linear_solver="cg",
+        modal_oversample=1,
+        modal_maxiter=60,
+        modal_tol=1.0e-10,
+        cg_tol=1.0e-11,
+        cg_maxiter=100,
+    )
+
+    np.testing.assert_allclose(np.asarray(iterative.eigenvalues), np.asarray(dense.eigenvalues), rtol=2.0e-8)
+    np.testing.assert_allclose(
+        np.asarray(iterative.basis @ iterative.basis.T),
+        np.asarray(dense.basis @ dense.basis.T),
+        rtol=2.0e-8,
+        atol=2.0e-8,
+    )
+
+
+def test_linear_constraint_fixture_projection_matches_full_kkt():
+    stiffness = jnp.array(
+        [
+            [8.0, -2.0, 0.0, 0.0],
+            [-2.0, 7.0, -1.0, 0.0],
+            [0.0, -1.0, 6.0, -1.5],
+            [0.0, 0.0, -1.5, 5.0],
+        ],
+        dtype=jnp.float64,
+    )
+    mass = jnp.eye(4, dtype=jnp.float64)
+    fixture = ff.ReferencePointFixture(
+        "preload",
+        ff.RBE3Patch(
+            dofs=jnp.array([[1], [2]], dtype=jnp.int32),
+            weights=jnp.ones((2,), dtype=jnp.float64),
+        ),
+        reference_dofs=jnp.array([4], dtype=jnp.int32),
+        stiffness=12.0,
+        target_displacement=0.03,
+    )
+    constraints = ff.linear_constraint_system_from_reference_fixtures(
+        [fixture],
+        n_structural_dofs=4,
+        total_dofs=5,
+    )
+    preload_k, preload_f = ff.assemble_reference_fixture_preload([fixture], total_dofs=5)
+    external_f = jnp.array([0.0, 0.0, 0.0, -0.4, 0.0], dtype=jnp.float64)
+    k_full = jnp.zeros((5, 5), dtype=jnp.float64).at[:4, :4].set(stiffness) + preload_k
+    f_full = external_f + preload_f
+    full_u = constraints.solve(k_full, f_full, fixed_dofs=jnp.array([0]), solver="dense")
+
+    retained = jnp.unique(jnp.concatenate([jnp.array([0, 3], dtype=jnp.int32), fixture.retained_dofs]))
+    cb = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=retained, n_modes=1)
+    reduced_constraints = constraints.project(cb, n_extra_dofs=1)
+    k_rom = jnp.zeros((cb.n_reduced + 1, cb.n_reduced + 1), dtype=jnp.float64)
+    k_rom = k_rom.at[: cb.n_reduced, : cb.n_reduced].set(cb.project_matrix(stiffness))
+    k_rom = k_rom.at[cb.n_reduced, cb.n_reduced].set(preload_k[4, 4])
+    f_rom = jnp.concatenate([cb.project_vector(external_f[:4]), preload_f[4:]])
+    q_rom = reduced_constraints.solve(k_rom, f_rom, fixed_dofs=jnp.array([0]), solver="dense")
+
+    np.testing.assert_allclose(np.asarray(reduced_constraints.expand(q_rom)), np.asarray(full_u), rtol=1.0e-10)
+    np.testing.assert_allclose(np.asarray(reduced_constraints.residual(q_rom)), np.zeros(1), atol=1.0e-10)
+
+
+def test_newmark_and_active_contact_callbacks_are_autodiff_friendly():
+    mass = jnp.array([[2.0]], dtype=jnp.float64)
+    stiffness = jnp.array([[8.0]], dtype=jnp.float64)
+    state = ff.NewmarkState(
+        q=jnp.array([0.1], dtype=jnp.float64),
+        qd=jnp.array([0.0], dtype=jnp.float64),
+        qdd=jnp.array([-0.4], dtype=jnp.float64),
+    )
+    config = ff.NewmarkConfig(dt=0.05, tol=1.0e-10, atol=1.0e-12, maxiter=8)
+
+    def internal_force(q):
+        return stiffness @ q + 0.1 * q**3
+
+    next_state, info = ff.newmark_step(
+        mass,
+        None,
+        internal_force,
+        jnp.array([0.0], dtype=jnp.float64),
+        state,
+        config,
+    )
+    residual = ff.make_newmark_effective_residual(mass, None, internal_force, jnp.zeros(1), state, config)
+    jac = jax.jacrev(residual)(next_state.q)
+
+    assert info.converged
+    assert jac.shape == (1, 1)
+    np.testing.assert_allclose(np.asarray(residual(next_state.q)), np.zeros(1), atol=1.0e-10)
+
+    class ActiveState:
+        def __init__(self, active: bool):
+            self.active = jnp.asarray([active])
+
+        def changed(self, other):
+            return jnp.any(self.active != other.active)
+
+    def residual_from_contact_state(active_state):
+        penalty = jnp.where(active_state.active[0], 10.0, 0.0)
+
+        def residual_fn(x):
+            return jnp.array([(1.0 + penalty) * x[0] - 1.0])
+
+        return residual_fn
+
+    def solve_fn(residual_fn, x0):
+        jac_fn = jax.jacrev(residual_fn)
+        x = x0 + jnp.linalg.solve(jac_fn(x0), -residual_fn(x0))
+        return x, {"ok": True}
+
+    def update_state(x):
+        return ActiveState(bool(x[0] > 0.05))
+
+    x, active_info = ff.active_contact_fixed_point_solve(
+        jnp.array([0.0], dtype=jnp.float64),
+        ActiveState(False),
+        residual_from_contact_state,
+        solve_fn,
+        update_state,
+        max_active_updates=4,
+    )
+
+    assert active_info.converged
+    assert active_info.iters == 2
+    np.testing.assert_allclose(np.asarray(x), np.array([1.0 / 11.0]), rtol=1.0e-10)

@@ -33,6 +33,23 @@ Craig-Bampton ROM
 .. autofunction:: fluxfem.solver.reduced_residual_from_full
 .. autofunction:: fluxfem.solver.reduced_jacobian_from_full
 
+Craig-Bampton Constraints and Dynamics
+--------------------------------------
+
+.. autoclass:: fluxfem.solver.LinearConstraintSystem
+.. autoclass:: fluxfem.solver.ReducedLinearConstraintSystem
+.. autoclass:: fluxfem.solver.RBE3Patch
+.. autoclass:: fluxfem.solver.ReferencePointFixture
+.. autofunction:: fluxfem.solver.linear_constraint_system_from_reference_fixtures
+.. autofunction:: fluxfem.solver.assemble_reference_fixture_preload
+.. autofunction:: fluxfem.solver.solve_linear_constraint_kkt
+.. autoclass:: fluxfem.solver.NewmarkState
+.. autoclass:: fluxfem.solver.NewmarkConfig
+.. autofunction:: fluxfem.solver.newmark_step
+.. autofunction:: fluxfem.solver.integrate_newmark
+.. autofunction:: fluxfem.solver.active_contact_fixed_point_solve
+.. autofunction:: fluxfem.solver.active_contact_newmark_step
+
 Sparse
 ------
 
