@@ -67,7 +67,11 @@ __all__ = [
     "CraigBamptonBasis",
     "ContactSearchManagerLike",
     "FrictionManagerLike",
+    "LinearConstraintSystem",
+    "RBE3Patch",
     "ReducedContactDynamics",
+    "ReducedLinearConstraintSystem",
+    "ReferencePointFixture",
     "ActiveContactState",
     "ActiveContactIterationRecord",
     "ActiveContactNewmarkStepInfo",
@@ -95,6 +99,7 @@ __all__ = [
     "TangentialPenaltyFrictionManager",
     "active_contact_fixed_point_solve",
     "active_contact_newmark_step",
+    "assemble_reference_fixture_preload",
     "complement_dofs",
     "fixed_interface_modes",
     "integrate_newmark",
@@ -122,6 +127,8 @@ __all__ = [
     "node_surface_neighbor_list_from_bounding_boxes",
     "reduced_jacobian_from_full",
     "reduced_residual_from_full",
+    "linear_constraint_system_from_reference_fixtures",
+    "solve_linear_constraint_kkt",
     "retained_dofs_from_surface",
     "solve_constraint_modes",
     "slip_norm",
@@ -298,21 +305,25 @@ def read_version_from_pyproject():
     import pathlib
     import re
 
-    root = pathlib.Path(__file__).resolve().parent.parent
-    pyproject_path = root / "pyproject.toml"
-    if pyproject_path.exists():
-        content = pyproject_path.read_text()
-        match = re.search(r'version\s*=\s*"(.*?)"', content)
-        if match:
-            return match.group(1)
-    return "0.0.0"
+    here = pathlib.Path(__file__).resolve()
+    for root in here.parents:
+        pyproject_path = root / "pyproject.toml"
+        if pyproject_path.exists():
+            content = pyproject_path.read_text()
+            match = re.search(r'version\s*=\s*"(.*?)"', content)
+            if match:
+                return match.group(1)
+    return None
 
 
 def get_version(package_name):
+    local_version = read_version_from_pyproject()
+    if local_version is not None:
+        return local_version
     try:
         return version(package_name)
     except PackageNotFoundError:
-        return read_version_from_pyproject()
+        return "0.0.0"
 
 
 __version__ = get_version("fluxfem")

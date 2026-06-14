@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Update FluxFEM version strings and print a change log."""
+
+from __future__ import annotations
+
+import argparse
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+
+VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?$")
+
+
+@dataclass(frozen=True)
+class Replacement:
+    path: Path
+    pattern: re.Pattern[str]
+    repl: str
+    label: str
+
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def validate_version(version: str) -> str:
+    if not VERSION_RE.match(version):
+        raise SystemExit(
+            f"invalid version {version!r}; expected forms like 0.2.0, 0.2.0b1, 0.2.0rc1"
+        )
+    return version
+
+
+def replace_text(path: Path, pattern: re.Pattern[str], repl: str, *, dry_run: bool) -> int:
+    text = path.read_text(encoding="utf-8")
+    count = 0
+
+    def replace_if_changed(match: re.Match[str]) -> str:
+        nonlocal count
+        current = match.group(0)
+        if current == repl:
+            return current
+        count += 1
+        return repl
+
+    new_text = pattern.sub(replace_if_changed, text)
+    if count and not dry_run:
+        path.write_text(new_text, encoding="utf-8")
+    return count
+
+
+def replacements(root: Path, version: str) -> list[Replacement]:
+    return [
+        Replacement(
+            root / "pyproject.toml",
+            re.compile(r'(?m)^version\s*=\s*"[^"]+"'),
+            f'version = "{version}"',
+            "pyproject project/tool.poetry version",
+        ),
+        Replacement(
+            root / "docs/source/conf.py",
+            re.compile(r'(?m)^release\s*=\s*"[^"]+"'),
+            f'release = "{version}"',
+            "Sphinx release",
+        ),
+        Replacement(
+            root / "src/fluxfem/__init__.py",
+            re.compile(r'(?m)^__version__\s*=\s*"[^"]+"'),
+            f'__version__ = "{version}"',
+            "literal __version__",
+        ),
+        Replacement(
+            root / "README.md",
+            re.compile(r"fluxfem==\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?"),
+            f"fluxfem=={version}",
+            "README pinned install examples",
+        ),
+        Replacement(
+            root / "docs/source/installation.rst",
+            re.compile(r"fluxfem==\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?"),
+            f"fluxfem=={version}",
+            "docs pinned install examples",
+        ),
+    ]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--version", required=True, type=validate_version)
+    parser.add_argument("--dry-run", action="store_true", help="print planned updates without writing files")
+    args = parser.parse_args()
+
+    root = repo_root()
+    total = 0
+    print(f"target version: {args.version}")
+    if args.dry_run:
+        print("mode: dry-run")
+
+    for item in replacements(root, args.version):
+        if not item.path.exists():
+            print(f"skip missing: {item.path.relative_to(root)} ({item.label})")
+            continue
+        count = replace_text(item.path, item.pattern, item.repl, dry_run=args.dry_run)
+        total += count
+        if count:
+            action = "would update" if args.dry_run else "updated"
+            print(f"{action}: {item.path.relative_to(root)} ({item.label}) replacements={count}")
+        else:
+            print(f"unchanged: {item.path.relative_to(root)} ({item.label})")
+
+    print(f"total replacements: {total}")
+
+
+if __name__ == "__main__":
+    main()

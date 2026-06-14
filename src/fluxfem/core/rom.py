@@ -424,6 +424,362 @@ class CraigBamptonBasis:
         return cls(basis, retained_dofs, internal_dofs, eigenvalues)
 
 
+@dataclass(frozen=True)
+class LinearConstraintSystem:
+    """Dense linear equality constraints `C u = rhs` for KKT solves and ROM projection."""
+
+    matrix: Array
+    rhs: Array | None = None
+
+    def __post_init__(self):
+        matrix = jnp.asarray(self.matrix)
+        if matrix.ndim != 2:
+            raise ValueError("constraint matrix must have shape (n_constraints, n_dofs).")
+        rhs = jnp.zeros((matrix.shape[0],), dtype=matrix.dtype) if self.rhs is None else jnp.asarray(self.rhs)
+        if rhs.shape != (matrix.shape[0],):
+            raise ValueError("constraint rhs must have shape (n_constraints,).")
+        object.__setattr__(self, "matrix", matrix)
+        object.__setattr__(self, "rhs", rhs)
+
+    @property
+    def n_constraints(self) -> int:
+        return int(self.matrix.shape[0])
+
+    @property
+    def n_dofs(self) -> int:
+        return int(self.matrix.shape[1])
+
+    def residual(self, u: Array) -> Array:
+        return self.matrix @ jnp.asarray(u) - self.rhs
+
+    def project(self, basis: CraigBamptonBasis, *, n_extra_dofs: int = 0) -> "ReducedLinearConstraintSystem":
+        """Project constraints through a CB basis, optionally preserving appended DOFs.
+
+        `n_extra_dofs` covers explicit reference-point coordinates or other
+        non-structural unknowns appended after the full structural DOFs.  The
+        reduced unknown is ordered as `[q_cb, u_extra]`.
+        """
+        n_extra_dofs = int(n_extra_dofs)
+        if n_extra_dofs < 0:
+            raise ValueError("n_extra_dofs must be non-negative.")
+        if self.n_dofs != basis.n_full + n_extra_dofs:
+            raise ValueError("constraint matrix column count must match basis.n_full + n_extra_dofs.")
+        dtype = jnp.result_type(self.matrix, basis.basis)
+        transform = jnp.zeros((self.n_dofs, basis.n_reduced + n_extra_dofs), dtype=dtype)
+        transform = transform.at[: basis.n_full, : basis.n_reduced].set(basis.basis)
+        if n_extra_dofs:
+            transform = transform.at[basis.n_full :, basis.n_reduced :].set(
+                jnp.eye(n_extra_dofs, dtype=dtype)
+            )
+        return ReducedLinearConstraintSystem(
+            matrix=self.matrix @ transform,
+            rhs=self.rhs,
+            basis=basis,
+            n_extra_dofs=n_extra_dofs,
+        )
+
+    def solve(
+        self,
+        stiffness: Array,
+        force: Array,
+        *,
+        fixed_dofs: Array | None = None,
+        solver: str = "dense",
+    ) -> Array:
+        """Solve `K u = f` with equality constraints and zero fixed DOFs."""
+        return solve_linear_constraint_kkt(stiffness, force, self, fixed_dofs=fixed_dofs, solver=solver)
+
+
+@dataclass(frozen=True)
+class ReducedLinearConstraintSystem:
+    """Linear constraints projected into `[q_cb, u_extra]` coordinates."""
+
+    matrix: Array
+    rhs: Array
+    basis: CraigBamptonBasis
+    n_extra_dofs: int = 0
+
+    @property
+    def n_reduced(self) -> int:
+        return int(self.matrix.shape[1])
+
+    def residual(self, q: Array) -> Array:
+        return self.matrix @ jnp.asarray(q) - self.rhs
+
+    def expand(self, q: Array) -> Array:
+        q = jnp.asarray(q)
+        structural = self.basis.expand(q[: self.basis.n_reduced])
+        if self.n_extra_dofs == 0:
+            return structural
+        return jnp.concatenate([structural, q[self.basis.n_reduced :]])
+
+    def solve(
+        self,
+        stiffness: Array,
+        force: Array,
+        *,
+        fixed_dofs: Array | None = None,
+        solver: str = "dense",
+    ) -> Array:
+        """Solve a reduced KKT system in `[q_cb, u_extra]` coordinates."""
+        constraints = LinearConstraintSystem(self.matrix, self.rhs)
+        return constraints.solve(stiffness, force, fixed_dofs=fixed_dofs, solver=solver)
+
+
+@dataclass(frozen=True)
+class RBE3Patch:
+    """Translational RBE3-style weighted average over structural DOFs."""
+
+    dofs: Array
+    weights: Array
+
+    def __post_init__(self):
+        dofs = jnp.asarray(self.dofs, dtype=jnp.int32)
+        weights = jnp.asarray(self.weights)
+        if dofs.ndim != 2:
+            raise ValueError("RBE3Patch dofs must have shape (n_points, dim).")
+        if weights.shape != (dofs.shape[0],):
+            raise ValueError("RBE3Patch weights must have shape (n_points,).")
+        if dofs.shape[0] == 0 or dofs.shape[1] == 0:
+            raise ValueError("RBE3Patch must contain at least one point and one component.")
+        if bool(jnp.any(dofs < 0)):
+            raise ValueError("RBE3Patch dofs must be non-negative.")
+        weight_sum = jnp.sum(weights)
+        if float(jnp.abs(weight_sum)) <= 0.0:
+            raise ValueError("RBE3Patch weights must have a non-zero sum.")
+        object.__setattr__(self, "dofs", dofs)
+        object.__setattr__(self, "weights", weights / weight_sum)
+
+    @property
+    def dim(self) -> int:
+        return int(self.dofs.shape[1])
+
+    @property
+    def retained_dofs(self) -> Array:
+        return jnp.unique(self.dofs.reshape(-1)).astype(jnp.int32)
+
+    def average_matrix(self, n_structural_dofs: int) -> Array:
+        """Build `B` such that `B @ u` is the weighted patch displacement."""
+        n_structural_dofs = int(n_structural_dofs)
+        if n_structural_dofs <= 0:
+            raise ValueError("n_structural_dofs must be positive.")
+        if int(jnp.max(self.dofs)) >= n_structural_dofs:
+            raise ValueError("RBE3Patch dofs contain an index outside n_structural_dofs.")
+        b = jnp.zeros((self.dim, n_structural_dofs), dtype=self.weights.dtype)
+        for point in range(int(self.dofs.shape[0])):
+            for component in range(self.dim):
+                b = b.at[component, self.dofs[point, component]].add(self.weights[point])
+        return b
+
+
+@dataclass(frozen=True)
+class ReferencePointFixture:
+    """Reference-point fixture backed by an RBE3-style patch MPC."""
+
+    name: str
+    patch: RBE3Patch
+    reference_dofs: Array
+    direction: Array | None = None
+    stiffness: float = 0.0
+    target_displacement: float = 0.0
+
+    def __post_init__(self):
+        reference_dofs = jnp.asarray(self.reference_dofs, dtype=jnp.int32)
+        if reference_dofs.shape != (self.patch.dim,):
+            raise ValueError("reference_dofs must have shape (patch.dim,).")
+        if bool(jnp.any(reference_dofs < 0)):
+            raise ValueError("reference_dofs must be non-negative.")
+        if np.unique(np.asarray(reference_dofs)).size != int(reference_dofs.size):
+            raise ValueError("reference_dofs must not contain duplicates.")
+        if self.direction is None:
+            direction = jnp.zeros((self.patch.dim,), dtype=self.patch.weights.dtype).at[-1].set(1.0)
+        else:
+            direction = jnp.asarray(self.direction, dtype=self.patch.weights.dtype)
+        if direction.shape != (self.patch.dim,):
+            raise ValueError("direction must have shape (patch.dim,).")
+        norm = jnp.linalg.norm(direction)
+        if float(norm) <= 0.0:
+            raise ValueError("direction must have non-zero norm.")
+        object.__setattr__(self, "reference_dofs", reference_dofs)
+        object.__setattr__(self, "direction", direction / norm)
+
+    @property
+    def retained_dofs(self) -> Array:
+        return self.patch.retained_dofs
+
+    def constraint_matrix(self, n_structural_dofs: int, total_dofs: int) -> Array:
+        """Build rows for `u_ref - B u_structural = 0`."""
+        n_structural_dofs = int(n_structural_dofs)
+        total_dofs = int(total_dofs)
+        if total_dofs < n_structural_dofs:
+            raise ValueError("total_dofs must be at least n_structural_dofs.")
+        if int(jnp.max(self.reference_dofs)) >= total_dofs:
+            raise ValueError("reference_dofs contain an index outside total_dofs.")
+        c = jnp.zeros((self.patch.dim, total_dofs), dtype=self.patch.weights.dtype)
+        c = c.at[:, :n_structural_dofs].set(-self.patch.average_matrix(n_structural_dofs))
+        c = c.at[jnp.arange(self.patch.dim), self.reference_dofs].set(1.0)
+        return c
+
+    def preload_stiffness_force(self, total_dofs: int, *, active: bool = True) -> tuple[Array, Array]:
+        """Return dense spring stiffness and force additions for this fixture."""
+        total_dofs = int(total_dofs)
+        k = jnp.zeros((total_dofs, total_dofs), dtype=self.patch.weights.dtype)
+        f = jnp.zeros((total_dofs,), dtype=self.patch.weights.dtype)
+        if not active or float(self.stiffness) == 0.0:
+            return k, f
+        if int(jnp.max(self.reference_dofs)) >= total_dofs:
+            raise ValueError("reference_dofs contain an index outside total_dofs.")
+        d = jnp.asarray(self.direction, dtype=self.patch.weights.dtype)
+        kk = float(self.stiffness) * jnp.outer(d, d)
+        ff = float(self.stiffness) * float(self.target_displacement) * d
+        refs = self.reference_dofs
+        k = k.at[refs[:, None], refs[None, :]].add(kk)
+        f = f.at[refs].add(ff)
+        return k, f
+
+
+def linear_constraint_system_from_reference_fixtures(
+    fixtures: tuple[ReferencePointFixture, ...] | list[ReferencePointFixture],
+    *,
+    n_structural_dofs: int,
+    total_dofs: int,
+) -> LinearConstraintSystem:
+    """Combine reference-point fixture MPC rows into one constraint system."""
+    if len(fixtures) == 0:
+        return LinearConstraintSystem(jnp.zeros((0, int(total_dofs))))
+    rows = [
+        fixture.constraint_matrix(n_structural_dofs=n_structural_dofs, total_dofs=total_dofs)
+        for fixture in fixtures
+    ]
+    return LinearConstraintSystem(jnp.vstack(rows))
+
+
+def assemble_reference_fixture_preload(
+    fixtures: tuple[ReferencePointFixture, ...] | list[ReferencePointFixture],
+    *,
+    total_dofs: int,
+    active_names: set[str] | frozenset[str] | None = None,
+    sparse: bool = False,
+) -> tuple[Array, Array]:
+    """Assemble dense preload spring additions for active reference fixtures."""
+    total_dofs = int(total_dofs)
+    dtype = fixtures[0].patch.weights.dtype if len(fixtures) else jnp.float32
+    if sparse:
+        try:
+            import scipy.sparse as sp
+        except Exception as exc:  # pragma: no cover
+            raise ImportError("scipy is required for sparse=True.") from exc
+        rows = []
+        cols = []
+        data = []
+        f_np = np.zeros((total_dofs,), dtype=np.dtype(dtype))
+        for fixture in fixtures:
+            active = active_names is None or fixture.name in active_names
+            if not active or float(fixture.stiffness) == 0.0:
+                continue
+            refs = np.asarray(fixture.reference_dofs, dtype=np.int32)
+            if refs.size and (refs.min() < 0 or refs.max() >= total_dofs):
+                raise ValueError("reference_dofs contain an index outside total_dofs.")
+            d = np.asarray(fixture.direction, dtype=np.dtype(dtype))
+            kk = float(fixture.stiffness) * np.outer(d, d)
+            ff = float(fixture.stiffness) * float(fixture.target_displacement) * d
+            rr, cc = np.meshgrid(refs, refs, indexing="ij")
+            rows.extend(rr.reshape(-1).tolist())
+            cols.extend(cc.reshape(-1).tolist())
+            data.extend(kk.reshape(-1).tolist())
+            f_np[refs] += ff
+        return sp.coo_matrix((data, (rows, cols)), shape=(total_dofs, total_dofs)).tocsr(), jnp.asarray(f_np)
+    k = jnp.zeros((total_dofs, total_dofs), dtype=dtype)
+    f = jnp.zeros((total_dofs,), dtype=dtype)
+    for fixture in fixtures:
+        active = active_names is None or fixture.name in active_names
+        kk, ff = fixture.preload_stiffness_force(total_dofs, active=active)
+        k = k + kk
+        f = f + ff
+    return k, f
+
+
+def _free_dofs(n_dofs: int, fixed_dofs: Array | None) -> np.ndarray:
+    if fixed_dofs is None:
+        return np.arange(n_dofs, dtype=np.int32)
+    fixed = np.asarray(fixed_dofs, dtype=np.int32).reshape(-1)
+    if fixed.size and (fixed.min() < 0 or fixed.max() >= n_dofs):
+        raise ValueError("fixed_dofs contains an index outside the unknown range.")
+    if np.unique(fixed).size != fixed.size:
+        raise ValueError("fixed_dofs must not contain duplicates.")
+    mask = np.ones((n_dofs,), dtype=bool)
+    mask[fixed] = False
+    return np.flatnonzero(mask).astype(np.int32)
+
+
+def solve_linear_constraint_kkt(
+    stiffness: Array,
+    force: Array,
+    constraints: LinearConstraintSystem,
+    *,
+    fixed_dofs: Array | None = None,
+    solver: str = "dense",
+) -> Array:
+    """Solve a dense symmetric KKT system with equality constraints.
+
+    The system is
+
+        K u + C.T lambda = f
+        C u = rhs
+
+    with optional zero-valued fixed DOFs removed before the KKT solve.
+    """
+    force = jnp.asarray(force)
+    stiffness_shape = _matrix_shape(stiffness)
+    n_dofs = int(stiffness_shape[0])
+    if stiffness_shape != (n_dofs, n_dofs):
+        raise ValueError("stiffness must be square.")
+    if force.shape != (n_dofs,):
+        raise ValueError("force must have shape (n_dofs,).")
+    if constraints.n_dofs != n_dofs:
+        raise ValueError("constraint column count must match stiffness size.")
+
+    free_np = _free_dofs(n_dofs, fixed_dofs)
+    free = jnp.asarray(free_np, dtype=jnp.int32)
+    rhs = jnp.concatenate([force[free], constraints.rhs])
+    if solver == "dense":
+        stiffness_dense = _as_dense_array(stiffness)
+        k_ff = stiffness_dense[free[:, None], free[None, :]]
+        c_f = constraints.matrix[:, free]
+        lhs = jnp.block(
+            [
+                [k_ff, c_f.T],
+                [
+                    c_f,
+                    jnp.zeros((constraints.n_constraints, constraints.n_constraints), dtype=stiffness_dense.dtype),
+                ],
+            ]
+        )
+        sol = jnp.linalg.solve(lhs, rhs)
+    elif solver == "spsolve":
+        try:
+            import scipy.sparse as sp
+            import scipy.sparse.linalg as spla
+        except Exception as exc:  # pragma: no cover
+            raise ImportError("scipy is required for solver='spsolve'.") from exc
+        if hasattr(stiffness, "to_csr"):
+            k_csr = stiffness.to_csr()
+        elif sp.issparse(stiffness):
+            k_csr = stiffness.tocsr()
+        else:
+            k_csr = sp.csr_matrix(np.asarray(stiffness))
+        k_ff = k_csr[free_np, :][:, free_np].tocsr()
+        c_f = sp.csr_matrix(np.asarray(constraints.matrix[:, free]))
+        zero = sp.csr_matrix((constraints.n_constraints, constraints.n_constraints), dtype=k_ff.dtype)
+        lhs = sp.bmat([[k_ff, c_f.T], [c_f, zero]], format="csr")
+        sol_np = spla.spsolve(lhs, np.asarray(rhs))
+        sol = jnp.asarray(sol_np, dtype=jnp.result_type(force, constraints.matrix))
+    else:
+        raise ValueError("solver must be 'dense' or 'spsolve'.")
+    u = jnp.zeros((n_dofs,), dtype=sol.dtype).at[free].set(sol[: free.size])
+    return u
+
+
 def make_craig_bampton_basis(
     stiffness: Array,
     mass: Array,

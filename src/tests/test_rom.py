@@ -402,6 +402,176 @@ def test_craig_bampton_assembled_sparse_fe_matrices_match_dense():
         atol=4e-5,
     )
 
+def test_linear_constraint_system_projects_explicit_reference_dof_through_cb_rom():
+    stiffness = jnp.array(
+        [
+            [8.0, -2.0, 0.0, 0.0],
+            [-2.0, 7.0, -1.0, 0.0],
+            [0.0, -1.0, 6.0, -1.5],
+            [0.0, 0.0, -1.5, 5.0],
+        ],
+        dtype=jnp.float32,
+    )
+    mass = jnp.eye(4, dtype=jnp.float32)
+    cb = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=jnp.array([0, 3]),
+        n_modes=2,
+    )
+
+    preload_stiffness = jnp.asarray(12.0, dtype=jnp.float32)
+    target = jnp.asarray(0.03, dtype=jnp.float32)
+    k_aug = jnp.zeros((5, 5), dtype=jnp.float32).at[:4, :4].set(stiffness)
+    k_aug = k_aug.at[4, 4].set(preload_stiffness)
+    f_aug = jnp.array([0.0, 0.0, 0.0, -0.4, preload_stiffness * target], dtype=jnp.float32)
+
+    c_aug = jnp.array([[0.0, -0.5, -0.5, 0.0, 1.0]], dtype=jnp.float32)
+    constraints = ff.LinearConstraintSystem(c_aug)
+    full_u = constraints.solve(k_aug, f_aug, fixed_dofs=jnp.array([0]))
+
+    k_rom = jnp.zeros((cb.n_reduced + 1, cb.n_reduced + 1), dtype=jnp.float32)
+    k_rom = k_rom.at[: cb.n_reduced, : cb.n_reduced].set(cb.project_matrix(stiffness))
+    k_rom = k_rom.at[cb.n_reduced, cb.n_reduced].set(preload_stiffness)
+    f_rom = jnp.concatenate([cb.project_vector(f_aug[:4]), f_aug[4:]])
+    reduced_constraints = constraints.project(cb, n_extra_dofs=1)
+    q_aug = reduced_constraints.solve(k_rom, f_rom, fixed_dofs=jnp.array([0]))
+    rom_u = reduced_constraints.expand(q_aug)
+
+    np.testing.assert_allclose(np.asarray(rom_u), np.asarray(full_u), rtol=4e-5, atol=4e-5)
+    np.testing.assert_allclose(np.asarray(constraints.residual(full_u)), np.zeros(1), atol=2e-6)
+    np.testing.assert_allclose(np.asarray(reduced_constraints.residual(q_aug)), np.zeros(1), atol=2e-6)
+
+def test_reference_point_fixture_builds_rbe3_mpc_and_preload():
+    patch = ff.RBE3Patch(
+        dofs=jnp.array([[1], [2]], dtype=jnp.int32),
+        weights=jnp.array([2.0, 2.0], dtype=jnp.float32),
+    )
+    fixture = ff.ReferencePointFixture(
+        "clamp",
+        patch,
+        reference_dofs=jnp.array([4], dtype=jnp.int32),
+        direction=jnp.array([1.0], dtype=jnp.float32),
+        stiffness=12.0,
+        target_displacement=0.03,
+    )
+
+    constraints = ff.linear_constraint_system_from_reference_fixtures(
+        [fixture],
+        n_structural_dofs=4,
+        total_dofs=5,
+    )
+    preload_k, preload_f = ff.assemble_reference_fixture_preload([fixture], total_dofs=5)
+    sparse_preload_k, sparse_preload_f = ff.assemble_reference_fixture_preload([fixture], total_dofs=5, sparse=True)
+
+    expected_c = jnp.array([[0.0, -0.5, -0.5, 0.0, 1.0]], dtype=jnp.float32)
+    np.testing.assert_allclose(np.asarray(constraints.matrix), np.asarray(expected_c))
+    np.testing.assert_allclose(np.asarray(preload_k[4, 4]), np.asarray(12.0), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(preload_f[4]), np.asarray(0.36), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(sparse_preload_k.toarray(), np.asarray(preload_k), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(sparse_preload_f), np.asarray(preload_f), rtol=1e-6, atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(fixture.retained_dofs), np.array([1, 2], dtype=np.int32))
+
+def test_reference_point_fixture_cb_rom_matches_full_kkt():
+    stiffness = jnp.array(
+        [
+            [8.0, -2.0, 0.0, 0.0],
+            [-2.0, 7.0, -1.0, 0.0],
+            [0.0, -1.0, 6.0, -1.5],
+            [0.0, 0.0, -1.5, 5.0],
+        ],
+        dtype=jnp.float32,
+    )
+    mass = jnp.eye(4, dtype=jnp.float32)
+    fixture = ff.ReferencePointFixture(
+        "clamp",
+        ff.RBE3Patch(
+            dofs=jnp.array([[1], [2]], dtype=jnp.int32),
+            weights=jnp.ones((2,), dtype=jnp.float32),
+        ),
+        reference_dofs=jnp.array([4], dtype=jnp.int32),
+        stiffness=12.0,
+        target_displacement=0.03,
+    )
+    constraints = ff.linear_constraint_system_from_reference_fixtures(
+        [fixture],
+        n_structural_dofs=4,
+        total_dofs=5,
+    )
+    preload_k, preload_f = ff.assemble_reference_fixture_preload([fixture], total_dofs=5)
+    external_f = jnp.array([0.0, 0.0, 0.0, -0.4, 0.0], dtype=jnp.float32)
+    k_full = jnp.zeros((5, 5), dtype=jnp.float32).at[:4, :4].set(stiffness) + preload_k
+    f_full = external_f + preload_f
+    full_u = constraints.solve(k_full, f_full, fixed_dofs=jnp.array([0]))
+
+    retained = jnp.unique(jnp.concatenate([jnp.array([0, 3], dtype=jnp.int32), fixture.retained_dofs]))
+    cb = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=retained, n_modes=1)
+    reduced_constraints = constraints.project(cb, n_extra_dofs=1)
+    k_rom = jnp.zeros((cb.n_reduced + 1, cb.n_reduced + 1), dtype=jnp.float32)
+    k_rom = k_rom.at[: cb.n_reduced, : cb.n_reduced].set(cb.project_matrix(stiffness))
+    k_rom = k_rom.at[cb.n_reduced, cb.n_reduced].set(preload_k[4, 4])
+    f_rom = jnp.concatenate([cb.project_vector(external_f[:4]), preload_f[4:]])
+    q_rom = reduced_constraints.solve(k_rom, f_rom, fixed_dofs=jnp.array([0]))
+
+    np.testing.assert_allclose(np.asarray(reduced_constraints.expand(q_rom)), np.asarray(full_u), rtol=4e-5, atol=4e-5)
+
+def test_linear_constraint_kkt_sparse_solver_matches_dense():
+    import scipy.sparse as sp
+
+    stiffness = jnp.array(
+        [
+            [4.0, -1.0, 0.0],
+            [-1.0, 5.0, -1.0],
+            [0.0, -1.0, 4.0],
+        ],
+        dtype=jnp.float32,
+    )
+    force = jnp.array([1.0, 0.0, -0.5], dtype=jnp.float32)
+    constraints = ff.LinearConstraintSystem(jnp.array([[0.0, 1.0, -1.0]], dtype=jnp.float32))
+
+    dense = constraints.solve(stiffness, force, fixed_dofs=jnp.array([0]), solver="dense")
+    sparse = constraints.solve(sp.csr_matrix(np.asarray(stiffness)), force, fixed_dofs=jnp.array([0]), solver="spsolve")
+
+    np.testing.assert_allclose(np.asarray(sparse), np.asarray(dense), rtol=1e-6, atol=1e-6)
+
+def test_reduced_linear_constraint_residual_is_autodiff_friendly():
+    stiffness = jnp.array(
+        [
+            [5.0, -1.0, 0.0],
+            [-1.0, 6.0, -1.0],
+            [0.0, -1.0, 5.0],
+        ],
+        dtype=jnp.float32,
+    )
+    cb = ff.make_craig_bampton_basis(
+        stiffness,
+        jnp.eye(3, dtype=jnp.float32),
+        retained_dofs=jnp.array([0, 2]),
+        n_modes=1,
+    )
+    constraints = ff.LinearConstraintSystem(
+        jnp.array([[0.0, -1.0, 0.0, 1.0]], dtype=jnp.float32),
+        rhs=jnp.array([0.02], dtype=jnp.float32),
+    )
+    reduced_constraints = constraints.project(cb, n_extra_dofs=1)
+    q = jnp.array([0.1, -0.2, 0.05, 0.03], dtype=jnp.float32)
+
+    jacobian = jax.jacrev(reduced_constraints.residual)(q)
+    expanded = reduced_constraints.expand(q)
+
+    np.testing.assert_allclose(
+        np.asarray(reduced_constraints.residual(q)),
+        np.asarray(constraints.residual(expanded)),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        np.asarray(jacobian),
+        np.asarray(reduced_constraints.matrix),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+
 def test_newmark_step_solves_linear_reduced_dynamics():
     mass = jnp.array([[2.0]])
     damping = None

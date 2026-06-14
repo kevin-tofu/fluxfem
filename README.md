@@ -32,6 +32,7 @@ where variational forms are treated as first-class, differentiable programs.
 - Weak-form–centric API that keeps formulations close to code; weak forms are represented as expression trees and compiled into element kernels, enabling automatic differentiation of residuals, tangents, and objectives.
 - Two assembly approaches: tensor-based (scikit-fem–style) assembly and weak-form-based assembly.
 - Handles both linear and nonlinear analyses with AD in JAX.
+- Craig-Bampton ROM workflows for assembled FE systems, active contact dynamics, and fixture-style MPC/preload models.
 
 ## Usage 
 
@@ -145,6 +146,52 @@ def loss_theta(theta):
 solve_u_jit = jax.jit(solve_u)
 loss_theta_jit = jax.jit(loss_theta)
 grad_fn = jax.jit(jax.grad(loss_theta))
+```
+
+### Craig-Bampton ROM and fixture MPC
+
+FluxFEM includes a Craig-Bampton ROM path for contact and fixture workflows. Boundary, contact, load, and fixture-candidate DOFs can be retained as physical reduced coordinates while internal DOFs are represented by fixed-interface modes.
+
+```Python
+cb = ff.make_craig_bampton_basis(
+    K,
+    M,
+    retained_dofs=retained,
+    n_modes=12,
+    constraint_solver="spsolve",
+    modal_solver="eigsh",
+)
+
+Kr = cb.project_matrix(K)
+Mr = cb.project_matrix(M)
+fr = cb.project_vector(f)
+```
+
+Fixture reference points can be represented with RBE3-style weighted patch MPCs:
+
+```Python
+fixture = ff.ReferencePointFixture(
+    "clamp",
+    ff.RBE3Patch(dofs=patch_dofs, weights=weights),
+    reference_dofs=ref_dofs,
+    direction=jnp.array([0.0, 0.0, 1.0]),
+    stiffness=25.0,
+    target_displacement=0.03,
+)
+
+constraints = ff.linear_constraint_system_from_reference_fixtures(
+    [fixture],
+    n_structural_dofs=n_workpiece,
+    total_dofs=n_workpiece + n_reference,
+)
+```
+
+Quick runs:
+
+```bash
+PYTHONPATH=src python tutorials/craig_bampton_sparse_fe_basis.py
+PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_mpc.py
+PYTHONPATH=src python tutorials/craig_bampton_fluxfem_rbe3_preload_experiment2.py --internal-modes 4 --timing-repeats 1
 ```
 
 ## Documentation

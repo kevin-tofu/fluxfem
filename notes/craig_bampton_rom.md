@@ -1032,6 +1032,99 @@ gap/contact variables behind modal coordinates.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 74 tests.
 
+## Current fifty-third slice
+
+- Added a small generic linear-MPC layer for CB-ROM workflows:
+  - `LinearConstraintSystem(C, rhs)` represents equality constraints
+    `C u = rhs`,
+  - `LinearConstraintSystem.project(cb, n_extra_dofs=...)` projects those
+    constraints through a Craig-Bampton basis while preserving appended
+    physical coordinates such as explicit reference-point DOFs,
+  - `ReducedLinearConstraintSystem` solves and expands reduced KKT systems,
+  - `solve_linear_constraint_kkt(...)` provides the dense full/reduced KKT
+    solve used by both wrappers.
+- This makes the experiment-2 style RBE3/preload structure expressible without
+  a fixture-specific API:
+  - full unknown: `[u_workpiece, u_ref]`,
+  - constraint: `u_ref - B u_workpiece = 0`,
+  - reduced unknown: `[q_cb, u_ref]`,
+  - projected constraint: `u_ref - B Phi_cb q_cb = 0`.
+- Added regression coverage that solves an explicit-reference preload problem
+  in both full and CB-reduced coordinates and checks that the reconstructed ROM
+  displacement matches the full KKT solve when all internal modes are retained.
+- Added an autodiff check for reduced linear-constraint residuals.
+- Added `tutorials/craig_bampton_rbe3_preload_mpc.py` as a minimal executable
+  reference for the pattern.
+- Verification:
+  - `PYTHONPATH=src pytest -q src/tests/test_rom.py`
+    passed: 28 tests.
+
+## Current fifty-fourth slice
+
+- Added thin fixture/MPC wrappers on top of the generic linear constraint layer:
+  - `RBE3Patch(dofs, weights)` builds a translational weighted-average matrix,
+  - `ReferencePointFixture(...)` creates `u_ref - B u_patch = 0` MPC rows and
+    optional preload spring additions on the reference DOFs,
+  - `linear_constraint_system_from_reference_fixtures(...)` combines fixture
+    MPC rows,
+  - `assemble_reference_fixture_preload(...)` assembles active reference-point
+    preload spring stiffness/force additions.
+- Updated `tutorials/craig_bampton_rbe3_preload_mpc.py` to use the wrappers
+  instead of hand-writing the `C` matrix.
+- Added regression coverage for:
+  - RBE3 average matrix and preload spring assembly,
+  - full KKT vs CB-ROM KKT equivalence through `ReferencePointFixture`.
+- Representative tutorial output:
+  - full/ROM max absolute displacement error: `0.0`,
+  - reduced constraint norm: `9.313226e-10`.
+- Verification:
+  - `PYTHONPATH=src pytest -q src/tests/test_rom.py`
+    passed: 30 tests.
+  - `python -m py_compile src/fluxfem/core/rom.py tutorials/craig_bampton_rbe3_preload_mpc.py`
+    passed.
+  - `PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_mpc.py`
+    completed successfully, with the known local CUDA plugin warning before CPU
+    execution.
+
+## Current fifty-fifth slice
+
+- Added `tutorials/craig_bampton_fluxfem_rbe3_preload_experiment2.py`, a
+  FluxFEM version of the experiment-2 explicit reference-point RBE3/preload
+  CB-ROM sample.
+- The tutorial preserves the reference experiment setup:
+  - notched/holed thin tetrahedral workpiece,
+  - randomized edge fixture patches with seed `20260614`,
+  - 3D 3-2-1 rigid-body constraints,
+  - direct external force patch on `z=0`,
+  - all selected fixture preload springs active on explicit reference-point
+    DOFs,
+  - fixed workpiece CB basis reused while active fixture springs are switched.
+- Assembly and ROM operations are now FluxFEM-native:
+  - `make_tet_space(..., dim=3)` + `linear_elasticity_form`,
+  - `make_craig_bampton_basis(..., constraint_solver="spsolve",
+    modal_solver="eigsh")`,
+  - `RBE3Patch` / `ReferencePointFixture`,
+  - `LinearConstraintSystem.project(...)`.
+- Added large-DoF oriented choices for MPC/preload solves:
+  - `LinearConstraintSystem.solve(..., solver="spsolve")`,
+  - `ReducedLinearConstraintSystem.solve(..., solver="spsolve")`,
+  - `solve_linear_constraint_kkt(..., solver="spsolve")`,
+  - `assemble_reference_fixture_preload(..., sparse=True)`.
+- Important accuracy note:
+  - the tutorial sets `JAX_ENABLE_X64=1` to match the NumPy/SciPy scikit-fem
+    reference precision.
+- Verification:
+  - `python -m py_compile src/fluxfem/core/rom.py tutorials/craig_bampton_fluxfem_rbe3_preload_experiment2.py`
+    passed.
+  - `PYTHONPATH=src pytest -q src/tests/test_rom.py -k "linear_constraint or reference_point_fixture"`
+    passed: 5 tests.
+  - FluxFEM tutorial with `--internal-modes 4 --timing-repeats 1`:
+    full DOFs `3744`, ROM DOFs `322`, master DOFs `318`,
+    relative displacement error `9.850e-14`.
+  - scikit-fem reference with the same settings:
+    full DOFs `3744`, ROM DOFs `322`, master DOFs `318`,
+    relative displacement error `1.995e-13`.
+
 ## AD/contact design
 
 The important design choice is to avoid special ROM element kernels at first.
