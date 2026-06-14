@@ -372,21 +372,25 @@ def read_version_from_pyproject():
     import pathlib
     import re
 
-    root = pathlib.Path(__file__).resolve().parent.parent
-    pyproject_path = root / "pyproject.toml"
-    if pyproject_path.exists():
-        content = pyproject_path.read_text()
-        match = re.search(r'version\s*=\s*"(.*?)"', content)
-        if match:
-            return match.group(1)
-    return "0.0.0"
+    here = pathlib.Path(__file__).resolve()
+    for root in here.parents:
+        pyproject_path = root / "pyproject.toml"
+        if pyproject_path.exists():
+            content = pyproject_path.read_text()
+            match = re.search(r'version\s*=\s*"(.*?)"', content)
+            if match:
+                return match.group(1)
+    return None
 
 
 def get_version(package_name):
+    local_version = read_version_from_pyproject()
+    if local_version is not None:
+        return local_version
     try:
         return version(package_name)
     except PackageNotFoundError:
-        return read_version_from_pyproject()
+        return "0.0.0"
 
 
 __version__ = get_version("fluxfem")
