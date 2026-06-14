@@ -23,6 +23,16 @@ Coupled Systems
 .. autoclass:: fluxfem.solver.DirichletSpec
 .. autoclass:: fluxfem.solver.ConstraintSpec
 
+Craig-Bampton ROM
+-----------------
+
+.. autoclass:: fluxfem.solver.CraigBamptonBasis
+.. autofunction:: fluxfem.solver.make_craig_bampton_basis
+.. autofunction:: fluxfem.solver.solve_constraint_modes
+.. autofunction:: fluxfem.solver.fixed_interface_modes
+.. autofunction:: fluxfem.solver.reduced_residual_from_full
+.. autofunction:: fluxfem.solver.reduced_jacobian_from_full
+
 Sparse
 ------
 

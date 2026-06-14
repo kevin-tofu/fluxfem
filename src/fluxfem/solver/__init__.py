@@ -46,6 +46,15 @@ from .petsc import petsc_solve, petsc_shell_solve, petsc_is_available
 from .dynamics import NewmarkResult, newmark_solve_linear
 from .coupled_system import CoupledSystem, CoupledSystemBuilder, DirichletSpec, ConstraintSpec
 from .coupled_system_numpy import NumpyCoupledSystem, NumpyCoupledSystemBuilder
+from .craig_bampton import (
+    CraigBamptonBasis,
+    complement_dofs,
+    fixed_interface_modes,
+    make_craig_bampton_basis,
+    reduced_jacobian_from_full,
+    reduced_residual_from_full,
+    solve_constraint_modes,
+)
 
 JAXCoupledSystem = CoupledSystem
 JAXCoupledSystemBuilder = CoupledSystemBuilder
@@ -142,4 +151,11 @@ __all__ = [
     "make_numpy_coupled_system_builder",
     "DirichletSpec",
     "ConstraintSpec",
+    "CraigBamptonBasis",
+    "complement_dofs",
+    "fixed_interface_modes",
+    "make_craig_bampton_basis",
+    "reduced_jacobian_from_full",
+    "reduced_residual_from_full",
+    "solve_constraint_modes",
 ]
