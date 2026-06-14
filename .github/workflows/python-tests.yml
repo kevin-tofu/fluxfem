@@ -40,4 +40,4 @@ jobs:
         run: poetry install --with dev
 
       - name: Run tests with coverage
-        run: PYTHONPATH=fluxfem poetry run pytest --cov=fluxfem --cov-report=xml
+        run: PYTHONPATH=src poetry run pytest --cov=fluxfem --cov-report=xml

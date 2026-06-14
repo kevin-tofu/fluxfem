@@ -44,8 +44,8 @@ def test_jacobian_matches_linear_diffusion():
         r_int = params * jnp.einsum("qai,qi->qa", ctx.test.gradN, grad_u)  # (q,n_nodes)
         return r_int
 
-    J_dense = space.assemble_jacobian(linear_res, u0, kappa, sparse=False)
-    K = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=kappa).to_dense())
+    J_dense = space.assemble_jacobian(linear_res, u0, kappa).to_dense()
+    K = np.asarray(space.assemble(ff.diffusion_form, params=kappa).to_dense())
 
     # residual is +K u, so Jacobian should be +K
     np.testing.assert_allclose(np.asarray(J_dense), np.asarray(K), rtol=1e-6, atol=1e-6)
@@ -86,11 +86,11 @@ def test_newton_with_external_force_and_dirichlet_line_search():
     assert info.converged
 
     # --- Reference solution via Dirichlet condensation: solve K u = F ---
-    K = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=kappa).to_dense())
+    K = np.asarray(space.assemble(ff.diffusion_form, params=kappa).to_dense())
 
     # This matches external = ctx.test.N (i.e., f(x)=1):
     # F_i = ∫ N_i * 1 dΩ
-    F = space.assemble_linear_form(ff.scalar_body_force_form, params=1.0)
+    F = space.assemble(ff.scalar_body_force_form, params=1.0)
 
     solver = ff.LinearSolver(method="spsolve")
     u_expected, _ = solver.solve(

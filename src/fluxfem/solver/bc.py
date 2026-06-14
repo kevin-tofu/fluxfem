@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 import numpy as np
 import numpy.typing as npt
+import jax
 import jax.numpy as jnp
 
 from ..mesh.surface import SurfaceMesh
@@ -39,6 +40,17 @@ class SurfaceFormField:
 @dataclass(eq=False)
 class SurfaceFormContext:
     v: SurfaceFormField
+    x_q: np.ndarray
+    w: np.ndarray
+    detJ: np.ndarray
+    facet_id: int
+    normal: np.ndarray | None = None
+
+
+@dataclass(eq=False)
+class SurfaceBilinearContext:
+    test: SurfaceFormField
+    trial: SurfaceFormField
     x_q: np.ndarray
     w: np.ndarray
     detJ: np.ndarray
@@ -97,14 +109,18 @@ def add_neumann_load(
     return F_new
 
 
-def vector_surface_load_form(ctx: SurfaceFormContext, load: npt.ArrayLike) -> np.ndarray:
+def vector_surface_load_form(ctx: SurfaceFormContext, load: npt.ArrayLike) -> jnp.ndarray:
     """
     Linear form for vector surface load: v · t on a facet.
     load: (dim,) or (n_q, dim)
     returns: (n_q, n_nodes*dim)
     """
-    load_arr = np.asarray(load, dtype=float)
-    return np.asarray(vector_load_form(ctx.v, load_arr))
+    load_arr = jnp.asarray(load)
+    return vector_load_form(ctx.v, load_arr)
+
+
+vector_surface_load_form._ff_kind = "linear"
+vector_surface_load_form._ff_domain = "surface"
 
 
 def make_vector_surface_load_form(load_fn):
@@ -115,7 +131,30 @@ def make_vector_surface_load_form(load_fn):
         load_q = load_fn(ctx.x_q)
         return vector_surface_load_form(ctx, load_q)
 
+    _form._ff_kind = "linear"
+    _form._ff_domain = "surface"
     return _form
+
+
+def traction_vector(traction, traction_dir: str) -> np.ndarray:
+    """
+    Resolve traction magnitude and direction string into a vector.
+    """
+    dir_map = {
+        "x": (1.0, 0.0, 0.0),
+        "xpos": (1.0, 0.0, 0.0),
+        "xneg": (-1.0, 0.0, 0.0),
+        "y": (0.0, 1.0, 0.0),
+        "ypos": (0.0, 1.0, 0.0),
+        "yneg": (0.0, -1.0, 0.0),
+        "z": (0.0, 0.0, 1.0),
+        "zpos": (0.0, 0.0, 1.0),
+        "zneg": (0.0, 0.0, -1.0),
+    }
+    key = traction_dir.strip().lower()
+    if key not in dir_map:
+        raise ValueError("TRACTION_DIR must be one of x/xpos/xneg/y/ypos/yneg/z/zpos/zneg")
+    return float(traction) * np.asarray(dir_map[key], dtype=float)
 
 
 def _surface_quadrature(node_coords: np.ndarray):
@@ -185,6 +224,121 @@ def assemble_surface_linear_form(
     """
     Assemble a linear form over surface facets using a weak-form callback.
     """
+    def _is_jax(x) -> bool:
+        return isinstance(x, jax.Array) or isinstance(x, jax.core.Tracer)
+
+    def _assemble_surface_linear_form_jax():
+        facets = jnp.asarray(surface.conn, dtype=jnp.int32)
+        coords = jnp.asarray(surface.coords)
+        if facets.ndim != 2 or facets.shape[1] not in (3, 4):
+            raise NotImplementedError("JAX surface assembly supports only tri/quad facets.")
+
+        n_nodes = surface.n_nodes if n_total_nodes is None else int(n_total_nodes)
+        n_dofs = n_nodes * dim
+        dtype = coords.dtype if F0 is None else jnp.asarray(F0).dtype
+        F = jnp.zeros(n_dofs, dtype=dtype) if F0 is None else jnp.asarray(F0, dtype=dtype)
+        if F.shape[0] != n_dofs:
+            raise ValueError(f"F length {F.shape[0]} does not match expected {n_dofs}")
+
+        coords_f = coords[facets]
+        facet_ids = jnp.arange(facets.shape[0], dtype=jnp.int32)
+        outward_from = jnp.mean(coords, axis=0)
+
+        def facet_fe_tri(facet_id, nodes):
+            p0, p1, p2 = nodes[0], nodes[1], nodes[2]
+            cross = jnp.cross(p1 - p0, p2 - p0)
+            area = 0.5 * jnp.linalg.norm(cross)
+            centroid = (p0 + p1 + p2) / 3.0
+            norm = jnp.linalg.norm(cross)
+            norm = jnp.where(norm < 1e-12, 1e-12, norm)
+            normal = cross / norm
+            v = centroid - outward_from
+            normal = jnp.where(jnp.dot(normal, v) < 0.0, -normal, normal)
+
+            N = jnp.array([[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]], dtype=dtype)
+            w = jnp.array([1.0], dtype=dtype)
+            ctx = SurfaceFormContext(
+                v=SurfaceFormField(N=N, value_dim=dim),
+                x_q=centroid[None, :],
+                w=w,
+                detJ=jnp.array([area], dtype=dtype),
+                facet_id=facet_id,
+                normal=normal,
+            )
+            fe_q = form(ctx, params)
+            if getattr(form, "_includes_measure", False):
+                fe = jnp.einsum("qi->i", fe_q)
+            else:
+                fe = jnp.einsum("qi,q->i", fe_q, w * area)
+            return fe
+
+        def facet_fe_quad(facet_id, nodes):
+            p0, p1, p2, p3 = nodes[0], nodes[1], nodes[2], nodes[3]
+            cross = jnp.cross(p1 - p0, p3 - p0)
+            norm = jnp.linalg.norm(cross)
+            norm = jnp.where(norm < 1e-12, 1e-12, norm)
+            normal = cross / norm
+            centroid = (p0 + p1 + p2 + p3) / 4.0
+            v = centroid - outward_from
+            normal = jnp.where(jnp.dot(normal, v) < 0.0, -normal, normal)
+
+            gp = jnp.array([-1.0 / jnp.sqrt(3.0), 1.0 / jnp.sqrt(3.0)], dtype=dtype)
+            xi, eta = jnp.meshgrid(gp, gp, indexing="xy")
+            xi = xi.reshape(-1)
+            eta = eta.reshape(-1)
+            w = jnp.ones_like(xi)
+
+            N = 0.25 * jnp.stack(
+                [
+                    (1 - xi) * (1 - eta),
+                    (1 + xi) * (1 - eta),
+                    (1 + xi) * (1 + eta),
+                    (1 - xi) * (1 + eta),
+                ],
+                axis=1,
+            )
+            dN_dxi = 0.25 * jnp.stack(
+                [-(1 - eta), (1 - eta), (1 + eta), -(1 + eta)], axis=1
+            )
+            dN_deta = 0.25 * jnp.stack(
+                [-(1 - xi), -(1 + xi), (1 + xi), (1 - xi)], axis=1
+            )
+
+            dx_dxi = jnp.einsum("qa,ai->qi", dN_dxi, nodes)
+            dx_deta = jnp.einsum("qa,ai->qi", dN_deta, nodes)
+            detJ = jnp.linalg.norm(jnp.cross(dx_dxi, dx_deta), axis=1)
+            x_q = jnp.einsum("qa,ai->qi", N, nodes)
+
+            ctx = SurfaceFormContext(
+                v=SurfaceFormField(N=N, value_dim=dim),
+                x_q=x_q,
+                w=w,
+                detJ=detJ,
+                facet_id=facet_id,
+                normal=normal,
+            )
+            fe_q = form(ctx, params)
+            if getattr(form, "_includes_measure", False):
+                fe = jnp.einsum("qi->i", fe_q)
+            else:
+                fe = jnp.einsum("qi,q->i", fe_q, w * detJ)
+            return fe
+
+        if facets.shape[1] == 3:
+            fe = jax.vmap(facet_fe_tri)(facet_ids, coords_f)
+        else:
+            fe = jax.vmap(facet_fe_quad)(facet_ids, coords_f)
+
+        fe = fe.astype(dtype)
+        offsets = jnp.arange(dim, dtype=jnp.int32)
+        dofs = facets[:, :, None] * dim + offsets[None, None, :]
+        dofs = dofs.reshape(facets.shape[0], -1)
+        F = F.at[dofs].add(fe)
+        return F
+
+    if _is_jax(surface.coords) or _is_jax(surface.conn) or _is_jax(F0):
+        return _assemble_surface_linear_form_jax()
+
     facets = np.asarray(surface.conn, dtype=int)
     coords = np.asarray(surface.coords)
     n_nodes = surface.n_nodes if n_total_nodes is None else int(n_total_nodes)
@@ -219,6 +373,225 @@ def assemble_surface_linear_form(
                 dof = dim * int(node) + d
                 F[dof] += fe[local]
     return F
+
+
+def assemble_surface_bilinear_form(
+    surface: SurfaceMesh,
+    form,
+    params,
+    *,
+    dim: int,
+    n_total_nodes: int | None = None,
+    pattern=None,
+    return_flux_matrix: bool = True,
+):
+    """
+    Assemble a surface bilinear form into a FluxSparseMatrix.
+
+    Expects form(ctx, params) -> (n_q, n_ldofs, n_ldofs).
+    If pattern is provided, the returned matrix uses the same ordering.
+    """
+    from ..solver import FluxSparseMatrix  # local import to avoid circular
+
+    def _is_jax(x) -> bool:
+        return isinstance(x, jax.Array) or isinstance(x, jax.core.Tracer)
+
+    def _has_jax_leaves(x) -> bool:
+        try:
+            leaves = jax.tree_util.tree_leaves(x)
+        except Exception:
+            leaves = [x]
+        return any(_is_jax(leaf) for leaf in leaves)
+
+    def _assemble_surface_bilinear_form_jax():
+        facets = jnp.asarray(surface.conn, dtype=jnp.int32)
+        coords = jnp.asarray(surface.coords)
+        if facets.ndim != 2 or facets.shape[1] not in (3, 4):
+            raise NotImplementedError("JAX surface bilinear assembly supports only tri/quad facets.")
+
+        n_nodes = surface.n_nodes if n_total_nodes is None else int(n_total_nodes)
+        n_dofs = n_nodes * int(dim)
+        includes_measure = getattr(form, "_includes_measure", False)
+        normals = jnp.asarray(
+            facet_normals(surface, outward_from=np.mean(np.asarray(surface.coords), axis=0), normalize=True),
+            dtype=coords.dtype,
+        )
+
+        if pattern is not None:
+            rows = jnp.asarray(pattern.rows, dtype=jnp.int32)
+            cols = jnp.asarray(pattern.cols, dtype=jnp.int32)
+            keys = np.asarray(pattern.rows, dtype=np.int64) * int(n_dofs) + np.asarray(pattern.cols, dtype=np.int64)
+            unique_keys, first_idx = np.unique(keys, return_index=True)
+            unique_keys_j = jnp.asarray(unique_keys, dtype=rows.dtype)
+            first_idx_j = jnp.asarray(first_idx, dtype=jnp.int32)
+            data = jnp.zeros(rows.shape[0], dtype=coords.dtype)
+        else:
+            rows_parts = []
+            cols_parts = []
+            data_parts = []
+
+        gp = jnp.array([-1.0 / jnp.sqrt(3.0), 1.0 / jnp.sqrt(3.0)], dtype=coords.dtype)
+        xi, eta = jnp.meshgrid(gp, gp, indexing="xy")
+        xi = xi.reshape(-1)
+        eta = eta.reshape(-1)
+        wq = jnp.ones_like(xi)
+
+        for facet_id in range(int(facets.shape[0])):
+            facet = facets[facet_id]
+            node_coords = coords[facet]
+            n_face_nodes = int(facets.shape[1])
+            if n_face_nodes == 3:
+                p0, p1, p2 = node_coords[0], node_coords[1], node_coords[2]
+                cross = jnp.cross(p1 - p0, p2 - p0)
+                area = 0.5 * jnp.linalg.norm(cross)
+                N = jnp.array([[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]], dtype=coords.dtype)
+                x_q = jnp.array([jnp.mean(node_coords, axis=0)], dtype=coords.dtype)
+                w = jnp.array([1.0], dtype=coords.dtype)
+                detJ = jnp.array([area], dtype=coords.dtype)
+            else:
+                N = 0.25 * jnp.stack(
+                    [
+                        (1 - xi) * (1 - eta),
+                        (1 + xi) * (1 - eta),
+                        (1 + xi) * (1 + eta),
+                        (1 - xi) * (1 + eta),
+                    ],
+                    axis=1,
+                )
+                dN_dxi = 0.25 * jnp.stack(
+                    [-(1 - eta), (1 - eta), (1 + eta), -(1 + eta)], axis=1
+                )
+                dN_deta = 0.25 * jnp.stack(
+                    [-(1 - xi), -(1 + xi), (1 + xi), (1 - xi)], axis=1
+                )
+                dx_dxi = jnp.einsum("qa,ai->qi", dN_dxi, node_coords)
+                dx_deta = jnp.einsum("qa,ai->qi", dN_deta, node_coords)
+                detJ = jnp.linalg.norm(jnp.cross(dx_dxi, dx_deta), axis=1)
+                w = wq
+                x_q = jnp.einsum("qa,ai->qi", N, node_coords)
+
+            ctx = SurfaceBilinearContext(
+                test=SurfaceFormField(N=N, value_dim=dim),
+                trial=SurfaceFormField(N=N, value_dim=dim),
+                x_q=x_q,
+                w=w,
+                detJ=detJ,
+                facet_id=facet_id,
+                normal=normals[facet_id],
+            )
+            ke_q = form(ctx, params)
+            if ke_q.ndim != 3 or ke_q.shape[0] != N.shape[0]:
+                raise ValueError("surface bilinear form must return array shape (n_q, n_ldofs, n_ldofs)")
+            if includes_measure:
+                ke = jnp.einsum("qij->ij", ke_q)
+            else:
+                ke = jnp.einsum("qij,q->ij", ke_q, w * detJ)
+
+            offsets = jnp.arange(dim, dtype=jnp.int32)
+            dofs = (facet[:, None] * dim + offsets[None, :]).reshape(-1)
+            row_local = jnp.repeat(dofs, dofs.shape[0])
+            col_local = jnp.tile(dofs, dofs.shape[0])
+            val_local = ke.reshape(-1)
+
+            if pattern is not None:
+                keys_local = row_local.astype(rows.dtype) * int(n_dofs) + col_local.astype(rows.dtype)
+                pos = jnp.searchsorted(unique_keys_j, keys_local)
+                valid = (pos >= 0) & (pos < unique_keys_j.shape[0])
+                keys_match = jnp.where(valid, unique_keys_j[pos], -jnp.ones_like(keys_local))
+                valid = valid & (keys_match == keys_local)
+                slot = first_idx_j[jnp.clip(pos, 0, first_idx_j.shape[0] - 1)]
+                contrib = jnp.where(valid, val_local, jnp.zeros_like(val_local))
+                data = data.at[slot].add(contrib)
+            else:
+                rows_parts.append(row_local)
+                cols_parts.append(col_local)
+                data_parts.append(val_local)
+
+        if pattern is not None:
+            if return_flux_matrix:
+                return FluxSparseMatrix(pattern, data)
+            return rows, cols, data, n_dofs
+
+        rows = jnp.concatenate(rows_parts, axis=0) if rows_parts else jnp.array([], dtype=jnp.int32)
+        cols = jnp.concatenate(cols_parts, axis=0) if cols_parts else jnp.array([], dtype=jnp.int32)
+        data = jnp.concatenate(data_parts, axis=0) if data_parts else jnp.array([], dtype=coords.dtype)
+        if return_flux_matrix:
+            return FluxSparseMatrix(rows, cols, data, n_dofs)
+        return rows, cols, data, n_dofs
+
+    if _is_jax(surface.coords) or _is_jax(surface.conn) or _has_jax_leaves(params):
+        return _assemble_surface_bilinear_form_jax()
+
+    facets = np.asarray(surface.conn, dtype=int)
+    coords = np.asarray(surface.coords)
+    n_nodes = surface.n_nodes if n_total_nodes is None else int(n_total_nodes)
+    n_dofs = n_nodes * int(dim)
+    normals = facet_normals(surface, outward_from=np.mean(coords, axis=0), normalize=True)
+
+    if pattern is not None:
+        rows = np.asarray(pattern.rows, dtype=int)
+        cols = np.asarray(pattern.cols, dtype=int)
+        keys = rows.astype(np.int64) * int(n_dofs) + cols.astype(np.int64)
+        unique_keys, first_idx = np.unique(keys, return_index=True)
+        data = np.zeros(rows.shape[0], dtype=float)
+    else:
+        rows_list: list[int] = []
+        cols_list: list[int] = []
+        data_list: list[float] = []
+
+    includes_measure = getattr(form, "_includes_measure", False)
+
+    for facet_id, facet in enumerate(facets):
+        node_coords = coords[facet]
+        N, x_q, w, detJ = _surface_quadrature(node_coords)
+        ctx = SurfaceBilinearContext(
+            test=SurfaceFormField(N=N, value_dim=dim),
+            trial=SurfaceFormField(N=N, value_dim=dim),
+            x_q=x_q,
+            w=w,
+            detJ=detJ,
+            facet_id=facet_id,
+            normal=normals[facet_id],
+        )
+        ke_q = form(ctx, params)
+        if ke_q.ndim != 3 or ke_q.shape[0] != N.shape[0]:
+            raise ValueError("surface bilinear form must return array shape (n_q, n_ldofs, n_ldofs)")
+        if includes_measure:
+            ke = np.einsum("qij->ij", ke_q)
+        else:
+            ke = np.einsum("qij,q->ij", ke_q, w * detJ)
+
+        dofs = []
+        for node in facet:
+            for d in range(dim):
+                dofs.append(dim * int(node) + d)
+        dofs_arr = np.asarray(dofs, dtype=np.int64)
+        row_local = np.repeat(dofs_arr, dofs_arr.shape[0])
+        col_local = np.tile(dofs_arr, dofs_arr.shape[0])
+        val_local = np.asarray(ke, dtype=float).reshape(-1)
+
+        if pattern is not None:
+            keys_local = row_local * int(n_dofs) + col_local
+            pos = np.searchsorted(unique_keys, keys_local)
+            valid = (pos >= 0) & (pos < unique_keys.shape[0])
+            valid &= unique_keys[pos] == keys_local
+            np.add.at(data, first_idx[pos[valid]], val_local[valid])
+        else:
+            rows_list.extend(row_local.tolist())
+            cols_list.extend(col_local.tolist())
+            data_list.extend(val_local.tolist())
+
+    if pattern is not None:
+        if return_flux_matrix:
+            return FluxSparseMatrix(pattern, data)
+        return rows, cols, data, n_dofs
+
+    rows = np.asarray(rows_list, dtype=int)
+    cols = np.asarray(cols_list, dtype=int)
+    data = np.asarray(data_list, dtype=float)
+    if return_flux_matrix:
+        return FluxSparseMatrix(rows, cols, data, n_dofs)
+    return rows, cols, data, n_dofs
 
 
 def add_robin(
@@ -404,8 +777,17 @@ def facet_normals(surface: SurfaceMesh, *, outward_from: npt.ArrayLike | None = 
     for i, facet in enumerate(facets):
         if len(facet) < 3:
             continue
-        p0, p1, p2 = coords[facet[0]], coords[facet[1]], coords[facet[2]]
-        n = np.cross(p1 - p0, p2 - p0)
+        n = None
+        p0 = coords[facet[0]]
+        for j in range(1, len(facet) - 1):
+            p1 = coords[facet[j]]
+            p2 = coords[facet[j + 1]]
+            n_candidate = np.cross(p1 - p0, p2 - p0)
+            if np.linalg.norm(n_candidate) > 0.0:
+                n = n_candidate
+                break
+        if n is None:
+            continue
         if normalize:
             norm = np.linalg.norm(n)
             n = n / norm if norm != 0.0 else n

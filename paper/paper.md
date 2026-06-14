@@ -50,6 +50,7 @@ This example illustrates two complementary ways to express the same weak form in
 import fluxfem as ff
 import jax.numpy as jnp
 
+@ff.kernel(kind="bilinear", domain="volume")
 def diffusion_form(ctx: ff.FormContext, kappa):
     return kappa * jnp.einsum("qia,qja->qij", ctx.test.gradN, ctx.trial.gradN)
 ```
@@ -59,13 +60,13 @@ Alternatively, the same weak form can be expressed using the Expr-based assembly
 ```python
 import fluxfem.helpers_wf as h_wf
 
-form = ff.BilinearForm.volume(
+diffusion_form_wf = ff.BilinearForm.volume(
     lambda u, v, p: p.kappa * (v.grad @ u.grad) * h_wf.dOmega()
 ).get_compiled()
 
 params = ff.Params(kappa=1.0)
-K = space.assemble_bilinear_form(form, params=params)
-
+# K = space.assemble(diffusion_form, params=params)
+K = space.assemble(diffusion_form_wf, params=params)
 ```
 
 Both snippets assemble the same diffusion stiffness operator, but the Expr-based formulation separates the symbolic structure of the weak form from runtime inputs, performs basic structural checks during compilation (for example, requiring a single `dOmega()`), and reduces the need to work with `jnp` directly in weak-form definitions. This separation also enables composition, reuse, and differentiation of residual operators using standard JAX transformations.

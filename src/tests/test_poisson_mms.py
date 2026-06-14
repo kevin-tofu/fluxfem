@@ -23,11 +23,11 @@ def test_poisson_mms_dirichlet():
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
     # Assemble stiffness
-    K = space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense()
+    K = space.assemble(ff.diffusion_form, params=1.0).to_dense()
 
     # RHS: ∫ f N
     rhs_form = ff.make_scalar_body_force_form(body_force)
-    F = space.assemble_linear_form(rhs_form, params=None)
+    F = space.assemble(rhs_form, params=None)
 
     # Dirichlet boundary: exact solution on all boundary nodes
     coords = np.asarray(mesh.coords)

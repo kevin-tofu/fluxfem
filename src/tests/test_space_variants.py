@@ -22,12 +22,24 @@ def test_space_data_from_closure_and_pytree():
     assert np.array_equal(np.asarray(data_closure.elem_dofs), np.asarray(data_pytree.elem_dofs))
 
 
+def test_closure_space_data_is_lazy():
+    mesh = _build_mesh()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+
+    assert space.__dict__["data"] is None
+
+    data = space.data
+
+    assert data is space.__dict__["data"]
+    assert data.n_dofs == space.n_dofs
+
+
 def test_closure_space_jit_via_closure():
     mesh = _build_mesh()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
 
     def assemble(kappa):
-        K = space.assemble_bilinear_form(ff.diffusion_form, params=kappa).to_dense()
+        K = space.assemble(ff.diffusion_form, params=kappa).to_dense()
         return K
 
     assemble_jit = jax.jit(assemble)
@@ -41,7 +53,7 @@ def test_pytree_space_jit_with_space_argument():
     space = ff.make_hex_space_pytree(mesh, dim=1, intorder=2)
 
     def assemble(space_arg, kappa):
-        K = space_arg.assemble_bilinear_form(ff.diffusion_form, params=kappa).to_dense()
+        K = space_arg.assemble(ff.diffusion_form, params=kappa).to_dense()
         return K
 
     assemble_jit = jax.jit(assemble)

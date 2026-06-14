@@ -9,6 +9,9 @@ assembly.
 This page explains the **recommended way to build weak forms**, with examples that
 match the reference test suite.
 
+For the current split between plain surface forms, mixed surface residuals, and
+contact-specific surface assembly, see :doc:`surface_api_status`.
+
 .. contents::
    :local:
    :depth: 2
@@ -26,7 +29,7 @@ FluxFEM then compiles it into an element kernel and assembles it over a space:
    import fluxfem.helpers_wf as wf
 
    form = ff.BilinearForm.volume(lambda u, v, p: (u * v) * wf.dOmega())
-   K = space.assemble_bilinear_form(form.get_compiled(), params=0.0)
+   K = space.assemble(form, params=0.0)
 
 **Important:** volume forms must include ``dOmega()`` and surface forms must include ``ds()``.
 The compiler checks this and raises an error otherwise.
@@ -119,7 +122,7 @@ For scalar spaces (``dim=1``), ``u * v`` is defined and matches the assembled ma
 .. code-block:: python
 
    form = ff.BilinearForm.volume(lambda u, v, _p: (u * v) * wf.dOmega())
-   K_expr = space.assemble_bilinear_form(form.get_compiled(), params=0.0).to_dense()
+   K_expr = space.assemble(form, params=0.0).to_dense()
    K_mass = space.assemble_mass_matrix().to_dense()
 
    assert np.allclose(np.asarray(K_expr), np.asarray(K_mass))
@@ -132,7 +135,7 @@ For vector-valued spaces (``dim>1``), ``u * v`` is **rejected** to avoid ambigui
    form = ff.BilinearForm.volume(lambda u, v, _p: (u * v) * wf.dOmega())
 
    with pytest.raises(ValueError, match="scalar fields"):
-       space.assemble_bilinear_form(form.get_compiled(), params=0.0)
+       space.assemble(form, params=0.0)
 
 Use ``dot(...)`` or tensor contractions (``inner(...)`` / ``einsum(...)``) instead.
 
@@ -205,8 +208,8 @@ Example that matches ``ff.linear_elasticity_form``:
        lambda u, v, D: wf.ddot(wf.sym_grad(v), wf.matmul_std(D, wf.sym_grad(u))) * wf.dOmega()
    )
 
-   K_expr = space.assemble_bilinear_form(form.get_compiled(), params=D).to_dense()
-   K_ref  = space.assemble_bilinear_form(ff.linear_elasticity_form, params=D).to_dense()
+   K_expr = space.assemble(form, params=D).to_dense()
+   K_ref  = space.assemble(ff.linear_elasticity_form, params=D).to_dense()
    assert np.allclose(np.asarray(K_expr), np.asarray(K_ref))
 
 About ``ddot``:
@@ -230,10 +233,12 @@ In the tests, this matches the tensor-based reference traction form:
 
 .. code-block:: python
 
+   import fluxfem.helpers_ts as h_ts
+
    surface_form = ff.LinearForm.surface(lambda v, t: wf.dot(v, t) * wf.ds())
 
    def traction_form(ctx: ff.SurfaceFormContext, t):
-       return ff.dot(ctx.v, t)
+       return h_ts.dot(ctx.v, t)
 
 Both assemblies match.
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 import time
 
+from typing import Any, Callable, Mapping, TYPE_CHECKING, TypeAlias
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -8,38 +10,60 @@ import jax.numpy as jnp
 from ..core.assembly import (
     assemble_residual_scatter,
     assemble_jacobian_scatter,
+    ResidualForm,
     make_element_residual_kernel,
     make_element_jacobian_kernel,
     make_sparsity_pattern,
 )
 from ..core.solver import spdirect_solve_cpu, spdirect_solve_gpu
 from .cg import cg_solve, cg_solve_jax
+from .petsc import petsc_shell_solve
+from .preconditioner import make_block_jacobi_preconditioner
 from .result import SolverResult
 from .sparse import SparsityPattern, FluxSparseMatrix
-from .dirichlet import _normalize_dirichlet
+from .dirichlet import DirichletBC, _normalize_dirichlet
+
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
+ExtraTerm: TypeAlias = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, Mapping[str, Any]] | None]
 
 
 def newton_solve(
     space,
-    res_form,
-    u0,
-    params,
+    res_form: ResidualForm[Any],
+    u0: ArrayLike,
+    params: Any,
     *,
     tol: float = 1e-8,
     atol: float = 0.0,
     maxiter: int = 20,
-    linear_solver: str = "spsolve",  # "spsolve", "spdirect_solve_gpu", "cg" (jax), "cg_jax", or "cg_custom"
+    linear_solver: str = "spsolve",  # "spsolve", "spdirect_solve_gpu", "cg", "cg_jax", "cg_custom", "cg_matfree", or "petsc_shell"
     linear_maxiter: int | None = None,
     linear_tol: float | None = None,
-    linear_preconditioner=None,
-    dirichlet=None,
-    callback=None,
+    linear_preconditioner: object | None = None,
+    petsc_ksp_type: str = "gmres",
+    petsc_pc_type: str = "none",
+    petsc_rtol: float | None = None,
+    petsc_atol: float | None = None,
+    petsc_max_it: int | None = None,
+    petsc_options: dict[str, Any] | None = None,
+    petsc_use_pmat: bool = False,
+    matfree_mode: str = "linearize",
+    matfree_cache: dict[str, Any] | None = None,
+    dirichlet: tuple[np.ndarray, np.ndarray] | None = None,
+    callback: Callable[[np.ndarray, SolverResult], Any] | None = None,
     line_search: bool = False,
     max_ls: int = 10,
     ls_c: float = 1e-4,
-    external_vector=None,
-    jacobian_pattern=None,
-):
+    external_vector: np.ndarray | None = None,
+    jacobian_pattern: SparsityPattern | None = None,
+    extra_terms: list[ExtraTerm] | None = None,
+    assembly_policy: Any | None = None,
+) -> tuple[np.ndarray, SolverResult]:
     """
     Gridap-style Newton–Raphson solver on free DOFs only.
 
@@ -48,12 +72,18 @@ def newton_solve(
     - Convergence: ||R_free||_inf < max(atol, tol * ||R_free0||_inf).
     - external_vector: optional global RHS (internal - external).
     - CG path accepts an operator with matvec that acts on free DOFs via a wrapper.
-    - linear_preconditioner: forwarded to cg_solve/cg_solve_jax (None | "jacobi" | "block_jacobi" | callable).
+    - cg_matfree uses JVP/linearize to form a matrix-free matvec (no global Jacobian).
+    - linear_preconditioner: forwarded to cg_solve/cg_solve_jax or PETSc shell (None | "jacobi" | "block_jacobi" | "diag0" | callable).
+    - petsc_* options configure the inner PETSc shell solve when linear_solver="petsc_shell".
+    - matfree_cache: optional dict for reusing matrix-free preconditioners across calls.
     - linear_tol: CG tolerance (defaults to 0.1 * tol if not provided).
     - jacobian_pattern: optional SparsityPattern to reuse sparsity across load steps.
+    - extra_terms: optional list of callbacks returning (K, f[, metrics]) for extra terms.
     """
 
     if dirichlet is not None:
+        if isinstance(dirichlet, DirichletBC):
+            dirichlet = dirichlet.as_tuple()
         dir_dofs, dir_vals = dirichlet
         dir_dofs, dir_vals = _normalize_dirichlet(dir_dofs, dir_vals)
         if dir_vals.ndim == 0:
@@ -66,12 +96,19 @@ def newton_solve(
         dir_dofs = dir_vals = None
         free_dofs = np.arange(space.n_dofs, dtype=int)
 
-    free_dofs_j = jnp.asarray(free_dofs, dtype=jnp.int32)
+    use_matfree = linear_solver in ("cg_matfree", "cg_jvp")
+    if use_matfree and matfree_mode not in ("linearize", "jvp"):
+        raise ValueError("matfree_mode must be 'linearize' or 'jvp'")
+
+    if extra_terms is not None and linear_solver in ("cg", "cg_jax", "cg_custom", "cg_matfree", "cg_jvp"):
+        raise ValueError("extra_terms may yield nonsymmetric K; avoid CG-based solvers")
+
+    free_dofs_j = jnp.asarray(free_dofs, dtype=jnp.int64)
     # For block-Jacobi (3x3 per node) we keep node ids of free dofs.
     node_ids = free_dofs // 3
     node_ids_unique, node_ids_inv = np.unique(node_ids, return_inverse=True)
     n_block = len(node_ids_unique)
-    dir_dofs_j = jnp.asarray(dir_dofs, dtype=jnp.int32) if dir_dofs is not None else None
+    dir_dofs_j = jnp.asarray(dir_dofs, dtype=jnp.int64) if dir_dofs is not None else None
     dir_vals_j = jnp.asarray(dir_vals, dtype=jnp.asarray(u0).dtype) if dir_vals is not None else None
 
     # Unknown is free DOFs only
@@ -83,21 +120,21 @@ def newton_solve(
     )
 
     # Build free-DOF subpattern once to avoid scatter/gather in every matvec.
-    free_map = -np.ones(space.n_dofs, dtype=np.int32)
-    free_map[free_dofs] = np.arange(len(free_dofs), dtype=np.int32)
+    free_map = -np.ones(space.n_dofs, dtype=np.int64)
+    free_map[free_dofs] = np.arange(len(free_dofs), dtype=np.int64)
     pat_rows = np.asarray(J_pattern.rows)
     pat_cols = np.asarray(J_pattern.cols)
     mask_free = (free_map[pat_rows] >= 0) & (free_map[pat_cols] >= 0)
-    free_data_idx = jnp.asarray(np.nonzero(mask_free)[0], dtype=jnp.int32)
+    free_data_idx = jnp.asarray(np.nonzero(mask_free)[0], dtype=jnp.int64)
     rows_f = free_map[pat_rows[mask_free]]
     cols_f = free_map[pat_cols[mask_free]]
-    diag_idx_f = np.nonzero(rows_f == cols_f)[0].astype(np.int32)
+    diag_idx_f = np.nonzero(rows_f == cols_f)[0].astype(np.int64)
     J_free_pattern = SparsityPattern(
-        rows=jnp.asarray(rows_f, dtype=jnp.int32),
-        cols=jnp.asarray(cols_f, dtype=jnp.int32),
+        rows=jnp.asarray(rows_f, dtype=jnp.int64),
+        cols=jnp.asarray(cols_f, dtype=jnp.int64),
         n_dofs=int(len(free_dofs)),
         idx=None,
-        diag_idx=jnp.asarray(diag_idx_f, dtype=jnp.int32),
+        diag_idx=jnp.asarray(diag_idx_f, dtype=jnp.int64),
     )
 
     def restrict_free_matrix(J: FluxSparseMatrix) -> FluxSparseMatrix:
@@ -109,33 +146,7 @@ def newton_solve(
         Build 3x3 block-Jacobi inverse per free node.
         Assumes DOF ordering per node is [ux, uy, uz].
         """
-        if len(free_dofs) % 3 != 0:
-            raise ValueError("block_jacobi assumes 3 DOFs per node.")
-        rows = np.asarray(J_free.rows)
-        cols = np.asarray(J_free.cols)
-        data = np.asarray(J_free.data)
-        block_rows = node_ids_inv[rows]
-        block_cols = node_ids_inv[cols]
-        local_r = rows % 3
-        local_c = cols % 3
-        mask_blk = block_rows == block_cols
-        blk_rows = block_rows[mask_blk]
-        blk_lr = local_r[mask_blk]
-        blk_lc = local_c[mask_blk]
-        blk_data = data[mask_blk]
-        inv_blocks = np.zeros((n_block, 3, 3), dtype=blk_data.dtype)
-        inv_blocks[blk_rows, blk_lr, blk_lc] += blk_data
-        inv_blocks = jnp.asarray(inv_blocks)
-        # Add tiny damping to avoid singular blocks
-        inv_blocks = inv_blocks + 1e-12 * jnp.eye(3)[None, :, :]
-        inv_blocks = jnp.linalg.inv(inv_blocks)
-
-        def precon(r):
-            r_blocks = r.reshape((n_block, 3))
-            z_blocks = jnp.einsum("bij,bj->bi", inv_blocks, r_blocks)
-            return z_blocks.reshape((-1,))
-
-        return precon
+        return make_block_jacobi_preconditioner(J_free, dof_per_node=3)
 
     def expand_full(u_free: jnp.ndarray) -> jnp.ndarray:
         if dir_dofs is None:
@@ -144,6 +155,39 @@ def newton_solve(
         u_full = u_full.at[free_dofs_j].set(u_free)
         u_full = u_full.at[dir_dofs_j].set(dir_vals_j)
         return u_full
+
+    extra_metrics = None
+
+    def _call_extra(u_full_vec):
+        if extra_terms is None:
+            return None
+        K_sum = None
+        f_sum = None
+        metrics_sum = {}
+        for term in extra_terms:
+            out = term(np.asarray(u_full_vec))
+            if out is None:
+                continue
+            if len(out) == 2:
+                Kc, fc = out
+                metrics = None
+            else:
+                Kc, fc, metrics = out
+            Kc = np.asarray(Kc, dtype=float)
+            fc = np.asarray(fc, dtype=float)
+            if K_sum is None:
+                K_sum = Kc
+            else:
+                K_sum = K_sum + Kc
+            if f_sum is None:
+                f_sum = fc
+            else:
+                f_sum = f_sum + fc
+            if isinstance(metrics, dict):
+                metrics_sum.update(metrics)
+        if K_sum is None or f_sum is None:
+            return None
+        return K_sum, f_sum, (metrics_sum or None)
 
     def eval_residual(u_free_vec):
         """Residual on free DOFs only."""
@@ -156,28 +200,84 @@ def newton_solve(
         res_two = float(jnp.linalg.norm(R_free, ord=2))
         return R_free, res_inf, res_two, u_full
 
+    def residual_free(u_free_vec):
+        u_full = expand_full(u_free_vec)
+        R_full = assemble_R(u_full)
+        if external_vector is not None:
+            R_full = R_full - external_vector
+        return R_full[free_dofs_j]
+
     # Pre-jitted element kernels to avoid recompiling inside Newton
     res_kernel = make_element_residual_kernel(res_form, params)
     jac_kernel = make_element_jacobian_kernel(res_form, params)
 
     def assemble_R(u_full_vec):
-        return assemble_residual_scatter(space, res_form, u_full_vec, params, kernel=res_kernel)
+        nonlocal extra_metrics
+        R = assemble_residual_scatter(
+            space,
+            res_form,
+            u_full_vec,
+            params,
+            kernel=res_kernel,
+            policy=assembly_policy,
+        )
+        extra_out = _call_extra(u_full_vec)
+        if extra_out is not None:
+            _Kc, fc, metrics = extra_out
+            extra_metrics = metrics
+            R = R + jnp.asarray(fc, dtype=R.dtype)
+        return R
 
     eff_linear_tol = linear_tol if linear_tol is not None else max(0.1 * tol, 1e-12)
 
     def assemble_J(u_full_vec):
-        return assemble_jacobian_scatter(
+        nonlocal extra_metrics
+        J = assemble_jacobian_scatter(
             space,
             res_form,
             u_full_vec,
             params,
             kernel=jac_kernel,
-            sparse=True,
-            return_flux_matrix=True,
             pattern=J_pattern,
+            policy=assembly_policy,
         )
+        extra_out = _call_extra(u_full_vec)
+        if extra_out is not None:
+            Kc, _fc, metrics = extra_out
+            extra_metrics = metrics
+            rows = np.asarray(J.pattern.rows, dtype=int)
+            cols = np.asarray(J.pattern.cols, dtype=int)
+            data = jnp.asarray(J.data) + jnp.asarray(Kc[rows, cols], dtype=J.data.dtype)
+            J = J.with_data(data)
+        return J
+
+    matfree_precon = None
+    if use_matfree and linear_preconditioner == "diag0":
+        cached = matfree_cache.get("inv_diag0") if matfree_cache is not None else None
+        if cached is not None:
+            inv_diag0 = cached
+            matfree_precon = lambda r: inv_diag0 * r
+            print("[PRECOND] reuse diag0", flush=True)
+        else:
+            print("[PRECOND] build diag0", flush=True)
+            t_pre0 = time.perf_counter()
+            J0 = assemble_J(expand_full(u))
+            J0_free = restrict_free_matrix(J0)
+            diag0 = jnp.asarray(J0_free.diag(), dtype=u.dtype)
+            diag0 = jax.block_until_ready(diag0)
+            inv_diag0 = jnp.where(diag0 != 0.0, 1.0 / diag0, 0.0)
+
+            def precon(r):
+                return inv_diag0 * r
+
+            matfree_precon = precon
+            if matfree_cache is not None:
+                matfree_cache["inv_diag0"] = inv_diag0
+            pre_dt0 = time.perf_counter() - t_pre0
+            print(f"[PRECOND] diag0 ready dt={pre_dt0:.3f}s", flush=True)
 
     # Initial residual/Jacobian
+    t_init_r0 = time.perf_counter()
     R_full_init = assemble_R(expand_full(u))
     if external_vector is not None:
         R_full_init = R_full_init - external_vector
@@ -197,6 +297,7 @@ def newton_solve(
     res0_inf = float(jnp.linalg.norm(R_free, ord=jnp.inf))
     res0_two = float(jnp.linalg.norm(R_free, ord=2))
     u_full = expand_full(u)
+    init_residual_dt = time.perf_counter() - t_init_r0
     if res0_inf == 0.0:
         return expand_full(u), SolverResult(
             converged=True,
@@ -210,14 +311,51 @@ def newton_solve(
         )
 
     if callback is not None:
-        callback({"iter": 0, "res_inf": res0_inf, "res_two": res0_two, "rel_residual": 1.0, "alpha": 1.0, "step_norm": np.nan})
+        payload = {
+            "iter": 0,
+            "res_inf": res0_inf,
+            "res_two": res0_two,
+            "rel_residual": 1.0,
+            "alpha": 1.0,
+            "step_norm": np.nan,
+            "initial_residual_time": init_residual_dt,
+        }
+        if extra_metrics is not None:
+            payload["extra_metrics"] = extra_metrics
+        callback(payload)
 
-    J = assemble_J(u_full)
-    finite_j = jnp.all(jnp.isfinite(J.data))
-    if not bool(jax.block_until_ready(finite_j)):
-        n_bad = int(jnp.size(J.data) - jnp.count_nonzero(jnp.isfinite(J.data)))
-        raise RuntimeError(f"[newton] init Jacobian has non-finite entries: {n_bad}")
-    J_free = restrict_free_matrix(J)
+    if not use_matfree:
+        t_init_j0 = time.perf_counter()
+        J = assemble_J(u_full)
+        finite_j = jnp.all(jnp.isfinite(J.data))
+        if not bool(jax.block_until_ready(finite_j)):
+            n_bad = int(jnp.size(J.data) - jnp.count_nonzero(jnp.isfinite(J.data)))
+            raise RuntimeError(f"[newton] init Jacobian has non-finite entries: {n_bad}")
+        J_free = restrict_free_matrix(J)
+        init_jacobian_dt = time.perf_counter() - t_init_j0
+        if callback is not None:
+            payload = {
+                "iter": 0,
+                "res_inf": res0_inf,
+                "res_two": res0_two,
+                "rel_residual": 1.0,
+                "alpha": 1.0,
+                "step_norm": np.nan,
+                "initial_jacobian_time": init_jacobian_dt,
+            }
+            if extra_metrics is not None:
+                payload["extra_metrics"] = extra_metrics
+            callback(payload)
+    else:
+        J = None
+        J_free = None
+    lin_info = {}
+    step_norm = float("nan")
+    linear_converged = True
+    lr = None
+    linear_solve_time = None
+    pc_setup_time = None
+    pmat_build_time = None
     for k in range(maxiter):
         # --- Newton residual (iteration start) ---
         t_iter0 = time.perf_counter()
@@ -232,13 +370,34 @@ def newton_solve(
             raise RuntimeError("[newton] residual became non-finite; aborting.")
 
         crit = max(atol, tol * res0_inf)
+        contact_log = ""
+        if extra_metrics is not None and isinstance(extra_metrics, dict):
+            min_g = extra_metrics.get("min_g")
+            pen = extra_metrics.get("penetration")
+            if min_g is not None and pen is not None:
+                contact_log = f" min_g={float(min_g):.3e} pen={float(pen):.3e}"
         print(
-            f"[newton] k={k:02d} START  |R|inf={res_prev_inf_f:.3e} |R|2={res_prev_two_f:.3e}  crit={crit:.3e}",
+            f"[newton] k={k:02d} START  |R|inf={res_prev_inf_f:.3e} |R|2={res_prev_two_f:.3e}  crit={crit:.3e}{contact_log}",
             flush=True,
         )
 
         # --- Linear solve (J_free * du = -R_free) ---
+        t_rhs0 = time.perf_counter()
         rhs = jnp.asarray(-R_free, dtype=u.dtype)
+        rhs_norm = jnp.linalg.norm(rhs)
+        rhs_norm_f = float(jax.block_until_ready(rhs_norm))
+        rhs_dt = time.perf_counter() - t_rhs0
+        if rhs_norm_f <= atol:
+            print(
+                f"[newton] k={k:02d} CONVERGED rhs<=atol ({rhs_norm_f:.3e} <= {atol:.3e})",
+                flush=True,
+            )
+            return expand_full(u), SolverResult(
+                converged=True,
+                iters=k,
+                stop_reason="rhs_atol",
+                nan_detected=False,
+            )
 
         # Separate preconditioner build time from linear solve time.
         t_pre0 = time.perf_counter()
@@ -246,8 +405,58 @@ def newton_solve(
         linear_converged = True
         linear_residual = None
         lin_iters = None
+        linear_solve_time = None
+        pc_setup_time = None
+        pmat_build_time = None
 
-        if linear_solver in ("cg", "cg_jax", "cg_custom"):
+        linearize_dt = 0.0
+        if use_matfree:
+            if linear_preconditioner in ("jacobi", "block_jacobi"):
+                raise ValueError("cg_matfree does not support jacobi preconditioners")
+            if linear_preconditioner == "diag0":
+                cg_precon = matfree_precon
+            elif linear_preconditioner is not None and not callable(linear_preconditioner):
+                raise ValueError("cg_matfree preconditioner must be callable or None")
+            pre_dt = 0.0
+            if linear_preconditioner not in ("diag0", None):
+                cg_precon = linear_preconditioner
+            print(f"[linear] k={k:02d} {linear_solver}: linearize...", flush=True)
+            t_lin0 = time.perf_counter()
+            if matfree_mode == "linearize":
+                _res, lin_fun = jax.linearize(residual_free, u)
+                mv = lambda v: lin_fun(v)
+            else:
+                mv = lambda v: jax.jvp(residual_free, (u,), (v,))[1]
+            linearize_dt = time.perf_counter() - t_lin0
+            t_mv0 = 0.0
+            mv0_norm_f = None
+            t_mv0_0 = time.perf_counter()
+            mv0 = mv(rhs)
+            mv0_norm = jnp.linalg.norm(mv0)
+            mv0_norm_f = float(jax.block_until_ready(mv0_norm))
+            t_mv0 = time.perf_counter() - t_mv0_0
+            print(
+                f"[linear] k={k:02d} {linear_solver}: rhs_dt={rhs_dt:.3f}s "
+                f"mv0_dt={t_mv0:.3f}s ||b||={rhs_norm_f:.3e} ||Jb||={mv0_norm_f:.3e}",
+                flush=True,
+            )
+            cg_solver = cg_solve
+            print(f"[linear] k={k:02d} {linear_solver}: solve...", flush=True)
+            t_cg0 = time.perf_counter()
+            du_free, lin_info = cg_solver(
+                mv,
+                rhs,
+                tol=eff_linear_tol,
+                maxiter=linear_maxiter,
+                preconditioner=cg_precon,
+            )
+            du_free = jax.block_until_ready(du_free)
+            lin_dt = time.perf_counter() - t_cg0
+            linear_residual = lin_info.get("residual_norm")
+            linear_converged = bool(lin_info.get("converged", True))
+            lin_iters = lin_info.get("iters", None)
+
+        elif linear_solver in ("cg", "cg_jax", "cg_custom"):
             # Preconditioner build
             if linear_preconditioner == "jacobi":
                 print(f"[newton] k={k:02d}  PRECOND jacobi: diag...", flush=True)
@@ -303,15 +512,57 @@ def newton_solve(
             linear_converged = True
             lin_iters = 1
 
+        elif linear_solver == "petsc_shell":
+            pre_dt = 0.0
+            print(f"[linear] k={k:02d} {linear_solver}: solve...", flush=True)
+            t_lin0 = time.perf_counter()
+            pmat = J_free if petsc_use_pmat else None
+            du_free_np, lin_info = petsc_shell_solve(
+                J_free,
+                np.asarray(rhs, dtype=float),
+                preconditioner=linear_preconditioner,
+                ksp_type=petsc_ksp_type,
+                pc_type=petsc_pc_type,
+                rtol=petsc_rtol if petsc_rtol is not None else eff_linear_tol,
+                atol=petsc_atol,
+                max_it=petsc_max_it if petsc_max_it is not None else linear_maxiter,
+                pmat=pmat,
+                options=petsc_options,
+                return_info=True,
+            )
+            du_free = jnp.asarray(du_free_np, dtype=u.dtype)
+            du_free = jax.block_until_ready(du_free)
+            lin_dt = time.perf_counter() - t_lin0
+            linear_residual = lin_info.get("residual_norm")
+            linear_converged = bool(lin_info.get("converged", True))
+            lin_iters = lin_info.get("iters", None)
+            linear_solve_time = lin_info.get("solve_time")
+            pc_setup_time = lin_info.get("pc_setup_time")
+            pmat_build_time = lin_info.get("pmat_build_time")
+
         else:
             raise ValueError(f"Unknown linear solver: {linear_solver}")
 
         lr = float(linear_residual) if linear_residual is not None else float("nan")
-        print(
-            f"[linear] k={k:02d} done iters={lin_iters} conv={linear_converged} lin_res={lr:.3e} "
-            f"pre_dt={pre_dt:.3f}s lin_dt={lin_dt:.3f}s",
-            flush=True,
-        )
+        if use_matfree:
+            print(
+                f"[linear] k={k:02d} done iters={lin_iters} conv={linear_converged} lin_res={lr:.3e} "
+                f"linz_dt={linearize_dt:.3f}s cg_dt={lin_dt:.3f}s",
+                flush=True,
+            )
+        elif linear_solver == "petsc_shell":
+            petsc_dt = float(linear_solve_time) if linear_solve_time is not None else float("nan")
+            print(
+                f"[linear] k={k:02d} done iters={lin_iters} conv={linear_converged} lin_res={lr:.3e} "
+                f"lin_dt={lin_dt:.3f}s petsc_solve_dt={petsc_dt:.3f}s",
+                flush=True,
+            )
+        else:
+            print(
+                f"[linear] k={k:02d} done iters={lin_iters} conv={linear_converged} lin_res={lr:.3e} "
+                f"pre_dt={pre_dt:.3f}s lin_dt={lin_dt:.3f}s",
+                flush=True,
+            )
 
         # --- Trial update & residual evaluation ---
         # Start with alpha=1 and eval_residual (if heavy, assemble_R is heavy/compiled).
@@ -362,20 +613,34 @@ def newton_solve(
 
         # callback
         if callback is not None:
-            callback(
-                {
-                    "iter": k + 1,
-                    "res_inf": res_trial_inf,
-                    "res_two": res_trial_two,
-                    "rel_residual": res_trial_inf / res0_inf,
-                    "alpha": alpha,
-                    "step_norm": step_norm,
-                    "linear_iters": lin_info.get("iters"),
-                    "linear_converged": linear_converged,
-                    "linear_residual": lr,
-                    "nan_detected": bool(np.isnan(res_trial_inf)),
-                }
-            )
+            iter_total_dt = time.perf_counter() - t_iter0
+            accounted_dt = rhs_dt + pre_dt + linearize_dt + lin_dt + eval_dt
+            control_dt = max(0.0, iter_total_dt - accounted_dt)
+            payload = {
+                "iter": k + 1,
+                "res_inf": res_trial_inf,
+                "res_two": res_trial_two,
+                "rel_residual": res_trial_inf / res0_inf,
+                "alpha": alpha,
+                "step_norm": step_norm,
+                "linear_iters": lin_info.get("iters"),
+                "linear_converged": linear_converged,
+                "linear_residual": lr,
+                "linear_solve_time": linear_solve_time,
+                "linear_wall_time": lin_dt,
+                "pc_setup_time": pc_setup_time,
+                "pmat_build_time": pmat_build_time,
+                "preconditioner_time": pre_dt,
+                "rhs_time": rhs_dt,
+                "linearize_time": linearize_dt,
+                "eval_time": eval_dt,
+                "control_time": control_dt,
+                "iter_total_time": iter_total_dt,
+                "nan_detected": bool(np.isnan(res_trial_inf)),
+            }
+            if extra_metrics is not None:
+                payload["extra_metrics"] = extra_metrics
+            callback(payload)
 
         # --- Convergence check ---
         if res_trial_inf < crit and linear_converged and not np.isnan(res_trial_inf):
@@ -391,6 +656,9 @@ def newton_solve(
                 linear_iters=lin_info.get("iters"),
                 linear_converged=linear_converged,
                 linear_residual=lr,
+                linear_solve_time=(float(linear_solve_time) if linear_solve_time is not None else None),
+                pc_setup_time=(float(pc_setup_time) if pc_setup_time is not None else None),
+                pmat_build_time=(float(pmat_build_time) if pmat_build_time is not None else None),
                 tol=tol,
                 atol=atol,
                 stopping_criterion=crit,
@@ -398,3 +666,26 @@ def newton_solve(
                 stop_reason="converged",
                 nan_detected=bool(np.isnan(res_trial_inf)),
             )
+
+    res_final_inf = float(jnp.linalg.norm(R_free, ord=jnp.inf))
+    res_final_two = float(jnp.linalg.norm(R_free, ord=2))
+    return u_full, SolverResult(
+        converged=False,
+        iters=maxiter,
+        residual_norm=res_final_inf,
+        residual0=res0_inf,
+        rel_residual=(res_final_inf / res0_inf if res0_inf != 0.0 else float("inf")),
+        line_search_steps=0,
+        linear_iters=lin_info.get("iters"),
+        linear_converged=linear_converged,
+        linear_residual=lr,
+        linear_solve_time=(float(linear_solve_time) if linear_solve_time is not None else None),
+        pc_setup_time=(float(pc_setup_time) if pc_setup_time is not None else None),
+        pmat_build_time=(float(pmat_build_time) if pmat_build_time is not None else None),
+        tol=tol,
+        atol=atol,
+        stopping_criterion=crit,
+        step_norm=step_norm,
+        stop_reason="maxiter",
+        nan_detected=bool(np.isnan(res_final_inf)),
+    )

@@ -1,7 +1,7 @@
 Hyper-Elasticity: Hyperelastic Cantilever
 =========================================
 
-This tutorial summarizes ``tutorials/neo_hookean_cantilever_simplified.py`` and
+This tutorial summarizes ``tutorials/neo_hookean_cantilever.py`` and
 explains the nonlinear formulation, loads, and solver flow used for a 3D
 Neo-Hookean cantilever.
 
@@ -10,7 +10,27 @@ Run the example
 
 .. code-block:: bash
 
-   python tutorials/neo_hookean_cantilever_simplified.py
+   python tutorials/neo_hookean_cantilever.py
+
+Recommended solver settings
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For practical 3D runs, the default tutorial settings now prefer PETSc shell
+with a direct preconditioner:
+
+.. code-block:: bash
+
+   python tutorials/neo_hookean_cantilever.py \
+     --linear-solver petsc_shell \
+     --petsc-ksp-type preonly \
+     --petsc-pc-type lu \
+     --petsc-use-pmat \
+     --nstep 20 \
+     --maxiter 10 \
+     --tol 1e-6
+
+This is the recommended baseline when ``petsc4py`` is available. If PETSc is
+not installed, fall back to ``cg_matfree`` or ``spsolve``.
 
 Problem statement
 ^^^^^^^^^^^^^^^^^
@@ -71,7 +91,9 @@ Body force:
 .. code-block:: python
 
    f_body = jnp.array(body_force, dtype=dtype)
-   F_ext = space.assemble_linear_form(ff.vector_body_force_form, params=f_body, sparse=False)
+   F_ext = space.assemble(
+       ff.vector_body_force_form, params=f_body, sparse=False
+   )
 
 Surface traction on ``x = xmax``:
 
@@ -88,17 +110,18 @@ Surface traction on ``x = xmax``:
 
 .. code-block:: python
 
-   dir_dofs = mesh.boundary_dofs_where(
+   dir_dofs = ff.DirichletBC.from_boundary_dofs(
+       mesh,
        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
        components="xyz",
-   )
+   ).dofs
 
 4) Nonlinear analysis and Newton solve
 """"""""""""""""""""""""""""""""""""""
 
 FluxFEM provides a nonlinear analysis wrapper and a Newton loop. The residual can be
 expressed as a weak-form function (conceptually), and then assembled per element.
-The simplified script uses the built-in ``ff.neo_hookean_residual_form`` internally,
+The script uses the built-in ``ff.neo_hookean_residual_form`` internally,
 but the weak-form mapping looks like this (PK2 form):
 
 .. code-block:: python
@@ -119,7 +142,29 @@ but the weak-form mapping looks like this (PK2 form):
        return h_wf.ddot(S, dE) * h_wf.dOmega()
 
    residual_form = ff.ResidualForm.volume(neo_hookean_residual_wf)
-   R = space.assemble_residual(residual_form.get_compiled(), u, params=params)
+   R = space.assemble_residual(residual_form, u, params=params)
+
+The role-explicit equivalent keeps the same weak form but binds test/unknown
+roles through ``NamedSpace``:
+
+.. code-block:: python
+
+   U = ff.NamedSpace("U", space)
+   V = ff.NamedSpace("V", space)
+   residual = ff.ResidualForm.volume(neo_hookean_residual_wf)
+
+   R = ff.assemble_residual(
+       ff.ResidualSpaces(test=V, unknown=U),
+       residual,
+       u,
+       params,
+   )
+   J = ff.assemble_jacobian(
+       ff.JacobianSpaces(test=V, trial=U),
+       residual,
+       u,
+       params,
+   )
 
 In FluxFEM, ``ff.neo_hookean_residual_form`` uses the PK2 stress ``S`` internally,
 and the weak-form expression above is consistent with that choice.

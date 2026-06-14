@@ -1,17 +1,31 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Callable, Optional, Protocol, Sequence, TYPE_CHECKING, TypeVar, cast
 import jax
 import jax.numpy as jnp
 
-from ..core.dtypes import INDEX_DTYPE
+from .dtypes import INDEX_DTYPE
 import numpy as np
+import numpy.typing as npt
 
 DTYPE = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
 
 from .base import BaseMesh, BaseMeshPytree
 from .hex import HexMesh, HexMeshPytree
+
+P = TypeVar("P")
+
+if TYPE_CHECKING:
+    from ..solver.bc import SurfaceFormContext
+
+
+class SurfaceSpaceLike(Protocol):
+    value_dim: int
+    mesh: BaseMesh
+
+
+SurfaceLinearForm = Callable[["SurfaceFormContext", P], npt.ArrayLike]
 
 
 def _polygon_area(pts: np.ndarray) -> float:
@@ -26,7 +40,7 @@ def _polygon_area(pts: np.ndarray) -> float:
     for i in range(1, pts.shape[0] - 1):
         v1 = pts[i] - p0
         v2 = pts[i + 1] - p0
-        area += 0.5 * np.linalg.norm(np.cross(v1, v2))
+        area += float(0.5 * np.linalg.norm(np.cross(v1, v2)))
     return float(area)
 
 
@@ -38,6 +52,10 @@ class SurfaceMesh(BaseMesh):
     """
 
     facet_tags: Optional[jnp.ndarray] = None
+    _facet_areas_cache: np.ndarray | None = field(default=None, init=False, repr=False, compare=False)
+    _facet_normals_cache: dict[tuple[bool, int | None], np.ndarray] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self):
         # Keep facet_tags mirrored in cell_tags for BaseMesh compat.
@@ -79,12 +97,15 @@ class SurfaceMesh(BaseMesh):
 
     def facet_areas(self) -> np.ndarray:
         """Return per-facet area (uses NumPy for simplicity)."""
+        if self._facet_areas_cache is not None:
+            return self._facet_areas_cache
         coords = np.asarray(self.coords)
         facets = np.asarray(self.conn, dtype=int)
         areas = np.zeros(facets.shape[0], dtype=float)
         for i, nodes in enumerate(facets):
             pts = coords[nodes]
             areas[i] = _polygon_area(pts)
+        self._facet_areas_cache = areas
         return areas
 
     def select_by_tag(self, tag: int) -> "SurfaceMesh":
@@ -101,33 +122,114 @@ class SurfaceMesh(BaseMesh):
 
     def facet_normals(self, *, outward_from=None, normalize: bool = True) -> np.ndarray:
         from ..solver.bc import facet_normals
-        return facet_normals(self, outward_from=outward_from, normalize=normalize)
+        key = (bool(normalize), None if outward_from is None else id(outward_from))
+        cached = self._facet_normals_cache.get(key)
+        if cached is not None:
+            return cached
+        normals = facet_normals(self, outward_from=outward_from, normalize=normalize)
+        self._facet_normals_cache[key] = normals
+        return normals
 
-    def assemble_load(self, load, *, dim: int, n_total_nodes: int | None = None, F0=None):
+    def assemble_load(
+        self,
+        load: npt.ArrayLike,
+        *,
+        dim: int,
+        n_total_nodes: int | None = None,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_load
         return assemble_surface_load(self, load, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
-    def assemble_linear_form(self, form, params, *, dim: int, n_total_nodes: int | None = None, F0=None):
+    def assemble_linear_form(
+        self,
+        form: SurfaceLinearForm[P],
+        params: P,
+        *,
+        dim: int,
+        n_total_nodes: int | None = None,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_linear_form
+        get_compiled = getattr(form, "get_compiled", None)
+        if callable(get_compiled):
+            form = get_compiled()
         return assemble_surface_linear_form(self, form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
-    def assemble_linear_form_on_space(self, space, form, params, *, F0=None):
+    def assemble_linear_form_on_space(
+        self,
+        space: SurfaceSpaceLike,
+        form: SurfaceLinearForm[P],
+        params: P,
+        *,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         """
         Assemble surface linear form using global size inferred from a volume space.
         """
+        get_compiled = getattr(form, "get_compiled", None)
+        if callable(get_compiled):
+            form = get_compiled()
+        dim = int(getattr(space, "value_dim", 1))
+        mesh = cast(BaseMesh, getattr(space, "mesh", self))
+        n_total_nodes = int(mesh.n_nodes)
+        return self.assemble_linear_form(form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
+
+    def assemble_bilinear_form_on_space(
+        self,
+        space,
+        form,
+        params,
+        *,
+        pattern=None,
+        return_flux_matrix: bool = True,
+    ):
+        """
+        Assemble surface bilinear form using global size inferred from a volume space.
+        """
+        from ..solver.bc import assemble_surface_bilinear_form
+        get_compiled = getattr(form, "get_compiled", None)
+        if callable(get_compiled):
+            form = get_compiled()
         dim = int(getattr(space, "value_dim", 1))
         n_total_nodes = int(getattr(space, "mesh", self).n_nodes)
-        return self.assemble_linear_form(form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
+        if pattern is None and hasattr(space, "get_sparsity_pattern"):
+            pattern = space.get_sparsity_pattern(with_idx=True)
+        return assemble_surface_bilinear_form(
+            self,
+            form,
+            params,
+            dim=dim,
+            n_total_nodes=n_total_nodes,
+            pattern=pattern,
+            return_flux_matrix=return_flux_matrix,
+        )
+
+
+@dataclass(frozen=True)
+class SurfaceWithElemConn:
+    surface: SurfaceMesh
+    elem_conn: np.ndarray
+
+
+def surface_with_elem_conn(mesh: BaseMesh, facets, *, mode: str = "touching") -> SurfaceWithElemConn:
+    """
+    Build a SurfaceMesh from facets and return it with a matching elem_conn array.
+    """
+    surface = SurfaceMesh.from_facets(mesh.coords, facets, node_tags=mesh.node_tags)
+    elems = mesh.elements_from_facets(facets, mode=mode)
+    elem_conn = np.asarray(mesh.conn, dtype=int)[elems]
+    return SurfaceWithElemConn(surface=surface, elem_conn=elem_conn)
 
     def assemble_traction(
         self,
-        traction,
+        traction: float | Sequence[float],
         *,
         dim: int = 3,
         n_total_nodes: int | None = None,
-        F0=None,
-        outward_from=None,
-    ):
+        F0: npt.ArrayLike | None = None,
+        outward_from: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_traction
         return assemble_surface_traction(
             self,
@@ -148,6 +250,10 @@ class SurfaceMeshPytree(BaseMeshPytree):
     """
 
     facet_tags: Optional[jnp.ndarray] = None
+    _facet_areas_cache: np.ndarray | None = field(default=None, init=False, repr=False, compare=False)
+    _facet_normals_cache: dict[tuple[bool, int | None], np.ndarray] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self):
         if self.cell_tags is None and self.facet_tags is not None:
@@ -183,12 +289,15 @@ class SurfaceMeshPytree(BaseMeshPytree):
         return self.n_elems
 
     def facet_areas(self) -> np.ndarray:
+        if self._facet_areas_cache is not None:
+            return self._facet_areas_cache
         coords = np.asarray(self.coords)
         facets = np.asarray(self.conn, dtype=int)
         areas = np.zeros(facets.shape[0], dtype=float)
         for i, nodes in enumerate(facets):
             pts = coords[nodes]
             areas[i] = _polygon_area(pts)
+        self._facet_areas_cache = areas
         return areas
 
     def select_by_tag(self, tag: int) -> "SurfaceMeshPytree":
@@ -204,33 +313,98 @@ class SurfaceMeshPytree(BaseMeshPytree):
 
     def facet_normals(self, *, outward_from=None, normalize: bool = True) -> np.ndarray:
         from ..solver.bc import facet_normals
-        return facet_normals(self, outward_from=outward_from, normalize=normalize)
+        key = (bool(normalize), None if outward_from is None else id(outward_from))
+        cached = self._facet_normals_cache.get(key)
+        if cached is not None:
+            return cached
+        normals = facet_normals(self, outward_from=outward_from, normalize=normalize)
+        self._facet_normals_cache[key] = normals
+        return normals
 
-    def assemble_load(self, load, *, dim: int, n_total_nodes: int | None = None, F0=None):
+    def assemble_load(
+        self,
+        load: npt.ArrayLike,
+        *,
+        dim: int,
+        n_total_nodes: int | None = None,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_load
         return assemble_surface_load(self, load, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
-    def assemble_linear_form(self, form, params, *, dim: int, n_total_nodes: int | None = None, F0=None):
+    def assemble_linear_form(
+        self,
+        form: SurfaceLinearForm[P],
+        params: P,
+        *,
+        dim: int,
+        n_total_nodes: int | None = None,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_linear_form
+        get_compiled = getattr(form, "get_compiled", None)
+        if callable(get_compiled):
+            form = get_compiled()
         return assemble_surface_linear_form(self, form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
 
-    def assemble_linear_form_on_space(self, space, form, params, *, F0=None):
+    def assemble_linear_form_on_space(
+        self,
+        space: SurfaceSpaceLike,
+        form: SurfaceLinearForm[P],
+        params: P,
+        *,
+        F0: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         """
         Assemble surface linear form using global size inferred from a volume space.
         """
+        get_compiled = getattr(form, "get_compiled", None)
+        if callable(get_compiled):
+            form = get_compiled()
+        dim = int(getattr(space, "value_dim", 1))
+        mesh = cast(BaseMesh, getattr(space, "mesh", self))
+        n_total_nodes = int(mesh.n_nodes)
+        return self.assemble_linear_form(form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
+
+    def assemble_bilinear_form_on_space(
+        self,
+        space,
+        form,
+        params,
+        *,
+        pattern=None,
+        return_flux_matrix: bool = True,
+    ):
+        """
+        Assemble surface bilinear form using global size inferred from a volume space.
+        """
+        from ..solver.bc import assemble_surface_bilinear_form
+        get_compiled = getattr(form, "get_compiled", None)
+        if callable(get_compiled):
+            form = get_compiled()
         dim = int(getattr(space, "value_dim", 1))
         n_total_nodes = int(getattr(space, "mesh", self).n_nodes)
-        return self.assemble_linear_form(form, params, dim=dim, n_total_nodes=n_total_nodes, F0=F0)
+        if pattern is None and hasattr(space, "get_sparsity_pattern"):
+            pattern = space.get_sparsity_pattern(with_idx=True)
+        return assemble_surface_bilinear_form(
+            self,
+            form,
+            params,
+            dim=dim,
+            n_total_nodes=n_total_nodes,
+            pattern=pattern,
+            return_flux_matrix=return_flux_matrix,
+        )
 
     def assemble_traction(
         self,
-        traction,
+        traction: float | Sequence[float],
         *,
         dim: int = 3,
         n_total_nodes: int | None = None,
-        F0=None,
-        outward_from=None,
-    ):
+        F0: npt.ArrayLike | None = None,
+        outward_from: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_traction
         return assemble_surface_traction(
             self,
@@ -243,12 +417,12 @@ class SurfaceMeshPytree(BaseMeshPytree):
 
     def assemble_flux(
         self,
-        flux,
+        flux: npt.ArrayLike,
         *,
         n_total_nodes: int | None = None,
-        F0=None,
-        outward_from=None,
-    ):
+        F0: npt.ArrayLike | None = None,
+        outward_from: npt.ArrayLike | None = None,
+    ) -> np.ndarray:
         from ..solver.bc import assemble_surface_flux
         return assemble_surface_flux(
             self,

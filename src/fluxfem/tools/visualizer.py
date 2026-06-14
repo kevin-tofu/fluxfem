@@ -3,14 +3,14 @@ from typing import Mapping
 
 import numpy as np
 
-from ..mesh import HexMesh, TetMesh
+from ..mesh import BaseMesh, HexMesh, TetMesh
 
 
 VTK_HEXAHEDRON = 12
 VTK_TETRA = 10
 
 
-def _cell_type_for_mesh(mesh):
+def _cell_type_for_mesh(mesh: BaseMesh) -> int:
     if isinstance(mesh, HexMesh):
         return VTK_HEXAHEDRON
     if isinstance(mesh, TetMesh):
@@ -25,7 +25,13 @@ def _write_dataarray(name: str, data: np.ndarray, ncomp: int = 1) -> str:
     return f'<DataArray type="Float32" Name="{name}" format="ascii"{comp_attr}>{values}</DataArray>'
 
 
-def write_vtu(mesh, filepath: str, *, point_data: Mapping[str, np.ndarray] | None = None, cell_data: Mapping[str, np.ndarray] | None = None):
+def write_vtu(
+    mesh: BaseMesh,
+    filepath: str,
+    *,
+    point_data: Mapping[str, np.ndarray] | None = None,
+    cell_data: Mapping[str, np.ndarray] | None = None,
+) -> None:
     """
     Write an UnstructuredGrid VTU for HexMesh or TetMesh.
     point_data/cell_data: dict name -> ndarray. Point data length must match n_points;
@@ -87,7 +93,13 @@ def write_vtu(mesh, filepath: str, *, point_data: Mapping[str, np.ndarray] | Non
         f.write("\n".join(lines))
 
 
-def write_displacement_vtu(mesh, u, filepath: str, *, name: str = "displacement"):
+def write_displacement_vtu(
+    mesh: BaseMesh,
+    u: np.ndarray,
+    filepath: str,
+    *,
+    name: str = "displacement",
+) -> None:
     """
     Convenience wrapper: reshape displacement vector to point data and write VTU.
     Assumes 3 dof/node ordering [u0,v0,w0, u1,v1,w1, ...].

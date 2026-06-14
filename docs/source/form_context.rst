@@ -24,8 +24,11 @@ Tensor vs weak-form resolution
 
 .. code-block:: python
 
+   import jax.numpy as jnp
+
+   @ff.kernel(kind="bilinear", domain="volume")
    def diffusion_form(ctx: ff.FormContext, kappa):
-       return kappa * ff.jnp.einsum("qia,qja->qij", ctx.test.gradN, ctx.trial.gradN)
+       return kappa * jnp.einsum("qia,qja->qij", ctx.test.gradN, ctx.trial.gradN)
 
 **Weak-form assembly** builds an ``Expr`` tree, then resolves it against the
 context and params during compilation/evaluation:
@@ -36,8 +39,14 @@ context and params during compilation/evaluation:
        lambda u, v, p: p.kappa * (v.grad @ u.grad) * wf.dOmega()
    )
 
+   K = space.assemble(form, params=ff.Params(kappa=1.0))
+
+If you want to cache and reuse the compiled form explicitly:
+
+.. code-block:: python
+
    compiled = form.get_compiled()
-   K = space.assemble_bilinear_form(compiled, params=ff.Params(kappa=1.0))
+   K = space.assemble(compiled, params=ff.Params(kappa=1.0))
 
 In the weak-form path, symbolic refs like ``u`` and ``v`` are resolved to the
 corresponding context fields (``ctx.trial`` / ``ctx.test``), and measure terms

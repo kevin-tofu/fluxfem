@@ -12,15 +12,17 @@ sys.path.insert(0, os.path.abspath('../../src'))
 project = "FluxFEM"
 author = "Kohei Watanabe"
 copyright = f"{datetime.now().year}, {author}"
-release = "0.2.0"
+release = "0.3.5"
 
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.mathjax",
-    "sphinx_sitemap",
     "myst_parser",
 ]
+
+if os.environ.get("FLUXFEM_DOCS_DISABLE_SITEMAP") != "1":
+    extensions.append("sphinx_sitemap")
 
 napoleon_use_ivar = True
 
@@ -34,9 +36,26 @@ autodoc_mock_imports = [
 templates_path = ["_templates"]
 exclude_patterns = []
 
-html_theme = "sphinx_rtd_theme"
-html_static_path = ["_static"]
-html_extra_path = ["extra"]
+html_theme = "pydata_sphinx_theme"
+html_theme_options = {
+    "navbar_align": "content",
+    "navigation_with_keys": True,
+    "show_prev_next": True,
+    "search_bar_text": "Search the docs...",
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/kevin-tofu/fluxfem",
+            "icon": "fab fa-github",
+        },
+    ],
+    "collapse_navigation": True,
+}
+base_dir = os.path.dirname(__file__)
+static_dir = os.path.join(base_dir, "_static")
+extra_dir = os.path.join(base_dir, "extra")
+html_static_path = ["_static"] if os.path.isdir(static_dir) else []
+html_extra_path = ["extra"] if os.path.isdir(extra_dir) else []
 html_meta = {
     "description": "FluxFEM is a finite element toolkit built on JAX.",
     "keywords": "FEM, JAX, scientific computing",

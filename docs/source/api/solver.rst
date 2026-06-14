@@ -15,11 +15,48 @@ Solvers
 .. autoclass:: fluxfem.solver.LinearSolveConfig
 .. autoclass:: fluxfem.solver.NewtonLoopConfig
 
+Coupled Systems
+---------------
+
+.. autoclass:: fluxfem.solver.CoupledSystem
+.. autoclass:: fluxfem.solver.CoupledSystemBuilder
+.. autoclass:: fluxfem.solver.DirichletSpec
+.. autoclass:: fluxfem.solver.ConstraintSpec
+
+Craig-Bampton ROM
+-----------------
+
+.. autoclass:: fluxfem.solver.CraigBamptonBasis
+.. autofunction:: fluxfem.solver.make_craig_bampton_basis
+.. autofunction:: fluxfem.solver.solve_constraint_modes
+.. autofunction:: fluxfem.solver.fixed_interface_modes
+.. autofunction:: fluxfem.solver.reduced_residual_from_full
+.. autofunction:: fluxfem.solver.reduced_jacobian_from_full
+
+Craig-Bampton Constraints and Dynamics
+--------------------------------------
+
+.. autoclass:: fluxfem.solver.LinearConstraintSystem
+.. autoclass:: fluxfem.solver.ReducedLinearConstraintSystem
+.. autoclass:: fluxfem.solver.RBE3Patch
+.. autoclass:: fluxfem.solver.ReferencePointFixture
+.. autofunction:: fluxfem.solver.linear_constraint_system_from_reference_fixtures
+.. autofunction:: fluxfem.solver.assemble_reference_fixture_preload
+.. autofunction:: fluxfem.solver.solve_linear_constraint_kkt
+.. autoclass:: fluxfem.solver.NewmarkState
+.. autoclass:: fluxfem.solver.NewmarkConfig
+.. autofunction:: fluxfem.solver.newmark_step
+.. autofunction:: fluxfem.solver.integrate_newmark
+.. autofunction:: fluxfem.solver.active_contact_fixed_point_solve
+.. autofunction:: fluxfem.solver.active_contact_newmark_step
+
 Sparse
 ------
 
 .. autoclass:: fluxfem.solver.SparsityPattern
 .. autoclass:: fluxfem.solver.FluxSparseMatrix
+.. autoclass:: fluxfem.solver.FluxSparseOperator
+   :no-index:
 
 Dirichlet
 ---------
@@ -36,6 +73,13 @@ Iterative
 
 .. autofunction:: fluxfem.solver.cg_solve
 .. autofunction:: fluxfem.solver.cg_solve_jax
+
+Block matrices
+--------------
+
+.. autofunction:: fluxfem.solver.block_diag
+.. autofunction:: fluxfem.solver.make_block_matrix
+.. autoclass:: fluxfem.solver.FluxBlockMatrix
 
 Nonlinear
 ---------

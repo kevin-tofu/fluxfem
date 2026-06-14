@@ -1,8 +1,8 @@
-Linear Elasticity: Tensile Bar (Simplified)
-===========================================
+Linear Elasticity: Tensile Bar
+==============================
 
 This tutorial walks through the minimal tensile-bar example in
-``tutorials/linearelastic_tensile_bar_simplified.py`` and explains the weak form,
+``tutorials/linearelastic_tensile_bar.py`` and explains the weak form,
 assembly, and boundary conditions with the key equations.
 
 Run the example
@@ -10,7 +10,7 @@ Run the example
 
 .. code-block:: bash
 
-   python tutorials/linearelastic_tensile_bar_simplified.py
+   python tutorials/linearelastic_tensile_bar.py
 
 Problem statement
 ^^^^^^^^^^^^^^^^^
@@ -58,6 +58,8 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
 
    a(u, v) = \int_{\Omega} \varepsilon(v) : D : \varepsilon(u)\, d\Omega
 
+Single-space assembly stays shortest for this standard Galerkin problem:
+
 .. code-block:: python
 
    import fluxfem.helpers_wf as h_wf
@@ -66,7 +68,24 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
        lambda u, v, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
        * h_wf.dOmega()
    )
-   K = space.assemble_bilinear_form(bilinear_form.get_compiled(), params=D)
+   K = space.assemble(bilinear_form, params=D)
+
+The same operator can also be assembled through explicit test/trial roles:
+
+.. code-block:: python
+
+   U = ff.NamedSpace("U", space)
+   V = ff.NamedSpace("V", space)
+
+   bilinear = ff.BilinearForm.volume(
+       lambda u, v, D_mat: h_wf.ddot(v.sym_grad, h_wf.matmul_std(D_mat, u.sym_grad))
+       * h_wf.dOmega()
+   )
+   K = ff.assemble_bilinear_form(
+       ff.BilinearSpaces(test=V, trial=U),
+       bilinear,
+       D,
+   )
 
 3) Assemble the surface traction
 """"""""""""""""""""""""""""""""
@@ -79,9 +98,10 @@ The script builds a structured hexahedral mesh and creates a vector-valued FEM s
 
    surface_form = ff.LinearForm.surface(lambda v, p: (v | p) * h_wf.ds())
    traction_vec = np.array([traction, 0.0, 0.0], dtype=float)
-   F = surface.assemble_linear_form_on_space(
-       space, surface_form.get_compiled(), params=traction_vec
-   )
+   F = surface.assemble_linear_form_on_space(space, surface_form, params=traction_vec)
+
+For volume load vectors, the matching role-explicit entry point is
+``ff.assemble_linear_form(ff.LinearSpaces(test=V), ...)``.
 
 4) Apply Dirichlet clamp
 """"""""""""""""""""""""
@@ -90,10 +110,11 @@ The clamp fixes all components on the ``x = xmin`` face:
 
 .. code-block:: python
 
-   dir_dofs = mesh.boundary_dofs_where(
+   dir_dofs = ff.DirichletBC.from_boundary_dofs(
+       mesh,
        lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
        components="xyz",
-   )
+   ).dofs
 
 5) Solve the linear system
 """"""""""""""""""""""""""
@@ -102,7 +123,7 @@ The clamp fixes all components on the ``x = xmin`` face:
 
    solver = ff.LinearSolver(method="spsolve")
    u, _ = solver.solve(
-       K, F, dirichlet=(dir_dofs, None), dirichlet_mode="condense"
+       K, F, dirichlet=ff.DirichletBC(dir_dofs, None), dirichlet_mode="condense"
    )
 
 The script also prints the maximum axial displacement at ``x = xmax`` and compares

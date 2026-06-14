@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
 
@@ -76,6 +77,47 @@ class ScalarFormField:
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(eq=False)
+class PrecomputedScalarFormField:
+    """
+    Scalar FE field with precomputed gradients/Jacobian determinant.
+    Lightweight alternative that avoids storing element coordinates and
+    element-wise duplicated shape-function tables.
+    """
+    basis: Basis3D
+    _gradN: jnp.ndarray         # (n_q, n_nodes, 3)
+    _detJ: jnp.ndarray          # (n_q,)
+
+    @property
+    def N(self):
+        return self.basis.shape_functions()
+
+    @property
+    def gradN(self):
+        return self._gradN
+
+    @property
+    def detJ(self):
+        return self._detJ
+
+    def eval(self, u_elem: jnp.ndarray) -> jnp.ndarray:
+        return jnp.einsum("qa,a->q", self.N, u_elem)
+
+    def grad(self, u_elem: jnp.ndarray) -> jnp.ndarray:
+        return jnp.einsum("qaj,a->qj", self.gradN, u_elem)
+
+    def tree_flatten(self):
+        children = (self._gradN, self._detJ)
+        aux = {"basis": self.basis}
+        return children, aux
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        gradN, detJ = children
+        return cls(aux["basis"], gradN, detJ)
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(eq=False)
 class VectorFormField:
     """Vector-valued FE field evaluated on one element."""
     N: jnp.ndarray
@@ -120,8 +162,56 @@ class VectorFormField:
         return cls(N, elem_coords, aux["basis"], aux["value_dim"], gradN, detJ)
 
 
+@jax.tree_util.register_pytree_node_class
+@dataclass(eq=False)
+class PrecomputedVectorFormField:
+    """
+    Vector FE field with precomputed gradients/Jacobian determinant.
+    Lightweight alternative that avoids storing element coordinates/basis.
+    """
+    basis: Basis3D
+    value_dim: int
+    _gradN: jnp.ndarray
+    _detJ: jnp.ndarray
+
+    @property
+    def N(self):
+        return self.basis.shape_functions()
+
+    @property
+    def gradN(self):
+        return self._gradN
+
+    @property
+    def detJ(self):
+        return self._detJ
+
+    def eval(self, u_elem: jnp.ndarray) -> jnp.ndarray:
+        u_nodes = u_elem.reshape((-1, int(self.value_dim)))
+        return jnp.einsum("qa,ai->qi", self.N, u_nodes)
+
+    def grad(self, u_elem: jnp.ndarray) -> jnp.ndarray:
+        u_nodes = u_elem.reshape((-1, int(self.value_dim)))
+        return jnp.einsum("qaj,ai->qij", self.gradN, u_nodes)
+
+    def tree_flatten(self):
+        children = (self._gradN, self._detJ)
+        aux = {"basis": self.basis, "value_dim": int(self.value_dim)}
+        return children, aux
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        gradN, detJ = children
+        return cls(aux["basis"], aux["value_dim"], gradN, detJ)
+
+
 if TYPE_CHECKING:
-    FormFieldLike: TypeAlias = ScalarFormField | VectorFormField
+    FormFieldLike: TypeAlias = (
+        ScalarFormField
+        | VectorFormField
+        | PrecomputedScalarFormField
+        | PrecomputedVectorFormField
+    )
 else:
     FormFieldLike = object
 
@@ -152,6 +242,8 @@ class FormContext:
     x_q: jnp.ndarray       # (n_q, 3)
     w: jnp.ndarray         # (n_q,)
     elem_id: jnp.ndarray | int = 0
+    spaces: dict[str, "FieldPair"] | None = None
+    default_space: str | None = None
 
     @property
     def u(self) -> FormFieldLike:
@@ -168,8 +260,9 @@ class FormContext:
             self.x_q,
             self.w,
             self.elem_id,
+            self.spaces,
         )
-        return children, {}
+        return children, {"default_space": self.default_space}
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
@@ -179,6 +272,7 @@ class FormContext:
             x_q,
             w,
             elem_id,
+            spaces,
         ) = children
         return cls(
             test,
@@ -186,9 +280,86 @@ class FormContext:
             x_q,
             w,
             elem_id,
+            spaces,
+            aux_data.get("default_space"),
         )
 
 
+@dataclass(eq=False)
+class NumpyPrecomputedScalarFormField:
+    basis: Basis3D
+    _N: np.ndarray
+    _gradN: np.ndarray
+    _detJ: np.ndarray
+
+    @property
+    def N(self):
+        return self._N
+
+    @property
+    def gradN(self):
+        return self._gradN
+
+    @property
+    def detJ(self):
+        return self._detJ
+
+    def eval(self, u_elem: np.ndarray) -> np.ndarray:
+        return np.einsum("qa,a->q", self.N, u_elem)
+
+    def grad(self, u_elem: np.ndarray) -> np.ndarray:
+        return np.einsum("qaj,a->qj", self.gradN, u_elem)
+
+
+@dataclass(eq=False)
+class NumpyPrecomputedVectorFormField:
+    basis: Basis3D
+    value_dim: int
+    _N: np.ndarray
+    _gradN: np.ndarray
+    _detJ: np.ndarray
+
+    @property
+    def N(self):
+        return self._N
+
+    @property
+    def gradN(self):
+        return self._gradN
+
+    @property
+    def detJ(self):
+        return self._detJ
+
+    def eval(self, u_elem: np.ndarray) -> np.ndarray:
+        u_nodes = u_elem.reshape((-1, int(self.value_dim)))
+        return np.einsum("qa,ai->qi", self.N, u_nodes)
+
+    def grad(self, u_elem: np.ndarray) -> np.ndarray:
+        u_nodes = u_elem.reshape((-1, int(self.value_dim)))
+        return np.einsum("qaj,ai->qij", self.gradN, u_nodes)
+
+
+@dataclass(eq=False)
+class NumpyFormContext:
+    test: object
+    trial: object
+    x_q: np.ndarray
+    w: np.ndarray
+    elem_id: np.ndarray | int = 0
+    spaces: dict[str, "FieldPair"] | None = None
+    default_space: str | None = None
+
+    @property
+    def u(self):
+        return self.trial
+
+    @property
+    def v(self):
+        return self.test
+
+
+@jax.tree_util.register_pytree_node_class
 @dataclass(eq=False)
 class FieldPair:
     """Named test/trial/unknown grouping for mixed formulations."""
@@ -196,32 +367,38 @@ class FieldPair:
     trial: FormFieldLike
     unknown: FormFieldLike | None = None
 
+    def tree_flatten(self):
+        children = (self.test, self.trial, self.unknown)
+        return children, {}
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        test, trial, unknown = children
+        return cls(test=test, trial=trial, unknown=unknown)
+
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(eq=False)
 class MixedFormContext:
-    """FormContext for mixed formulations keyed by field name."""
-    fields: dict[str, FieldPair]
+    """FormContext for mixed formulations keyed by binding/field name."""
+    bindings: dict[str, FieldPair]
     x_q: jnp.ndarray       # (n_q, 3)
     w: jnp.ndarray         # (n_q,)
     elem_id: jnp.ndarray | int = 0
     unknown: FormFieldLike | None = None
-    trial_fields: dict[str, FormFieldLike] | None = None
-    test_fields: dict[str, FormFieldLike] | None = None
-    unknown_fields: dict[str, FormFieldLike] | None = None
+    spaces: dict[str, FieldPair] | None = None
+    default_space: str | None = None
 
     def tree_flatten(self):
         children = (
-            self.fields,
+            self.bindings,
             self.x_q,
             self.w,
             self.elem_id,
             self.unknown,
-            self.trial_fields,
-            self.test_fields,
-            self.unknown_fields,
+            self.spaces,
         )
-        return children, {}
+        return children, {"default_space": self.default_space}
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
@@ -231,8 +408,14 @@ class MixedFormContext:
             w,
             elem_id,
             unknown,
-            trial_fields,
-            test_fields,
-            unknown_fields,
+            spaces,
         ) = children
-        return cls(fields, x_q, w, elem_id, unknown, trial_fields, test_fields, unknown_fields)
+        return cls(
+            fields,
+            x_q,
+            w,
+            elem_id,
+            unknown,
+            spaces,
+            aux_data.get("default_space"),
+        )

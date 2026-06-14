@@ -1,10 +1,21 @@
+from typing import Mapping, TYPE_CHECKING, TypeAlias
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from ...core.forms import FormContext
-from ...core.basis import build_B_matrices_finite
+from ...core.space import FESpace
+from ...mesh import BaseMesh
 from ..postprocess import make_point_data_displacement, write_point_data_vtu
+
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
+ParamsLike: TypeAlias = Mapping[str, float] | tuple[float, float]
 
 
 def right_cauchy_green(F: jnp.ndarray) -> jnp.ndarray:
@@ -46,7 +57,9 @@ def pk2_neo_hookean(F: jnp.ndarray, mu: float, lam: float) -> jnp.ndarray:
     return mu * (I - C_inv) + lam * jnp.log(J)[..., None, None] * C_inv
 
 
-def neo_hookean_residual_form(ctx: FormContext, u_elem: jnp.ndarray, params) -> jnp.ndarray:
+def neo_hookean_residual_form(
+    ctx: FormContext, u_elem: jnp.ndarray, params: ParamsLike
+) -> jnp.ndarray:
     """
     Compressible Neo-Hookean residual (Total Lagrangian, PK2).
     params: dict-like with keys \"mu\", \"lam\" or tuple (mu, lam)
@@ -60,23 +73,13 @@ def neo_hookean_residual_form(ctx: FormContext, u_elem: jnp.ndarray, params) -> 
 
     F = deformation_gradient(ctx, u_elem)          # (n_q, 3, 3)
     S = pk2_neo_hookean(F, mu, lam)                # (n_q, 3, 3)
+    P = jnp.einsum("qik,qkj->qij", F, S)  # (n_q, 3, 3)
+    elem_res = jnp.einsum("qaj,qij->qai", ctx.trial.gradN, P)  # (n_q, n_nodes, 3)
+    return elem_res.reshape(elem_res.shape[0], -1)
 
-    S_voigt = jnp.stack(
-        [
-            S[..., 0, 0],
-            S[..., 1, 1],
-            S[..., 2, 2],
-            S[..., 0, 1],
-            S[..., 1, 2],
-            S[..., 2, 0],
-        ],
-        axis=-1,
-    )  # (n_q, 6)
 
-    B = build_B_matrices_finite(ctx.trial.gradN, F)           # (n_q, 6, n_ldofs)
-    BT = jnp.swapaxes(B, 1, 2)                               # (n_q, n_ldofs, 6)
-    return jnp.einsum("qik,qk->qi", BT, S_voigt)   # (n_q, n_ldofs)
-
+neo_hookean_residual_form._ff_kind = "residual"
+neo_hookean_residual_form._ff_domain = "volume"
 
 __all__ = [
     "right_cauchy_green",
@@ -89,11 +92,26 @@ __all__ = [
 ]
 
 
-def make_elastic_point_data(mesh, space, u, *, compute_j: bool = True, deformed_scale: float = 1.0):
+def make_elastic_point_data(
+    mesh: BaseMesh,
+    space: FESpace,
+    u: ArrayLike,
+    *,
+    compute_j: bool = True,
+    deformed_scale: float = 1.0,
+) -> dict[str, np.ndarray]:
     """Alias to postprocess.make_point_data_displacement for backward compatibility."""
     return make_point_data_displacement(mesh, space, u, compute_j=compute_j, deformed_scale=deformed_scale)
 
 
-def write_elastic_vtu(mesh, space, u, filepath: str, *, compute_j: bool = True, deformed_scale: float = 1.0):
+def write_elastic_vtu(
+    mesh: BaseMesh,
+    space: FESpace,
+    u: ArrayLike,
+    filepath: str,
+    *,
+    compute_j: bool = True,
+    deformed_scale: float = 1.0,
+) -> None:
     """Alias to postprocess.write_point_data_vtu for backward compatibility."""
     return write_point_data_vtu(mesh, space, u, filepath, compute_j=compute_j, deformed_scale=deformed_scale)

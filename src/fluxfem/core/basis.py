@@ -1,11 +1,11 @@
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Protocol
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from .dtypes import DEFAULT_DTYPE as _FDTYPE
-# from .dtypes import DEFAULT_DTYPE
+from .dtypes import default_dtype
 
 
 def build_B_matrices(dN_dx: jnp.ndarray) -> jnp.ndarray:
@@ -94,8 +94,9 @@ def build_B_matrices_finite(dN_dX: jnp.ndarray, F: jnp.ndarray) -> jnp.ndarray:
 
             def fill_dof(k, B):
                 grad_delta = grads[k]
-                # Total Lagrange variation: dE = 0.5 * (∇δu · F + (∇δu · F)^T)
-                dE = 0.5 * (grad_delta @ Fq + (grad_delta @ Fq).T)
+                # Total Lagrange variation: dE = sym(F^T grad_delta)
+                grad_delta_F = grad_delta.T @ Fq
+                dE = 0.5 * (grad_delta_F + grad_delta_F.T)
                 B = B.at[0, col + k].set(dE[0, 0])  # xx
                 B = B.at[1, col + k].set(dE[1, 1])  # yy
                 B = B.at[2, col + k].set(dE[2, 2])  # zz
@@ -182,7 +183,8 @@ class TotalLagrangeBMixin:
 
                 def dof_fun(k, B):
                     grad_delta = grads[k]
-                    dE = 0.5 * (grad_delta @ Fq + (grad_delta @ Fq).T)
+                    grad_delta_F = grad_delta.T @ Fq
+                    dE = 0.5 * (grad_delta_F + grad_delta_F.T)
                     B = B.at[0, col + k].set(dE[0, 0])
                     B = B.at[1, col + k].set(dE[1, 1])
                     B = B.at[2, col + k].set(dE[2, 2])
@@ -271,6 +273,7 @@ class TetLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
 
     @property
     def ref_node_coords(self) -> jnp.ndarray:
+        dtype = default_dtype()
         return jnp.array(
             [
                 [0.0, 0.0, 0.0],
@@ -278,7 +281,7 @@ class TetLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
                 [0.0, 1.0, 0.0],
                 [0.0, 0.0, 1.0],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
 
     def shape_functions(self) -> jnp.ndarray:
@@ -294,6 +297,7 @@ class TetLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
 
     def shape_grads_ref(self) -> jnp.ndarray:
         # constant gradients in reference tetra
+        dtype = default_dtype()
         dN = jnp.array(
             [
                 [-1.0, -1.0, -1.0],
@@ -301,7 +305,7 @@ class TetLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
                 [0.0, 1.0, 0.0],
                 [0.0, 0.0, 1.0],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
         dN = jnp.tile(dN[None, :, :], (self.n_q, 1, 1))  # (n_q,4,3)
         return dN
@@ -312,7 +316,9 @@ class TetLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
         dN_dxi = self.shape_grads_ref()[0]  # (4,3) constant
         J = jnp.einsum("ia,ik->ak", elem_coords, dN_dxi)  # (3,3)
         J_inv = jnp.linalg.inv(J)
-        detJ = jnp.linalg.det(J)
+        # Volume integration uses the physical Jacobian magnitude; structured
+        # tet meshes can mix element orientations.
+        detJ = jnp.abs(jnp.linalg.det(J))
         dN_dx = jnp.einsum("ik,ka->ia", dN_dxi, J_inv)  # (4,3)
         dN_dx = jnp.tile(dN_dx[None, :, :], (self.n_q, 1, 1))
         detJ = jnp.full((self.n_q,), detJ, dtype=elem_coords.dtype)
@@ -396,7 +402,7 @@ class TetQuadraticBasis10(SmallStrainBMixin, TotalLagrangeBMixin):
         dN_dxi = self.shape_grads_ref()  # (n_q,10,3)
         J = jnp.einsum("ia,qik->qak", elem_coords, dN_dxi)
         J_inv = jnp.linalg.inv(J)
-        detJ = jnp.linalg.det(J)
+        detJ = jnp.abs(jnp.linalg.det(J))
         dN_dx = jnp.einsum("qik,qka->qia", dN_dxi, J_inv)
         return dN_dx, detJ
 
@@ -420,7 +426,7 @@ class HexTriLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
 
     def tree_flatten(self):
         children = (self.quad_points, self.quad_weights)
-        aux_data = {}
+        aux_data: dict[str, object] = {}
         return children, aux_data
 
     @classmethod
@@ -446,6 +452,7 @@ class HexTriLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
         6: ( 1, 1, 1)
         7: (-1, 1, 1)
         """
+        dtype = default_dtype()
         return jnp.array(
             [
                 [-1.0, -1.0, -1.0],
@@ -457,7 +464,7 @@ class HexTriLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
                 [ 1.0,  1.0,  1.0],
                 [-1.0,  1.0,  1.0],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
 
     # ---------- reference shape functions & gradients ----------
@@ -545,7 +552,7 @@ class HexTriLinearBasis(SmallStrainBMixin, TotalLagrangeBMixin):
         J = jnp.einsum("ia,qik->qak", elem_coords, dN_dxi)  # (n_q, 3, 3)
 
         J_inv = jnp.linalg.inv(J)           # (n_q, 3, 3)
-        detJ = jnp.linalg.det(J)           # (n_q,)
+        detJ = jnp.abs(jnp.linalg.det(J))  # (n_q,)
 
         # ∇_x N = ∇_ξ N · J^{-1}
         dN_dx = jnp.einsum("qik,qka->qia", dN_dxi, J_inv)  # (n_q, 8, 3)
@@ -567,7 +574,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
 
     def tree_flatten(self):
         children = (self.quad_points, self.quad_weights)
-        aux_data = {}
+        aux_data: dict[str, object] = {}
         return children, aux_data
 
     @classmethod
@@ -581,6 +588,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
 
     @property
     def ref_node_coords(self) -> jnp.ndarray:
+        dtype = default_dtype()
         corners = jnp.array(
             [
                 [-1.0, -1.0, -1.0],
@@ -592,7 +600,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
                 [ 1.0,  1.0,  1.0],
                 [-1.0,  1.0,  1.0],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
         edges = jnp.array(
             [
@@ -609,7 +617,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
                 [ 1.0,  1.0,  0.0],  # 2-6
                 [-1.0,  1.0,  0.0],  # 3-7
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
         return jnp.concatenate([corners, edges], axis=0)  # (20,3)
 
@@ -620,6 +628,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
         zeta = qp[:, 2:3]
 
         # corners
+        dtype = default_dtype()
         s = jnp.array(
             [
                 [-1, -1, -1],
@@ -631,7 +640,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
                 [ 1,  1,  1],
                 [-1,  1,  1],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
         sx = s[:, 0]
         sy = s[:, 1]
@@ -639,22 +648,30 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
         term = xi * sx + eta * sy + zeta * sz - 2.0  # (n_q,8)
         N_corner = 0.125 * (1 + sx * xi) * (1 + sy * eta) * (1 + sz * zeta) * term  # (n_q,8)
 
-        # edges
-        edges_x = [(-1, -1), (1, -1), (1, 1), (-1, 1)]  # eta, zeta fixed
-        edges_y = [(-1, -1), (1, -1), (1, 1), (-1, 1)]  # xi fixed
-        edges_z = [(-1, -1), (1, -1), (1, 1), (-1, 1)]  # xi, eta fixed
+        # edges: order matches hex20 connectivity (e01, e12, e23, e30, e45, e56, e67, e74, e04, e15, e26, e37)
+        def edge_x(sy, sz):
+            return 0.25 * (1 - xi * xi) * (1 + sy * eta) * (1 + sz * zeta)
 
-        N_edges = []
-        # along xi (1 - xi^2)
-        for sy, sz in edges_x:
-            N_edges.append(0.25 * (1 - xi * xi) * (1 + sy * eta) * (1 + sz * zeta))
-        # along eta
-        for sx, sz in edges_y:
-            N_edges.append(0.25 * (1 - eta * eta) * (1 + sx * xi) * (1 + sz * zeta))
-        # along zeta
-        for sx, sy in edges_z:
-            N_edges.append(0.25 * (1 - zeta * zeta) * (1 + sx * xi) * (1 + sy * eta))
+        def edge_y(sx, sz):
+            return 0.25 * (1 - eta * eta) * (1 + sx * xi) * (1 + sz * zeta)
 
+        def edge_z(sx, sy):
+            return 0.25 * (1 - zeta * zeta) * (1 + sx * xi) * (1 + sy * eta)
+
+        N_edges = [
+            edge_x(-1, -1),
+            edge_y(1, -1),
+            edge_x(1, -1),
+            edge_y(-1, -1),
+            edge_x(-1, 1),
+            edge_y(1, 1),
+            edge_x(1, 1),
+            edge_y(-1, 1),
+            edge_z(-1, -1),
+            edge_z(1, -1),
+            edge_z(1, 1),
+            edge_z(-1, 1),
+        ]
         N_edges = jnp.concatenate(N_edges, axis=1)  # (n_q, 12)
         return jnp.concatenate([N_corner, N_edges], axis=1)  # (n_q,20)
 
@@ -664,6 +681,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
         eta = qp[:, 1:2]
         zeta = qp[:, 2:3]
 
+        dtype = default_dtype()
         s = jnp.array(
             [
                 [-1, -1, -1],
@@ -675,7 +693,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
                 [ 1,  1,  1],
                 [-1,  1,  1],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
         sx = s[:, 0]
         sy = s[:, 1]
@@ -696,34 +714,38 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
         )  # (n_q,8,3)
 
         # edges derivatives
-        d_list = []
-        # along xi
-        edges_x = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
-        for sy_val, sz_val in edges_x:
-            sy_ = sy_val
-            sz_ = sz_val
+        def d_edge_x(sy_, sz_):
             dxi = -0.5 * xi * (1 + sy_ * eta) * (1 + sz_ * zeta)
             deta = 0.25 * (1 - xi * xi) * sy_ * (1 + sz_ * zeta)
             dzeta = 0.25 * (1 - xi * xi) * (1 + sy_ * eta) * sz_
-            d_list.append(jnp.stack([dxi, deta, dzeta], axis=2))
-        # along eta
-        edges_y = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
-        for sx_val, sz_val in edges_y:
-            sx_ = sx_val
-            sz_ = sz_val
+            return jnp.stack([dxi, deta, dzeta], axis=2)
+
+        def d_edge_y(sx_, sz_):
             dxi = 0.25 * (1 - eta * eta) * sx_ * (1 + sz_ * zeta)
             deta = -0.5 * eta * (1 + sx_ * xi) * (1 + sz_ * zeta)
             dzeta = 0.25 * (1 - eta * eta) * (1 + sx_ * xi) * sz_
-            d_list.append(jnp.stack([dxi, deta, dzeta], axis=2))
-        # along zeta
-        edges_z = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
-        for sx_val, sy_val in edges_z:
-            sx_ = sx_val
-            sy_ = sy_val
+            return jnp.stack([dxi, deta, dzeta], axis=2)
+
+        def d_edge_z(sx_, sy_):
             dxi = 0.25 * (1 - zeta * zeta) * sx_ * (1 + sy_ * eta)
             deta = 0.25 * (1 - zeta * zeta) * (1 + sx_ * xi) * sy_
             dzeta = -0.5 * zeta * (1 + sx_ * xi) * (1 + sy_ * eta)
-            d_list.append(jnp.stack([dxi, deta, dzeta], axis=2))
+            return jnp.stack([dxi, deta, dzeta], axis=2)
+
+        d_list = [
+            d_edge_x(-1, -1),
+            d_edge_y(1, -1),
+            d_edge_x(1, -1),
+            d_edge_y(-1, -1),
+            d_edge_x(-1, 1),
+            d_edge_y(1, 1),
+            d_edge_x(1, 1),
+            d_edge_y(-1, 1),
+            d_edge_z(-1, -1),
+            d_edge_z(1, -1),
+            d_edge_z(1, 1),
+            d_edge_z(-1, 1),
+        ]
 
         d_edges = jnp.concatenate(d_list, axis=1)  # (n_q,12,3)
         return jnp.concatenate([d_corner, d_edges], axis=1)  # (n_q,20,3)
@@ -734,7 +756,7 @@ class HexSerendipityBasis20(SmallStrainBMixin, TotalLagrangeBMixin):
         dN_dxi = self.shape_grads_ref()  # (n_q, 20, 3)
         J = jnp.einsum("ia,qik->qak", elem_coords, dN_dxi)  # (n_q, 3, 3)
         J_inv = jnp.linalg.inv(J)
-        detJ = jnp.linalg.det(J)
+        detJ = jnp.abs(jnp.linalg.det(J))
         dN_dx = jnp.einsum("qik,qka->qia", dN_dxi, J_inv)
         return dN_dx, detJ
 
@@ -811,7 +833,7 @@ class HexTriQuadraticBasis27(SmallStrainBMixin, TotalLagrangeBMixin):
         dN_dxi = self.shape_grads_ref()  # (n_q, 27, 3)
         J = jnp.einsum("ia,qik->qak", elem_coords, dN_dxi)
         J_inv = jnp.linalg.inv(J)
-        detJ = jnp.linalg.det(J)
+        detJ = jnp.abs(jnp.linalg.det(J))
         dN_dx = jnp.einsum("qik,qka->qia", dN_dxi, J_inv)
         return dN_dx, detJ
 
@@ -846,7 +868,8 @@ def _gauss_legendre_1d(order: int) -> tuple[jnp.ndarray, jnp.ndarray]:
     if order <= 0:
         raise ValueError("quadrature order must be positive")
     pts, wts = np.polynomial.legendre.leggauss(order)
-    return jnp.array(pts, dtype=_FDTYPE), jnp.array(wts, dtype=_FDTYPE)
+    dtype = default_dtype()
+    return jnp.array(pts, dtype=dtype), jnp.array(wts, dtype=dtype)
 
 
 def _gl_points_for_degree(degree: int) -> int:
@@ -865,10 +888,12 @@ def _tet_quadrature(degree: int) -> tuple[jnp.ndarray, jnp.ndarray]:
     degree<=1: 1-point; degree<=2: 4-point; degree>=3: 5-point (Stroud T3-5).
     """
     if degree <= 1:
-        qp = jnp.array([[0.25, 0.25, 0.25]], dtype=_FDTYPE)
-        qw = jnp.array([1.0 / 6.0], dtype=_FDTYPE)
+        dtype = default_dtype()
+        qp = jnp.array([[0.25, 0.25, 0.25]], dtype=dtype)
+        qw = jnp.array([1.0 / 6.0], dtype=dtype)
         return qp, qw
     if degree <= 2:
+        dtype = default_dtype()
         qp = jnp.array(
             [
                 [0.58541020, 0.13819660, 0.13819660],
@@ -876,11 +901,12 @@ def _tet_quadrature(degree: int) -> tuple[jnp.ndarray, jnp.ndarray]:
                 [0.13819660, 0.13819660, 0.58541020],
                 [0.13819660, 0.13819660, 0.13819660],
             ],
-            dtype=_FDTYPE,
+            dtype=dtype,
         )
-        qw = jnp.full((4,), (1.0 / 24.0), dtype=_FDTYPE)
+        qw = jnp.full((4,), (1.0 / 24.0), dtype=dtype)
         return qp, qw
     # degree 3 rule: centroid + 4 symmetric points
+    dtype = default_dtype()
     qp = jnp.array(
         [
             [0.25, 0.25, 0.25],
@@ -889,27 +915,30 @@ def _tet_quadrature(degree: int) -> tuple[jnp.ndarray, jnp.ndarray]:
             [1.0 / 6.0, 1.0 / 6.0, 0.50],
             [1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0],
         ],
-        dtype=_FDTYPE,
+        dtype=dtype,
     )
     qw = jnp.array(
         [-2.0 / 15.0, 3.0 / 40.0, 3.0 / 40.0, 3.0 / 40.0, 3.0 / 40.0],
-        dtype=_FDTYPE,
+        dtype=dtype,
     )
     return qp, qw
 
 
+@lru_cache(maxsize=None)
 def make_tet_basis(intorder: int = 2) -> TetLinearBasis:
     """Create a linear tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)
     return TetLinearBasis(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_tet_basis_pytree(intorder: int = 2) -> TetLinearBasisPytree:
     """Create a pytree linear tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)
     return TetLinearBasisPytree(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex_basis(intorder: int = 2) -> HexTriLinearBasis:
     """
     Trilinear hex basis with tensor-product Gauss-Legendre quadrature.
@@ -926,6 +955,7 @@ def make_hex_basis(intorder: int = 2) -> HexTriLinearBasis:
     return HexTriLinearBasis(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex_basis_pytree(intorder: int = 2) -> HexTriLinearBasisPytree:
     """Create a pytree trilinear hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
@@ -938,6 +968,7 @@ def make_hex_basis_pytree(intorder: int = 2) -> HexTriLinearBasisPytree:
     return HexTriLinearBasisPytree(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex20_basis(intorder: int = 2) -> HexSerendipityBasis20:
     """Create a serendipity hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
@@ -950,6 +981,7 @@ def make_hex20_basis(intorder: int = 2) -> HexSerendipityBasis20:
     return HexSerendipityBasis20(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex20_basis_pytree(intorder: int = 2) -> HexSerendipityBasis20Pytree:
     """Create a pytree serendipity hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
@@ -962,6 +994,7 @@ def make_hex20_basis_pytree(intorder: int = 2) -> HexSerendipityBasis20Pytree:
     return HexSerendipityBasis20Pytree(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex27_basis(intorder: int = 3) -> HexTriQuadraticBasis27:
     """Create a triquadratic hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
@@ -973,6 +1006,7 @@ def make_hex27_basis(intorder: int = 3) -> HexTriQuadraticBasis27:
     return HexTriQuadraticBasis27(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_hex27_basis_pytree(intorder: int = 3) -> HexTriQuadraticBasis27Pytree:
     """Create a pytree triquadratic hex basis with tensor-product quadrature."""
     n_1d = _gl_points_for_degree(intorder)
@@ -984,12 +1018,14 @@ def make_hex27_basis_pytree(intorder: int = 3) -> HexTriQuadraticBasis27Pytree:
     return HexTriQuadraticBasis27Pytree(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_tet10_basis(intorder: int = 2) -> TetQuadraticBasis10:
     """Create a quadratic tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)
     return TetQuadraticBasis10(qp, qw)
 
 
+@lru_cache(maxsize=None)
 def make_tet10_basis_pytree(intorder: int = 2) -> TetQuadraticBasis10Pytree:
     """Create a pytree quadratic tet basis with degree-based quadrature."""
     qp, qw = _tet_quadrature(intorder)

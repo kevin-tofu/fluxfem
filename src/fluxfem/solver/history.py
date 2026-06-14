@@ -1,7 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List, Optional, TYPE_CHECKING, TypeAlias
+
+import jax.numpy as jnp
+import numpy as np
+
+from .result import SolverResult
+
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 
 
 @dataclass
@@ -18,14 +30,22 @@ class NewtonIterRecord:
     nan_detected: bool = False
     assemble_time: Optional[float] = None
     linear_time: Optional[float] = None
+    eval_time: Optional[float] = None
+    rhs_time: Optional[float] = None
+    preconditioner_time: Optional[float] = None
+    linearize_time: Optional[float] = None
+    control_time: Optional[float] = None
+    iter_total_time: Optional[float] = None
+    initial_residual_time: Optional[float] = None
+    initial_jacobian_time: Optional[float] = None
 
 
 @dataclass
 class LoadStepResult:
     load_factor: float
-    info: Any
+    info: SolverResult
     solve_time: float
-    u: Any
+    u: ArrayLike
     iter_history: List[NewtonIterRecord] = field(default_factory=list)
     exception: Optional[str] = None
     meta: dict[str, Any] = field(default_factory=dict)

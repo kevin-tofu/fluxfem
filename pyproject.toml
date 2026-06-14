@@ -1,12 +1,12 @@
 [project]
 name = "fluxfem"
-version = "0.2.0"
+version = "0.3.5"
 description = ""
 authors = [
     {name = "Kohei Watanabe",email = "koheitech001@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.12,<3.14"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -17,14 +17,20 @@ dependencies = [
     "pyvista (>=0.46.4,<0.47.0)",
     "meshio (>=5.3.5,<6.0.0)",
     "matplotlib (>=3.10.7,<4.0.0)",
-    # Note: jax versioning currently around 0.8.x. Allow up to next minor.
-    "jax (>=0.8.2,<0.9.0)",
-    "jaxlib (>=0.8.2,<0.9.0)"
+    # CPU JAX by default; CUDA builds are available via the cuda12 extra.
+    "jax (==0.8.2)",
+    "jaxlib (==0.8.2)",
 ]
+
+[project.optional-dependencies]
+# Keep petsc4py aligned with the PETSc build referenced by PETSC_DIR.
+petsc = ["petsc4py (==3.24.4)"]
+cpu = ["jax (==0.8.2)", "jaxlib (==0.8.2)"]
+cuda12 = ["jax (==0.8.2)", "jaxlib (==0.8.2)", "jax-cuda12-plugin (==0.8.2)", "jax-cuda12-pjrt (==0.8.2)"]
 
 [tool.poetry]
 name = "fluxfem"
-version = "0.2.0"
+version = "0.3.5"
 description = "FluxFEM: A weak-form-centric differentiable finite element framework in JAX"
 authors = ["Kohei Watanabe <koheitech001@gmail.com>"]
 readme = "README.md"
@@ -35,12 +41,17 @@ packages = [
 
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.14"
+python = ">=3.12,<3.14"
 pyvista = ">=0.46.4,<0.47.0"
 meshio = ">=5.3.5,<6.0.0"
 matplotlib = ">=3.10.7,<4.0.0"
 jax = ">=0.8.2,<0.9.0"
 jaxlib = ">=0.8.2,<0.9.0"
+jax-cuda12-plugin = { version = "==0.8.2", optional = true }
+jax-cuda12-pjrt = { version = "==0.8.2", optional = true }
+petsc4py = { version = "==3.24.4", optional = true }
+pyproject-toml = "^0.1.0"
+pyproject = "^1!0.1.2"
 
 
 [tool.poetry.group.dev]
@@ -59,7 +70,23 @@ sphinx-rtd-theme = { version = "^3.0.2", python = ">=3.11" }
 myst-parser = { version = "^4.0.1", python = ">=3.11" }
 sphinx-autodoc-typehints = { version = "^3.2.0", python = ">=3.11" }
 sphinx-sitemap = { version = "^2.6.0", python = ">=3.11" }
+pydata-sphinx-theme = { version = "^0.16.1", python = ">=3.11" }
+shapely = "^2.1.2"
+mypy = "^1.19.1"
+
+[tool.poetry.extras]
+petsc = ["petsc4py"]
+cpu = ["jax", "jaxlib"]
+cuda12 = ["jax", "jaxlib", "jax-cuda12-plugin", "jax-cuda12-pjrt"]
+
+[[tool.poetry.source]]
+name = "jax"
+url = "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
+priority = "supplemental"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]

@@ -3,8 +3,9 @@ from __future__ import annotations
 import numpy as np
 import jax
 import jax.numpy as jnp
+from typing import Optional
 
-from ..core.dtypes import NP_INDEX_DTYPE
+from .dtypes import NP_INDEX_DTYPE
 
 DTYPE = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
 
@@ -12,7 +13,7 @@ try:
     import meshio
 except Exception as e:  # pragma: no cover
     meshio = None
-    meshio_import_error = e
+    meshio_import_error: Optional[Exception] = e
 else:
     meshio_import_error = None
 
@@ -36,7 +37,7 @@ def load_gmsh_mesh(path: str):
     msh = meshio.read(path)
     coords = np.asarray(msh.points[:, :3], dtype=DTYPE)
 
-    mesh = None
+    mesh: HexMesh | TetMesh | None = None
     if "hexahedron" in msh.cells_dict:
         conn = np.asarray(msh.cells_dict["hexahedron"], dtype=NP_INDEX_DTYPE)
         mesh = HexMesh(jnp.asarray(coords), jnp.asarray(conn))

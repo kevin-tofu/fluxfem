@@ -38,3 +38,41 @@ Predicates
 .. autofunction:: fluxfem.mesh.plane_predicate
 .. autofunction:: fluxfem.mesh.axis_plane_predicate
 .. autofunction:: fluxfem.mesh.slab_predicate
+
+Contact
+-------
+
+For new public-facing contact setup, prefer ``ContactSpaces``,
+``ContactGroupSpaces``, and ``OneSidedContactSpaces``. The concrete contact
+space classes remain available as lower-level constructors.
+
+.. autoclass:: fluxfem.mesh.ContactSide
+.. autoclass:: fluxfem.mesh.ContactSpaces
+   :no-index:
+.. autoclass:: fluxfem.mesh.ContactGroupSpaces
+   :no-index:
+.. autoclass:: fluxfem.mesh.OneSidedContactSpaces
+   :no-index:
+.. autoclass:: fluxfem.mesh.ContactSurfaceSpace
+.. autoclass:: fluxfem.mesh.OneToManyContactSurfaceSpace
+.. autoclass:: fluxfem.mesh.OneSidedContactSurfaceSpace
+.. autoclass:: fluxfem.mesh.ContactOperators
+
+.. autofunction:: fluxfem.mesh.assemble_contact_constraint_operators
+.. autofunction:: fluxfem.mesh.assemble_contact_penalty_operators
+.. autofunction:: fluxfem.mesh.assemble_contact_interface_residual
+.. autofunction:: fluxfem.mesh.assemble_contact_interface_jacobian
+.. autofunction:: fluxfem.mesh.assemble_contact_coupling_matrices
+.. autofunction:: fluxfem.mesh.assemble_contact_kkt
+.. autofunction:: fluxfem.mesh.solve_contact_kkt
+
+.. autofunction:: fluxfem.mesh.facet_gap_values
+.. autofunction:: fluxfem.mesh.active_contact_facets
+
+Remote Constraints
+------------------
+
+.. autofunction:: fluxfem.mesh.assemble_rbe2_constraint_matrix
+.. autofunction:: fluxfem.mesh.assemble_rbe3_constraint_matrix
+.. autofunction:: fluxfem.mesh.build_rbe3_weights
+.. autofunction:: fluxfem.mesh.build_rbe3_remote_resultant

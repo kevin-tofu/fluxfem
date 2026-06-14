@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Watanabe"
+    given-names: "Kohei"
+    orcid: "https://orcid.org/0009-0008-2278-6418"
+title: "FluxFEM"
+doi: 110.5281/zenodo.18734689
+date-released: 2026-02-24
+url: "https://github.com/kevin-tofu/fluxfem"

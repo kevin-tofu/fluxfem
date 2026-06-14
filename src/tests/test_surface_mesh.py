@@ -1,6 +1,7 @@
 """Surface mesh construction and load assembly checks."""
 import numpy as np
 import pytest
+import fluxfem.solver.bc as bc
 
 import fluxfem as ff
 
@@ -37,6 +38,51 @@ def test_surface_mesh_from_hex_mesh_keeps_coords():
     areas = surf.facet_areas()
     assert areas.shape == (facets.shape[0],)
     assert np.all(areas > 0)
+
+
+def test_surface_mesh_facet_areas_are_cached():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    surf = ff.SurfaceMesh.from_facets(coords, np.array([[0, 1, 2, 3]], dtype=int))
+
+    areas_1 = surf.facet_areas()
+    areas_2 = surf.facet_areas()
+
+    assert areas_1 is areas_2
+
+
+def test_surface_mesh_facet_normals_are_cached(monkeypatch):
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    surf = ff.SurfaceMesh.from_facets(coords, np.array([[0, 1, 2, 3]], dtype=int))
+    calls = {"n": 0}
+    orig = bc.facet_normals
+
+    def _counted(*args, **kwargs):
+        calls["n"] += 1
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(bc, "facet_normals", _counted)
+
+    normals_1 = surf.facet_normals()
+    normals_2 = surf.facet_normals()
+
+    assert calls["n"] == 1
+    assert normals_1 is normals_2
 
 
 def test_assemble_surface_load_matches_manual():

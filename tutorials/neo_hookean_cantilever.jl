@@ -71,7 +71,7 @@ end
 Solve the 3D bar problem with finite-strain Neo-Hookean hyperelasticity
 and surface traction. Returns `(coords, displacements, times)`.
 """
-function run_gridap(mesh_file::AbstractString)
+function run_gridap(mesh_file::AbstractString; nstep::Integer=20, warmup_solve::Bool=false, write_outputs::Bool=true)
     # ---- material & load ----
     # Units: mm and MPa (steel ~210 GPa = 210e3 MPa)
     E, ν = 210e3, 0.3
@@ -82,7 +82,7 @@ function run_gridap(mesh_file::AbstractString)
     # traction_value = 10.0
     traction_value = 0.01
     tvec = VectorValue(0.0, traction_value, 0.0)
-    load_factors = collect(0.05:0.05:1.0)  # Fine load increments
+    load_factors = collect(range(1.0 / max(1, nstep), 1.0; length=max(1, nstep)))
 
     t0_total = time()
 
@@ -184,11 +184,26 @@ function run_gridap(mesh_file::AbstractString)
     x0 = zeros(Float64, num_free_dofs(V0))
     uh0 = FEFunction(U, x0)
 
+    warmup_solve_time = NaN
+    uh_start = uh0
+    if warmup_solve
+        lf[] = load_factors[1]
+        uh_warm = uh0
+        warmup_solve_time = @elapsed begin
+            uh_warm, _ = solve!(uh_warm, solver, op)
+        end
+        uh_start = uh0
+    end
+
+    step_solve_times = Float64[]
     t_solve = @elapsed begin
-        uh = uh0
+        uh = uh_start
         for f in load_factors
             lf[] = f
-            uh, _ = solve!(uh, solver, op)
+            t_step = @elapsed begin
+                uh, _ = solve!(uh, solver, op)
+            end
+            push!(step_solve_times, t_step)
             max_step_u = maximum(p -> norm(uh(p)), node_points)
             @printf "  load factor %.2f solved, max|u|=%.3e\n" f max_step_u
         end
@@ -212,27 +227,37 @@ function run_gridap(mesh_file::AbstractString)
     @printf "[Gridap Neo-Hookean] Total: %.3fs | Assembly: %.3fs | Solve: %.3fs | max|u|=%.3e\n" t_total t_asm t_solve max_u
 
     # Uncomment if you want VTK output for visualization
-    vtk_dir = "neo_hookean_output"
-    mkpath(vtk_dir)
-    J_field = p -> J(F(∇(uh_final)(p)))  # Output volume ratio det(F)
-    # Node scalar for tagged regions (right: 1, left: -1, interior: 0)
-    tag_values = zeros(length(node_points))
-    for nid in vcat(get_cell_node_ids(Γ_right)...)
-        tag_values[nid] = 1.0
+    if write_outputs
+        vtk_dir = "neo_hookean_output"
+        mkpath(vtk_dir)
+        J_field = p -> J(F(∇(uh_final)(p)))  # Output volume ratio det(F)
+        # Node scalar for tagged regions (right: 1, left: -1, interior: 0)
+        tag_values = zeros(length(node_points))
+        for nid in vcat(get_cell_node_ids(Γ_right)...)
+            tag_values[nid] = 1.0
+        end
+        for nid in vcat(get_cell_node_ids(Γ_left)...)
+            tag_values[nid] = -1.0
+        end
+        cell_tags = zeros(length(get_cell_node_ids(Ω)))
+        for (cid, node_ids) in enumerate(get_cell_node_ids(Ω))
+            cell_tags[cid] = mean(tag_values[node_ids])
+        end
+        writevtk(Ω, joinpath(vtk_dir, "neo_hookean_bar"),
+                 cellfields = ["displacement" => uh_final, "J" => J_field],
+                 celldata = ["tag" => cell_tags])
+        write_deformed_vtu(model, uh_final; dir=vtk_dir, basename="neo_hookean_bar_deformed", scale=1.0, J_field=J_field, cell_tags=cell_tags)
     end
-    for nid in vcat(get_cell_node_ids(Γ_left)...)
-        tag_values[nid] = -1.0
-    end
-    cell_tags = zeros(length(get_cell_node_ids(Ω)))
-    for (cid, node_ids) in enumerate(get_cell_node_ids(Ω))
-        cell_tags[cid] = mean(tag_values[node_ids])
-    end
-    writevtk(Ω, joinpath(vtk_dir, "neo_hookean_bar"),
-             cellfields = ["displacement" => uh_final, "J" => J_field],
-             celldata = ["tag" => cell_tags])
-    write_deformed_vtu(model, uh_final; dir=vtk_dir, basename="neo_hookean_bar_deformed", scale=1.0, J_field=J_field, cell_tags=cell_tags)
 
-    return coord_array, u_array, (t_total, t_asm, t_solve)
+    return coord_array, u_array, (
+        total=t_total,
+        assembly=t_asm,
+        solve=t_solve,
+        warmup_solve=warmup_solve_time,
+        step_solve_times=step_solve_times,
+        first_step=(isempty(step_solve_times) ? NaN : step_solve_times[1]),
+        remaining_avg=(length(step_solve_times) <= 1 ? NaN : mean(step_solve_times[2:end])),
+    )
 end
 
 function main(args)

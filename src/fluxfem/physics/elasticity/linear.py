@@ -1,9 +1,13 @@
+from typing import TypeAlias
+
 import jax.numpy as jnp
 
-from ...core.assembly import assemble_linear_form
+from ...core.assembly import LinearReturn
 from ...core.forms import FormContext, vector_load_form
-from ...core.basis import build_B_matrices
+from ...core.space import FESpace
 from ...physics.operators import sym_grad
+
+ArrayLike: TypeAlias = jnp.ndarray
 
 # from ...mechanics.kinematics import build_B_matrices
 
@@ -26,8 +30,12 @@ def linear_elasticity_form(ctx: FormContext, D: jnp.ndarray) -> jnp.ndarray:
     symmetric-gradient operator for the test/trial fields.
     """
     Bu = sym_grad(ctx.trial)                 # (n_q, 6, ndofs_e)
-    Bv = sym_grad(ctx.test)                  # (n_q, 6, ndofs_e)
+    Bv = Bu if ctx.test is ctx.trial else sym_grad(ctx.test)
     return jnp.einsum("qik,kl,qlm->qim", jnp.swapaxes(Bv, 1, 2), D, Bu)
+
+
+linear_elasticity_form._ff_kind = "bilinear"
+linear_elasticity_form._ff_domain = "volume"
 
 
 def vector_body_force_form(ctx: FormContext, load_vec: jnp.ndarray) -> jnp.ndarray:
@@ -35,12 +43,22 @@ def vector_body_force_form(ctx: FormContext, load_vec: jnp.ndarray) -> jnp.ndarr
     return vector_load_form(ctx.test, load_vec)
 
 
-def assemble_constant_body_force(space, gravity_vec, density: float, *, sparse: bool = False):
+vector_body_force_form._ff_kind = "linear"
+vector_body_force_form._ff_domain = "volume"
+
+def assemble_constant_body_force(
+    space: FESpace,
+    gravity_vec: ArrayLike,
+    density: float,
+    *,
+    sparse: bool = False,
+) -> LinearReturn:
     """
     Convenience: assemble body force from density * gravity vector.
     gravity_vec: length-3 array-like (direction and magnitude of g)
     density: scalar density (consistent with unit system)
     """
+    from ...core.assembly import assemble_linear_form
     g = jnp.asarray(gravity_vec)
     f_vec = density * g
     return assemble_linear_form(space, vector_body_force_form, params=f_vec, sparse=sparse)

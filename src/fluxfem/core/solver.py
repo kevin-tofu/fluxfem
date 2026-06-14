@@ -24,6 +24,8 @@ def coo_to_csr(rows: Any, cols: Any, data: Any, n_dofs: int):
     return sp.csr_matrix((d, (r, c)), shape=(n_dofs, n_dofs))
 
 
+
+
 def spdirect_solve_cpu(K: Any, F: jnp.ndarray, *, use_jax: bool = False) -> np.ndarray:
     """
     Convert JAX arrays to NumPy/SciPy and solve K u = F with sparse solver.

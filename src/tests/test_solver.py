@@ -5,6 +5,7 @@ import jax
 jax.config.update("jax_enable_x64", True)
 
 import fluxfem as ff
+from fluxfem import solver as ff_solver
 import scipy.sparse as sp
 from scipy.sparse.linalg import spsolve
 from fluxfem.solver.bc import add_neumann_load, add_robin, facet_area
@@ -33,6 +34,212 @@ def test_condense_and_expand_dirichlet():
     u_free = np.linalg.solve(Kc, Fc)
     u_full = ff.expand_dirichlet_solution(u_free, free, dir_dofs, dir_vals, n_total=2)
     np.testing.assert_allclose(u_full, [1.0, 0.5])
+
+
+def test_dirichlet_bc_scalar_values_and_free_dofs():
+    bc = ff.DirichletBC([0, 2], 1.5)
+    np.testing.assert_allclose(bc.vals, [1.5, 1.5])
+    np.testing.assert_array_equal(bc.free_dofs(3), [1])
+
+
+def test_dirichlet_bc_from_boundary_dofs():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=1)
+    bc = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], 0.0, atol=1e-8),
+        components=[0],
+        dof_per_node=1,
+    )
+    assert bc.dofs.size > 0
+    free = bc.free_dofs(space.n_dofs)
+    assert free.size == space.n_dofs - bc.dofs.size
+
+
+def test_dirichlet_bc_from_bbox():
+    mesh = ff.StructuredHexBox(nx=2, ny=2, nz=2, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=1)
+    bc = ff.DirichletBC.from_bbox(mesh, components=[0], dof_per_node=1, values=0.0)
+    assert bc.dofs.size > 0
+    assert bc.dofs.size < space.n_dofs
+    np.testing.assert_allclose(bc.vals, 0.0)
+
+
+def test_mixed_dirichlet_check_equal():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=1)
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("U", space),
+            "v": ff.NamedSpace("V", space),
+        }
+    ).to_fe_space()
+
+    bc_u = ff.DirichletBC([0], [1.0])
+    bc_v = ff.DirichletBC([0], [1.0])
+    mixed_bc = mixed.make_dirichlet(u=bc_u, v=bc_v, merge="check_equal")
+    assert mixed_bc.dir_dofs.size == 2
+
+    bc_u_bad = ff.DirichletBC([0, 0], [1.0, 2.0])
+    with pytest.raises(ValueError):
+        mixed.make_dirichlet(u=bc_u_bad, merge="check_equal")
+
+
+def test_mixed_problem_solve_condense():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=1)
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("U", space),
+            "v": ff.NamedSpace("V", space),
+        }
+    ).to_fe_space()
+    K = np.eye(mixed.n_dofs, dtype=float)
+    b = np.arange(mixed.n_dofs, dtype=float)
+    bc = mixed.make_dirichlet(u=([0], [0.0]))
+
+    import fluxfem.helpers_wf as wf
+
+    residuals = ff.make_mixed_residuals(
+        u=lambda v, u, p: v * wf.dOmega(),
+        v=lambda v, u, p: v * wf.dOmega(),
+    )
+    prob = ff.MixedProblem(mixed, residuals)
+    u, _info = prob.solve(K, b, dirichlet=bc, dirichlet_mode="condense", n_total=mixed.n_dofs)
+    assert u.shape[0] == mixed.n_dofs
+
+
+def test_mixed_build_block_system_zero_blocks():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=1)
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("U", space),
+            "v": ff.NamedSpace("V", space),
+        }
+    ).to_fe_space()
+    n = int(space.n_dofs)
+
+    Kuu = np.eye(n, dtype=float)
+    Kvv = 2.0 * np.eye(n, dtype=float)
+    rhs = {"u": np.ones(n, dtype=float), "v": np.zeros(n, dtype=float)}
+    system = mixed.build_block_system(
+        diag={"u": Kuu, "v": Kvv},
+        rhs=rhs,
+    )
+    u_slice = mixed.field_slices["u"]
+    v_slice = mixed.field_slices["v"]
+
+    np.testing.assert_allclose(system.K[u_slice, v_slice], 0.0)
+    np.testing.assert_allclose(system.K[v_slice, u_slice], 0.0)
+    np.testing.assert_allclose(system.K[u_slice, u_slice], Kuu)
+    np.testing.assert_allclose(system.K[v_slice, v_slice], Kvv)
+    np.testing.assert_allclose(system.F[u_slice], 1.0)
+    np.testing.assert_allclose(system.F[v_slice], 0.0)
+
+
+def test_mixed_build_block_system_constraints_check_equal():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=1)
+    mixed = ff.MixedSpaces(
+        {
+            "u": ff.NamedSpace("U", space),
+            "v": ff.NamedSpace("V", space),
+        }
+    ).to_fe_space()
+    n = int(space.n_dofs)
+
+    rhs = {"u": np.zeros(n, dtype=float), "v": np.zeros(n, dtype=float)}
+    system = mixed.build_block_system(
+        diag={"u": np.eye(n, dtype=float), "v": np.eye(n, dtype=float)},
+        rhs=rhs,
+        constraints={"u": ([0], [0.0])},
+    )
+    assert system.free_dofs.size == mixed.n_dofs - 1
+
+    with pytest.raises(ValueError):
+        mixed.build_block_system(
+            diag={"u": np.eye(n, dtype=float), "v": np.eye(n, dtype=float)},
+            rhs=rhs,
+            constraints={"u": ([0, 0], [1.0, 2.0])},
+            merge="check_equal",
+        )
+
+
+def test_block_system_flux_and_split():
+    rhs = {"a": np.array([1.0, 2.0]), "b": np.array([3.0, 4.0, 5.0])}
+    system = ff.build_block_system(
+        diag=[np.eye(2, dtype=float), np.eye(3, dtype=float)],
+        sizes={"a": 2, "b": 3},
+        rhs=[rhs["a"], rhs["b"]],
+    )
+    assert system.K.shape == (5, 5)
+    np.testing.assert_allclose(system.F, [1.0, 2.0, 3.0, 4.0, 5.0])
+    parts = system.split(np.arange(5, dtype=float))
+    np.testing.assert_allclose(parts["a"], [0.0, 1.0])
+    np.testing.assert_allclose(parts["b"], [2.0, 3.0, 4.0])
+
+
+def test_block_system_constraints_mapping():
+    rhs = {"a": np.ones(2), "b": np.ones(2)}
+    system = ff.build_block_system(
+        diag=[np.eye(2, dtype=float), np.eye(2, dtype=float)],
+        sizes={"a": 2, "b": 2},
+        rhs=[rhs["a"], rhs["b"]],
+        constraints=[None, ([0], [0.0])],
+        format="dense",
+    )
+    assert system.K.shape == (3, 3)
+    assert system.free_dofs.size == 3
+
+
+def test_split_block_matrix_dense():
+    mat = np.arange(16, dtype=float).reshape(4, 4)
+    blocks = ff.split_block_matrix(mat, sizes={"a": 2, "b": 2})
+    np.testing.assert_allclose(blocks["a"]["a"], mat[:2, :2])
+    np.testing.assert_allclose(blocks["a"]["b"], mat[:2, 2:])
+    np.testing.assert_allclose(blocks["b"]["a"], mat[2:, :2])
+    np.testing.assert_allclose(blocks["b"]["b"], mat[2:, 2:])
+
+
+def test_block_make_add_contiguous():
+    mat = np.arange(16, dtype=float).reshape(4, 4)
+    diag = ff_solver.block_diag(a=np.eye(2), b=2.0 * np.eye(2))
+    blocks = ff_solver.make_block_matrix(
+        diag=diag,
+        add_contiguous=mat,
+        sizes={"a": 2, "b": 2},
+    )
+    assert isinstance(blocks, ff_solver.FluxBlockMatrix)
+    np.testing.assert_allclose(blocks["a"]["a"], mat[:2, :2] + np.eye(2))
+    np.testing.assert_allclose(blocks["b"]["b"], mat[2:, 2:] + 2.0 * np.eye(2))
+
+
+def test_block_make_rel_symmetric():
+    rel = {("a", "b"): np.arange(6, dtype=float).reshape(2, 3)}
+    blocks = ff_solver.make_block_matrix(
+        diag=ff_solver.block_diag(a=np.eye(2), b=np.eye(3)),
+        rel=rel,
+        sizes={"a": 2, "b": 3},
+        symmetric=True,
+        transpose_rule="T",
+    )
+    np.testing.assert_allclose(blocks["a"]["b"], rel[("a", "b")])
+    np.testing.assert_allclose(blocks["b"]["a"], rel[("a", "b")].T)
+
+
+def test_block_make_diag_sequence():
+    blocks = ff_solver.make_block_matrix(
+        diag=[np.eye(2), 2.0 * np.eye(3)],
+        sizes={"a": 2, "b": 3},
+    )
+    np.testing.assert_allclose(blocks["a"]["a"], np.eye(2))
+    np.testing.assert_allclose(blocks["b"]["b"], 2.0 * np.eye(3))
+
+
+def test_block_diag_order():
+    diag = ff_solver.block_diag(order=("b", "a"), a=1.0, b=2.0)
+    assert list(diag.keys()) == ["b", "a"]
 
 
 def test_enforce_dirichlet_sparse():

@@ -1,36 +1,60 @@
 from __future__ import annotations
 
-from typing import Any, Protocol, TypeAlias, runtime_checkable
+from typing import Any, Mapping, Protocol, TYPE_CHECKING, TypeAlias, runtime_checkable
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from jax import Array as JaxArray
+
+    ArrayLike: TypeAlias = np.ndarray | JaxArray
+else:
+    ArrayLike: TypeAlias = np.ndarray
 
 
 @runtime_checkable
 class VolumeContext(Protocol):
     """Minimum interface for volume weak-form evaluation."""
 
-    test: Any
-    trial: Any
-    w: Any
+    test: "FormFieldLike"
+    trial: "FormFieldLike"
+    w: ArrayLike
 
 
 @runtime_checkable
 class SurfaceContext(Protocol):
     """Minimum interface for surface weak-form evaluation."""
 
-    v: Any
-    w: Any
-    detJ: Any
-    normal: Any
+    v: "FormFieldLike"
+    w: ArrayLike
+    detJ: ArrayLike
+    normal: ArrayLike
 
 
 @runtime_checkable
 class FormFieldLike(Protocol):
     """Minimum interface for form fields used in weak-form evaluation."""
 
-    N: Any
-    gradN: Any
-    detJ: Any
+    N: ArrayLike
+    gradN: ArrayLike
+    detJ: ArrayLike
     value_dim: int
+    basis: Any
 
 
-UElement: TypeAlias = Any
+@runtime_checkable
+class WeakFormContext(Protocol):
+    """Context interface used when resolving field references."""
+
+    test: FormFieldLike
+    trial: FormFieldLike
+    v: FormFieldLike
+    unknown: FormFieldLike | None
+    fields: Mapping[str, Any] | None
+    bindings: Mapping[str, Any] | None
+    spaces: Mapping[str, Any] | None
+    default_space: str | None
+
+
+UElement: TypeAlias = ArrayLike | Mapping[str, ArrayLike]
 ParamsLike: TypeAlias = Any

@@ -39,16 +39,13 @@ def exact_u(coords: np.ndarray, t: float, kappa0: float, alpha: float) -> np.nda
     return phi * decay
 
 
-def _condense_dirichlet(A_csr, b, bc_dofs, bc_vals, free_dofs):
+def _condense_dirichlet(A_csr, b, bc_dofs, bc_vals):
     """
-    Condense Dirichlet DOFs without LIL conversion.
-    Returns (A_free, b_free).
+    Condense Dirichlet DOFs using fluxfem helper.
+    Returns (A_free, b_free, free_dofs).
     """
-    b = b.copy()
-    A_free = A_csr[free_dofs][:, free_dofs]
-    A_fd = A_csr[free_dofs][:, bc_dofs]
-    b_free = b[free_dofs] - A_fd @ bc_vals
-    return A_free, b_free
+    system = ff.DirichletBC(bc_dofs, bc_vals).condense_system(A_csr, b)
+    return system.K, system.F, system.free_dofs
 
 
 def _grid_from_slice(xy: np.ndarray, values: np.ndarray):
@@ -213,16 +210,14 @@ def _build_fluxfem_system(size: int):
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
     M = space.assemble_mass_matrix().to_csr()
     coords = np.asarray(mesh.coords)
-    mins = coords.min(axis=0)
-    maxs = coords.max(axis=0)
-    bbox_pred = ff.bbox_predicate(mins, maxs, tol=1e-8)
-    bc_dofs = mesh.boundary_dofs_where(bbox_pred, components=[0], dof_per_node=1)
+    bc = ff.DirichletBC.from_bbox(mesh, components=[0], dof_per_node=1, tol=1e-8)
+    bc_dofs = bc.dofs
     return space, M, coords, bc_dofs
 
 
 def assemble_fluxfem_stiffness(space, kappa: float):
     # FluxFEM weak form: diffusion_form -> assemble_bilinear_form
-    return space.assemble_bilinear_form(ff.diffusion_form, params=kappa)
+    return space.assemble(ff.diffusion_form, params=kappa)
 
 
 def _build_skfem_basis(size: int, coords_flux: np.ndarray):
@@ -320,25 +315,25 @@ def solve_heat_compare(
     solve_flux = []
     solve_sk = []
 
-    assemble_k_flux = jax.jit(
-        lambda k: assemble_fluxfem_stiffness(space, k)
-    )
+    K_flux_base = assemble_fluxfem_stiffness(space, 1.0)
+    jax.block_until_ready(K_flux_base.data)
+    K_flux_base_csr = K_flux_base.to_csr()
+    if include_skfem:
+        K_sf_base = asm(laplace, basis_sf).tocsr()
+        K_sf_base = K_sf_base[perm_nodes][:, perm_nodes]
     for step in range(nsteps):
         t_n = t0 + step * dt
         t_np1 = t_n + dt
         k_t = kappa_t(t_np1, kappa0, alpha)
 
         with timer.section("assemble_flux"):
-            K_flux = assemble_k_flux(k_t)
-            jax.block_until_ready(K_flux.data)
-            K_flux = K_flux.to_csr()
+            K_flux = K_flux_base_csr * k_t
         asm_flux_dt = timer.last("assemble_flux")
         assemble_k_flux_times.append(asm_flux_dt)
 
         if include_skfem:
             with timer.section("assemble_skfem"):
-                K_sf = (asm(laplace, basis_sf) * k_t).tocsr()
-                K_sf = K_sf[perm_nodes][:, perm_nodes]
+                K_sf = K_sf_base * k_t
             asm_sk_dt = timer.last("assemble_skfem")
             assemble_k_sk.append(asm_sk_dt)
 
@@ -349,9 +344,9 @@ def solve_heat_compare(
             rhs_sf = (M_sf @ u_sk) / dt
 
         bc_vals = exact_u(coords[bc_dofs], t_np1, kappa0, alpha)
-        A_flux_bc, rhs_flux_bc = _condense_dirichlet(A_flux, rhs_flux, bc_dofs, bc_vals, free)
+        A_flux_bc, rhs_flux_bc, free = _condense_dirichlet(A_flux, rhs_flux, bc_dofs, bc_vals)
         if include_skfem:
-            A_sf_bc, rhs_sf_bc = _condense_dirichlet(A_sf, rhs_sf, bc_dofs, bc_vals, free)
+            A_sf_bc, rhs_sf_bc, _ = _condense_dirichlet(A_sf, rhs_sf, bc_dofs, bc_vals)
 
         with timer.section("solve_flux"):
             if flux_solver == "jax":
@@ -366,10 +361,10 @@ def solve_heat_compare(
 
         if include_skfem:
             with timer.section("solve_skfem"):
-            u_free = np.asarray(sla.spsolve(A_sf_bc, rhs_sf_bc))
-            u_sk = u_sk.copy()
-            u_sk[free] = u_free
-            u_sk[bc_dofs] = bc_vals
+                u_free = np.asarray(sla.spsolve(A_sf_bc, rhs_sf_bc))
+                u_sk = u_sk.copy()
+                u_sk[free] = u_free
+                u_sk[bc_dofs] = bc_vals
             sol_sk_dt = timer.last("solve_skfem")
             solve_sk.append(sol_sk_dt)
 
@@ -467,13 +462,13 @@ def main():
     p.add_argument(
         "--plot",
         type=str,
-        default="result/bench/fluxfem_vs_skfem_timevarying/compare_steps",
+        default="result/bench/heat_timevarying_fluxfem_vs_skfem/compare_steps",
         help="save comparison plots (dir or file); default saves all steps to a subfolder",
     )
     p.add_argument(
         "--out-dir",
         type=str,
-        default="result/bench/fluxfem_vs_skfem_timevarying",
+        default="result/bench/heat_timevarying_fluxfem_vs_skfem",
         help="directory to save npz results",
     )
     p.add_argument("--backends", type=str, default="cpu", help="comma-separated backends to run (cpu,gpu)")
@@ -482,7 +477,7 @@ def main():
     p.add_argument(
         "--compare-out",
         type=str,
-        default="result/bench/fluxfem_vs_skfem_timevarying/compare_cpu_gpu.png",
+        default="result/bench/heat_timevarying_fluxfem_vs_skfem/compare_cpu_gpu.png",
         help="output PNG path for CPU/GPU comparison plot",
     )
     p.add_argument("--no-skfem", action="store_true", help="Skip scikit-fem comparisons.")

@@ -10,3 +10,7 @@ This section contains tutorials for FluxFEM.
    tutorial_neo_hookean
    tutorial_autodiff
    tutorial_gmsh_msh
+   tutorial_kernel_assembly
+   tutorial_mixed_block
+   tutorial_petsc_shell
+   tutorial_contact_supported_box

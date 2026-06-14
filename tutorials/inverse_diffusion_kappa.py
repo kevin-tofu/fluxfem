@@ -24,19 +24,22 @@ def main():
     nx, ny, nz = 8, 4, 1
     mesh = ff.StructuredHexBox(nx=nx, ny=ny, nz=nz, lx=1.0, ly=0.5, lz=0.1).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    U = ff.NamedSpace("U", space)
+    V = ff.NamedSpace("V", space)
 
     coords = np.asarray(mesh.coords)
     xmin = float(coords[:, 0].min())
     xmax = float(coords[:, 0].max())
 
     # Dirichlet dofs at x=xmin
-    dir_dofs = mesh.boundary_dofs_where(
+    bc = ff.DirichletBC.from_boundary_dofs(
+        mesh,
         lambda pts: np.isclose(pts[:, 0], xmin, atol=1e-8),
         components=[0],
         dof_per_node=1,
     )
-    all_dofs = np.arange(space.n_dofs, dtype=int)
-    free_dofs = np.setdiff1d(all_dofs, dir_dofs)
+    dir_dofs = bc.dofs
+    free_dofs = bc.free_dofs(space.n_dofs)
     free_dofs_j = jnp.asarray(free_dofs)
 
     # Surface for Neumann traction on x=xmax
@@ -47,11 +50,15 @@ def main():
     surface_form = ff.LinearForm.surface(lambda v, p: v * p * h_wf.ds())
 
     K0 = jnp.asarray(
-        space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense(),
+        ff.assemble_bilinear_form(
+            ff.BilinearSpaces(test=V, trial=U),
+            ff.diffusion_form,
+            1.0,
+        ).to_dense(),
         dtype=jnp.float64,
     )
     F_base = surface.assemble_linear_form_on_space(
-        space, surface_form.get_compiled(), params=1.0
+        space, surface_form, params=1.0
     )
     F_base = jnp.asarray(F_base, dtype=jnp.float64)
 
@@ -79,11 +86,12 @@ def main():
     )
 
     # Randomize the number of observed samples on the boundary (x=xmax).
-    boundary_dofs = mesh.boundary_dofs_where(
+    boundary_dofs = ff.DirichletBC.from_boundary_dofs(
+        mesh,
         lambda pts: np.isclose(pts[:, 0], xmax, atol=1e-8),
         components=[0],
         dof_per_node=1,
-    )
+    ).dofs
     boundary_free_dofs = np.setdiff1d(boundary_dofs, dir_dofs)
     obs_min = max(2, boundary_free_dofs.size // 4)
     obs_max = max(obs_min, boundary_free_dofs.size // 2)

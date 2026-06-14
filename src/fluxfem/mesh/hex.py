@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..core.dtypes import DEFAULT_DTYPE, INDEX_DTYPE
+from .dtypes import INDEX_DTYPE, default_dtype
 from .base import BaseMesh, BaseMeshPytree
 
 
@@ -135,9 +135,10 @@ class StructuredHexBox:
             raise ValueError("order must be 1, 2, or 3")
 
         ox, oy, oz = self.origin
-        xs = jnp.linspace(ox, ox + self.lx, self.nx + 1, dtype=DEFAULT_DTYPE)
-        ys = jnp.linspace(oy, oy + self.ly, self.ny + 1, dtype=DEFAULT_DTYPE)
-        zs = jnp.linspace(oz, oz + self.lz, self.nz + 1, dtype=DEFAULT_DTYPE)
+        dtype = np.float64 if jax.config.read("jax_enable_x64") else np.float32
+        xs = np.linspace(ox, ox + self.lx, self.nx + 1, dtype=dtype)
+        ys = np.linspace(oy, oy + self.ly, self.ny + 1, dtype=dtype)
+        zs = np.linspace(oz, oz + self.lz, self.nz + 1, dtype=dtype)
 
         if self.order == 1:
             return self._build_hex8(xs, ys, zs)
@@ -151,7 +152,7 @@ class StructuredHexBox:
             for j in range(self.ny + 1):
                 for i in range(self.nx + 1):
                     coords_list.append([xs[i], ys[j], zs[k]])
-        coords = jnp.array(coords_list, dtype=DEFAULT_DTYPE)
+        coords = jnp.asarray(np.asarray(coords_list, dtype=np.asarray(xs).dtype))
 
         def node_id(i: int, j: int, k: int) -> int:
             return k * (self.ny + 1) * (self.nx + 1) + j * (self.nx + 1) + i
@@ -170,7 +171,7 @@ class StructuredHexBox:
                     n011 = node_id(i,     j + 1, k + 1)
                     conn_list.append([n000, n100, n110, n010, n001, n101, n111, n011])
 
-        conn = jnp.array(conn_list, dtype=INDEX_DTYPE)
+        conn = jnp.asarray(np.asarray(conn_list, dtype=np.int64), dtype=INDEX_DTYPE)
         return HexMesh(coords=coords, conn=conn)
 
     def _build_hex20(self, xs, ys, zs) -> HexMesh:
@@ -241,8 +242,8 @@ class StructuredHexBox:
                         ]
                     )
 
-        coords = jnp.array(coords_list, dtype=DEFAULT_DTYPE)
-        conn = jnp.array(conn_list, dtype=INDEX_DTYPE)
+        coords = jnp.asarray(np.asarray(coords_list, dtype=np.asarray(xs).dtype))
+        conn = jnp.asarray(np.asarray(conn_list, dtype=np.int64), dtype=INDEX_DTYPE)
         return HexMesh(coords=coords, conn=conn)
 
     def _build_hex27(self, xs, ys, zs) -> HexMesh:
@@ -323,6 +324,6 @@ class StructuredHexBox:
                     # order in lexicographic k,j,i -> length 27
                     conn_list.append(nodes)
 
-        coords = jnp.array(coords_list, dtype=DEFAULT_DTYPE)
-        conn = jnp.array(conn_list, dtype=INDEX_DTYPE)
+        coords = jnp.asarray(np.asarray(coords_list, dtype=np.asarray(xs).dtype))
+        conn = jnp.asarray(np.asarray(conn_list, dtype=np.int64), dtype=INDEX_DTYPE)
         return HexMesh(coords=coords, conn=conn)

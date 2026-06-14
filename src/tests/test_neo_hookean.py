@@ -14,5 +14,5 @@ def test_neo_hookean_zero_residual_and_symmetric_jacobian():
     R = space.assemble_residual(ff.neo_hookean_residual_form, u0, params)
     assert np.allclose(np.asarray(R), 0.0, atol=1e-6)
 
-    J = space.assemble_jacobian(ff.neo_hookean_residual_form, u0, params, sparse=False)
+    J = space.assemble_jacobian(ff.neo_hookean_residual_form, u0, params).to_dense()
     assert np.allclose(np.asarray(J), np.asarray(J).T, atol=1e-8)

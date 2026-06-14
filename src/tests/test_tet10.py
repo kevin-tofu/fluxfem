@@ -16,7 +16,7 @@ def test_tet10_shapes():
 def test_tet10_diffusion_sum_energy():
     mesh = ff.StructuredTetBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0, order=2).build()
     space = ff.make_tet10_space(mesh, dim=1, intorder=2)
-    K = np.asarray(space.assemble_bilinear_form(ff.diffusion_form, params=1.0).to_dense())
+    K = np.asarray(space.assemble(ff.diffusion_form, params=1.0).to_dense())
     assert K.shape[0] == K.shape[1] == mesh.conn.max() + 1
     assert np.all(np.isfinite(K))
     # compliance-like sanity check
@@ -33,7 +33,7 @@ def test_tet10_against_scikit_fem():
 
     mesh_ff = ff.StructuredTetBox(nx=n_xyz, ny=n_xyz, nz=n_xyz, lx=1.0, ly=1.0, lz=1.0, order=2).build()
     space_ff = ff.make_tet10_space(mesh_ff, dim=1, intorder=2)
-    K_ff = np.asarray(space_ff.assemble_bilinear_form(ff.diffusion_form, params=kappa).to_dense())
+    K_ff = np.asarray(space_ff.assemble(ff.diffusion_form, params=kappa).to_dense())
 
     xs = np.linspace(0.0, 1.0, n_xyz + 1)
     ys = np.linspace(0.0, 1.0, n_xyz + 1)

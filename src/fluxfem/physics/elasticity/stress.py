@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from typing import TypeAlias
+
 import jax.numpy as jnp
 
+ArrayLike: TypeAlias = jnp.ndarray
 
-def _sym(A: jnp.ndarray) -> jnp.ndarray:
+
+def _sym(A: ArrayLike) -> ArrayLike:
     return 0.5 * (A + jnp.swapaxes(A, -1, -2))
 
 
-def principal_stresses(S: jnp.ndarray) -> jnp.ndarray:
+def principal_stresses(S: ArrayLike) -> ArrayLike:
     """
     Return principal stresses (eigvals) for symmetric 3x3 stress tensor.
     Supports batching over leading dimensions.
@@ -16,12 +20,12 @@ def principal_stresses(S: jnp.ndarray) -> jnp.ndarray:
     return jnp.linalg.eigvalsh(S_sym)
 
 
-def principal_sum(S: jnp.ndarray) -> jnp.ndarray:
+def principal_sum(S: ArrayLike) -> ArrayLike:
     """Sum of principal stresses (trace)."""
     return jnp.trace(S, axis1=-2, axis2=-1)
 
 
-def max_shear_stress(S: jnp.ndarray) -> jnp.ndarray:
+def max_shear_stress(S: ArrayLike) -> ArrayLike:
     """
     Maximum shear stress = (sigma_max - sigma_min) / 2.
     """
@@ -29,7 +33,7 @@ def max_shear_stress(S: jnp.ndarray) -> jnp.ndarray:
     return 0.5 * (vals[..., -1] - vals[..., 0])
 
 
-def von_mises_stress(S: jnp.ndarray) -> jnp.ndarray:
+def von_mises_stress(S: ArrayLike) -> ArrayLike:
     """
     von Mises equivalent stress: sqrt(3/2 * dev(S):dev(S)).
     """
