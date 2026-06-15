@@ -349,6 +349,60 @@ def test_reduced_coupled_system_builder_matches_manual_rbe3_projection():
     np.testing.assert_allclose(np.asarray(system.expand(q)), np.asarray(reduced_constraints.expand(q_manual)), atol=1.0e-12)
 
 
+def test_reduced_coupled_system_builder_ties_multiple_reduced_fields():
+    k_a = jnp.array(
+        [
+            [6.0, -2.0, 0.0],
+            [-2.0, 5.0, -1.0],
+            [0.0, -1.0, 4.0],
+        ],
+        dtype=jnp.float64,
+    )
+    k_b = jnp.array(
+        [
+            [5.0, -1.5, 0.0],
+            [-1.5, 4.5, -1.0],
+            [0.0, -1.0, 3.5],
+        ],
+        dtype=jnp.float64,
+    )
+    m_a = jnp.eye(3, dtype=jnp.float64)
+    m_b = jnp.eye(3, dtype=jnp.float64)
+    f_a = jnp.array([0.0, 0.2, 0.0], dtype=jnp.float64)
+    f_b = jnp.array([0.0, -0.1, 0.3], dtype=jnp.float64)
+
+    builder = ff.ReducedCoupledSystemBuilder.from_structural("part_a", k_a, f_a, mass=m_a)
+    builder.register_structural("part_b", k_b, f_b, mass=m_b)
+    cb_a = builder.reduce_field("part_a", retained_dofs=jnp.array([0, 1, 2], dtype=jnp.int32), n_modes=0)
+    cb_b = builder.reduce_field("part_b", retained_dofs=jnp.array([0, 1, 2], dtype=jnp.int32), n_modes=0)
+    builder.add_dof_tie_constraint(
+        master="part_a",
+        slave="part_b",
+        master_dofs=jnp.array([2], dtype=jnp.int32),
+        slave_dofs=jnp.array([0], dtype=jnp.int32),
+    )
+    system = builder.build()
+    q = system.solve(fixed_dofs=system.reduced_dofs_from_full("part_a", jnp.array([0], dtype=jnp.int32)))
+    u = np.asarray(system.expand(q))
+
+    k_full = np.zeros((6, 6), dtype=float)
+    k_full[:3, :3] = np.asarray(k_a)
+    k_full[3:, 3:] = np.asarray(k_b)
+    f_full = np.concatenate([np.asarray(f_a), np.asarray(f_b)])
+    c_full = jnp.array([[0.0, 0.0, 1.0, -1.0, 0.0, 0.0]], dtype=jnp.float64)
+    full = ff.LinearConstraintSystem(c_full).solve(
+        jnp.asarray(k_full),
+        jnp.asarray(f_full),
+        fixed_dofs=jnp.array([0], dtype=jnp.int32),
+    )
+
+    assert system.primary_field == "part_a"
+    assert set(system.bases) == {"part_a", "part_b"}
+    assert system.field("part_b").offset == cb_a.n_reduced
+    np.testing.assert_allclose(np.asarray(system.constraints.residual(q)), np.zeros(1), atol=1.0e-12)
+    np.testing.assert_allclose(u, np.asarray(full), rtol=1.0e-12, atol=1.0e-12)
+
+
 def test_cb_remote_fixture_utilities_are_top_level_api():
     np.testing.assert_array_equal(
         ff.vector_dofs_from_nodes(np.array([2, 4]), dim=3),

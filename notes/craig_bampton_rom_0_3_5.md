@@ -16,7 +16,7 @@ CB retained DOFs are the natural location for interface, contact, and remote fix
 
 `RBE3Patch` and `ReferencePointFixture` are intentionally thin compatibility wrappers. They cover the older translational reference-point MPC/preload examples and can project through CB with `LinearConstraintSystem.project`. `RBE3RemoteFixture` is the CB-facing wrapper for both translational-only and 6-DOF rotational RBE3 reference fixtures. Its remote rotation coordinates are not structural CB retained DOFs; they are explicit appended reference DOFs preserved outside the workpiece basis via `LinearConstraintSystem.project(..., n_extra_dofs=...)`.
 
-For new code, prefer `ReducedCoupledSystemBuilder`. It mirrors the name-based `CoupledSystemBuilder` style: register a structural field, call `reduce_field(..., method="craig_bampton")`, append remote points, connect them with `add_rbe3_constraint(...)`, and add preload/Dirichlet through named remote fields. This keeps the connection graph readable and avoids hand-written ROM/reference DOF offsets in tutorials. For multiple full-order named fields, sparse KKT assembly, and current contact multiplier blocks, use `NumpyCoupledSystemBuilder` / `CoupledSystemBuilder`.
+For new code, prefer `ReducedCoupledSystemBuilder`. It mirrors the name-based `CoupledSystemBuilder` style: register structural fields, call `reduce_field(..., method="craig_bampton")` per field, append remote points, connect them with `add_rbe3_constraint(...)`, add preload/Dirichlet through named remote fields, and connect reduced subsystems with `add_dof_tie_constraint(...)`. This keeps the connection graph readable and avoids hand-written ROM/reference DOF offsets in tutorials. For sparse KKT assembly and current contact multiplier blocks, use `NumpyCoupledSystemBuilder` / `CoupledSystemBuilder`.
 
 Small fixture utilities are now part of the public API rather than tutorial glue:
 `vector_dofs_from_nodes`, `retained_dofs_from_node_sets`, `remote_reference_direction`,
@@ -36,6 +36,8 @@ The same tutorial supports `--fixture-boundary preload`, `--fixture-boundary dir
 5. solve preload and Dirichlet variants without manual ROM/reference offset arithmetic.
 
 The older `craig_bampton_rbe3_preload_mpc.py` and `craig_bampton_fluxfem_rbe3_preload_experiment2.py` files remain useful as low-level compatibility/reference examples, but they should not be the first tutorial path for the current API.
+
+`tutorials/craig_bampton_multifield_builder.py` demonstrates the multi-subsystem path. It registers `part_a` and `part_b`, reduces both fields, ties their interface DOFs by name, and checks the ROM solution against a full KKT reference.
 
 The active-contact/Newmark helpers no longer depend on removed legacy contact classes. They accept user-provided contact-state callbacks:
 
@@ -59,6 +61,7 @@ Current contact tutorials follow this split: the reduced residual stays differen
 - `PYTHONPATH=src pytest -q src/tests/test_craig_bampton.py src/tests/test_rbe_constraints.py`
 - `PYTHONPATH=src python tutorials/craig_bampton_contact_rom.py`
 - `PYTHONPATH=src python tutorials/craig_bampton_reduced_coupled_builder.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_multifield_builder.py`
 - `PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_component.py --nx 12 --ny 9 --nz 1 --modes 3 --fixture-boundary preload --fixture-rotation rbe3`
 - `PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_component.py --nx 12 --ny 9 --nz 1 --modes 3 --fixture-boundary dirichlet --fixture-rotation rbe3`
 - `PYTHONPATH=src python tutorials/craig_bampton_1d_obstacle_contact_reference.py`
@@ -81,6 +84,6 @@ The current port still stores the final basis as a dense matrix and `project_mat
 ## Next implementation steps
 
 1. Add a sparse/matrix-free basis operator so `Phi.T @ K @ Phi` can be assembled blockwise without materializing full dense `Phi`.
-2. Generalize `ReducedCoupledSystemBuilder` from one structural source field to multiple reduced/full-order fields.
-3. Add direct contact integration so candidate contact DOFs can be retained and contact blocks can be attached by field name.
-4. Add an active-contact example where candidate contact DOFs are retained and only interior DOFs are reduced.
+2. Add direct contact integration so candidate contact DOFs can be retained and contact blocks can be attached by field name.
+3. Add an active-contact example where candidate contact DOFs are retained and only interior DOFs are reduced.
+4. Extend multi-field coupling beyond DOF ties to named spring/damper/interface operators.

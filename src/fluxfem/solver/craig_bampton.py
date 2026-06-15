@@ -867,6 +867,27 @@ class ReducedFieldBlock:
         return int(self.offset + self.n_dofs)
 
 
+@dataclass
+class _StructuralFieldSource:
+    name: str
+    stiffness: Any
+    mass: Any
+    force: Array
+    value_dim: int = 1
+    n_nodes: int | None = None
+    basis: CraigBamptonBasis | None = None
+    reduced_name: str | None = None
+
+
+@dataclass(frozen=True)
+class _DofTieConstraint:
+    master: str
+    slave: str
+    master_dofs: np.ndarray
+    slave_dofs: np.ndarray
+    rhs: np.ndarray
+
+
 @dataclass(frozen=True)
 class ReducedCoupledSystem:
     """Built reduced KKT system with named fields and explicit extra DOFs."""
@@ -877,6 +898,7 @@ class ReducedCoupledSystem:
     fields: dict[str, ReducedFieldBlock]
     primary_field: str
     basis: CraigBamptonBasis
+    bases: dict[str, CraigBamptonBasis] | None = None
     n_extra_dofs: int = 0
 
     @property
@@ -973,12 +995,19 @@ class ReducedCoupledSystem:
         )
 
     def expand(self, q_aug: Array) -> Array:
-        return ReducedLinearConstraintSystem(
-            self.constraints.matrix,
-            self.constraints.rhs,
-            self.basis,
-            self.n_extra_dofs,
-        ).expand(q_aug)
+        q = jnp.asarray(q_aug)
+        pieces = []
+        extra_blocks = []
+        for block in sorted(self.fields.values(), key=lambda item: item.offset):
+            q_block = q[block.offset : block.stop]
+            if block.basis is None:
+                extra_blocks.append(q_block)
+            else:
+                pieces.append(block.basis.expand(q_block))
+        pieces.extend(extra_blocks)
+        if not pieces:
+            return jnp.asarray([])
+        return jnp.concatenate(pieces)
 
     def reduced_dofs_from_full(self, field: str, full_dofs: Array) -> np.ndarray:
         block = self.field(field)
@@ -998,17 +1027,12 @@ class ReducedCoupledSystemBuilder:
 
     def __init__(self):
         self._structural_name: str | None = None
-        self._stiffness = None
-        self._mass = None
-        self._force = None
-        self._value_dim = 1
-        self._n_nodes: int | None = None
-        self._basis: CraigBamptonBasis | None = None
-        self._reduced_name: str | None = None
+        self._structural_fields: dict[str, _StructuralFieldSource] = {}
         self._extra_blocks: dict[str, ReducedFieldBlock] = {}
         self._extra_points: dict[str, np.ndarray] = {}
         self._extra_k: list[tuple[np.ndarray, np.ndarray, np.ndarray | None]] = []
-        self._constraints: list[tuple[str, RBE3RemoteFixture]] = []
+        self._constraints: list[tuple[str, str, RBE3RemoteFixture]] = []
+        self._tie_constraints: list[_DofTieConstraint] = []
 
     @classmethod
     def from_structural(
@@ -1035,8 +1059,9 @@ class ReducedCoupledSystemBuilder:
         value_dim: int = 1,
         n_nodes: int | None = None,
     ) -> None:
-        if self._structural_name is not None:
-            raise ValueError("ReducedCoupledSystemBuilder currently supports one structural source field.")
+        key = str(name)
+        if key in self._structural_fields or key in self._extra_blocks:
+            raise ValueError(f"Field '{key}' is already registered.")
         n = int(_matrix_shape(stiffness)[0])
         if _matrix_shape(stiffness) != (n, n):
             raise ValueError("stiffness must be square.")
@@ -1047,12 +1072,16 @@ class ReducedCoupledSystemBuilder:
             mass = jnp.eye(n, dtype=_matrix_dtype(stiffness))
         if _matrix_shape(mass) != (n, n):
             raise ValueError("mass must match stiffness size.")
-        self._structural_name = str(name)
-        self._stiffness = stiffness
-        self._mass = mass
-        self._force = force_arr
-        self._value_dim = int(value_dim)
-        self._n_nodes = n_nodes
+        if self._structural_name is None:
+            self._structural_name = key
+        self._structural_fields[key] = _StructuralFieldSource(
+            name=key,
+            stiffness=stiffness,
+            mass=mass,
+            force=force_arr,
+            value_dim=int(value_dim),
+            n_nodes=n_nodes,
+        )
 
     @property
     def structural_name(self) -> str:
@@ -1062,9 +1091,16 @@ class ReducedCoupledSystemBuilder:
 
     @property
     def basis(self) -> CraigBamptonBasis:
-        if self._basis is None:
+        source = self._structural_fields[self.structural_name]
+        if source.basis is None:
             raise ValueError("Call reduce_field(...) before building the reduced system.")
-        return self._basis
+        return source.basis
+
+    def _structural_source(self, name: str | None = None) -> _StructuralFieldSource:
+        key = self.structural_name if name is None else str(name)
+        if key not in self._structural_fields:
+            raise ValueError(f"Structural field '{key}' is not registered.")
+        return self._structural_fields[key]
 
     def reduce_field(
         self,
@@ -1076,20 +1112,18 @@ class ReducedCoupledSystemBuilder:
         method: str = "craig_bampton",
         **kwargs,
     ) -> CraigBamptonBasis:
-        field_name = self.structural_name if name is None else str(name)
-        if field_name != self.structural_name:
-            raise ValueError("Only the registered structural field can be reduced.")
+        source = self._structural_source(name)
         if str(method).lower() not in {"craig_bampton", "cb"}:
             raise ValueError("method must be 'craig_bampton' or 'cb'.")
-        self._basis = make_craig_bampton_basis(
-            self._stiffness,
-            self._mass,
+        source.basis = make_craig_bampton_basis(
+            source.stiffness,
+            source.mass,
             retained_dofs=retained_dofs,
             n_modes=n_modes,
             **kwargs,
         )
-        self._reduced_name = reduced_name or field_name
-        return self._basis
+        source.reduced_name = reduced_name or source.name
+        return source.basis
 
     def _next_extra_offset(self) -> int:
         return sum(block.n_dofs for block in self._extra_blocks.values())
@@ -1102,7 +1136,7 @@ class ReducedCoupledSystemBuilder:
         include_rotation: bool = True,
     ) -> None:
         key = str(name)
-        if key in self._extra_blocks:
+        if key in self._extra_blocks or key in self._structural_fields:
             raise ValueError(f"Field '{key}' is already registered.")
         n_dofs = 6 if include_rotation else 3
         self._extra_blocks[key] = ReducedFieldBlock(
@@ -1184,8 +1218,7 @@ class ReducedCoupledSystemBuilder:
         weights=None,
         normalize_weights: bool = True,
     ) -> None:
-        if str(slave) not in {self.structural_name, self._reduced_name}:
-            raise ValueError("RBE3 slave must be the structural/reduced field.")
+        slave_key = self._resolve_structural_field_name(slave)
         block = self._extra_blocks[str(master)]
         if block.n_dofs not in {3, 6}:
             raise ValueError("RBE3 master must be a 3-DOF or 6-DOF remote point.")
@@ -1200,7 +1233,64 @@ class ReducedCoupledSystemBuilder:
         )
         if not normalize_weights and weights is not None:
             object.__setattr__(fixture, "weights", jnp.asarray(weights))
-        self._constraints.append((str(master), fixture))
+        self._constraints.append((str(master), slave_key, fixture))
+
+    def _resolve_structural_field_name(self, name: str | None) -> str:
+        key = self.structural_name if name is None else str(name)
+        if key in self._structural_fields:
+            return key
+        matches = [
+            source.name
+            for source in self._structural_fields.values()
+            if source.reduced_name == key
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise ValueError(f"Reduced field name '{key}' is ambiguous.")
+        raise ValueError(f"Structural field '{key}' is not registered.")
+
+    def _field_kind_name(self, name: str) -> tuple[str, str]:
+        key = str(name)
+        if key in self._extra_blocks:
+            return "extra", key
+        try:
+            return "structural", self._resolve_structural_field_name(key)
+        except ValueError as exc:
+            raise ValueError(f"Field '{key}' is not registered.") from exc
+
+    def add_dof_tie_constraint(
+        self,
+        *,
+        master: str,
+        slave: str,
+        master_dofs,
+        slave_dofs,
+        rhs=0.0,
+    ) -> None:
+        """Constrain selected field DOFs by ``q_master - q_slave = rhs``."""
+        self._field_kind_name(master)
+        self._field_kind_name(slave)
+        master_arr = np.asarray(master_dofs, dtype=np.int32).reshape(-1)
+        slave_arr = np.asarray(slave_dofs, dtype=np.int32).reshape(-1)
+        if master_arr.shape != slave_arr.shape:
+            raise ValueError("master_dofs and slave_dofs must have the same shape.")
+        if master_arr.size == 0:
+            raise ValueError("At least one tied DOF is required.")
+        rhs_arr = np.asarray(rhs, dtype=float).reshape(-1)
+        if rhs_arr.size == 1:
+            rhs_arr = np.full((master_arr.size,), float(rhs_arr[0]), dtype=float)
+        if rhs_arr.shape != master_arr.shape:
+            raise ValueError("rhs must be scalar or match the tied DOF count.")
+        self._tie_constraints.append(
+            _DofTieConstraint(
+                master=str(master),
+                slave=str(slave),
+                master_dofs=master_arr,
+                slave_dofs=slave_arr,
+                rhs=rhs_arr,
+            )
+        )
 
     def add_rbe3_fixture(
         self,
@@ -1292,66 +1382,148 @@ class ReducedCoupledSystemBuilder:
             )
 
     def build(self) -> ReducedCoupledSystem:
-        cb = self.basis
+        if not self._structural_fields:
+            raise ValueError("No structural fields are registered.")
+        for source in self._structural_fields.values():
+            if source.basis is None:
+                raise ValueError(f"Call reduce_field(...) for structural field '{source.name}' before building.")
+
+        structural_offsets: dict[str, int] = {}
+        n_structural_reduced = 0
+        for source in self._structural_fields.values():
+            structural_offsets[source.name] = n_structural_reduced
+            n_structural_reduced += source.basis.n_reduced
+
         n_extra = self._next_extra_offset()
-        n_total = cb.n_reduced + n_extra
-        k = jnp.zeros((n_total, n_total), dtype=jnp.result_type(_matrix_dtype(self._stiffness), self._force))
-        f = jnp.zeros((n_total,), dtype=k.dtype)
-        k = k.at[: cb.n_reduced, : cb.n_reduced].set(cb.project_matrix(self._stiffness))
-        f = f.at[: cb.n_reduced].set(cb.project_vector(self._force))
+        n_total = n_structural_reduced + n_extra
+        dtype = jnp.result_type(
+            *[
+                jnp.result_type(_matrix_dtype(source.stiffness), source.force)
+                for source in self._structural_fields.values()
+            ]
+        )
+        k = jnp.zeros((n_total, n_total), dtype=dtype)
+        f = jnp.zeros((n_total,), dtype=dtype)
+        for source in self._structural_fields.values():
+            cb = source.basis
+            offset = structural_offsets[source.name]
+            dofs = jnp.arange(offset, offset + cb.n_reduced, dtype=jnp.int32)
+            k = k.at[dofs[:, None], dofs[None, :]].set(cb.project_matrix(source.stiffness))
+            f = f.at[dofs].set(cb.project_vector(source.force))
 
         for local_dofs, k_local, f_local in self._extra_k:
-            dofs = cb.n_reduced + jnp.asarray(local_dofs, dtype=jnp.int32)
+            dofs = n_structural_reduced + jnp.asarray(local_dofs, dtype=jnp.int32)
             k = k.at[dofs[:, None], dofs[None, :]].add(jnp.asarray(k_local, dtype=k.dtype))
             if f_local is not None:
                 f = f.at[dofs].add(jnp.asarray(f_local, dtype=f.dtype))
 
         rows = []
-        for _, fixture in self._constraints:
-            full_ref = cb.n_full + np.asarray(fixture.reference_dofs, dtype=np.int32)
-            full_fixture = RBE3RemoteFixture(
-                fixture.name,
-                ref_point=fixture.ref_point,
-                slave_coords=fixture.slave_coords,
-                slave_dofs=fixture.slave_dofs,
-                weights=fixture.weights,
-                include_rotation=fixture.include_rotation,
-                reference_dofs=jnp.asarray(full_ref, dtype=jnp.int32),
+        rhs_rows = []
+        for _, slave_name, fixture in self._constraints:
+            source = self._structural_fields[slave_name]
+            cb = source.basis
+            local = fixture.local_constraint_matrix()
+            row = jnp.zeros((fixture.n_reference_dofs, n_total), dtype=k.dtype)
+            ref_cols = n_structural_reduced + jnp.asarray(fixture.reference_dofs, dtype=jnp.int32)
+            row = row.at[:, ref_cols].set(jnp.asarray(local[:, : fixture.n_reference_dofs], dtype=k.dtype))
+            c_full = jnp.zeros((fixture.n_reference_dofs, cb.n_full), dtype=k.dtype)
+            for i in range(int(fixture.slave_dofs.shape[0])):
+                cols = fixture.slave_dofs[i]
+                block = local[:, fixture.n_reference_dofs + 3 * i : fixture.n_reference_dofs + 3 * i + 3]
+                c_full = c_full.at[:, cols].add(jnp.asarray(block, dtype=k.dtype))
+            c_reduced = c_full @ cb.basis
+            offset = structural_offsets[slave_name]
+            reduced_cols = offset + jnp.arange(cb.n_reduced, dtype=jnp.int32)
+            row = row.at[:, reduced_cols].add(c_reduced)
+            rows.append(row)
+            rhs_rows.append(jnp.zeros((fixture.n_reference_dofs,), dtype=k.dtype))
+        for tie in self._tie_constraints:
+            row = jnp.zeros((tie.master_dofs.size, n_total), dtype=k.dtype)
+            row = self._add_tie_side_to_row(
+                row,
+                tie.master,
+                tie.master_dofs,
+                1.0,
+                structural_offsets,
+                n_structural_reduced,
             )
-            c_full = full_fixture.constraint_matrix(cb.n_full, cb.n_full + n_extra)
-            rows.append(LinearConstraintSystem(c_full).project(cb, n_extra_dofs=n_extra).matrix)
+            row = self._add_tie_side_to_row(
+                row,
+                tie.slave,
+                tie.slave_dofs,
+                -1.0,
+                structural_offsets,
+                n_structural_reduced,
+            )
+            rows.append(row)
+            rhs_rows.append(jnp.asarray(tie.rhs, dtype=k.dtype))
         constraints = LinearConstraintSystem(
-            jnp.vstack(rows) if rows else jnp.zeros((0, n_total), dtype=k.dtype)
+            jnp.vstack(rows) if rows else jnp.zeros((0, n_total), dtype=k.dtype),
+            rhs=jnp.concatenate(rhs_rows) if rows else None,
         )
 
         fields: dict[str, ReducedFieldBlock] = {}
-        reduced_name = self._reduced_name or self.structural_name
-        fields[reduced_name] = ReducedFieldBlock(
-            name=reduced_name,
-            offset=0,
-            n_dofs=cb.n_reduced,
-            value_dim=1,
-            n_nodes=cb.n_reduced,
-            basis=cb,
-            full_n_dofs=cb.n_full,
-        )
+        bases: dict[str, CraigBamptonBasis] = {}
+        primary_name = self._structural_fields[self.structural_name].reduced_name or self.structural_name
+        for source in self._structural_fields.values():
+            cb = source.basis
+            reduced_name = source.reduced_name or source.name
+            fields[reduced_name] = ReducedFieldBlock(
+                name=reduced_name,
+                offset=structural_offsets[source.name],
+                n_dofs=cb.n_reduced,
+                value_dim=1,
+                n_nodes=cb.n_reduced,
+                basis=cb,
+                full_n_dofs=cb.n_full,
+            )
+            bases[reduced_name] = cb
         for key, block in self._extra_blocks.items():
             fields[key] = ReducedFieldBlock(
                 name=block.name,
-                offset=cb.n_reduced + block.offset,
+                offset=n_structural_reduced + block.offset,
                 n_dofs=block.n_dofs,
                 value_dim=block.value_dim,
                 n_nodes=block.n_nodes,
             )
+        primary_basis = self._structural_fields[self.structural_name].basis
         return ReducedCoupledSystem(
             stiffness=k,
             force=f,
             constraints=constraints,
             fields=fields,
-            primary_field=reduced_name,
-            basis=cb,
+            primary_field=primary_name,
+            basis=primary_basis,
+            bases=bases,
             n_extra_dofs=n_extra,
         )
+
+    def _add_tie_side_to_row(
+        self,
+        row: Array,
+        field: str,
+        local_dofs: np.ndarray,
+        sign: float,
+        structural_offsets: dict[str, int],
+        n_structural_reduced: int,
+    ) -> Array:
+        kind, key = self._field_kind_name(field)
+        local = np.asarray(local_dofs, dtype=np.int32).reshape(-1)
+        rows = jnp.arange(local.size, dtype=jnp.int32)
+        if kind == "extra":
+            block = self._extra_blocks[key]
+            if local.size and (local.min() < 0 or local.max() >= block.n_dofs):
+                raise ValueError(f"local_dofs out of range for field '{field}'.")
+            cols = n_structural_reduced + block.offset + jnp.asarray(local, dtype=jnp.int32)
+            return row.at[rows, cols].add(float(sign))
+
+        source = self._structural_fields[key]
+        cb = source.basis
+        if local.size and (local.min() < 0 or local.max() >= cb.n_full):
+            raise ValueError(f"local_dofs out of range for field '{field}'.")
+        reduced_cols = structural_offsets[key] + jnp.arange(cb.n_reduced, dtype=jnp.int32)
+        values = float(sign) * cb.basis[jnp.asarray(local, dtype=jnp.int32), :]
+        return row.at[rows[:, None], reduced_cols[None, :]].add(values)
 
 
 def linear_constraint_system_from_reference_fixtures(
