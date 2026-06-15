@@ -23,6 +23,7 @@ The main entry points are:
 - ``ff.CoupledSystemBuilder.add_dof_spring(...)``
 - ``ff.CoupledSystemBuilder.add_remote_spring(...)``
 - ``ff.CoupledSystemBuilder.add_field_matrix(...)``
+- ``ff.CoupledSystemBuilder.append_dof_copy_field(...)``
 - ``ff.CoupledSystemBuilder.add_constraint_matrix_dof(...)``
 - ``ff.ConstraintSpec(...)``
 - ``ff.build_rbe3_weights(...)``
@@ -215,23 +216,24 @@ DOF-Level Constraint Wiring
 ---------------------------
 
 ``RBE2`` and ``RBE3`` often need an intermediate slave field rather than being
-connected directly to the full structural vector. For that wiring,
-``add_constraint_matrix_dof(...)`` is the key helper.
+connected directly to the full structural vector. When that field is just a
+copy of selected structural DOFs, prefer ``append_dof_copy_field(...)``:
 
 .. code-block:: python
 
-   builder.append_field("support_face", n_dofs=left_local_dofs.size, value_dim=1)
-
-   C_face = np.zeros((left_local_dofs.size, space.n_dofs + left_local_dofs.size))
-   for row, dof in enumerate(left_local_dofs):
-       C_face[row, dof] = 1.0
-       C_face[row, space.n_dofs + row] = -1.0
-
-   builder.add_constraint_matrix_dof(
-       C_face,
-       master="u",
-       slave="support_face",
+   patch_dofs = ff.vector_dofs_from_nodes(patch_nodes, dim=3)
+   builder.append_dof_copy_field(
+       "support_face",
+       source="workpiece",
+       source_dofs=patch_dofs,
    )
+
+For custom wiring, ``add_constraint_matrix_dof(...)`` remains the low-level
+escape hatch.
+
+.. code-block:: python
+
+   builder.append_dof_copy_field("support_face", source="u", source_dofs=left_local_dofs)
 
 Conceptually this enforces:
 
@@ -385,6 +387,7 @@ This same workflow can also be expressed in a more declarative style by mixing:
 
 - ``append_remote_point(...)``
 - ``append_field(...)``
+- ``append_dof_copy_field(...)``
 - ``add_constraint_matrix_dof(...)``
 - ``ConstraintSpec(kind="rbe3", ...)``
 - ``add_remote_spring(...)``
