@@ -620,10 +620,15 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 - `tutorials/neo_hookean_cantilever.py` (nonlinear hyperelasticity)
 - `tutorials/thermoelastic_bar_1d.py` / `tutorials/thermoelastic_bar_1d_mixed.py` (thermoelastic coupling)
 - `tutorials/contact_supported_box_by_pillars.py` (large box supported by multiple small boxes via penalty contact + Dirichlet supports)
-- `tutorials/craig_bampton_sparse_fe_basis.py` (Craig-Bampton basis from sparse FE matrices)
-- `tutorials/craig_bampton_rbe3_preload_component.py` (full vs CB-ROM explicit RBE3 fixture preload/Dirichlet comparison)
-- `tutorials/craig_bampton_active_contact_newmark.py` (reduced Newmark step with an explicit active-contact update loop)
 - `tutorials/petsc_shell_poisson_demo.py` (PETSc shell solver integration; see also `tutorials/petsc_shell_poisson_pmat_demo.py`)
+
+Craig-Bampton ROM tutorials:
+
+- `tutorials/craig_bampton_reduced_coupled_builder.py` is the preferred compact API path: name-based structural registration, `reduce_field(..., method="craig_bampton")`, explicit RBE3 remote fixture fields, preload, and prescribed-reference variants.
+- `tutorials/craig_bampton_rbe3_preload_component.py` is the experiment-2 style validation tutorial. It compares full explicit-reference RBE3 KKT solves against the CB-projected ROM for preload and Dirichlet fixture boundaries, with optional rotational RBE3 reference DOFs.
+- `tutorials/craig_bampton_sparse_fe_basis.py` demonstrates CB basis construction from current sparse FE matrices.
+- `tutorials/craig_bampton_contact_rom.py`, `tutorials/craig_bampton_active_contact_newmark.py`, and the node/surface-quadrature contact variants demonstrate retained contact/interface DOFs with explicit active-contact updates outside the differentiated residual.
+- `tutorials/craig_bampton_rbe3_preload_mpc.py` and `tutorials/craig_bampton_fluxfem_rbe3_preload_experiment2.py` are lower-level compatibility/reference examples using `RBE3Patch`, `ReferencePointFixture`, and manual projection APIs.
 
 ## Setup
 

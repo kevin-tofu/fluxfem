@@ -8,17 +8,34 @@
 - Dense, SciPy sparse direct (`spsolve`), and SciPy sparse modal (`eigsh`) paths are exposed through solver options.
 - The legacy iterative paths are available: `constraint_solver="cg"` and `modal_solver="subspace"` with `modal_linear_solver="cg"`.
 - `CraigBamptonBasis` is a JAX pytree and provides `expand`, `project_vector`, `project_matrix`, `reduced_residual`, and `reduced_jacobian`.
-- The previous ROM-level helper layer is restored in 0.3.5 form: `LinearConstraintSystem`, `ReducedLinearConstraintSystem`, `RBE3Patch`, `ReferencePointFixture`, KKT solve helpers, reduced Newmark helpers, and generic active-contact/state outer loops.
+- The previous ROM-level helper layer is restored in 0.3.5 form: `LinearConstraintSystem`, `ReducedLinearConstraintSystem`, `ReducedCoupledSystemBuilder`, `RBE3Patch`, `ReferencePointFixture`, `RBE3RemoteFixture`, KKT solve helpers, reduced Newmark helpers, and generic active-contact/state outer loops.
 
 ## Why this helps contact and fixtures
 
 CB retained DOFs are the natural location for interface, contact, and remote fixture coordinates. A contact workflow can keep uncertain active-contact boundary DOFs in the retained set, while reducing only the interior. The existing 0.3.5 coupled-system and RBE3 APIs should remain the primary wrapper layer for full 3D fixtures and reference points; CB is the projection layer below that.
 
-`RBE3Patch` and `ReferencePointFixture` are intentionally thin compatibility wrappers. They cover the older translational reference-point MPC/preload examples and can project through CB with `LinearConstraintSystem.project`. For richer 6-DOF remote points, rotations, multiple named fields, sparse KKT assembly, and current contact multiplier blocks, use `NumpyCoupledSystemBuilder` / `CoupledSystemBuilder`.
+`RBE3Patch` and `ReferencePointFixture` are intentionally thin compatibility wrappers. They cover the older translational reference-point MPC/preload examples and can project through CB with `LinearConstraintSystem.project`. `RBE3RemoteFixture` is the CB-facing wrapper for both translational-only and 6-DOF rotational RBE3 reference fixtures. Its remote rotation coordinates are not structural CB retained DOFs; they are explicit appended reference DOFs preserved outside the workpiece basis via `LinearConstraintSystem.project(..., n_extra_dofs=...)`.
+
+For new code, prefer `ReducedCoupledSystemBuilder`. It mirrors the name-based `CoupledSystemBuilder` style: register a structural field, call `reduce_field(..., method="craig_bampton")`, append remote points, connect them with `add_rbe3_constraint(...)`, and add preload/Dirichlet through named remote fields. This keeps the connection graph readable and avoids hand-written ROM/reference DOF offsets in tutorials. For multiple full-order named fields, sparse KKT assembly, and current contact multiplier blocks, use `NumpyCoupledSystemBuilder` / `CoupledSystemBuilder`.
+
+Small fixture utilities are now part of the public API rather than tutorial glue:
+`vector_dofs_from_nodes`, `retained_dofs_from_node_sets`, `remote_reference_direction`,
+and `validate_rbe3_remote_reference_rank`. Tutorials should use these helpers so
+examples describe the model connection graph rather than low-level DOF indexing.
 
 `tutorials/craig_bampton_rbe3_preload_component.py` is the compact FluxFEM counterpart of `skfem-Craig-Bampton-ROM/experiment-2`: it compares a full explicit-reference RBE3 preload KKT solve with the CB-projected KKT solve on a notched tetrahedral workpiece.
 
-The same tutorial supports `--fixture-boundary preload` and `--fixture-boundary dirichlet`. The Dirichlet path prescribes the explicit RBE3 reference-point displacement using nonzero `fixed_values` in `LinearConstraintSystem.solve`, so a one-sided fixture can be represented either as a preload spring or as a prescribed support motion.
+The same tutorial supports `--fixture-boundary preload`, `--fixture-boundary dirichlet`, and `--fixture-rotation none|rbe3`. The Dirichlet path prescribes the explicit RBE3 reference-point displacement using nonzero `fixed_values` in `LinearConstraintSystem.solve`, so a one-sided fixture can be represented either as a preload spring or as a prescribed support motion.
+
+`tutorials/craig_bampton_reduced_coupled_builder.py` is the preferred short-form tutorial for new users. It exercises the same conceptual pieces with named fields:
+
+1. register `workpiece`,
+2. reduce it with `reduce_field(..., method="craig_bampton")`,
+3. add a named remote `fixture`,
+4. connect the fixture with `add_rbe3_fixture_from_nodes(...)`,
+5. solve preload and Dirichlet variants without manual ROM/reference offset arithmetic.
+
+The older `craig_bampton_rbe3_preload_mpc.py` and `craig_bampton_fluxfem_rbe3_preload_experiment2.py` files remain useful as low-level compatibility/reference examples, but they should not be the first tutorial path for the current API.
 
 The active-contact/Newmark helpers no longer depend on removed legacy contact classes. They accept user-provided contact-state callbacks:
 
@@ -35,6 +52,28 @@ For future uncertain/contact-changing time evolution, the intended shape is:
 3. update contact state with `active_contact_newmark_step` outside the differentiated residual,
 4. represent changing fixture states as either active preload springs, nonzero Dirichlet reference DOFs, or current `CoupledSystemBuilder` constraints.
 
+Current contact tutorials follow this split: the reduced residual stays differentiable for a frozen contact snapshot, while broad-phase search, active-set updates, and tangential friction history are advanced explicitly between solves.
+
+## Verification snapshot
+
+- `PYTHONPATH=src pytest -q src/tests/test_craig_bampton.py src/tests/test_rbe_constraints.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_contact_rom.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_reduced_coupled_builder.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_component.py --nx 12 --ny 9 --nz 1 --modes 3 --fixture-boundary preload --fixture-rotation rbe3`
+- `PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_component.py --nx 12 --ny 9 --nz 1 --modes 3 --fixture-boundary dirichlet --fixture-rotation rbe3`
+- `PYTHONPATH=src python tutorials/craig_bampton_1d_obstacle_contact_reference.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_full_order_contact_benchmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_surface_contact_reference.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_friction_history_rom.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_active_contact_newmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_node_surface_active_newmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_active_newmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_node_surface_friction_active_newmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_fe_surface_contact.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_sparse_fe_basis.py`
+- `PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_mpc.py`
+
 ## Important limitation
 
 The current port still stores the final basis as a dense matrix and `project_matrix` densifies the input matrix. Sparse solvers are used for partition solves and modal extraction, but very large models will need a matrix-free/sparse basis operator before this becomes the best option for production-scale DOF counts.
@@ -42,6 +81,6 @@ The current port still stores the final basis as a dense matrix and `project_mat
 ## Next implementation steps
 
 1. Add a sparse/matrix-free basis operator so `Phi.T @ K @ Phi` can be assembled blockwise without materializing full dense `Phi`.
-2. Add direct integration with `CoupledSystemBuilder` so retained CB coordinates can be coupled to named remote/RBE3 blocks without hand-written index mapping.
-3. Add a full 3D fixture tutorial that compares full coupled-system solve vs CB-projected KKT solve across active fixture cases.
+2. Generalize `ReducedCoupledSystemBuilder` from one structural source field to multiple reduced/full-order fields.
+3. Add direct contact integration so candidate contact DOFs can be retained and contact blocks can be attached by field name.
 4. Add an active-contact example where candidate contact DOFs are retained and only interior DOFs are reduced.

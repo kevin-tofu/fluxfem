@@ -213,6 +213,54 @@ _MESH_EXPORTS = {
     "active_contact_facets",
 }
 
+_CONTACT_EXPORTS = {
+    "ActiveContactState",
+    "ContactAABBIndex",
+    "ContactCandidateSet",
+    "ContactKinematics",
+    "ContactNeighborList",
+    "ContactSearchCache",
+    "ContactUpdateSnapshot",
+    "FrictionalContactUpdateSnapshot",
+    "NodeSurfaceContactKinematics",
+    "NodeSurfaceContactSearchManager",
+    "NodeSurfacePenaltyContact",
+    "PairedContactKinematics",
+    "PairedPenaltyContact",
+    "PlanePenaltyContact",
+    "SurfaceQuadratureContactKinematics",
+    "SurfaceQuadratureContactSearchManager",
+    "SurfaceQuadraturePenaltyContact",
+    "TangentialPenaltyHistory",
+    "TangentialPenaltyFrictionManager",
+    "compose_residuals",
+    "contact_aabb_index_from_surface",
+    "contact_candidate_set_from_bounding_boxes",
+    "contact_candidate_set_from_per_contact",
+    "contact_search_cache_from_kinematics",
+    "friction_residual_from_history",
+    "make_friction_residual",
+    "make_node_surface_contact_search_manager",
+    "make_surface_quadrature_contact_search_manager",
+    "make_unilateral_plane_contact_residual",
+    "node_surface_candidate_set_from_aabb_index",
+    "node_surface_candidate_set_from_bounding_boxes",
+    "node_surface_contact_kinematics_from_surfaces",
+    "node_surface_neighbor_list_from_aabb_index",
+    "node_surface_neighbor_list_from_bounding_boxes",
+    "orthonormal_tangent_basis",
+    "paired_contact_kinematics_from_surfaces",
+    "plane_contact_kinematics_from_surface",
+    "retained_dofs_from_surface",
+    "slip_norm",
+    "stick_count",
+    "surface_quadrature_candidate_set_from_aabb_index",
+    "surface_quadrature_contact_kinematics_from_surfaces",
+    "surface_quadrature_neighbor_list_from_aabb_index",
+    "update_active_contact_state",
+    "update_tangential_penalty_history",
+}
+
 _SOLVER_EXPORTS = {
     "SparsityPattern",
     "FluxSparseMatrix",
@@ -257,6 +305,9 @@ _SOLVER_EXPORTS = {
     "NewmarkState",
     "NewmarkStepInfo",
     "RBE3Patch",
+    "RBE3RemoteFixture",
+    "ReducedCoupledSystem",
+    "ReducedCoupledSystemBuilder",
     "ReducedContactDynamics",
     "ReducedLinearConstraintSystem",
     "ReferencePointFixture",
@@ -271,10 +322,16 @@ _SOLVER_EXPORTS = {
     "make_newmark_effective_residual",
     "newmark_kinematics",
     "newmark_step",
+    "remote_reference_direction",
+    "remote_reference_size",
+    "retained_dofs_from_node_sets",
+    "rbe3_remote_reference_rank",
     "reduced_jacobian_from_full",
     "reduced_residual_from_full",
     "solve_linear_constraint_kkt",
     "solve_constraint_modes",
+    "validate_rbe3_remote_reference_rank",
+    "vector_dofs_from_nodes",
     "enforce_dirichlet_dense",
     "enforce_dirichlet_dense_jax",
     "enforce_dirichlet_fluxsparse",
@@ -324,6 +381,8 @@ _SOLVER_BC_EXPORTS = {
 def __getattr__(name: str):
     if name in _MESH_EXPORTS:
         module = importlib.import_module("..mesh", __name__)
+    elif name in _CONTACT_EXPORTS:
+        module = importlib.import_module(".contact", __name__)
     elif name in _SOLVER_EXPORTS:
         module = importlib.import_module("..solver", __name__)
     elif name in _SOLVER_BC_EXPORTS:
@@ -596,6 +655,9 @@ __all__ = [
     "NewmarkState",
     "NewmarkStepInfo",
     "RBE3Patch",
+    "RBE3RemoteFixture",
+    "ReducedCoupledSystem",
+    "ReducedCoupledSystemBuilder",
     "ReducedContactDynamics",
     "ReducedLinearConstraintSystem",
     "ReferencePointFixture",
@@ -610,10 +672,16 @@ __all__ = [
     "make_newmark_effective_residual",
     "newmark_kinematics",
     "newmark_step",
+    "remote_reference_direction",
+    "remote_reference_size",
+    "retained_dofs_from_node_sets",
+    "rbe3_remote_reference_rank",
     "reduced_jacobian_from_full",
     "reduced_residual_from_full",
     "solve_linear_constraint_kkt",
     "solve_constraint_modes",
+    "validate_rbe3_remote_reference_rank",
+    "vector_dofs_from_nodes",
     "enforce_dirichlet_dense",
     "enforce_dirichlet_dense_jax",
     "enforce_dirichlet_fluxsparse",
@@ -646,3 +714,5 @@ __all__ = [
     "BasisData",
     "SpaceData",
 ]
+
+__all__ += [name for name in sorted(_CONTACT_EXPORTS) if name not in __all__]

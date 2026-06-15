@@ -3,9 +3,14 @@
 
 This is the compact FluxFEM counterpart of
 ``skfem-Craig-Bampton-ROM/experiment-2``.  A notched tetrahedral workpiece is
-loaded by explicit translational RBE3 reference fixtures:
+loaded by explicit RBE3 reference fixtures.  With ``--fixture-rotation none``
+the reference point has translational DOFs only:
 
     u_ref - weighted_average(u_patch) = 0
+
+With ``--fixture-rotation rbe3`` the reference point has 6 DOFs ordered as
+``[u_ref(3), omega_ref(3)]`` and uses the same weighted rigid-body
+reconstruction as FluxFEM's high-level RBE3 constraint helper.
 
 The full model solves the augmented workpiece/reference-point KKT system.  The
 ROM solves the same KKT system after projecting only the workpiece with a
@@ -14,6 +19,15 @@ Craig-Bampton basis; reference-point DOFs and RBE3 constraints remain explicit.
 Run from the repository root:
 
     PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_component.py
+
+For rotational RBE3 fixtures:
+
+    PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_component.py --fixture-rotation rbe3
+
+The rotational reference DOFs are not part of the workpiece CB basis.  They are
+kept as explicit appended DOFs in the projected KKT system.  Very coarse meshes
+can make a fixture patch rank-deficient for 6-DOF RBE3 reconstruction; the
+default mesh is intentionally large enough for the rotational mode.
 """
 
 from __future__ import annotations
@@ -66,11 +80,6 @@ class Model:
     @property
     def n_dofs(self) -> int:
         return int(self.space.n_dofs)
-
-
-def node_dofs(nodes: np.ndarray, *, dim: int = 3) -> np.ndarray:
-    nodes = np.asarray(nodes, dtype=int).reshape(-1)
-    return (nodes[:, None] * dim + np.arange(dim, dtype=int)[None, :]).reshape(-1)
 
 
 def nodes_on(coords: np.ndarray, *, x=None, y=None, z=None, tol: float = 1.0e-10) -> np.ndarray:
@@ -179,34 +188,57 @@ def external_force(model: Model) -> np.ndarray:
     return f
 
 
-def fixture_constraint(fixture: Fixture, *, n_workpiece: int, reference_dofs: np.ndarray, total_dofs: int) -> np.ndarray:
-    patch = ff.RBE3Patch(dofs=node_dofs(fixture.nodes).reshape(-1, 3), weights=fixture.weights)
-    wrapper = ff.ReferencePointFixture(
+def remote_fixture(
+    model: Model,
+    fixture: Fixture,
+    *,
+    reference_dofs: np.ndarray,
+    include_rotation: bool,
+) -> ff.RBE3RemoteFixture:
+    return ff.RBE3RemoteFixture(
         fixture.name,
-        patch,
+        ref_point=fixture.point,
+        slave_coords=model.coords[fixture.nodes],
+        slave_dofs=ff.vector_dofs_from_nodes(fixture.nodes, dim=3).reshape(-1, 3),
+        weights=fixture.weights,
+        include_rotation=include_rotation,
         reference_dofs=reference_dofs,
-        direction=fixture.direction,
+        direction=ff.remote_reference_direction(fixture.direction, include_rotation=include_rotation),
         stiffness=fixture.stiffness,
         target_displacement=fixture.target,
     )
-    return np.asarray(wrapper.constraint_matrix(n_structural_dofs=n_workpiece, total_dofs=total_dofs), dtype=float)
 
 
-def preload_terms(fixtures: list[Fixture], *, n_workpiece: int, active: set[str], total_dofs: int):
+def fixture_constraint(
+    model: Model,
+    fixture: Fixture,
+    *,
+    reference_dofs: np.ndarray,
+    total_dofs: int,
+    include_rotation: bool,
+) -> np.ndarray:
+    wrapper = remote_fixture(
+        model,
+        fixture,
+        reference_dofs=reference_dofs,
+        include_rotation=include_rotation,
+    )
+    return np.asarray(wrapper.constraint_matrix(n_structural_dofs=model.n_dofs, total_dofs=total_dofs), dtype=float)
+
+
+def preload_terms(model: Model, fixtures: list[Fixture], *, active: set[str], total_dofs: int, include_rotation: bool):
     k = np.zeros((total_dofs, total_dofs), dtype=float)
     f = np.zeros((total_dofs,), dtype=float)
     wrappers = []
+    n_ref = ff.remote_reference_size(include_rotation=include_rotation)
     for i, fixture in enumerate(fixtures):
-        refs = n_workpiece + 3 * i + np.arange(3, dtype=int)
-        patch = ff.RBE3Patch(dofs=node_dofs(fixture.nodes).reshape(-1, 3), weights=fixture.weights)
+        refs = model.n_dofs + n_ref * i + np.arange(n_ref, dtype=int)
         wrappers.append(
-            ff.ReferencePointFixture(
-                fixture.name,
-                patch,
-                refs,
-                direction=fixture.direction,
-                stiffness=fixture.stiffness,
-                target_displacement=fixture.target,
+            remote_fixture(
+                model,
+                fixture,
+                reference_dofs=refs,
+                include_rotation=include_rotation,
             )
         )
     kk, ff_vec = ff.assemble_reference_fixture_preload(wrappers, total_dofs=total_dofs, active_names=active)
@@ -215,15 +247,24 @@ def preload_terms(fixtures: list[Fixture], *, n_workpiece: int, active: set[str]
     return k, f
 
 
-def reference_dirichlet(fixtures: list[Fixture], active: set[str], *, offset: int) -> tuple[np.ndarray, np.ndarray]:
+def reference_dirichlet(
+    fixtures: list[Fixture],
+    active: set[str],
+    *,
+    offset: int,
+    include_rotation: bool,
+) -> tuple[np.ndarray, np.ndarray]:
     dofs = []
     values = []
+    n_ref = ff.remote_reference_size(include_rotation=include_rotation)
     for i, fixture in enumerate(fixtures):
         if fixture.name not in active:
             continue
-        refs = offset + 3 * i + np.arange(3, dtype=int)
+        refs = offset + n_ref * i + np.arange(n_ref, dtype=int)
+        value = np.zeros((n_ref,), dtype=float)
+        value[:3] = fixture.target * fixture.direction
         dofs.extend(refs.tolist())
-        values.extend((fixture.target * fixture.direction).tolist())
+        values.extend(value.tolist())
     return np.asarray(dofs, dtype=int), np.asarray(values, dtype=float)
 
 
@@ -234,12 +275,14 @@ def solve_full(
     fixed_dofs: np.ndarray,
     *,
     fixture_boundary: str,
+    include_rotation: bool,
 ) -> np.ndarray:
-    n_ref = 3 * len(fixtures)
-    total = model.n_dofs + n_ref
-    k = sp.block_diag((model.stiffness.to_csr(), sp.csr_matrix((n_ref, n_ref))), format="csr")
+    n_ref = ff.remote_reference_size(include_rotation=include_rotation)
+    n_ref_total = n_ref * len(fixtures)
+    total = model.n_dofs + n_ref_total
+    k = sp.block_diag((model.stiffness.to_csr(), sp.csr_matrix((n_ref_total, n_ref_total))), format="csr")
     if fixture_boundary == "preload":
-        k_pre, f = preload_terms(fixtures, n_workpiece=model.n_dofs, active=active, total_dofs=total)
+        k_pre, f = preload_terms(model, fixtures, active=active, total_dofs=total, include_rotation=include_rotation)
     else:
         k_pre = np.zeros((total, total), dtype=float)
         f = np.zeros((total,), dtype=float)
@@ -247,10 +290,11 @@ def solve_full(
     c = np.vstack(
         [
             fixture_constraint(
+                model,
                 fixture,
-                n_workpiece=model.n_dofs,
-                reference_dofs=model.n_dofs + 3 * i + np.arange(3, dtype=int),
+                reference_dofs=model.n_dofs + n_ref * i + np.arange(n_ref, dtype=int),
                 total_dofs=total,
+                include_rotation=include_rotation,
             )
             for i, fixture in enumerate(fixtures)
         ]
@@ -258,7 +302,12 @@ def solve_full(
     all_fixed = np.asarray(fixed_dofs, dtype=int)
     all_values = np.zeros((all_fixed.size,), dtype=float)
     if fixture_boundary == "dirichlet":
-        ref_fixed, ref_values = reference_dirichlet(fixtures, active, offset=model.n_dofs)
+        ref_fixed, ref_values = reference_dirichlet(
+            fixtures,
+            active,
+            offset=model.n_dofs,
+            include_rotation=include_rotation,
+        )
         all_fixed = np.concatenate([all_fixed, ref_fixed])
         all_values = np.concatenate([all_values, ref_values])
     return np.asarray(
@@ -272,15 +321,36 @@ def solve_full(
     )
 
 
-def build_cb(model: Model, fixtures: list[Fixture], fixed_dofs: np.ndarray, n_modes: int) -> ff.CraigBamptonBasis:
+def retained_for_rom(model: Model, fixtures: list[Fixture], fixed_dofs: np.ndarray) -> np.ndarray:
     force_dofs = np.flatnonzero(np.abs(external_force(model)) > 0.0)
-    fixture_dofs = np.concatenate([node_dofs(f.nodes) for f in fixtures])
-    retained = np.unique(np.concatenate([fixed_dofs, force_dofs, fixture_dofs])).astype(int)
-    identity_mass = sp.eye(model.n_dofs, format="csr")
-    return ff.make_craig_bampton_basis(
+    return ff.retained_dofs_from_node_sets(
+        *[fixture.nodes for fixture in fixtures],
+        dim=3,
+        extra_dofs=np.concatenate([fixed_dofs, force_dofs]),
+    )
+
+
+def build_rom_system(
+    model: Model,
+    fixtures: list[Fixture],
+    active: set[str],
+    fixed_dofs: np.ndarray,
+    n_modes: int,
+    *,
+    fixture_boundary: str,
+    include_rotation: bool,
+) -> ff.ReducedCoupledSystem:
+    builder = ff.ReducedCoupledSystemBuilder.from_structural(
+        "workpiece",
         model.stiffness.to_csr(),
-        identity_mass,
-        retained_dofs=retained,
+        external_force(model),
+        mass=sp.eye(model.n_dofs, format="csr"),
+        value_dim=3,
+        n_nodes=model.coords.shape[0],
+    )
+    builder.reduce_field(
+        "workpiece",
+        retained_dofs=retained_for_rom(model, fixtures, fixed_dofs),
         n_modes=n_modes,
         constraint_solver="spsolve",
         modal_solver="eigsh",
@@ -288,69 +358,85 @@ def build_cb(model: Model, fixtures: list[Fixture], fixed_dofs: np.ndarray, n_mo
         modal_maxiter=500,
     )
 
+    for fixture in fixtures:
+        builder.add_rbe3_fixture_from_nodes(
+            fixture.name,
+            body="workpiece",
+            ref_point=fixture.point,
+            coords=model.coords,
+            nodes=fixture.nodes,
+            weights=fixture.weights,
+            include_rotation=include_rotation,
+            preload_stiffness=fixture.stiffness if fixture_boundary == "preload" and fixture.name in active else None,
+            preload_direction=ff.remote_reference_direction(fixture.direction, include_rotation=include_rotation),
+            preload_target=fixture.target,
+        )
+    return builder.build()
 
-def solve_rom(
-    model: Model,
-    cb: ff.CraigBamptonBasis,
+
+def rom_dirichlet(
+    system: ff.ReducedCoupledSystem,
     fixtures: list[Fixture],
     active: set[str],
     fixed_dofs: np.ndarray,
     *,
     fixture_boundary: str,
-):
-    n_ref = 3 * len(fixtures)
-    n_rom = cb.n_reduced
-    total = n_rom + n_ref
-    k = np.zeros((total, total), dtype=float)
-    k[:n_rom, :n_rom] = np.asarray(cb.project_matrix(model.stiffness.to_csr()), dtype=float)
-    f = np.zeros((total,), dtype=float)
-    f[:n_rom] = np.asarray(cb.project_vector(external_force(model)), dtype=float)
-
-    full_total = model.n_dofs + n_ref
-    if fixture_boundary == "preload":
-        k_pre, f_pre = preload_terms(fixtures, n_workpiece=model.n_dofs, active=active, total_dofs=full_total)
-        for i in range(len(fixtures)):
-            full_refs = model.n_dofs + 3 * i + np.arange(3, dtype=int)
-            rom_refs = n_rom + 3 * i + np.arange(3, dtype=int)
-            k[np.ix_(rom_refs, rom_refs)] += k_pre[np.ix_(full_refs, full_refs)]
-            f[rom_refs] += f_pre[full_refs]
-
-    constraints = []
-    for i, fixture in enumerate(fixtures):
-        c_full = fixture_constraint(
-            fixture,
-            n_workpiece=model.n_dofs,
-            reference_dofs=model.n_dofs + 3 * i + np.arange(3, dtype=int),
-            total_dofs=full_total,
-        )
-        constraints.append(np.asarray(ff.LinearConstraintSystem(c_full).project(cb, n_extra_dofs=n_ref).matrix))
-    c_rom = np.vstack(constraints)
-
-    master_to_rom = {int(dof): i for i, dof in enumerate(np.asarray(cb.retained_dofs))}
-    fixed_rom = np.array([master_to_rom[int(dof)] for dof in fixed_dofs], dtype=int)
+    include_rotation: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    fixed_rom = system.reduced_dofs_from_full("workpiece", fixed_dofs)
     fixed_values = np.zeros((fixed_rom.size,), dtype=float)
     if fixture_boundary == "dirichlet":
-        ref_fixed, ref_values = reference_dirichlet(fixtures, active, offset=n_rom)
-        fixed_rom = np.concatenate([fixed_rom, ref_fixed])
-        fixed_values = np.concatenate([fixed_values, ref_values])
-    q_aug = ff.LinearConstraintSystem(c_rom).solve(
-        k,
-        f,
-        fixed_dofs=fixed_rom,
-        fixed_values=fixed_values,
-        solver="dense",
+        n_ref = ff.remote_reference_size(include_rotation=include_rotation)
+        for fixture in fixtures:
+            if fixture.name not in active:
+                continue
+            value = np.zeros((n_ref,), dtype=float)
+            value[:3] = fixture.target * fixture.direction
+            ref_dofs = system.resolve_block_dofs(fixture.name, local_dofs=np.arange(n_ref, dtype=int))
+            fixed_rom = np.concatenate([fixed_rom, ref_dofs])
+            fixed_values = np.concatenate([fixed_values, value])
+    return fixed_rom, fixed_values
+
+
+def solve_rom(
+    system: ff.ReducedCoupledSystem,
+    fixtures: list[Fixture],
+    active: set[str],
+    fixed_dofs: np.ndarray,
+    *,
+    fixture_boundary: str,
+    include_rotation: bool,
+):
+    rom_fixed, rom_values = rom_dirichlet(
+        system,
+        fixtures,
+        active,
+        fixed_dofs,
+        fixture_boundary=fixture_boundary,
+        include_rotation=include_rotation,
     )
-    return np.concatenate([np.asarray(cb.expand(q_aug[:n_rom])), np.asarray(q_aug[n_rom:])])
+    q_aug = system.solve(fixed_dofs=rom_fixed, fixed_values=rom_values, solver="dense")
+    return np.asarray(system.expand(q_aug))
 
 
-def work_like(fixtures: list[Fixture], active: set[str], model: Model, u_aug: np.ndarray, *, fixture_boundary: str) -> float:
-    f = np.zeros((model.n_dofs + 3 * len(fixtures),), dtype=float)
+def work_like(
+    fixtures: list[Fixture],
+    active: set[str],
+    model: Model,
+    u_aug: np.ndarray,
+    *,
+    fixture_boundary: str,
+    include_rotation: bool,
+) -> float:
+    n_ref_total = ff.remote_reference_size(include_rotation=include_rotation) * len(fixtures)
+    f = np.zeros((model.n_dofs + n_ref_total,), dtype=float)
     if fixture_boundary == "preload":
         _, f = preload_terms(
+            model,
             fixtures,
-            n_workpiece=model.n_dofs,
             active=active,
-            total_dofs=model.n_dofs + 3 * len(fixtures),
+            total_dofs=model.n_dofs + n_ref_total,
+            include_rotation=include_rotation,
         )
     else:
         f[: model.n_dofs] = external_force(model)
@@ -365,16 +451,36 @@ def main() -> None:
     parser.add_argument("--modes", type=int, default=8)
     parser.add_argument("--timing-repeats", type=int, default=1)
     parser.add_argument("--fixture-boundary", choices=["preload", "dirichlet"], default="preload")
+    parser.add_argument("--fixture-rotation", choices=["none", "rbe3"], default="none")
     args = parser.parse_args()
+    include_rotation = args.fixture_rotation == "rbe3"
 
     model = build_model(args.nx, args.ny, args.nz)
     fixtures = [make_fixture(model, spec, stiffness=25.0, target=0.030) for spec in fixture_specs()]
+    if include_rotation:
+        for fixture in fixtures:
+            ff.validate_rbe3_remote_reference_rank(
+                fixture.point,
+                model.coords[fixture.nodes],
+                weights=fixture.weights,
+                include_rotation=True,
+                name=fixture.name,
+            )
     active = {fixture.name for fixture in fixtures}
     fixed = fixed_321_dofs(model)
 
     t0 = time.perf_counter()
-    cb = build_cb(model, fixtures, fixed, args.modes)
+    rom_system = build_rom_system(
+        model,
+        fixtures,
+        active,
+        fixed,
+        args.modes,
+        fixture_boundary=args.fixture_boundary,
+        include_rotation=include_rotation,
+    )
     build_seconds = time.perf_counter() - t0
+    cb = rom_system.basis
 
     def timed(fn):
         out = fn()
@@ -383,16 +489,49 @@ def main() -> None:
             out = fn()
         return out, (time.perf_counter() - start) / max(args.timing_repeats, 1)
 
-    full_u, full_seconds = timed(lambda: solve_full(model, fixtures, active, fixed, fixture_boundary=args.fixture_boundary))
-    rom_u, rom_seconds = timed(lambda: solve_rom(model, cb, fixtures, active, fixed, fixture_boundary=args.fixture_boundary))
+    full_u, full_seconds = timed(
+        lambda: solve_full(
+            model,
+            fixtures,
+            active,
+            fixed,
+            fixture_boundary=args.fixture_boundary,
+            include_rotation=include_rotation,
+        )
+    )
+    rom_u, rom_seconds = timed(
+        lambda: solve_rom(
+            rom_system,
+            fixtures,
+            active,
+            fixed,
+            fixture_boundary=args.fixture_boundary,
+            include_rotation=include_rotation,
+        )
+    )
     full_wp = full_u[: model.n_dofs]
     rom_wp = rom_u[: model.n_dofs]
     rel_error = np.linalg.norm(full_wp - rom_wp) / max(np.linalg.norm(full_wp), 1.0e-15)
     max_error = float(np.max(np.abs(full_wp - rom_wp)))
-    full_c = work_like(fixtures, active, model, full_u, fixture_boundary=args.fixture_boundary)
-    rom_c = work_like(fixtures, active, model, rom_u, fixture_boundary=args.fixture_boundary)
+    full_c = work_like(
+        fixtures,
+        active,
+        model,
+        full_u,
+        fixture_boundary=args.fixture_boundary,
+        include_rotation=include_rotation,
+    )
+    rom_c = work_like(
+        fixtures,
+        active,
+        model,
+        rom_u,
+        fixture_boundary=args.fixture_boundary,
+        include_rotation=include_rotation,
+    )
 
     print("fixture boundary mode:     ", args.fixture_boundary)
+    print("fixture rotation mode:     ", args.fixture_rotation)
     print("workpiece full dofs:       ", model.n_dofs)
     print("workpiece ROM dofs:        ", cb.n_reduced)
     print("retained workpiece dofs:   ", cb.n_retained)

@@ -38,8 +38,17 @@ Craig-Bampton Constraints and Dynamics
 
 .. autoclass:: fluxfem.solver.LinearConstraintSystem
 .. autoclass:: fluxfem.solver.ReducedLinearConstraintSystem
+.. autoclass:: fluxfem.solver.ReducedCoupledSystem
+.. autoclass:: fluxfem.solver.ReducedCoupledSystemBuilder
 .. autoclass:: fluxfem.solver.RBE3Patch
 .. autoclass:: fluxfem.solver.ReferencePointFixture
+.. autoclass:: fluxfem.solver.RBE3RemoteFixture
+.. autofunction:: fluxfem.solver.vector_dofs_from_nodes
+.. autofunction:: fluxfem.solver.retained_dofs_from_node_sets
+.. autofunction:: fluxfem.solver.remote_reference_size
+.. autofunction:: fluxfem.solver.remote_reference_direction
+.. autofunction:: fluxfem.solver.rbe3_remote_reference_rank
+.. autofunction:: fluxfem.solver.validate_rbe3_remote_reference_rank
 .. autofunction:: fluxfem.solver.linear_constraint_system_from_reference_fixtures
 .. autofunction:: fluxfem.solver.assemble_reference_fixture_preload
 .. autofunction:: fluxfem.solver.solve_linear_constraint_kkt

@@ -781,6 +781,35 @@ class NumpyCoupledSystemBuilder:
             n_nodes=n_nodes,
         )
 
+    def append_dof_copy_field(
+        self,
+        name: str,
+        *,
+        source: str,
+        source_dofs,
+        rho: float = 0.0,
+    ) -> None:
+        """
+        Append an auxiliary field tied to selected DOFs of an existing field.
+
+        This replaces hand-built ``u_source[selected] - u_aux = 0`` matrices
+        before applying RBE2/RBE3 constraints to the auxiliary field.
+        """
+        src = self._get_block(source)
+        dofs = np.asarray(source_dofs, dtype=int).reshape(-1)
+        if dofs.size == 0:
+            raise ValueError("source_dofs must contain at least one DOF.")
+        local = dofs - src.offset
+        if np.any(local < 0) or np.any(local >= src.n_dofs):
+            raise ValueError("source_dofs must lie inside the source field.")
+        self.append_field(name, n_dofs=dofs.size, value_dim=1)
+        rows = np.arange(dofs.size, dtype=int)
+        all_rows = np.concatenate([rows, rows])
+        all_cols = np.concatenate([local, src.n_dofs + rows])
+        data = np.concatenate([np.ones(dofs.size), -np.ones(dofs.size)])
+        C = sp.coo_matrix((data, (all_rows, all_cols)), shape=(dofs.size, src.n_dofs + dofs.size)).tocsr()
+        self.add_constraint_matrix_dof(C, master=source, slave=name, rho=rho)
+
     def register_blocks(self, blocks: Sequence[Any]) -> None:
         """
         Register multiple blocks with auto-offset.

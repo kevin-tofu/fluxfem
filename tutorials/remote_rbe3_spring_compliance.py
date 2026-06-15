@@ -37,15 +37,9 @@ def main() -> None:
     builder = ff.NumpyCoupledSystemBuilder.from_structural(structural_stiffness, structural_force)
     builder.register_field("workpiece", n_dofs=n_structural, value_dim=1, offset=0)
 
-    # The face field is an auxiliary copy of the surface DOFs.  Keeping this
-    # explicit makes it easy to swap in a subset of a larger structural model.
-    builder.append_field("support_face", n_dofs=n_structural, value_dim=1)
+    # The face field is an auxiliary copy of selected structural DOFs.
+    builder.append_dof_copy_field("support_face", source="workpiece", source_dofs=np.arange(n_structural))
     builder.append_remote_point("remote", point=x_ref)
-
-    tie = np.zeros((n_structural, 2 * n_structural), dtype=float)
-    tie[:, :n_structural] = np.eye(n_structural)
-    tie[:, n_structural:] = -np.eye(n_structural)
-    builder.add_constraint_matrix_dof(tie, master="workpiece", slave="support_face")
 
     weights = ff.build_rbe3_weights(x_ref, slave_coords, method="equal")
     builder.add_rbe3_constraint(

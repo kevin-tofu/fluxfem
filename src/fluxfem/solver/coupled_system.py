@@ -448,6 +448,29 @@ class CoupledSystemBuilder:
             n_nodes=n_nodes,
         )
 
+    def append_dof_copy_field(
+        self,
+        name: str,
+        *,
+        source: str,
+        source_dofs,
+        rho: float = 0.0,
+    ) -> None:
+        """Append an auxiliary field constrained to selected source DOFs."""
+        src = self._get_block(source)
+        dofs = np.asarray(source_dofs, dtype=int).reshape(-1)
+        if dofs.size == 0:
+            raise ValueError("source_dofs must contain at least one DOF.")
+        local = dofs - src.offset
+        if np.any(local < 0) or np.any(local >= src.n_dofs):
+            raise ValueError("source_dofs must lie inside the source field.")
+        self.append_field(name, n_dofs=dofs.size, value_dim=1)
+        C = np.zeros((dofs.size, src.n_dofs + dofs.size), dtype=float)
+        rows = np.arange(dofs.size, dtype=int)
+        C[rows, local] = 1.0
+        C[rows, src.n_dofs + rows] = -1.0
+        self.add_constraint_matrix_dof(C, master=source, slave=name, rho=rho)
+
     def append_remote_point(
         self,
         name: str,

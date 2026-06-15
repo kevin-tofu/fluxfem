@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, Sequence, runtime_checkable
 
 import jax
 import jax.numpy as jnp
@@ -63,6 +63,110 @@ def complement_dofs(n_dofs: int, retained_dofs: Array) -> Array:
     retained = jnp.asarray(retained_dofs, dtype=jnp.int32)
     mask = jnp.ones((int(n_dofs),), dtype=bool).at[retained].set(False)
     return jnp.nonzero(mask, size=int(n_dofs) - int(retained.size))[0].astype(jnp.int32)
+
+
+def remote_reference_size(*, include_rotation: bool) -> int:
+    """Return remote reference DOF count for translational or 6-DOF remote points."""
+    return 6 if bool(include_rotation) else 3
+
+
+def remote_reference_direction(
+    translational_direction,
+    *,
+    include_rotation: bool,
+    rotational_direction=None,
+) -> np.ndarray:
+    """Build a remote preload/Dirichlet direction ordered as [u_ref, omega_ref]."""
+    n_ref = remote_reference_size(include_rotation=include_rotation)
+    direction = np.zeros((n_ref,), dtype=float)
+    trans = np.asarray(translational_direction, dtype=float).reshape(-1)
+    if trans.shape != (3,):
+        raise ValueError("translational_direction must have shape (3,).")
+    direction[:3] = trans
+    if include_rotation and rotational_direction is not None:
+        rot = np.asarray(rotational_direction, dtype=float).reshape(-1)
+        if rot.shape != (3,):
+            raise ValueError("rotational_direction must have shape (3,).")
+        direction[3:] = rot
+    return direction
+
+
+def vector_dofs_from_nodes(nodes, dim: int = 3) -> np.ndarray:
+    """Expand node ids to node-major vector DOFs as a NumPy array."""
+    dim = int(dim)
+    if dim <= 0:
+        raise ValueError("dim must be positive.")
+    nodes_arr = np.asarray(nodes, dtype=np.int32).reshape(-1)
+    if nodes_arr.size and nodes_arr.min() < 0:
+        raise ValueError("nodes must be non-negative.")
+    return (nodes_arr[:, None] * dim + np.arange(dim, dtype=np.int32)[None, :]).reshape(-1)
+
+
+def retained_dofs_from_node_sets(*node_sets, dim: int = 3, extra_dofs=None) -> np.ndarray:
+    """Collect sorted vector DOFs from node groups plus optional explicit DOFs."""
+    groups: list[np.ndarray] = []
+    for nodes in node_sets:
+        arr = np.asarray(nodes, dtype=np.int32).reshape(-1)
+        if arr.size:
+            groups.append(vector_dofs_from_nodes(arr, dim=dim))
+    if extra_dofs is not None:
+        extra = np.asarray(extra_dofs, dtype=np.int32).reshape(-1)
+        if extra.size:
+            groups.append(extra)
+    if not groups:
+        return np.asarray([], dtype=np.int32)
+    return np.unique(np.concatenate(groups)).astype(np.int32)
+
+
+def rbe3_remote_reference_rank(
+    ref_point,
+    slave_coords,
+    *,
+    weights=None,
+    include_rotation: bool = True,
+) -> int:
+    """Rank of the remote-reference block in an RBE3 reconstruction."""
+    coords = np.asarray(slave_coords, dtype=float)
+    if coords.ndim != 2 or coords.shape[1] != 3:
+        raise ValueError("slave_coords must have shape (n_slave, 3).")
+    slave_dofs = np.arange(3 * coords.shape[0], dtype=np.int32).reshape(-1, 3)
+    fixture = RBE3RemoteFixture(
+        "rank_check",
+        ref_point=jnp.asarray(ref_point),
+        slave_coords=jnp.asarray(coords),
+        slave_dofs=jnp.asarray(slave_dofs, dtype=jnp.int32),
+        weights=None if weights is None else jnp.asarray(weights),
+        include_rotation=include_rotation,
+    )
+    local = np.asarray(fixture.local_constraint_matrix())
+    n_ref = remote_reference_size(include_rotation=include_rotation)
+    return int(np.linalg.matrix_rank(local[:, :n_ref]))
+
+
+def validate_rbe3_remote_reference_rank(
+    ref_point,
+    slave_coords,
+    *,
+    weights=None,
+    include_rotation: bool = True,
+    min_rank: int | None = None,
+    name: str = "RBE3 remote fixture",
+) -> int:
+    """Validate that an RBE3 patch can reconstruct the requested remote DOFs."""
+    n_ref = remote_reference_size(include_rotation=include_rotation)
+    required = n_ref if min_rank is None else int(min_rank)
+    rank = rbe3_remote_reference_rank(
+        ref_point,
+        slave_coords,
+        weights=weights,
+        include_rotation=include_rotation,
+    )
+    if rank < required:
+        raise ValueError(
+            f"{name}: RBE3 remote reference block has rank {rank}/{required}; "
+            "use a larger/non-degenerate patch, disable rotation, or stabilize the unresolved modes."
+        )
+    return rank
 
 
 def _mass_normalize(modes: Array, mass) -> Array:
@@ -586,8 +690,672 @@ class ReferencePointFixture:
         return k, f
 
 
+@dataclass(frozen=True)
+class RBE3RemoteFixture:
+    """RBE3 remote fixture with optional 6-DOF rotational reference point."""
+
+    name: str
+    ref_point: Array
+    slave_coords: Array
+    slave_dofs: Array
+    weights: Array | None = None
+    include_rotation: bool = True
+    reference_dofs: Array | None = None
+    direction: Array | None = None
+    stiffness: float = 0.0
+    target_displacement: float = 0.0
+
+    def __post_init__(self):
+        ref_point = jnp.asarray(self.ref_point)
+        slave_coords = jnp.asarray(self.slave_coords, dtype=ref_point.dtype)
+        slave_dofs = jnp.asarray(self.slave_dofs, dtype=jnp.int32)
+        if ref_point.shape != (3,):
+            raise ValueError("ref_point must have shape (3,).")
+        if slave_coords.ndim != 2 or slave_coords.shape[1] != 3:
+            raise ValueError("slave_coords must have shape (n_slave, 3).")
+        if slave_coords.shape[0] == 0:
+            raise ValueError("slave_coords must contain at least one node.")
+        if slave_dofs.shape != (slave_coords.shape[0], 3):
+            raise ValueError("slave_dofs must have shape (n_slave, 3).")
+        if bool(jnp.any(slave_dofs < 0)):
+            raise ValueError("slave_dofs must be non-negative.")
+        if self.weights is None:
+            weights = jnp.ones((slave_coords.shape[0],), dtype=slave_coords.dtype)
+        else:
+            weights = jnp.asarray(self.weights, dtype=slave_coords.dtype)
+            if weights.shape != (slave_coords.shape[0],):
+                raise ValueError("weights must have shape (n_slave,).")
+        if bool(jnp.any(~jnp.isfinite(weights))):
+            raise ValueError("weights must be finite.")
+        weight_sum = jnp.sum(weights)
+        if float(jnp.abs(weight_sum)) <= 0.0:
+            raise ValueError("weights must have a non-zero sum.")
+        weights = weights / weight_sum
+
+        n_ref = 6 if bool(self.include_rotation) else 3
+        if self.reference_dofs is None:
+            reference_dofs = jnp.arange(n_ref, dtype=jnp.int32)
+        else:
+            reference_dofs = jnp.asarray(self.reference_dofs, dtype=jnp.int32)
+        if reference_dofs.shape != (n_ref,):
+            raise ValueError("reference_dofs must have shape (6,) with rotation or (3,) without rotation.")
+        if bool(jnp.any(reference_dofs < 0)):
+            raise ValueError("reference_dofs must be non-negative.")
+        if np.unique(np.asarray(reference_dofs)).size != int(reference_dofs.size):
+            raise ValueError("reference_dofs must not contain duplicates.")
+
+        if self.direction is None:
+            direction = jnp.zeros((n_ref,), dtype=weights.dtype).at[2].set(1.0)
+        else:
+            direction = jnp.asarray(self.direction, dtype=weights.dtype)
+        if direction.shape != (n_ref,):
+            raise ValueError("direction must match reference_dofs shape.")
+        norm = jnp.linalg.norm(direction)
+        if float(norm) <= 0.0:
+            raise ValueError("direction must have non-zero norm.")
+
+        object.__setattr__(self, "ref_point", ref_point)
+        object.__setattr__(self, "slave_coords", slave_coords)
+        object.__setattr__(self, "slave_dofs", slave_dofs)
+        object.__setattr__(self, "weights", weights)
+        object.__setattr__(self, "reference_dofs", reference_dofs)
+        object.__setattr__(self, "direction", direction / norm)
+
+    @property
+    def n_reference_dofs(self) -> int:
+        return int(self.reference_dofs.size)
+
+    @property
+    def retained_dofs(self) -> Array:
+        return jnp.unique(self.slave_dofs.reshape(-1)).astype(jnp.int32)
+
+    def local_constraint_matrix(self) -> Array:
+        """Return C for local ordering [q_ref, u_slave_0, ..., u_slave_n]."""
+        dtype = self.weights.dtype
+        n_slave = int(self.slave_coords.shape[0])
+        if not bool(self.include_rotation):
+            c = jnp.zeros((3, 3 + 3 * n_slave), dtype=dtype)
+            c = c.at[:, :3].set(jnp.eye(3, dtype=dtype))
+            for i in range(n_slave):
+                c = c.at[:, 3 + 3 * i : 3 + 3 * i + 3].set(-self.weights[i] * jnp.eye(3, dtype=dtype))
+            return c
+
+        def bmat(point):
+            rx, ry, rz = point - self.ref_point
+            return jnp.array(
+                [
+                    [1.0, 0.0, 0.0, 0.0, rz, -ry],
+                    [0.0, 1.0, 0.0, -rz, 0.0, rx],
+                    [0.0, 0.0, 1.0, ry, -rx, 0.0],
+                ],
+                dtype=dtype,
+            )
+
+        c = jnp.zeros((6, 6 + 3 * n_slave), dtype=dtype)
+        m = jnp.zeros((6, 6), dtype=dtype)
+        slave_blocks = []
+        for i in range(n_slave):
+            bi = bmat(self.slave_coords[i])
+            m = m + self.weights[i] * (bi.T @ bi)
+            slave_blocks.append(-self.weights[i] * bi.T)
+        c = c.at[:, :6].set(m)
+        for i, block in enumerate(slave_blocks):
+            c = c.at[:, 6 + 3 * i : 6 + 3 * i + 3].set(block)
+        return c
+
+    def constraint_matrix(self, n_structural_dofs: int, total_dofs: int) -> Array:
+        n_structural_dofs = int(n_structural_dofs)
+        total_dofs = int(total_dofs)
+        if total_dofs < n_structural_dofs:
+            raise ValueError("total_dofs must be at least n_structural_dofs.")
+        if int(jnp.max(self.slave_dofs)) >= n_structural_dofs:
+            raise ValueError("slave_dofs contain an index outside n_structural_dofs.")
+        if int(jnp.max(self.reference_dofs)) >= total_dofs:
+            raise ValueError("reference_dofs contain an index outside total_dofs.")
+        local = self.local_constraint_matrix()
+        c = jnp.zeros((self.n_reference_dofs, total_dofs), dtype=local.dtype)
+        c = c.at[:, self.reference_dofs].set(local[:, : self.n_reference_dofs])
+        for i in range(int(self.slave_dofs.shape[0])):
+            cols = self.slave_dofs[i]
+            block = local[:, self.n_reference_dofs + 3 * i : self.n_reference_dofs + 3 * i + 3]
+            c = c.at[:, cols].add(block)
+        return c
+
+    def preload_stiffness_force(self, total_dofs: int, *, active: bool = True) -> tuple[Array, Array]:
+        total_dofs = int(total_dofs)
+        k = jnp.zeros((total_dofs, total_dofs), dtype=self.weights.dtype)
+        f = jnp.zeros((total_dofs,), dtype=self.weights.dtype)
+        if not active or float(self.stiffness) == 0.0:
+            return k, f
+        if int(jnp.max(self.reference_dofs)) >= total_dofs:
+            raise ValueError("reference_dofs contain an index outside total_dofs.")
+        d = jnp.asarray(self.direction, dtype=self.weights.dtype)
+        kk = float(self.stiffness) * jnp.outer(d, d)
+        ff = float(self.stiffness) * float(self.target_displacement) * d
+        refs = self.reference_dofs
+        k = k.at[refs[:, None], refs[None, :]].add(kk)
+        f = f.at[refs].add(ff)
+        return k, f
+
+
+@dataclass(frozen=True)
+class ReducedFieldBlock:
+    """Named block in reduced/augmented coordinates."""
+
+    name: str
+    offset: int
+    n_dofs: int
+    value_dim: int = 1
+    n_nodes: int | None = None
+    basis: CraigBamptonBasis | None = None
+    full_n_dofs: int | None = None
+
+    def __post_init__(self):
+        if self.n_dofs <= 0:
+            raise ValueError("n_dofs must be positive.")
+        if self.value_dim <= 0:
+            raise ValueError("value_dim must be positive.")
+        n_nodes = self.n_nodes
+        if n_nodes is None:
+            if self.n_dofs % self.value_dim != 0:
+                raise ValueError("n_dofs must be divisible by value_dim when n_nodes is omitted.")
+            n_nodes = self.n_dofs // self.value_dim
+        object.__setattr__(self, "n_nodes", int(n_nodes))
+
+    @property
+    def stop(self) -> int:
+        return int(self.offset + self.n_dofs)
+
+
+@dataclass(frozen=True)
+class ReducedCoupledSystem:
+    """Built reduced KKT system with named fields and explicit extra DOFs."""
+
+    stiffness: Array
+    force: Array
+    constraints: LinearConstraintSystem
+    fields: dict[str, ReducedFieldBlock]
+    primary_field: str
+    basis: CraigBamptonBasis
+    n_extra_dofs: int = 0
+
+    @property
+    def n_dofs(self) -> int:
+        return int(self.force.size)
+
+    def field(self, name: str) -> ReducedFieldBlock:
+        key = str(name)
+        if key not in self.fields:
+            raise ValueError(f"Field '{key}' is not registered.")
+        return self.fields[key]
+
+    def resolve_block_dofs(
+        self,
+        field: str,
+        *,
+        nodes: int | Sequence[int] | np.ndarray | None = None,
+        components: int | Sequence[int] | np.ndarray | None = None,
+        local_dofs: int | Sequence[int] | np.ndarray | None = None,
+    ) -> np.ndarray:
+        block = self.field(field)
+        has_nodes = nodes is not None
+        has_local = local_dofs is not None
+        if has_nodes and has_local:
+            raise ValueError("Specify either nodes/components or local_dofs, not both.")
+        if not has_nodes and not has_local:
+            raise ValueError("One of nodes or local_dofs must be provided.")
+        if has_local:
+            local = np.asarray(local_dofs, dtype=np.int32).reshape(-1)
+            if local.size and (local.min() < 0 or local.max() >= block.n_dofs):
+                raise ValueError(f"local_dofs out of range for field '{field}'.")
+            return block.offset + local
+
+        node_arr = np.asarray(nodes, dtype=np.int32).reshape(-1)
+        if node_arr.size and (node_arr.min() < 0 or node_arr.max() >= int(block.n_nodes)):
+            raise ValueError(f"nodes out of range for field '{field}'.")
+        if components is None:
+            comp_arr = np.arange(block.value_dim, dtype=np.int32)
+        else:
+            comp_arr = np.asarray(components, dtype=np.int32).reshape(-1)
+        if comp_arr.size and (comp_arr.min() < 0 or comp_arr.max() >= block.value_dim):
+            raise ValueError(f"components out of range for field '{field}'.")
+        local = (node_arr[:, None] * block.value_dim + comp_arr[None, :]).reshape(-1)
+        return block.offset + local
+
+    def resolve_dirichlet(
+        self,
+        specs: Sequence[Any],
+        *,
+        default_value: float = 0.0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        dof_to_value: dict[int, float] = {}
+        for spec in specs:
+            field = str(getattr(spec, "field"))
+            dofs = self.resolve_block_dofs(
+                field,
+                nodes=getattr(spec, "nodes", None),
+                components=getattr(spec, "components", None),
+                local_dofs=getattr(spec, "local_dofs", None),
+            )
+            value_obj = getattr(spec, "value", None)
+            value_arr = np.asarray(default_value if value_obj is None else value_obj, dtype=float).reshape(-1)
+            if value_arr.size == 1:
+                values = np.full((dofs.size,), float(value_arr[0]), dtype=float)
+            elif value_arr.size == dofs.size:
+                values = value_arr
+            else:
+                raise ValueError("Dirichlet value must be scalar or match selected DOF count.")
+            for dof, value in zip(dofs, values):
+                dof_to_value[int(dof)] = float(value)
+        if not dof_to_value:
+            return np.asarray([], dtype=np.int32), np.asarray([], dtype=float)
+        items = sorted(dof_to_value.items(), key=lambda item: item[0])
+        return np.asarray([d for d, _ in items], dtype=np.int32), np.asarray([v for _, v in items], dtype=float)
+
+    def solve(
+        self,
+        *,
+        dirichlet_specs: Sequence[Any] | None = None,
+        fixed_dofs: Array | None = None,
+        fixed_values: Array | None = None,
+        solver: str = "dense",
+    ) -> Array:
+        if dirichlet_specs is not None:
+            if fixed_dofs is not None:
+                raise ValueError("Use either dirichlet_specs or fixed_dofs, not both.")
+            fixed_dofs, fixed_values = self.resolve_dirichlet(dirichlet_specs)
+        return self.constraints.solve(
+            self.stiffness,
+            self.force,
+            fixed_dofs=fixed_dofs,
+            fixed_values=fixed_values,
+            solver=solver,
+        )
+
+    def expand(self, q_aug: Array) -> Array:
+        return ReducedLinearConstraintSystem(
+            self.constraints.matrix,
+            self.constraints.rhs,
+            self.basis,
+            self.n_extra_dofs,
+        ).expand(q_aug)
+
+    def reduced_dofs_from_full(self, field: str, full_dofs: Array) -> np.ndarray:
+        block = self.field(field)
+        if block.basis is None:
+            raise ValueError(f"Field '{field}' is not a reduced structural field.")
+        full = np.asarray(full_dofs, dtype=np.int32).reshape(-1)
+        retained = np.asarray(block.basis.retained_dofs, dtype=np.int32)
+        mapping = {int(dof): int(i + block.offset) for i, dof in enumerate(retained)}
+        try:
+            return np.asarray([mapping[int(dof)] for dof in full], dtype=np.int32)
+        except KeyError as exc:
+            raise ValueError("All fixed full DOFs must be retained in the CB basis.") from exc
+
+
+class ReducedCoupledSystemBuilder:
+    """Name-based builder for CB-reduced structural systems and explicit remote DOFs."""
+
+    def __init__(self):
+        self._structural_name: str | None = None
+        self._stiffness = None
+        self._mass = None
+        self._force = None
+        self._value_dim = 1
+        self._n_nodes: int | None = None
+        self._basis: CraigBamptonBasis | None = None
+        self._reduced_name: str | None = None
+        self._extra_blocks: dict[str, ReducedFieldBlock] = {}
+        self._extra_points: dict[str, np.ndarray] = {}
+        self._extra_k: list[tuple[np.ndarray, np.ndarray, np.ndarray | None]] = []
+        self._constraints: list[tuple[str, RBE3RemoteFixture]] = []
+
+    @classmethod
+    def from_structural(
+        cls,
+        name: str,
+        stiffness,
+        force: Array,
+        *,
+        mass=None,
+        value_dim: int = 1,
+        n_nodes: int | None = None,
+    ) -> "ReducedCoupledSystemBuilder":
+        builder = cls()
+        builder.register_structural(name, stiffness, force, mass=mass, value_dim=value_dim, n_nodes=n_nodes)
+        return builder
+
+    def register_structural(
+        self,
+        name: str,
+        stiffness,
+        force: Array,
+        *,
+        mass=None,
+        value_dim: int = 1,
+        n_nodes: int | None = None,
+    ) -> None:
+        if self._structural_name is not None:
+            raise ValueError("ReducedCoupledSystemBuilder currently supports one structural source field.")
+        n = int(_matrix_shape(stiffness)[0])
+        if _matrix_shape(stiffness) != (n, n):
+            raise ValueError("stiffness must be square.")
+        force_arr = jnp.asarray(force)
+        if force_arr.shape != (n,):
+            raise ValueError("force must match stiffness size.")
+        if mass is None:
+            mass = jnp.eye(n, dtype=_matrix_dtype(stiffness))
+        if _matrix_shape(mass) != (n, n):
+            raise ValueError("mass must match stiffness size.")
+        self._structural_name = str(name)
+        self._stiffness = stiffness
+        self._mass = mass
+        self._force = force_arr
+        self._value_dim = int(value_dim)
+        self._n_nodes = n_nodes
+
+    @property
+    def structural_name(self) -> str:
+        if self._structural_name is None:
+            raise ValueError("No structural field is registered.")
+        return self._structural_name
+
+    @property
+    def basis(self) -> CraigBamptonBasis:
+        if self._basis is None:
+            raise ValueError("Call reduce_field(...) before building the reduced system.")
+        return self._basis
+
+    def reduce_field(
+        self,
+        name: str | None = None,
+        *,
+        reduced_name: str | None = None,
+        retained_dofs: Array,
+        n_modes: int,
+        method: str = "craig_bampton",
+        **kwargs,
+    ) -> CraigBamptonBasis:
+        field_name = self.structural_name if name is None else str(name)
+        if field_name != self.structural_name:
+            raise ValueError("Only the registered structural field can be reduced.")
+        if str(method).lower() not in {"craig_bampton", "cb"}:
+            raise ValueError("method must be 'craig_bampton' or 'cb'.")
+        self._basis = make_craig_bampton_basis(
+            self._stiffness,
+            self._mass,
+            retained_dofs=retained_dofs,
+            n_modes=n_modes,
+            **kwargs,
+        )
+        self._reduced_name = reduced_name or field_name
+        return self._basis
+
+    def _next_extra_offset(self) -> int:
+        return sum(block.n_dofs for block in self._extra_blocks.values())
+
+    def append_remote_point(
+        self,
+        name: str,
+        *,
+        point,
+        include_rotation: bool = True,
+    ) -> None:
+        key = str(name)
+        if key in self._extra_blocks:
+            raise ValueError(f"Field '{key}' is already registered.")
+        n_dofs = 6 if include_rotation else 3
+        self._extra_blocks[key] = ReducedFieldBlock(
+            name=key,
+            offset=self._next_extra_offset(),
+            n_dofs=n_dofs,
+            value_dim=1,
+            n_nodes=n_dofs,
+        )
+        point_arr = np.asarray(point, dtype=float).reshape(-1)
+        if point_arr.shape != (3,):
+            raise ValueError("remote point must be a 3D coordinate.")
+        self._extra_points[key] = point_arr
+
+    def add_remote_spring(
+        self,
+        field: str,
+        *,
+        translational_stiffness=None,
+        rotational_stiffness=None,
+        translational_target=0.0,
+        rotational_target=0.0,
+    ) -> None:
+        block = self._extra_blocks[str(field)]
+        k = np.zeros((block.n_dofs, block.n_dofs), dtype=float)
+        f = np.zeros((block.n_dofs,), dtype=float)
+
+        def add_diag(start: int, values, target):
+            vals = np.asarray(values, dtype=float).reshape(-1)
+            if vals.size == 1:
+                vals = np.full((3,), float(vals[0]), dtype=float)
+            if vals.shape != (3,):
+                raise ValueError("remote spring stiffness must be scalar or length 3.")
+            tgt = np.asarray(target, dtype=float).reshape(-1)
+            if tgt.size == 1:
+                tgt = np.full((3,), float(tgt[0]), dtype=float)
+            if tgt.shape != (3,):
+                raise ValueError("remote spring target must be scalar or length 3.")
+            idx = start + np.arange(3)
+            k[idx, idx] += vals
+            f[idx] += vals * tgt
+
+        if translational_stiffness is not None:
+            add_diag(0, translational_stiffness, translational_target)
+        if rotational_stiffness is not None:
+            if block.n_dofs != 6:
+                raise ValueError("rotational springs require a 6-DOF remote point.")
+            add_diag(3, rotational_stiffness, rotational_target)
+        self._extra_k.append((np.arange(block.offset, block.stop, dtype=np.int32), k, f))
+
+    def add_remote_preload(
+        self,
+        field: str,
+        *,
+        stiffness: float,
+        direction,
+        target_displacement: float,
+    ) -> None:
+        block = self._extra_blocks[str(field)]
+        direction_arr = np.asarray(direction, dtype=float).reshape(-1)
+        if direction_arr.shape != (block.n_dofs,):
+            raise ValueError("direction must match the remote point DOF count.")
+        norm = np.linalg.norm(direction_arr)
+        if norm <= 0.0:
+            raise ValueError("direction must have non-zero norm.")
+        d = direction_arr / norm
+        k = float(stiffness) * np.outer(d, d)
+        f = float(stiffness) * float(target_displacement) * d
+        self._extra_k.append((np.arange(block.offset, block.stop, dtype=np.int32), k, f))
+
+    def add_rbe3_constraint(
+        self,
+        *,
+        master: str,
+        slave: str,
+        ref_point,
+        slave_coords,
+        slave_dofs,
+        weights=None,
+        normalize_weights: bool = True,
+    ) -> None:
+        if str(slave) not in {self.structural_name, self._reduced_name}:
+            raise ValueError("RBE3 slave must be the structural/reduced field.")
+        block = self._extra_blocks[str(master)]
+        if block.n_dofs not in {3, 6}:
+            raise ValueError("RBE3 master must be a 3-DOF or 6-DOF remote point.")
+        fixture = RBE3RemoteFixture(
+            str(master),
+            ref_point=jnp.asarray(ref_point),
+            slave_coords=jnp.asarray(slave_coords),
+            slave_dofs=jnp.asarray(slave_dofs, dtype=jnp.int32),
+            weights=None if weights is None else jnp.asarray(weights),
+            include_rotation=block.n_dofs == 6,
+            reference_dofs=jnp.asarray(block.offset + np.arange(block.n_dofs), dtype=jnp.int32),
+        )
+        if not normalize_weights and weights is not None:
+            object.__setattr__(fixture, "weights", jnp.asarray(weights))
+        self._constraints.append((str(master), fixture))
+
+    def add_rbe3_fixture(
+        self,
+        name: str,
+        *,
+        body: str | None = None,
+        ref_point,
+        slave_coords,
+        slave_dofs,
+        weights=None,
+        include_rotation: bool = True,
+        translational_stiffness=None,
+        rotational_stiffness=None,
+        translational_target=0.0,
+        rotational_target=0.0,
+    ) -> None:
+        self.append_remote_point(name, point=ref_point, include_rotation=include_rotation)
+        self.add_rbe3_constraint(
+            master=name,
+            slave=body or self.structural_name,
+            ref_point=ref_point,
+            slave_coords=slave_coords,
+            slave_dofs=slave_dofs,
+            weights=weights,
+        )
+        if translational_stiffness is not None or rotational_stiffness is not None:
+            self.add_remote_spring(
+                name,
+                translational_stiffness=translational_stiffness,
+                rotational_stiffness=rotational_stiffness,
+                translational_target=translational_target,
+                rotational_target=rotational_target,
+            )
+
+    def add_rbe3_fixture_from_nodes(
+        self,
+        name: str,
+        *,
+        body: str | None = None,
+        ref_point,
+        coords,
+        nodes,
+        weights=None,
+        dim: int = 3,
+        include_rotation: bool = True,
+        validate_rank: bool = True,
+        preload_stiffness: float | None = None,
+        preload_direction=None,
+        preload_target: float = 0.0,
+    ) -> None:
+        """Append and connect a remote RBE3 fixture from structural node ids."""
+        nodes_arr = np.asarray(nodes, dtype=np.int32).reshape(-1)
+        coords_arr = np.asarray(coords, dtype=float)
+        if coords_arr.ndim != 2 or coords_arr.shape[1] != 3:
+            raise ValueError("coords must have shape (n_nodes, 3).")
+        if nodes_arr.size == 0:
+            raise ValueError("nodes must contain at least one node.")
+        if nodes_arr.min() < 0 or nodes_arr.max() >= coords_arr.shape[0]:
+            raise ValueError("nodes contain an index outside coords.")
+        patch_coords = coords_arr[nodes_arr]
+        patch_dofs = vector_dofs_from_nodes(nodes_arr, dim=dim).reshape(-1, dim)
+        if dim != 3:
+            raise ValueError("RBE3 remote fixtures currently require dim=3.")
+        if validate_rank and include_rotation:
+            validate_rbe3_remote_reference_rank(
+                ref_point,
+                patch_coords,
+                weights=weights,
+                include_rotation=True,
+                name=str(name),
+            )
+        self.add_rbe3_fixture(
+            name,
+            body=body,
+            ref_point=ref_point,
+            slave_coords=patch_coords,
+            slave_dofs=patch_dofs,
+            weights=weights,
+            include_rotation=include_rotation,
+        )
+        if preload_stiffness is not None:
+            if preload_direction is None:
+                raise ValueError("preload_direction is required when preload_stiffness is provided.")
+            self.add_remote_preload(
+                name,
+                stiffness=float(preload_stiffness),
+                direction=preload_direction,
+                target_displacement=float(preload_target),
+            )
+
+    def build(self) -> ReducedCoupledSystem:
+        cb = self.basis
+        n_extra = self._next_extra_offset()
+        n_total = cb.n_reduced + n_extra
+        k = jnp.zeros((n_total, n_total), dtype=jnp.result_type(_matrix_dtype(self._stiffness), self._force))
+        f = jnp.zeros((n_total,), dtype=k.dtype)
+        k = k.at[: cb.n_reduced, : cb.n_reduced].set(cb.project_matrix(self._stiffness))
+        f = f.at[: cb.n_reduced].set(cb.project_vector(self._force))
+
+        for local_dofs, k_local, f_local in self._extra_k:
+            dofs = cb.n_reduced + jnp.asarray(local_dofs, dtype=jnp.int32)
+            k = k.at[dofs[:, None], dofs[None, :]].add(jnp.asarray(k_local, dtype=k.dtype))
+            if f_local is not None:
+                f = f.at[dofs].add(jnp.asarray(f_local, dtype=f.dtype))
+
+        rows = []
+        for _, fixture in self._constraints:
+            full_ref = cb.n_full + np.asarray(fixture.reference_dofs, dtype=np.int32)
+            full_fixture = RBE3RemoteFixture(
+                fixture.name,
+                ref_point=fixture.ref_point,
+                slave_coords=fixture.slave_coords,
+                slave_dofs=fixture.slave_dofs,
+                weights=fixture.weights,
+                include_rotation=fixture.include_rotation,
+                reference_dofs=jnp.asarray(full_ref, dtype=jnp.int32),
+            )
+            c_full = full_fixture.constraint_matrix(cb.n_full, cb.n_full + n_extra)
+            rows.append(LinearConstraintSystem(c_full).project(cb, n_extra_dofs=n_extra).matrix)
+        constraints = LinearConstraintSystem(
+            jnp.vstack(rows) if rows else jnp.zeros((0, n_total), dtype=k.dtype)
+        )
+
+        fields: dict[str, ReducedFieldBlock] = {}
+        reduced_name = self._reduced_name or self.structural_name
+        fields[reduced_name] = ReducedFieldBlock(
+            name=reduced_name,
+            offset=0,
+            n_dofs=cb.n_reduced,
+            value_dim=1,
+            n_nodes=cb.n_reduced,
+            basis=cb,
+            full_n_dofs=cb.n_full,
+        )
+        for key, block in self._extra_blocks.items():
+            fields[key] = ReducedFieldBlock(
+                name=block.name,
+                offset=cb.n_reduced + block.offset,
+                n_dofs=block.n_dofs,
+                value_dim=block.value_dim,
+                n_nodes=block.n_nodes,
+            )
+        return ReducedCoupledSystem(
+            stiffness=k,
+            force=f,
+            constraints=constraints,
+            fields=fields,
+            primary_field=reduced_name,
+            basis=cb,
+            n_extra_dofs=n_extra,
+        )
+
+
 def linear_constraint_system_from_reference_fixtures(
-    fixtures: tuple[ReferencePointFixture, ...] | list[ReferencePointFixture],
+    fixtures: tuple[ReferencePointFixture | RBE3RemoteFixture, ...] | list[ReferencePointFixture | RBE3RemoteFixture],
     *,
     n_structural_dofs: int,
     total_dofs: int,
@@ -602,14 +1370,17 @@ def linear_constraint_system_from_reference_fixtures(
 
 
 def assemble_reference_fixture_preload(
-    fixtures: tuple[ReferencePointFixture, ...] | list[ReferencePointFixture],
+    fixtures: tuple[ReferencePointFixture | RBE3RemoteFixture, ...] | list[ReferencePointFixture | RBE3RemoteFixture],
     *,
     total_dofs: int,
     active_names: set[str] | frozenset[str] | None = None,
     sparse: bool = False,
 ) -> tuple[Array, Array]:
     total_dofs = int(total_dofs)
-    dtype = fixtures[0].patch.weights.dtype if len(fixtures) else jnp.float32
+    if len(fixtures):
+        dtype = fixtures[0].weights.dtype if isinstance(fixtures[0], RBE3RemoteFixture) else fixtures[0].patch.weights.dtype
+    else:
+        dtype = jnp.float32
     if sparse:
         try:
             import scipy.sparse as sp
@@ -1246,6 +2017,9 @@ __all__ = [
     "NewmarkState",
     "NewmarkStepInfo",
     "RBE3Patch",
+    "RBE3RemoteFixture",
+    "ReducedCoupledSystem",
+    "ReducedCoupledSystemBuilder",
     "ReducedContactDynamics",
     "ReducedLinearConstraintSystem",
     "ReferencePointFixture",
@@ -1260,8 +2034,14 @@ __all__ = [
     "make_newmark_effective_residual",
     "newmark_kinematics",
     "newmark_step",
+    "remote_reference_direction",
+    "remote_reference_size",
+    "retained_dofs_from_node_sets",
+    "rbe3_remote_reference_rank",
     "reduced_jacobian_from_full",
     "reduced_residual_from_full",
     "solve_linear_constraint_kkt",
     "solve_constraint_modes",
+    "validate_rbe3_remote_reference_rank",
+    "vector_dofs_from_nodes",
 ]
