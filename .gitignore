@@ -107,6 +107,7 @@ ipython_config.py
 #   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
 #poetry.lock
 #poetry.toml
+poetry.lock
 
 # pdm
 #   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
@@ -214,3 +215,6 @@ __marimo__/
 *.h5
 result/
 data/
+
+# Local reference checkouts
+skfem-Craig-Bampton-ROM/
