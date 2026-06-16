@@ -113,6 +113,85 @@ def test_craig_bampton_sparse_fluxfem_matrices_match_dense_eigenvalues():
     assert cb_sparse.n_modes == 2
 
 
+def test_craig_bampton_project_matrix_keeps_sparse_input_sparse():
+    sp = pytest.importorskip("scipy.sparse")
+
+    stiffness = np.array(
+        [
+            [5.0, -1.0, 0.0, 0.0],
+            [-1.0, 4.0, -0.5, 0.0],
+            [0.0, -0.5, 3.5, -1.0],
+            [0.0, 0.0, -1.0, 3.0],
+        ],
+        dtype=float,
+    )
+    mass = np.eye(4, dtype=float)
+    cb = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=np.array([0, 3]), n_modes=1)
+    sparse = sp.csr_matrix(stiffness)
+
+    class SparseOnlyMatrix:
+        shape = sparse.shape
+        dtype = sparse.dtype
+
+        def to_csr(self):
+            return sparse
+
+        def toarray(self):  # pragma: no cover - should never be reached
+            raise AssertionError("project_matrix should not densify sparse inputs")
+
+        def __array__(self):  # pragma: no cover - should never be reached
+            raise AssertionError("project_matrix should not convert sparse inputs through __array__")
+
+    expected = cb.basis.T @ jnp.asarray(stiffness) @ cb.basis
+    np.testing.assert_allclose(np.asarray(cb.project_matrix(sparse)), np.asarray(expected), atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(cb.project_matrix(SparseOnlyMatrix())), np.asarray(expected), atol=1.0e-12)
+
+
+def test_craig_bampton_project_operator_matvec_matches_projected_matrix():
+    sp = pytest.importorskip("scipy.sparse")
+
+    stiffness = np.array(
+        [
+            [5.0, -1.0, 0.0, 0.0],
+            [-1.0, 4.0, -0.5, 0.0],
+            [0.0, -0.5, 3.5, -1.0],
+            [0.0, 0.0, -1.0, 3.0],
+        ],
+        dtype=float,
+    )
+    mass = np.eye(4, dtype=float)
+    cb = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=np.array([0, 3]), n_modes=1)
+    q = jnp.array([0.2, -0.1, 0.05], dtype=jnp.float64)
+    k_red = cb.project_matrix(stiffness)
+    sparse = sp.csr_matrix(stiffness)
+
+    class SparseOnlyOperator:
+        shape = sparse.shape
+
+        def matvec(self, vector):
+            return sparse @ np.asarray(vector)
+
+        def to_csr(self):  # pragma: no cover - should never be reached
+            raise AssertionError("project_operator should prefer matvec over sparse conversion")
+
+        def toarray(self):  # pragma: no cover - should never be reached
+            raise AssertionError("project_operator should use matvec for operator inputs")
+
+        def __array__(self):  # pragma: no cover - should never be reached
+            raise AssertionError("project_operator should not densify operator inputs")
+
+    sparse_op = cb.project_operator(sparse)
+    matvec_op = cb.project_operator(SparseOnlyOperator())
+    callable_op = cb.project_operator(lambda vector: jnp.asarray(stiffness) @ vector)
+
+    np.testing.assert_allclose(np.asarray(sparse_op.matvec(q)), np.asarray(k_red @ q), atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(matvec_op @ q), np.asarray(k_red @ q), atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(callable_op.matvec(q)), np.asarray(k_red @ q), atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(sparse_op.to_dense()), np.asarray(k_red), atol=1.0e-12)
+    assert sparse_op.shape == (cb.n_reduced, cb.n_reduced)
+    assert ff.ProjectedReducedOperator is ff.solver.ProjectedReducedOperator
+
+
 def test_craig_bampton_top_level_exports_are_available():
     assert ff.CraigBamptonBasis is not None
     assert ff.make_craig_bampton_basis is ff.solver.make_craig_bampton_basis

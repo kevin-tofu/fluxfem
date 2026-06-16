@@ -627,7 +627,7 @@ Craig-Bampton ROM tutorials:
 - `tutorials/craig_bampton_reduced_coupled_builder.py` is the preferred compact API path: name-based structural registration, `reduce_field(..., method="craig_bampton")`, explicit RBE3 remote fixture fields, preload, and prescribed-reference variants.
 - `tutorials/craig_bampton_multifield_builder.py` extends the same builder pattern to multiple reduced subsystems connected by named DOF tie constraints.
 - `tutorials/craig_bampton_rbe3_preload_component.py` is the experiment-2 style validation tutorial. It compares full explicit-reference RBE3 KKT solves against the CB-projected ROM for preload and Dirichlet fixture boundaries, with optional rotational RBE3 reference DOFs.
-- `tutorials/craig_bampton_sparse_fe_basis.py` demonstrates CB basis construction from current sparse FE matrices.
+- `tutorials/craig_bampton_sparse_fe_basis.py` demonstrates CB basis construction from current sparse FE matrices, sparse-preserving projection, and matrix-free reduced operator actions with `project_operator(...)`.
 - `tutorials/craig_bampton_contact_rom.py`, `tutorials/craig_bampton_active_contact_newmark.py`, and the node/surface-quadrature contact variants demonstrate retained contact/interface DOFs with explicit active-contact updates outside the differentiated residual.
 - `tutorials/craig_bampton_rbe3_preload_mpc.py` and `tutorials/craig_bampton_fluxfem_rbe3_preload_experiment2.py` are lower-level compatibility/reference examples using `RBE3Patch`, `ReferencePointFixture`, and manual projection APIs.
 

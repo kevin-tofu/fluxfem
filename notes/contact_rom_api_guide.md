@@ -138,8 +138,8 @@ validation details live in `notes/craig_bampton_rom.md` and
 
 ## Interface roles
 
-- `CraigBamptonBasis`: owns `expand(q)`, `project_vector(f)`, and
-  `project_matrix(A)`.
+- `CraigBamptonBasis`: owns `expand(q)`, `project_vector(f)`,
+  `project_matrix(A)`, and `project_operator(A)`.
 - `ContactSearchManagerLike`: must implement `build_contact(displacement)`.
 - `FrictionManagerLike`: must implement `snapshot(contact, u)` and
   `advance(contact, u)`.

@@ -16,6 +16,8 @@ gap/contact variables behind modal coordinates.
 - `CraigBamptonBasis.expand(q)` maps reduced coordinates to full DOFs.
 - `CraigBamptonBasis.project_vector(r)` maps full residuals to reduced residuals.
 - `CraigBamptonBasis.project_matrix(A)` maps full matrices to reduced matrices.
+- `CraigBamptonBasis.project_operator(A)` maps sparse/operator/callable actions
+  to a matrix-free reduced operator `q -> Phi.T A(Phi q)`.
 - `reduced_residual_from_full(cb, residual_fn)` keeps the full residual function
   intact and wraps it as `Phi.T @ residual_fn(Phi @ q)`.
 - `reduced_jacobian_from_full(cb, residual_fn)` uses `jax.jacrev` on the reduced

@@ -7,7 +7,7 @@
 - Internal DOFs are represented by static constraint modes and fixed-interface modes.
 - Dense, SciPy sparse direct (`spsolve`), and SciPy sparse modal (`eigsh`) paths are exposed through solver options.
 - The legacy iterative paths are available: `constraint_solver="cg"` and `modal_solver="subspace"` with `modal_linear_solver="cg"`.
-- `CraigBamptonBasis` is a JAX pytree and provides `expand`, `project_vector`, `project_matrix`, `reduced_residual`, and `reduced_jacobian`.
+- `CraigBamptonBasis` is a JAX pytree and provides `expand`, `project_vector`, `project_matrix`, `project_operator`, `reduced_residual`, and `reduced_jacobian`.
 - The previous ROM-level helper layer is restored in 0.3.5 form: `LinearConstraintSystem`, `ReducedLinearConstraintSystem`, `ReducedCoupledSystemBuilder`, `RBE3Patch`, `ReferencePointFixture`, `RBE3RemoteFixture`, KKT solve helpers, reduced Newmark helpers, and generic active-contact/state outer loops.
 
 ## Why this helps contact and fixtures
@@ -79,11 +79,16 @@ Current contact tutorials follow this split: the reduced residual stays differen
 
 ## Important limitation
 
-The current port still stores the final basis as a dense matrix and `project_matrix` densifies the input matrix. Sparse solvers are used for partition solves and modal extraction, but very large models will need a matrix-free/sparse basis operator before this becomes the best option for production-scale DOF counts.
+The current port still stores the final basis as a dense matrix. `project_matrix`
+keeps SciPy/FluxFEM sparse inputs sparse for the `K @ Phi` multiplication, and
+`project_operator` exposes the matrix-free reduced action `q -> Phi.T A(Phi q)`
+for sparse/operator/callable inputs. Very large models will still need a
+block/matrix-free basis representation before this becomes the best option for
+production-scale DOF counts.
 
 ## Next implementation steps
 
-1. Add a sparse/matrix-free basis operator so `Phi.T @ K @ Phi` can be assembled blockwise without materializing full dense `Phi`.
+1. Add a block/matrix-free basis representation so full dense `Phi` does not need to be materialized.
 2. Add direct contact integration so candidate contact DOFs can be retained and contact blocks can be attached by field name.
 3. Add an active-contact example where candidate contact DOFs are retained and only interior DOFs are reduced.
 4. Extend multi-field coupling beyond DOF ties to named spring/damper/interface operators.

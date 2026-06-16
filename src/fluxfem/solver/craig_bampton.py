@@ -36,6 +36,34 @@ def _as_dense_array(matrix) -> Array:
     return jnp.asarray(matrix)
 
 
+def _as_scipy_sparse_matrix(matrix):
+    sp = _optional_scipy_sparse()
+    if hasattr(matrix, "to_csr"):
+        matrix = matrix.to_csr()
+    if sp is not None and sp.issparse(matrix):
+        return matrix.tocsr()
+    return None
+
+
+def _project_matrix_with_basis(matrix, basis: Array) -> Array:
+    sparse = _as_scipy_sparse_matrix(matrix)
+    if sparse is not None:
+        basis_np = np.asarray(basis)
+        return jnp.asarray(basis_np.T @ (sparse @ basis_np))
+    return basis.T @ _as_dense_array(matrix) @ basis
+
+
+def _operator_matvec(operator):
+    if hasattr(operator, "matvec"):
+        return lambda vector: jnp.asarray(operator.matvec(vector))
+    if callable(operator):
+        return lambda vector: jnp.asarray(operator(vector))
+    sparse = _as_scipy_sparse_matrix(operator)
+    if sparse is not None:
+        return lambda vector: jnp.asarray(sparse @ np.asarray(vector))
+    return lambda vector: jnp.asarray(operator) @ vector
+
+
 def _matrix_dtype(matrix):
     if hasattr(matrix, "data"):
         return jnp.asarray(matrix.data).dtype
@@ -421,6 +449,34 @@ def fixed_interface_modes(
     raise ValueError("modal_solver must be 'dense', 'subspace', 'eigsh', or a callable.")
 
 
+@dataclass(frozen=True)
+class ProjectedReducedOperator:
+    """Matrix-free reduced operator ``q -> Phi.T A(Phi q)``."""
+
+    basis: "CraigBamptonBasis"
+    operator: Any
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return (self.basis.n_reduced, self.basis.n_reduced)
+
+    def matvec(self, q: Array) -> Array:
+        q_arr = jnp.asarray(q)
+        if q_arr.shape != (self.basis.n_reduced,):
+            raise ValueError("q must have shape (n_reduced,).")
+        full_action = _operator_matvec(self.operator)(self.basis.expand(q_arr))
+        return self.basis.project_vector(full_action)
+
+    def __matmul__(self, q: Array) -> Array:
+        return self.matvec(q)
+
+    def to_dense(self) -> Array:
+        if self.basis.n_reduced == 0:
+            return jnp.zeros(self.shape, dtype=self.basis.basis.dtype)
+        columns = [self.matvec(eye_col) for eye_col in jnp.eye(self.basis.n_reduced, dtype=self.basis.basis.dtype)]
+        return jnp.stack(columns, axis=1)
+
+
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class CraigBamptonBasis:
@@ -454,7 +510,10 @@ class CraigBamptonBasis:
         return self.basis.T @ jnp.asarray(vector)
 
     def project_matrix(self, matrix) -> Array:
-        return self.basis.T @ _as_dense_array(matrix) @ self.basis
+        return _project_matrix_with_basis(matrix, self.basis)
+
+    def project_operator(self, operator) -> ProjectedReducedOperator:
+        return ProjectedReducedOperator(self, operator)
 
     def reduced_residual(self, residual_fn: Callable[[Array], Array]) -> Callable[[Array], Array]:
         def _residual(q: Array) -> Array:
@@ -2188,6 +2247,7 @@ __all__ = [
     "NewmarkConfig",
     "NewmarkState",
     "NewmarkStepInfo",
+    "ProjectedReducedOperator",
     "RBE3Patch",
     "RBE3RemoteFixture",
     "ReducedCoupledSystem",

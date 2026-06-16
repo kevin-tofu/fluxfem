@@ -65,8 +65,12 @@ def main() -> None:
         modal_solver="eigsh",
     )
 
+    # `project_matrix` keeps SciPy/FluxFEM sparse inputs sparse during K @ Phi.
     k_red = np.asarray(cb.project_matrix(k_free), dtype=float)
     m_red = np.asarray(cb.project_matrix(m_free), dtype=float)
+    k_reduced_operator = cb.project_operator(k_free)
+    q_probe = jnp.linspace(-0.2, 0.2, cb.n_reduced, dtype=jnp.float64)
+    operator_error = np.linalg.norm(np.asarray(k_reduced_operator.matvec(q_probe)) - k_red @ np.asarray(q_probe))
     retained_identity_error = np.linalg.norm(
         np.asarray(cb.basis)[np.ix_(retained, np.arange(retained.size))] - np.eye(retained.size)
     )
@@ -84,6 +88,7 @@ def main() -> None:
     print("lowest eigenvalues:   ", np.asarray(cb.eigenvalues))
     print("K_red shape:          ", k_red.shape)
     print("M_red shape:          ", m_red.shape)
+    print("K operator matvec err:", f"{operator_error:.3e}")
     print("retained identity err:", f"{retained_identity_error:.3e}")
     print("AD Jacobian shape:    ", j_red.shape)
     print("AD Jacobian symmetry: ", f"{np.linalg.norm(j_red - j_red.T):.3e}")
