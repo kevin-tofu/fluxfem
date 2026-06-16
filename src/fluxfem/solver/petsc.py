@@ -33,7 +33,9 @@ def _extract_factor_solver_type(options: dict[str, Any] | None) -> tuple[dict[st
 
 def petsc_is_available() -> bool:
     try:
-        import petsc4py  # noqa: F401
+        import petsc4py
+        petsc4py.init([])
+        from petsc4py import PETSc  # noqa: F401
         return True
     except Exception:
         return False
