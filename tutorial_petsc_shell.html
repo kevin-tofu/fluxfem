@@ -391,8 +391,12 @@
 preconditioning and matrix-free solves.</p>
 <section id="prerequisites">
 <h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">#</a></h2>
-<p>The demos require PETSc and <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> (the <code class="docutils literal notranslate"><span class="pre">petsc</span></code> extra). Install with:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="w"> </span>--extras<span class="w"> </span><span class="s2">&quot;petsc&quot;</span>
+<p>The demos require PETSc and <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> (the <code class="docutils literal notranslate"><span class="pre">petsc</span></code> extra). For source
+checkouts with a custom PETSc build, install the regular Poetry environment and
+then build <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> against that PETSc:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_DIR</span><span class="o">=</span>/path/to/petsc-3.24.4
+<span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_ARCH</span><span class="o">=</span>arch-linux-c-opt
+scripts/install_petsc4py
 </pre></div>
 </div>
 <p>Ensure <code class="docutils literal notranslate"><span class="pre">PETSC_DIR</span></code> (and optionally <code class="docutils literal notranslate"><span class="pre">PETSC_ARCH</span></code>) point to a valid PETSc build

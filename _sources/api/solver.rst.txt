@@ -27,6 +27,7 @@ Craig-Bampton ROM
 -----------------
 
 .. autoclass:: fluxfem.solver.CraigBamptonBasis
+.. autoclass:: fluxfem.solver.ProjectedReducedOperator
 .. autofunction:: fluxfem.solver.make_craig_bampton_basis
 .. autofunction:: fluxfem.solver.solve_constraint_modes
 .. autofunction:: fluxfem.solver.fixed_interface_modes
