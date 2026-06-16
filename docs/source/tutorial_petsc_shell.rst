@@ -12,11 +12,15 @@ preconditioning and matrix-free solves.
 Prerequisites
 ^^^^^^^^^^^^^
 
-The demos require PETSc and ``petsc4py`` (the ``petsc`` extra). Install with:
+The demos require PETSc and ``petsc4py`` (the ``petsc`` extra). For source
+checkouts with a custom PETSc build, install the regular Poetry environment and
+then build ``petsc4py`` against that PETSc:
 
 .. code-block:: bash
 
-   poetry add fluxfem --extras "petsc"
+   export PETSC_DIR=/path/to/petsc-3.24.4
+   export PETSC_ARCH=arch-linux-c-opt
+   scripts/install_petsc4py
 
 Ensure ``PETSC_DIR`` (and optionally ``PETSC_ARCH``) point to a valid PETSc build
 so ``petsc4py`` can import successfully. Once PETSc is configured, run:

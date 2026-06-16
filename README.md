@@ -679,6 +679,18 @@ installed. The current FluxFEM extra pins `petsc4py==3.24.4` (see
 compatible with that `petsc4py` release, or override it to match your PETSc
 build.
 
+For a custom PETSc build, install the regular Poetry environment first and then
+build `petsc4py` against that PETSc installation:
+
+```bash
+export PETSC_DIR=/path/to/petsc-3.24.4
+export PETSC_ARCH=arch-linux-c-opt
+scripts/install_petsc4py
+```
+
+The script keeps PETSc optional: if PETSc cannot be imported, PETSc-specific
+tests are skipped by `petsc_is_available()`.
+
 GPU note: this repo currently tests CUDA via the `cuda12` extra only. Other CUDA
 versions are not covered by CI and may require manual JAX installation.
 

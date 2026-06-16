@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${PETSC_DIR:?Set PETSC_DIR to the PETSc installation root.}"
+
+PETSC_ARCH="${PETSC_ARCH:-}"
+PETSC_LIB_DIR="$PETSC_DIR/lib"
+if [ -n "$PETSC_ARCH" ]; then
+  PETSC_LIB_DIR="$PETSC_DIR/$PETSC_ARCH/lib"
+fi
+
+if [ ! -d "$PETSC_LIB_DIR" ]; then
+  echo "PETSc library directory not found: $PETSC_LIB_DIR" >&2
+  exit 1
+fi
+
+export PETSC_DIR
+export PETSC_ARCH
+export LD_LIBRARY_PATH="$PETSC_LIB_DIR:${LD_LIBRARY_PATH:-}"
+
+PYTHON_RUNNER=(python)
+if command -v poetry >/dev/null 2>&1 && poetry run python -c 'import sys' >/dev/null 2>&1; then
+  PYTHON_RUNNER=(poetry run python)
+fi
+
+PETSC4PY_VERSION="${PETSC4PY_VERSION:-3.24.4}"
+SETUPTOOLS_VERSION="${SETUPTOOLS_VERSION:-65.5.0}"
+
+"${PYTHON_RUNNER[@]}" -m pip install "setuptools==$SETUPTOOLS_VERSION" wheel "Cython>=3.0.0"
+"${PYTHON_RUNNER[@]}" -m pip install \
+  --no-build-isolation \
+  --no-deps \
+  --no-binary=petsc4py \
+  --force-reinstall \
+  "petsc4py==$PETSC4PY_VERSION"
+
+"${PYTHON_RUNNER[@]}" - <<'PY'
+import petsc4py
+petsc4py.init([])
+from petsc4py import PETSc
+print("PETSc version:", PETSc.Sys.getVersion())
+PY
