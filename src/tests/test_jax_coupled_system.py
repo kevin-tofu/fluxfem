@@ -833,6 +833,7 @@ def test_jax_builder_contact_coarse_dual_mortar_sugar_reduces_lambda_rows():
         slave="b",
         family="constraint",
         mortar="coarse_dual",
+        mortar_max_rank=2,
         rho=2.0,
         value_dim=1,
     )

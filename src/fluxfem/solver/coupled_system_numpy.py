@@ -14,10 +14,22 @@ from .dirichlet import enforce_dirichlet_fluxsparse, enforce_dirichlet_sparse
 from .sparse import FluxSparseMatrix, concat_flux
 
 
-def _resolve_contact_multiplier_choice(contact_obj, multiplier, mortar, *, value_dim: int | None = None):
+def _resolve_contact_multiplier_choice(
+    contact_obj,
+    multiplier,
+    mortar,
+    *,
+    value_dim: int | None = None,
+    mortar_rank: int | None = None,
+    mortar_max_rank: int | None = None,
+    mortar_energy_tol: float = 0.999,
+    mortar_rtol: float = 1e-10,
+):
     if multiplier is not None:
         if mortar is not None:
             raise ValueError("Provide either multiplier or mortar, not both.")
+        if any(v is not None for v in (mortar_rank, mortar_max_rank)):
+            raise ValueError("mortar_rank/mortar_max_rank require mortar='coarse_dual'.")
         return multiplier
     from ..mesh.contact import ContactMultiplierSpace
 
@@ -26,12 +38,24 @@ def _resolve_contact_multiplier_choice(contact_obj, multiplier, mortar, *, value
         return ContactMultiplierSpace.from_contact(contact_obj, value_dim=vd)
     key = str(mortar).lower()
     if key in {"dual", "dual_nodal", "default"}:
+        if any(v is not None for v in (mortar_rank, mortar_max_rank)):
+            raise ValueError("mortar_rank/mortar_max_rank require mortar='coarse_dual'.")
         return ContactMultiplierSpace.dual_mortar(value_dim=vd)
     if key in {"coarse_dual", "coarse-dual", "coarse", "coarse_dual_nodal"}:
-        return ContactMultiplierSpace.coarse_dual_mortar(value_dim=vd)
+        return ContactMultiplierSpace.coarse_dual_mortar(
+            value_dim=vd,
+            rank=mortar_rank,
+            max_rank=mortar_max_rank,
+            energy_tol=float(mortar_energy_tol),
+            rtol=float(mortar_rtol),
+        )
     if key in {"nodal", "legacy_nodal"}:
+        if any(v is not None for v in (mortar_rank, mortar_max_rank)):
+            raise ValueError("mortar_rank/mortar_max_rank require mortar='coarse_dual'.")
         return ContactMultiplierSpace.nodal_mortar(value_dim=vd)
     if key in {"p0", "p0_master"}:
+        if any(v is not None for v in (mortar_rank, mortar_max_rank)):
+            raise ValueError("mortar_rank/mortar_max_rank require mortar='coarse_dual'.")
         return ContactMultiplierSpace.p0_mortar(contact_obj, value_dim=vd)
     raise ValueError("mortar must be 'dual', 'coarse_dual', 'nodal', or 'p0'.")
 
@@ -1183,6 +1207,10 @@ class NumpyCoupledSystemBuilder:
         rho: float | None = None,
         multiplier=None,
         mortar: str | None = None,
+        mortar_rank: int | None = None,
+        mortar_max_rank: int | None = None,
+        mortar_energy_tol: float = 0.999,
+        mortar_rtol: float = 1e-10,
         facet_conn_master: np.ndarray | None = None,
         backend: str | None = None,
     ) -> None:
@@ -1235,6 +1263,10 @@ class NumpyCoupledSystemBuilder:
                     multiplier,
                     mortar,
                     value_dim=value_dim,
+                    mortar_rank=mortar_rank,
+                    mortar_max_rank=mortar_max_rank,
+                    mortar_energy_tol=mortar_energy_tol,
+                    mortar_rtol=mortar_rtol,
                 )
 
                 contact_obj = _assemble_ops(

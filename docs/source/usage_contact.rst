@@ -298,6 +298,37 @@ Raw prepared contacts can also be passed directly and assembled by the builder:
        value_dim=1,
    )
 
+Mortar Method Selection
+-----------------------
+
+Dual nodal mortar is the default multiplier basis for constraint-family contact.
+Use the explicit factory constructors when the choice should be visible in code:
+
+.. code-block:: python
+
+   ff.MultiplierSpec.dual_mortar()
+   ff.MultiplierSpec.coarse_dual_mortar()
+   ff.MultiplierSpec.coarse_dual_mortar(rank=32)
+   ff.MultiplierSpec.coarse_dual_mortar(max_rank=64, energy_tol=0.999)
+   ff.MultiplierSpec.nodal_mortar()
+   ff.MultiplierSpec.p0_mortar(contact)
+
+For builder-managed raw prepared contacts, select the method directly:
+
+.. code-block:: python
+
+   builder.add_contact(contact, master="top", slave="support",
+                       family="constraint", mortar="dual", rho=1.0)
+   builder.add_contact(contact, master="top", slave="support",
+                       family="constraint", mortar="coarse_dual",
+                       mortar_max_rank=64, rho=1.0)
+
+``mortar="nodal"`` keeps the original nodal multiplier basis available for
+compatibility and comparisons. Coarse dual mortar reduces multiplier rows after
+the dual mortar operator has been assembled; fixed ``mortar_rank`` uses a QR
+row-space projection, while rank-free selection uses SVD energy and numerical
+rank criteria.
+
 Mixed NumPy/JAX Inputs
 ----------------------
 
