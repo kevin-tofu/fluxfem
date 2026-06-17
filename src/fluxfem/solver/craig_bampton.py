@@ -974,6 +974,38 @@ class ReducedContactPairDofs:
 
 
 @dataclass(frozen=True)
+class ReducedContactPairAdapter:
+    """Contact-facing view of a named reduced contact-candidate pair."""
+
+    pair: ReducedContactPair
+    dofs: ReducedContactPairDofs
+    params: dict[str, Any]
+    slave: str
+    master: str
+    slave_field: str
+    master_field: str
+    slave_group: str
+    master_group: str
+    slave_full_dofs: np.ndarray
+    slave_reduced_dofs: np.ndarray
+    master_full_dofs: np.ndarray
+    master_reduced_dofs: np.ndarray
+
+    def param(self, name: str, default: Any = None) -> Any:
+        """Return a recorded contact parameter or `default` when absent."""
+
+        return self.params.get(str(name), default)
+
+    def mortar_kwargs(self, *, prefix: str = "mortar_") -> dict[str, Any]:
+        """Return pair metadata intended for mortar assembly.
+
+        Parameters recorded as `mortar_<name>` are returned as `<name>`.
+        """
+
+        return {key[len(prefix) :]: value for key, value in self.params.items() if key.startswith(prefix)}
+
+
+@dataclass(frozen=True)
 class ReducedCoupledSystem:
     """Built reduced KKT system with named fields and explicit extra DOFs."""
 
@@ -1135,6 +1167,27 @@ class ReducedCoupledSystem:
             slave_reduced_dofs=self.reduced_dofs_from_full(pair.slave_field, slave_full),
             master_full_dofs=master_full,
             master_reduced_dofs=self.reduced_dofs_from_full(pair.master_field, master_full),
+        )
+
+    def contact_pair_adapter(self, name: str) -> ReducedContactPairAdapter:
+        """Return a contact/mortar-facing adapter for a named contact pair."""
+
+        dofs = self.contact_pair_dofs(name)
+        pair = dofs.pair
+        return ReducedContactPairAdapter(
+            pair=pair,
+            dofs=dofs,
+            params=dict(pair.params or {}),
+            slave=pair.slave,
+            master=pair.master,
+            slave_field=pair.slave_field,
+            master_field=pair.master_field,
+            slave_group=pair.slave_group,
+            master_group=pair.master_group,
+            slave_full_dofs=dofs.slave_full_dofs.copy(),
+            slave_reduced_dofs=dofs.slave_reduced_dofs.copy(),
+            master_full_dofs=dofs.master_full_dofs.copy(),
+            master_reduced_dofs=dofs.master_reduced_dofs.copy(),
         )
 
     def _parse_retained_group_ref(self, ref: str, *, field: str | None = None) -> tuple[str, str]:
@@ -2502,6 +2555,7 @@ __all__ = [
     "RBE3Patch",
     "RBE3RemoteFixture",
     "ReducedContactPair",
+    "ReducedContactPairAdapter",
     "ReducedContactPairDofs",
     "ReducedCoupledSystem",
     "ReducedCoupledSystemBuilder",

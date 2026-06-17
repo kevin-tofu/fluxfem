@@ -42,12 +42,16 @@ The resulting system keeps inspectable group and contact metadata:
 ```python
 system.retained_group_dofs("part_a:interface")
 system.reduced_group_dofs("part_a:interface")
-system.contact_pair_dofs("candidate")
+adapter = system.contact_pair_adapter("candidate")
+adapter.slave_reduced_dofs
+adapter.master_reduced_dofs
+adapter.params
 ```
 
 This is the preferred shape for contact-ready CB models: the ROM owns named
 interface coordinates, while full-space contact residuals, mortar operators, or
-search managers can be attached outside the CB builder using those DOF bundles.
+search managers can be attached outside the CB builder using the adapter's
+metadata and DOF bundles.
 The builder records contact-candidate metadata; it does not run active contact
 search or mortar assembly itself.
 

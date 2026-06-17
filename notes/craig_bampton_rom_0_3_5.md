@@ -89,7 +89,7 @@ production-scale DOF counts.
 ## Next implementation steps
 
 1. Add a block/matrix-free basis representation so full dense `Phi` does not need to be materialized.
-2. Add a thin adapter that turns `ReducedContactPairDofs` into full-space contact/mortar assembly inputs.
+2. Use `ReducedCoupledSystem.contact_pair_adapter(...)` in contact/mortar tutorials that attach real contact operators.
 3. Add an active-contact example where candidate contact DOFs are retained and only interior DOFs are reduced.
 4. Extend multi-field coupling beyond DOF ties to named spring/damper/interface operators.
 

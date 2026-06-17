@@ -590,6 +590,7 @@ def test_reduced_coupled_system_builder_records_contact_pair_metadata():
     system = builder.build()
 
     assert ff.ReducedContactPair is ff.solver.ReducedContactPair
+    assert ff.ReducedContactPairAdapter is ff.solver.ReducedContactPairAdapter
     assert ff.ReducedContactPairDofs is ff.solver.ReducedContactPairDofs
     assert pair.name == "candidate"
     assert system.contact_pair("candidate") == system.contact_pairs[0]
@@ -604,6 +605,23 @@ def test_reduced_coupled_system_builder_records_contact_pair_metadata():
     np.testing.assert_array_equal(pair_dofs.master_full_dofs, np.array([4, 5, 6, 7], dtype=np.int32))
     np.testing.assert_array_equal(pair_dofs.slave_reduced_dofs, np.array([0, 1, 2, 3], dtype=np.int32))
     np.testing.assert_array_equal(pair_dofs.master_reduced_dofs, np.array([5, 6, 7, 8], dtype=np.int32))
+    adapter = system.contact_pair_adapter("candidate")
+    assert adapter.pair == pair_dofs.pair
+    assert adapter.dofs.pair == pair_dofs.pair
+    assert adapter.slave == "slave:contact"
+    assert adapter.master == "master:contact"
+    assert adapter.slave_field == "slave"
+    assert adapter.master_field == "master"
+    assert adapter.slave_group == "contact"
+    assert adapter.master_group == "contact"
+    assert adapter.params == {"normal": [0.0, 1.0], "penalty": 25.0, "search_radius": 0.2}
+    assert adapter.param("normal") == [0.0, 1.0]
+    assert adapter.param("missing", 3) == 3
+    assert adapter.mortar_kwargs() == {}
+    np.testing.assert_array_equal(adapter.slave_full_dofs, pair_dofs.slave_full_dofs)
+    np.testing.assert_array_equal(adapter.master_full_dofs, pair_dofs.master_full_dofs)
+    np.testing.assert_array_equal(adapter.slave_reduced_dofs, pair_dofs.slave_reduced_dofs)
+    np.testing.assert_array_equal(adapter.master_reduced_dofs, pair_dofs.master_reduced_dofs)
 
 
 def test_cb_remote_fixture_utilities_are_top_level_api():
