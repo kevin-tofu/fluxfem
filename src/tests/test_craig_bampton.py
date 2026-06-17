@@ -557,6 +557,39 @@ def test_reduced_coupled_system_builder_retains_surface_nodes():
     np.testing.assert_array_equal(np.asarray(cb.retained_dofs), retained)
 
 
+def test_reduced_coupled_system_builder_records_contact_pair_metadata():
+    stiffness = jnp.eye(8, dtype=jnp.float64)
+    mass = jnp.eye(8, dtype=jnp.float64)
+    force = jnp.zeros((8,), dtype=jnp.float64)
+    coords = np.array(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+        ],
+        dtype=float,
+    )
+    slave_surface = ff.make_surface_from_facets(coords, np.array([[0, 1]], dtype=np.int32))
+    master_surface = ff.make_surface_from_facets(coords, np.array([[2, 3]], dtype=np.int32))
+
+    builder = ff.ReducedCoupledSystemBuilder.from_structural("slave", stiffness, force, mass=mass, value_dim=2)
+    builder.register_structural("master", stiffness, force, mass=mass, value_dim=2)
+    builder.retain_surface("slave", "contact", slave_surface)
+    builder.retain_surface("master", "contact", master_surface)
+    builder.reduce_field("slave", retained_groups=["contact"], n_modes=1)
+    builder.reduce_field("master", retained_groups=["contact"], n_modes=1)
+    pair = builder.register_contact_pair(slave="slave:contact", master="master:contact", name="candidate")
+    system = builder.build()
+
+    assert ff.ReducedContactPair is ff.solver.ReducedContactPair
+    assert pair.name == "candidate"
+    assert system.contact_pairs == (pair,)
+    assert system.contact_pairs[0].slave_field == "slave"
+    assert system.contact_pairs[0].master_group == "contact"
+    assert system.contact_pairs[0].enforcement == "external"
+
+
 def test_cb_remote_fixture_utilities_are_top_level_api():
     np.testing.assert_array_equal(
         ff.vector_dofs_from_nodes(np.array([2, 4]), dim=3),

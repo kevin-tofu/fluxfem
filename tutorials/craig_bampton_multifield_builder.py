@@ -79,6 +79,7 @@ def build_reduced_system() -> ff.ReducedCoupledSystem:
     builder.retain_node_set("part_b", "free_end", np.array([2]))
     builder.reduce_field("part_a", retained_groups=["support", "interface"], n_modes=1)
     builder.reduce_field("part_b", retained_groups=["interface", "free_end"], n_modes=1)
+    builder.register_contact_pair(slave="part_a:interface", master="part_b:interface", name="interface_candidate")
     builder.tie_retained_groups("part_a:interface", "part_b:interface")
     return builder.build()
 
@@ -94,6 +95,7 @@ def main() -> None:
     print("multi-field CB builder demo")
     print(f"fields:              {list(system.fields)}")
     print(f"reduced DOFs:         {system.n_dofs}")
+    print(f"contact pairs:        {[pair.name for pair in system.contact_pairs]}")
     print(f"constraint norm:      {float(jnp.linalg.norm(system.constraints.residual(q))):.3e}")
     print(f"full/reference error: {float(jnp.linalg.norm(u - u_ref)):.3e}")
     print(f"interface values:     part_a[2]={float(u[2]):.8e}, part_b[0]={float(u[3]):.8e}")

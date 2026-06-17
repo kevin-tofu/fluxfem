@@ -948,6 +948,20 @@ class _DofTieConstraint:
 
 
 @dataclass(frozen=True)
+class ReducedContactPair:
+    """Named contact-candidate pair between retained structural groups."""
+
+    name: str
+    slave: str
+    master: str
+    slave_field: str
+    slave_group: str
+    master_field: str
+    master_group: str
+    enforcement: str = "external"
+
+
+@dataclass(frozen=True)
 class ReducedCoupledSystem:
     """Built reduced KKT system with named fields and explicit extra DOFs."""
 
@@ -959,6 +973,7 @@ class ReducedCoupledSystem:
     basis: CraigBamptonBasis
     bases: dict[str, CraigBamptonBasis] | None = None
     n_extra_dofs: int = 0
+    contact_pairs: tuple[ReducedContactPair, ...] = ()
 
     @property
     def n_dofs(self) -> int:
@@ -1093,6 +1108,7 @@ class ReducedCoupledSystemBuilder:
         self._extra_k: list[tuple[np.ndarray, np.ndarray, np.ndarray | None]] = []
         self._constraints: list[tuple[str, str, RBE3RemoteFixture]] = []
         self._tie_constraints: list[_DofTieConstraint] = []
+        self._contact_pairs: list[ReducedContactPair] = []
 
     @classmethod
     def from_structural(
@@ -1473,6 +1489,32 @@ class ReducedCoupledSystemBuilder:
             rhs=rhs,
         )
 
+    def register_contact_pair(
+        self,
+        *,
+        slave: str,
+        master: str,
+        name: str | None = None,
+        enforcement: str = "external",
+    ) -> ReducedContactPair:
+        """Record a named contact-candidate pair between retained groups."""
+        slave_field, slave_group = self._parse_retained_group_ref(slave)
+        master_field, master_group = self._parse_retained_group_ref(master)
+        if name is None:
+            name = f"{slave_field}:{slave_group}->{master_field}:{master_group}"
+        pair = ReducedContactPair(
+            name=str(name),
+            slave=str(slave),
+            master=str(master),
+            slave_field=slave_field,
+            slave_group=slave_group,
+            master_field=master_field,
+            master_group=master_group,
+            enforcement=str(enforcement),
+        )
+        self._contact_pairs.append(pair)
+        return pair
+
     def add_rbe3_fixture(
         self,
         name: str,
@@ -1677,6 +1719,7 @@ class ReducedCoupledSystemBuilder:
             basis=primary_basis,
             bases=bases,
             n_extra_dofs=n_extra,
+            contact_pairs=tuple(self._contact_pairs),
         )
 
     def _add_tie_side_to_row(
@@ -2372,6 +2415,7 @@ __all__ = [
     "ProjectedReducedOperator",
     "RBE3Patch",
     "RBE3RemoteFixture",
+    "ReducedContactPair",
     "ReducedCoupledSystem",
     "ReducedCoupledSystemBuilder",
     "ReducedContactDynamics",
