@@ -2,8 +2,8 @@
 """Generate a curved-surface contact VTU time series for release visuals.
 
 This is a visualization-oriented demo, not a nonlinear contact solve.  It writes
-a pair of curved hex bodies with fields that make the contact/ROM ingredients
-visible in ParaView:
+a pair of faceted spherical-cap hex bodies with fields that make the
+contact/ROM ingredients visible in ParaView:
 
 - displacement: warp-by-vector field
 - gap: signed local separation, negative where contact is active
@@ -11,6 +11,7 @@ visible in ParaView:
 - active_contact: 1 on active interface nodes
 - cb_retained: retained contact/support DOF marker
 - mortar_weight: interface weighting marker
+- surface_curvature: spherical-cap contact patch marker
 
 Run from the repository root:
 
@@ -37,17 +38,39 @@ import numpy as np
 import fluxfem as ff
 
 
-def _smoothstep(t: float) -> float:
-    t = float(np.clip(t, 0.0, 1.0))
+def _smoothstep(t):
+    t = np.clip(t, 0.0, 1.0)
     return t * t * (3.0 - 2.0 * t)
 
 
+def _spherical_cap(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    length: float,
+    width: float,
+    sag: float,
+    center_x: float = 0.52,
+    center_y: float = 0.0,
+) -> np.ndarray:
+    """Elliptically scaled spherical cap over the contact patch."""
+
+    x0 = center_x * length
+    y0 = center_y * width
+    y_scale = length / width
+    r2 = (x - x0) ** 2 + ((y - y0) * y_scale) ** 2
+    patch_radius = 0.72 * length
+    radius = (patch_radius**2 + sag**2) / (2.0 * sag)
+    clipped = np.minimum(r2, 0.98 * patch_radius**2)
+    cap = sag - (radius - np.sqrt(np.maximum(radius**2 - clipped, 0.0)))
+    edge = np.clip(1.0 - r2 / (patch_radius**2), 0.0, 1.0)
+    return cap * _smoothstep(edge)
+
+
 def _surface_shape(x: np.ndarray, y: np.ndarray, *, length: float, width: float) -> np.ndarray:
-    xc = (x - 0.52 * length) / (0.28 * length)
-    yc = y / (0.36 * width)
-    bump = 0.070 * np.exp(-(xc * xc + yc * yc))
-    wave = 0.018 * np.sin(2.0 * np.pi * x / length) * np.cos(np.pi * y / width)
-    return bump + wave
+    cap = _spherical_cap(x, y, length=length, width=width, sag=0.24)
+    wrinkle = 0.012 * np.sin(1.5 * np.pi * x / length) * np.cos(2.0 * np.pi * y / width)
+    return cap + wrinkle * _smoothstep(cap / max(float(np.max(cap)), 1e-12))
 
 
 def _contact_shape(x: np.ndarray, y: np.ndarray, *, length: float, width: float) -> np.ndarray:
@@ -65,7 +88,7 @@ def _build_curved_pair(
     width: float,
     thickness: float,
     clearance: float,
-) -> tuple[ff.HexMesh, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[ff.HexMesh, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     bottom = ff.StructuredHexBox(
         nx=nx,
         ny=ny,
@@ -90,12 +113,19 @@ def _build_curved_pair(
 
     shape_bottom = _surface_shape(bottom_coords[:, 0], bottom_coords[:, 1], length=length, width=width)
     shape_top = _surface_shape(top_coords[:, 0], top_coords[:, 1], length=length, width=width)
+    cap_bottom = _spherical_cap(bottom_coords[:, 0], bottom_coords[:, 1], length=length, width=width, sag=0.24)
+    cap_top = _spherical_cap(top_coords[:, 0], top_coords[:, 1], length=length, width=width, sag=0.24)
     bottom_s = np.clip(bottom_coords[:, 2] / thickness, 0.0, 1.0)
     top_s = np.clip(top_coords[:, 2] / thickness, 0.0, 1.0)
 
-    bottom_coords[:, 2] = bottom_s * (thickness + shape_bottom)
-    top_lower = thickness + shape_top + clearance + 0.012 * np.cos(2.0 * np.pi * top_coords[:, 0] / length)
-    top_coords[:, 2] = top_lower + top_s * thickness
+    bottom_lower = -0.10 * shape_bottom
+    bottom_upper = thickness + shape_bottom
+    bottom_coords[:, 2] = (1.0 - bottom_s) * bottom_lower + bottom_s * bottom_upper
+
+    top_curvature = 0.86 * shape_top + 0.025 * np.sin(np.pi * top_coords[:, 0] / length)
+    top_lower = thickness + top_curvature + clearance + 0.018 * (top_coords[:, 0] / length - 0.5)
+    top_upper = top_lower + thickness + 0.08 * shape_top
+    top_coords[:, 2] = (1.0 - top_s) * top_lower + top_s * top_upper
 
     coords = np.vstack([bottom_coords, top_coords])
     bottom_conn = np.asarray(bottom.conn, dtype=np.int32)
@@ -115,14 +145,16 @@ def _build_curved_pair(
         ]
     )
     local_s = np.concatenate([bottom_s, top_s])
+    surface_curvature = np.concatenate([cap_bottom, cap_top])
     mesh = ff.HexMesh(coords=jnp.asarray(coords), conn=jnp.asarray(conn))
-    return mesh, body_id, node_body, local_s
+    return mesh, body_id, node_body, local_s, surface_curvature
 
 
 def _point_fields(
     mesh: ff.HexMesh,
     node_body: np.ndarray,
     local_s: np.ndarray,
+    surface_curvature: np.ndarray,
     *,
     step: int,
     nsteps: int,
@@ -153,7 +185,8 @@ def _point_fields(
     displacement[:, 1] = np.where(is_top, -0.10 * lateral, 0.04 * lateral)
     displacement[:, 2] = bottom_w + top_w
 
-    nominal_gap = clearance + 0.012 * np.cos(2.0 * np.pi * x / length)
+    curvature_gap = 0.018 * (x / length - 0.5) - 0.14 * surface_curvature
+    nominal_gap = clearance + curvature_gap
     gap = nominal_gap - approach - 0.014 * _smoothstep(t) * contact_shape
     pressure = 2800.0 * np.maximum(-gap, 0.0) * contact_shape
     pressure_vis = pressure * interface_weight
@@ -168,6 +201,7 @@ def _point_fields(
         "cb_retained": cb_retained.astype(np.float32),
         "mortar_weight": mortar_weight.astype(np.float32),
         "reduced_mode_1": mode_shape.astype(np.float32),
+        "surface_curvature": surface_curvature.astype(np.float32),
     }
 
 
@@ -186,8 +220,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", type=Path, default=Path("result/tutorials/curved_surface_contact_vtu_demo"))
     parser.add_argument("--nsteps", type=int, default=18)
-    parser.add_argument("--nx", type=int, default=28)
-    parser.add_argument("--ny", type=int, default=16)
+    parser.add_argument("--nx", type=int, default=40)
+    parser.add_argument("--ny", type=int, default=24)
     parser.add_argument("--nz", type=int, default=2)
     args = parser.parse_args()
 
@@ -196,7 +230,7 @@ def main() -> None:
     thickness = 0.22
     clearance = 0.115
 
-    mesh, body_id, node_body, local_s = _build_curved_pair(
+    mesh, body_id, node_body, local_s, surface_curvature = _build_curved_pair(
         nx=args.nx,
         ny=args.ny,
         nz=args.nz,
@@ -220,6 +254,7 @@ def main() -> None:
             mesh,
             node_body,
             local_s,
+            surface_curvature,
             step=step,
             nsteps=args.nsteps,
             length=length,
