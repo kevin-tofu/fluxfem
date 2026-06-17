@@ -1126,6 +1126,43 @@ def test_contact_kkt_augmented_lagrangian_grad_rho_matches_fd():
     assert rel < 2e-4
 
 
+def test_numpy_builder_contact_mortar_sugar_matches_explicit_multiplier_choice():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    mult = ff.MultiplierSpec.nodal_mortar()
+    ops = ff.assemble_multiplier(contact, rho=2.0, multiplier=mult, backend="numpy")
+
+    direct = ff.NumpyCoupledSystemBuilder.from_structural(np.eye(8), np.zeros(8))
+    direct.register_field("a", n_dofs=4, value_dim=1, n_nodes=4, offset=0)
+    direct.register_field("b", n_dofs=4, value_dim=1, n_nodes=4, offset=4)
+    direct.add_contact_mortar(ops, master="a", slave="b", value_dim=1)
+
+    raw = ff.NumpyCoupledSystemBuilder.from_structural(np.eye(8), np.zeros(8))
+    raw.register_field("a", n_dofs=4, value_dim=1, n_nodes=4, offset=0)
+    raw.register_field("b", n_dofs=4, value_dim=1, n_nodes=4, offset=4)
+    raw.add_contact(
+        contact,
+        master="a",
+        slave="b",
+        family="constraint",
+        mortar="nodal",
+        rho=2.0,
+        value_dim=1,
+    )
+
+    assert np.allclose(np.asarray(raw.build().K_u.toarray()), np.asarray(direct.build().K_u.toarray()), atol=1e-12)
+
+
 def test_solve_contact_kkt_implicit_grad_rho_matches_fd():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(

@@ -427,11 +427,7 @@ ops_penalty = contact.assemble_penalty(
 Constraint-family contact adds a multiplier spec on top of the same interface:
 
 ```Python
-lm_space = ff.MultiplierSpec.from_contact(
-    contact,
-    family="p0",
-    side="master",
-)
+lm_space = ff.MultiplierSpec.dual_mortar()
 
 ops_constraint = contact.assemble_multiplier(
     rho=1.0,
@@ -533,11 +529,7 @@ contact_state = contact.update_state(
 )
 
 # 1) Assemble constraint operators (B, Kuu, ...)
-lm_space = ff.MultiplierSpec.from_contact(
-    contact_group,
-    family="p0_supermesh",
-    side="master",
-)
+lm_space = ff.MultiplierSpec.coarse_dual_mortar(max_rank=64)
 
 ops: ff.ContactOperators = contact_group.assemble_multiplier(
     rho=1.0,
@@ -585,6 +577,17 @@ builder_mortar.add_contact(
     value_dim=1,
 )
 system_mortar = builder_mortar.build()
+
+# Or let the builder assemble the mortar operators from a prepared contact.
+builder_mortar.add_contact(
+    contact_group,
+    master="master",
+    slave="slave",
+    family="constraint",
+    mortar="coarse_dual",
+    rho=1.0,
+    value_dim=1,
+)
 
 # Advanced: law/formulation can be set explicitly when needed.
 # - law="one_sided_normal_frictionless"

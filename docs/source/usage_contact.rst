@@ -280,9 +280,23 @@ assemble operators first, then pass them to ``add_contact`` (or ``add_contact_mo
 
 .. code-block:: python
 
-   lm_space = ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master")
+   lm_space = ff.MultiplierSpec.dual_mortar()
    ops_mortar = ff.assemble_contact_constraint_operators(contact, rho=1.0, multiplier=lm_space)
    builder.add_contact(ops_mortar, master="top", slave="support", value_dim=1)
+
+Raw prepared contacts can also be passed directly and assembled by the builder:
+
+.. code-block:: python
+
+   builder.add_contact(
+       contact,
+       master="top",
+       slave="support",
+       family="constraint",
+       mortar="coarse_dual",
+       rho=1.0,
+       value_dim=1,
+   )
 
 Mixed NumPy/JAX Inputs
 ----------------------

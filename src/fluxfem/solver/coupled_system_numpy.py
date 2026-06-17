@@ -14,6 +14,28 @@ from .dirichlet import enforce_dirichlet_fluxsparse, enforce_dirichlet_sparse
 from .sparse import FluxSparseMatrix, concat_flux
 
 
+def _resolve_contact_multiplier_choice(contact_obj, multiplier, mortar, *, value_dim: int | None = None):
+    if multiplier is not None:
+        if mortar is not None:
+            raise ValueError("Provide either multiplier or mortar, not both.")
+        return multiplier
+    from ..mesh.contact import ContactMultiplierSpace
+
+    vd = 1 if value_dim is None else int(value_dim)
+    if mortar is None:
+        return ContactMultiplierSpace.from_contact(contact_obj, value_dim=vd)
+    key = str(mortar).lower()
+    if key in {"dual", "dual_nodal", "default"}:
+        return ContactMultiplierSpace.dual_mortar(value_dim=vd)
+    if key in {"coarse_dual", "coarse-dual", "coarse", "coarse_dual_nodal"}:
+        return ContactMultiplierSpace.coarse_dual_mortar(value_dim=vd)
+    if key in {"nodal", "legacy_nodal"}:
+        return ContactMultiplierSpace.nodal_mortar(value_dim=vd)
+    if key in {"p0", "p0_master"}:
+        return ContactMultiplierSpace.p0_mortar(contact_obj, value_dim=vd)
+    raise ValueError("mortar must be 'dual', 'coarse_dual', 'nodal', or 'p0'.")
+
+
 @dataclass
 class NumpyCoupledSystem:
     """
@@ -1160,6 +1182,7 @@ class NumpyCoupledSystemBuilder:
         F_contact: np.ndarray | None = None,
         rho: float | None = None,
         multiplier=None,
+        mortar: str | None = None,
         facet_conn_master: np.ndarray | None = None,
         backend: str | None = None,
     ) -> None:
@@ -1206,9 +1229,13 @@ class NumpyCoupledSystemBuilder:
                 resolved_family = "constraint"
 
             if resolved_family == "constraint":
-                from ..mesh.contact import ContactMultiplierSpace, assemble_contact_constraint_operators as _assemble_ops
-                if multiplier is None:
-                    multiplier = ContactMultiplierSpace.from_contact(contact_obj)
+                from ..mesh.contact import assemble_contact_constraint_operators as _assemble_ops
+                multiplier = _resolve_contact_multiplier_choice(
+                    contact_obj,
+                    multiplier,
+                    mortar,
+                    value_dim=value_dim,
+                )
 
                 contact_obj = _assemble_ops(
                     contact_obj,

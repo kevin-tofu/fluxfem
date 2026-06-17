@@ -751,6 +751,97 @@ def test_jax_builder_add_contact_mortar_with_actual_contact_space_matches_explic
     assert np.allclose(np.asarray(raw.build().F_u), np.asarray(direct.build().F_u), atol=1e-12)
 
 
+def test_jax_builder_contact_mortar_sugar_matches_explicit_multiplier_choice():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+        backend="jax",
+    )
+    mult = ff.MultiplierSpec.nodal_mortar()
+    ops = ff.assemble_multiplier(contact, rho=2.0, multiplier=mult, backend="jax")
+
+    direct = ff.JAXCoupledSystemBuilder.from_structural(jnp.eye(8, dtype=jnp.float64), jnp.zeros((8,), dtype=jnp.float64))
+    direct.register_field("a", n_dofs=4, value_dim=1, n_nodes=4, offset=0)
+    direct.register_field("b", n_dofs=4, value_dim=1, n_nodes=4, offset=4)
+    direct.add_contact_mortar(ops, master="a", slave="b", value_dim=1)
+
+    raw = ff.JAXCoupledSystemBuilder.from_structural(jnp.eye(8, dtype=jnp.float64), jnp.zeros((8,), dtype=jnp.float64))
+    raw.register_field("a", n_dofs=4, value_dim=1, n_nodes=4, offset=0)
+    raw.register_field("b", n_dofs=4, value_dim=1, n_nodes=4, offset=4)
+    raw.add_contact(
+        contact,
+        master="a",
+        slave="b",
+        family="constraint",
+        mortar="nodal",
+        rho=2.0,
+        value_dim=1,
+    )
+
+    assert np.allclose(np.asarray(raw.build().K_u.to_dense()), np.asarray(direct.build().K_u.to_dense()), atol=1e-12)
+
+
+def test_jax_builder_contact_coarse_dual_mortar_sugar_reduces_lambda_rows():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+        backend="jax",
+    )
+
+    raw = ff.JAXCoupledSystemBuilder.from_structural(jnp.eye(8, dtype=jnp.float64), jnp.zeros((8,), dtype=jnp.float64))
+    raw.register_field("a", n_dofs=4, value_dim=1, n_nodes=4, offset=0)
+    raw.register_field("b", n_dofs=4, value_dim=1, n_nodes=4, offset=4)
+    raw.add_contact(
+        contact,
+        master="a",
+        slave="b",
+        family="constraint",
+        mortar="coarse_dual",
+        rho=2.0,
+        value_dim=1,
+    )
+
+    system = raw.build()
+    assert system.K_u.shape[0] < 16
+    assert system.K_u.shape[0] > 8
+
+
 def test_jax_builder_contact_mortar_constraint_spec_matches_direct_call():
     coords = np.array(
         [

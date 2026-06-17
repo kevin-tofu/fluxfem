@@ -31,6 +31,28 @@ def _infer_coupled_backend(K_u, F_u) -> str:
     return "numpy"
 
 
+def _resolve_contact_multiplier_choice(contact_obj, multiplier, mortar, *, value_dim: int | None = None):
+    if multiplier is not None:
+        if mortar is not None:
+            raise ValueError("Provide either multiplier or mortar, not both.")
+        return multiplier
+    from ..mesh.contact import ContactMultiplierSpace
+
+    vd = 1 if value_dim is None else int(value_dim)
+    if mortar is None:
+        return ContactMultiplierSpace.from_contact(contact_obj, value_dim=vd)
+    key = str(mortar).lower()
+    if key in {"dual", "dual_nodal", "default"}:
+        return ContactMultiplierSpace.dual_mortar(value_dim=vd)
+    if key in {"coarse_dual", "coarse-dual", "coarse", "coarse_dual_nodal"}:
+        return ContactMultiplierSpace.coarse_dual_mortar(value_dim=vd)
+    if key in {"nodal", "legacy_nodal"}:
+        return ContactMultiplierSpace.nodal_mortar(value_dim=vd)
+    if key in {"p0", "p0_master"}:
+        return ContactMultiplierSpace.p0_mortar(contact_obj, value_dim=vd)
+    raise ValueError("mortar must be 'dual', 'coarse_dual', 'nodal', or 'p0'.")
+
+
 @dataclass(frozen=True)
 class DirichletSpec:
     field: str
@@ -732,6 +754,7 @@ class CoupledSystemBuilder:
         F_contact=None,
         rho: float | None = None,
         multiplier=None,
+        mortar: str | None = None,
         facet_conn_master=None,
     ) -> None:
         """
@@ -796,10 +819,12 @@ class CoupledSystemBuilder:
                 resolved_family = "constraint"
 
             if resolved_family == "constraint":
-                if multiplier is None:
-                    from ..mesh.contact import ContactMultiplierSpace
-
-                    multiplier = ContactMultiplierSpace.from_contact(contact_obj)
+                multiplier = _resolve_contact_multiplier_choice(
+                    contact_obj,
+                    multiplier,
+                    mortar,
+                    value_dim=value_dim,
+                )
                 contact_obj = assemble_contact_constraint_operators(
                     contact_obj,
                     law=law,
