@@ -7,6 +7,55 @@ validation details live in `notes/craig_bampton_rom.md` and
 
 ## Recommended workflow
 
+### Builder-first contact-ready systems
+
+For new multi-subsystem or fixture workflows, start with
+`ReducedCoupledSystemBuilder`. Name the physical groups that must remain visible
+after reduction, then reduce each field from those names:
+
+```python
+builder = ff.ReducedCoupledSystemBuilder.from_structural(
+    "part_a", K_a, f_a, mass=M_a, value_dim=dim
+)
+builder.register_structural("part_b", K_b, f_b, mass=M_b, value_dim=dim)
+
+builder.retain_node_set("part_a", "support", support_nodes)
+builder.retain_surface_nodes("part_a", "interface", slave_surface)
+builder.retain_surface_nodes("part_b", "interface", master_surface)
+
+builder.reduce_field("part_a", retained_groups=["support", "interface"], n_modes=n_modes)
+builder.reduce_field("part_b", retained_groups=["interface"], n_modes=n_modes)
+
+builder.register_contact_pair(
+    slave="part_a:interface",
+    master="part_b:interface",
+    name="candidate",
+    normal=normal,
+    search_radius=search_radius,
+)
+builder.tie_retained_groups("part_a:interface", "part_b:interface")
+system = builder.build()
+```
+
+The resulting system keeps inspectable group and contact metadata:
+
+```python
+system.retained_group_dofs("part_a:interface")
+system.reduced_group_dofs("part_a:interface")
+system.contact_pair_dofs("candidate")
+```
+
+This is the preferred shape for contact-ready CB models: the ROM owns named
+interface coordinates, while full-space contact residuals, mortar operators, or
+search managers can be attached outside the CB builder using those DOF bundles.
+The builder records contact-candidate metadata; it does not run active contact
+search or mortar assembly itself.
+
+### Low-level basis workflow
+
+Use the direct basis API when the model is a single field or when another system
+builder already owns the coupling graph.
+
 1. Build full-space structural operators.
 
    ```python

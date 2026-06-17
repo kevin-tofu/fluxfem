@@ -16,7 +16,7 @@ CB retained DOFs are the natural location for interface, contact, and remote fix
 
 `RBE3Patch` and `ReferencePointFixture` are intentionally thin compatibility wrappers. They cover the older translational reference-point MPC/preload examples and can project through CB with `LinearConstraintSystem.project`. `RBE3RemoteFixture` is the CB-facing wrapper for both translational-only and 6-DOF rotational RBE3 reference fixtures. Its remote rotation coordinates are not structural CB retained DOFs; they are explicit appended reference DOFs preserved outside the workpiece basis via `LinearConstraintSystem.project(..., n_extra_dofs=...)`.
 
-For new code, prefer `ReducedCoupledSystemBuilder`. It mirrors the name-based `CoupledSystemBuilder` style: register structural fields, name retained node/DOF/surface groups with `retain_node_set(...)`, `retain_dof_group(...)`, or `retain_surface_nodes(...)`, call `reduce_field(..., method="craig_bampton", retained_groups=[...])` per field, append remote points, connect them with `add_rbe3_constraint(...)`, add preload/Dirichlet through named remote fields, record contact-candidate pairs and Python metadata such as `normal`, `penalty`, or `search_radius` with `register_contact_pair(...)`, resolve their full/reduced DOF bundles with `contact_pair_dofs(...)`, and connect reduced subsystems with `tie_retained_groups(...)` or `add_dof_tie_constraint(...)`. This keeps the connection graph readable and avoids hand-written ROM/reference DOF offsets in tutorials. For sparse KKT assembly and current contact multiplier blocks, use `NumpyCoupledSystemBuilder` / `CoupledSystemBuilder`.
+For new code, prefer `ReducedCoupledSystemBuilder`. It mirrors the name-based `CoupledSystemBuilder` style: register structural fields, name retained node/DOF/surface groups with `retain_node_set(...)`, `retain_dof_group(...)`, or `retain_surface_nodes(...)`, call `reduce_field(..., method="craig_bampton", retained_groups=[...])` per field, append remote points, connect them with `add_rbe3_constraint(...)`, add preload/Dirichlet through named remote fields, record contact-candidate pairs and Python metadata such as `normal`, `penalty`, or `search_radius` with `register_contact_pair(...)`, resolve their full/reduced DOF bundles with `contact_pair_dofs(...)`, and connect reduced subsystems with `tie_retained_groups(...)` or `add_dof_tie_constraint(...)`. This keeps the connection graph readable and avoids hand-written ROM/reference DOF offsets in tutorials. The CB builder records contact-ready metadata and retained/reduced interface DOF bundles; actual contact residuals, mortar operators, and active-search updates remain external solver responsibilities.
 
 Small fixture utilities are now part of the public API rather than tutorial glue:
 `vector_dofs_from_nodes`, `retained_dofs_from_node_sets`, `remote_reference_direction`,
@@ -89,7 +89,7 @@ production-scale DOF counts.
 ## Next implementation steps
 
 1. Add a block/matrix-free basis representation so full dense `Phi` does not need to be materialized.
-2. Add direct contact integration so candidate contact DOFs can be retained and contact blocks can be attached by field name.
+2. Add a thin adapter that turns `ReducedContactPairDofs` into full-space contact/mortar assembly inputs.
 3. Add an active-contact example where candidate contact DOFs are retained and only interior DOFs are reduced.
 4. Extend multi-field coupling beyond DOF ties to named spring/damper/interface operators.
 
