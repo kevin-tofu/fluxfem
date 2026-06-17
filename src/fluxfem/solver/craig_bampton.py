@@ -1087,6 +1087,7 @@ class ReducedCoupledSystemBuilder:
     def __init__(self):
         self._structural_name: str | None = None
         self._structural_fields: dict[str, _StructuralFieldSource] = {}
+        self._retained_groups: dict[str, dict[str, np.ndarray]] = {}
         self._extra_blocks: dict[str, ReducedFieldBlock] = {}
         self._extra_points: dict[str, np.ndarray] = {}
         self._extra_k: list[tuple[np.ndarray, np.ndarray, np.ndarray | None]] = []
@@ -1133,14 +1134,18 @@ class ReducedCoupledSystemBuilder:
             raise ValueError("mass must match stiffness size.")
         if self._structural_name is None:
             self._structural_name = key
+        n_nodes_resolved = n_nodes
+        if n_nodes_resolved is None and int(value_dim) > 0 and n % int(value_dim) == 0:
+            n_nodes_resolved = n // int(value_dim)
         self._structural_fields[key] = _StructuralFieldSource(
             name=key,
             stiffness=stiffness,
             mass=mass,
             force=force_arr,
             value_dim=int(value_dim),
-            n_nodes=n_nodes,
+            n_nodes=n_nodes_resolved,
         )
+        self._retained_groups[key] = {}
 
     @property
     def structural_name(self) -> str:
@@ -1161,12 +1166,90 @@ class ReducedCoupledSystemBuilder:
             raise ValueError(f"Structural field '{key}' is not registered.")
         return self._structural_fields[key]
 
+    def retain_dof_group(self, field: str | None, name: str, dofs) -> np.ndarray:
+        """Register a named full-DOF group for later CB retention or interface ties."""
+        source = self._structural_source(field)
+        group_name = str(name)
+        if ":" in group_name:
+            raise ValueError("retained group names must not contain ':'.")
+        dofs_arr = np.asarray(dofs, dtype=np.int32).reshape(-1)
+        if dofs_arr.size == 0:
+            raise ValueError("retained DOF groups must contain at least one DOF.")
+        if dofs_arr.min() < 0 or dofs_arr.max() >= int(source.force.shape[0]):
+            raise ValueError("retained DOF group contains an index outside the structural field.")
+        dofs_arr = np.unique(dofs_arr).astype(np.int32)
+        self._retained_groups[source.name][group_name] = dofs_arr
+        return dofs_arr
+
+    def retain_node_set(
+        self,
+        field: str | None,
+        name: str,
+        nodes,
+        *,
+        dim: int | None = None,
+        components=None,
+    ) -> np.ndarray:
+        """Register a named retained group by node ids and vector components."""
+        source = self._structural_source(field)
+        dim_resolved = source.value_dim if dim is None else int(dim)
+        if dim_resolved <= 0:
+            raise ValueError("dim must be positive.")
+        nodes_arr = np.asarray(nodes, dtype=np.int32).reshape(-1)
+        if nodes_arr.size == 0:
+            raise ValueError("nodes must contain at least one node.")
+        if nodes_arr.min() < 0:
+            raise ValueError("nodes must be non-negative.")
+        if source.n_nodes is not None and nodes_arr.max() >= int(source.n_nodes):
+            raise ValueError("nodes contain an index outside the structural field.")
+        comps = np.arange(dim_resolved, dtype=np.int32) if components is None else np.asarray(components, dtype=np.int32)
+        comps = comps.reshape(-1)
+        if comps.size == 0:
+            raise ValueError("components must contain at least one component.")
+        if comps.min() < 0 or comps.max() >= dim_resolved:
+            raise ValueError("components contain an index outside dim.")
+        dofs = (nodes_arr[:, None] * dim_resolved + comps[None, :]).reshape(-1)
+        return self.retain_dof_group(source.name, name, dofs)
+
+    def retained_group_dofs(self, ref: str, *, field: str | None = None) -> np.ndarray:
+        group_field, group_name = self._parse_retained_group_ref(ref, field=field)
+        return self._retained_groups[group_field][group_name].copy()
+
+    def _parse_retained_group_ref(self, ref: str, *, field: str | None = None) -> tuple[str, str]:
+        text = str(ref)
+        if ":" in text:
+            if field is not None:
+                raise ValueError("Do not pass field when retained group ref already uses 'field:group'.")
+            field_text, group_text = text.split(":", 1)
+            if not field_text or not group_text:
+                raise ValueError("retained group refs must have form 'field:group'.")
+            group_field = self._resolve_structural_field_name(field_text)
+            group_name = group_text
+        else:
+            group_field = self._resolve_structural_field_name(field)
+            group_name = text
+        if group_name not in self._retained_groups.get(group_field, {}):
+            raise ValueError(f"Retained group '{group_name}' is not registered for field '{group_field}'.")
+        return group_field, group_name
+
+    def _retained_dofs_from_groups(self, field: str, group_refs: Sequence[str] | None) -> list[np.ndarray]:
+        if group_refs is None:
+            return []
+        groups = []
+        for ref in group_refs:
+            group_field, group_name = self._parse_retained_group_ref(str(ref), field=field if ":" not in str(ref) else None)
+            if group_field != field:
+                raise ValueError("retained_groups for reduce_field must reference the reduced field.")
+            groups.append(self._retained_groups[group_field][group_name])
+        return groups
+
     def reduce_field(
         self,
         name: str | None = None,
         *,
         reduced_name: str | None = None,
-        retained_dofs: Array,
+        retained_dofs: Array | None = None,
+        retained_groups: Sequence[str] | None = None,
         n_modes: int,
         method: str = "craig_bampton",
         **kwargs,
@@ -1174,10 +1257,16 @@ class ReducedCoupledSystemBuilder:
         source = self._structural_source(name)
         if str(method).lower() not in {"craig_bampton", "cb"}:
             raise ValueError("method must be 'craig_bampton' or 'cb'.")
+        retained_parts = self._retained_dofs_from_groups(source.name, retained_groups)
+        if retained_dofs is not None:
+            retained_parts.append(np.asarray(retained_dofs, dtype=np.int32).reshape(-1))
+        if not retained_parts:
+            raise ValueError("retained_dofs or retained_groups is required.")
+        retained = np.unique(np.concatenate(retained_parts)).astype(np.int32)
         source.basis = make_craig_bampton_basis(
             source.stiffness,
             source.mass,
-            retained_dofs=retained_dofs,
+            retained_dofs=retained,
             n_modes=n_modes,
             **kwargs,
         )
@@ -1349,6 +1438,18 @@ class ReducedCoupledSystemBuilder:
                 slave_dofs=slave_arr,
                 rhs=rhs_arr,
             )
+        )
+
+    def tie_retained_groups(self, master: str, slave: str, *, rhs=0.0) -> None:
+        """Tie two named retained groups referenced as ``"field:group"``."""
+        master_field, master_group = self._parse_retained_group_ref(master)
+        slave_field, slave_group = self._parse_retained_group_ref(slave)
+        self.add_dof_tie_constraint(
+            master=master_field,
+            slave=slave_field,
+            master_dofs=self._retained_groups[master_field][master_group],
+            slave_dofs=self._retained_groups[slave_field][slave_group],
+            rhs=rhs,
         )
 
     def add_rbe3_fixture(

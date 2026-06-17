@@ -16,7 +16,7 @@ CB retained DOFs are the natural location for interface, contact, and remote fix
 
 `RBE3Patch` and `ReferencePointFixture` are intentionally thin compatibility wrappers. They cover the older translational reference-point MPC/preload examples and can project through CB with `LinearConstraintSystem.project`. `RBE3RemoteFixture` is the CB-facing wrapper for both translational-only and 6-DOF rotational RBE3 reference fixtures. Its remote rotation coordinates are not structural CB retained DOFs; they are explicit appended reference DOFs preserved outside the workpiece basis via `LinearConstraintSystem.project(..., n_extra_dofs=...)`.
 
-For new code, prefer `ReducedCoupledSystemBuilder`. It mirrors the name-based `CoupledSystemBuilder` style: register structural fields, call `reduce_field(..., method="craig_bampton")` per field, append remote points, connect them with `add_rbe3_constraint(...)`, add preload/Dirichlet through named remote fields, and connect reduced subsystems with `add_dof_tie_constraint(...)`. This keeps the connection graph readable and avoids hand-written ROM/reference DOF offsets in tutorials. For sparse KKT assembly and current contact multiplier blocks, use `NumpyCoupledSystemBuilder` / `CoupledSystemBuilder`.
+For new code, prefer `ReducedCoupledSystemBuilder`. It mirrors the name-based `CoupledSystemBuilder` style: register structural fields, name retained node/DOF groups with `retain_node_set(...)` or `retain_dof_group(...)`, call `reduce_field(..., method="craig_bampton", retained_groups=[...])` per field, append remote points, connect them with `add_rbe3_constraint(...)`, add preload/Dirichlet through named remote fields, and connect reduced subsystems with `tie_retained_groups(...)` or `add_dof_tie_constraint(...)`. This keeps the connection graph readable and avoids hand-written ROM/reference DOF offsets in tutorials. For sparse KKT assembly and current contact multiplier blocks, use `NumpyCoupledSystemBuilder` / `CoupledSystemBuilder`.
 
 Small fixture utilities are now part of the public API rather than tutorial glue:
 `vector_dofs_from_nodes`, `retained_dofs_from_node_sets`, `remote_reference_direction`,
@@ -37,7 +37,7 @@ The same tutorial supports `--fixture-boundary preload`, `--fixture-boundary dir
 
 The older `craig_bampton_rbe3_preload_mpc.py` and `craig_bampton_fluxfem_rbe3_preload_experiment2.py` files remain useful as low-level compatibility/reference examples, but they should not be the first tutorial path for the current API.
 
-`tutorials/craig_bampton_multifield_builder.py` demonstrates the multi-subsystem path. It registers `part_a` and `part_b`, reduces both fields, ties their interface DOFs by name, and checks the ROM solution against a full KKT reference.
+`tutorials/craig_bampton_multifield_builder.py` demonstrates the multi-subsystem path. It registers `part_a` and `part_b`, names support/interface retained groups, reduces both fields from those group names, ties `part_a:interface` to `part_b:interface`, and checks the ROM solution against a full KKT reference.
 
 The active-contact/Newmark helpers no longer depend on removed legacy contact classes. They accept user-provided contact-state callbacks:
 

@@ -482,6 +482,57 @@ def test_reduced_coupled_system_builder_ties_multiple_reduced_fields():
     np.testing.assert_allclose(u, np.asarray(full), rtol=1.0e-12, atol=1.0e-12)
 
 
+def test_reduced_coupled_system_builder_ties_named_retained_groups():
+    k_a = jnp.array(
+        [
+            [6.0, -2.0, 0.0],
+            [-2.0, 5.0, -1.0],
+            [0.0, -1.0, 4.0],
+        ],
+        dtype=jnp.float64,
+    )
+    k_b = jnp.array(
+        [
+            [5.0, -1.5, 0.0],
+            [-1.5, 4.5, -1.0],
+            [0.0, -1.0, 3.5],
+        ],
+        dtype=jnp.float64,
+    )
+    f_a = jnp.array([0.0, 0.2, 0.0], dtype=jnp.float64)
+    f_b = jnp.array([0.0, -0.1, 0.3], dtype=jnp.float64)
+
+    builder = ff.ReducedCoupledSystemBuilder.from_structural("part_a", k_a, f_a, value_dim=1)
+    builder.register_structural("part_b", k_b, f_b, value_dim=1)
+    builder.retain_node_set("part_a", "support", np.array([0]))
+    builder.retain_node_set("part_a", "interface", np.array([2]))
+    builder.retain_node_set("part_b", "interface", np.array([0]))
+    builder.retain_node_set("part_b", "free_end", np.array([2]))
+    builder.reduce_field("part_a", retained_groups=["support", "interface"], n_modes=1)
+    builder.reduce_field("part_b", retained_groups=["interface", "free_end"], n_modes=1)
+    builder.tie_retained_groups("part_a:interface", "part_b:interface")
+    system = builder.build()
+
+    fixed = system.reduced_dofs_from_full("part_a", builder.retained_group_dofs("part_a:support"))
+    q = system.solve(fixed_dofs=fixed)
+    u = np.asarray(system.expand(q))
+
+    k_full = np.zeros((6, 6), dtype=float)
+    k_full[:3, :3] = np.asarray(k_a)
+    k_full[3:, 3:] = np.asarray(k_b)
+    f_full = np.concatenate([np.asarray(f_a), np.asarray(f_b)])
+    c_full = jnp.array([[0.0, 0.0, 1.0, -1.0, 0.0, 0.0]], dtype=jnp.float64)
+    full = ff.LinearConstraintSystem(c_full).solve(
+        jnp.asarray(k_full),
+        jnp.asarray(f_full),
+        fixed_dofs=jnp.array([0], dtype=jnp.int32),
+    )
+
+    np.testing.assert_array_equal(builder.retained_group_dofs("part_b:interface"), np.array([0], dtype=np.int32))
+    np.testing.assert_allclose(np.asarray(system.constraints.residual(q)), np.zeros(1), atol=1.0e-12)
+    np.testing.assert_allclose(u, np.asarray(full), rtol=1.0e-12, atol=1.0e-12)
+
+
 def test_cb_remote_fixture_utilities_are_top_level_api():
     np.testing.assert_array_equal(
         ff.vector_dofs_from_nodes(np.array([2, 4]), dim=3),

@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 """Name-based multi-field Craig-Bampton coupled system.
 
-This tutorial builds two structural subsystems, reduces both with Craig-Bampton,
-and ties one interface DOF by field name:
+This tutorial builds two structural subsystems, names their retained support and
+interface groups, reduces both with Craig-Bampton, and ties the named interface:
 
-    part_a[2] - part_b[0] = 0
+    part_a:interface - part_b:interface = 0
 
 Run from the repository root:
 
@@ -68,14 +68,13 @@ def build_reduced_system() -> ff.ReducedCoupledSystem:
 
     builder = ff.ReducedCoupledSystemBuilder.from_structural("part_a", k_a, f_a, mass=mass_a)
     builder.register_structural("part_b", k_b, f_b, mass=mass_b)
-    builder.reduce_field("part_a", retained_dofs=jnp.array([0, 2], dtype=jnp.int32), n_modes=1)
-    builder.reduce_field("part_b", retained_dofs=jnp.array([0, 2], dtype=jnp.int32), n_modes=1)
-    builder.add_dof_tie_constraint(
-        master="part_a",
-        slave="part_b",
-        master_dofs=jnp.array([2], dtype=jnp.int32),
-        slave_dofs=jnp.array([0], dtype=jnp.int32),
-    )
+    builder.retain_node_set("part_a", "support", np.array([0]))
+    builder.retain_node_set("part_a", "interface", np.array([2]))
+    builder.retain_node_set("part_b", "interface", np.array([0]))
+    builder.retain_node_set("part_b", "free_end", np.array([2]))
+    builder.reduce_field("part_a", retained_groups=["support", "interface"], n_modes=1)
+    builder.reduce_field("part_b", retained_groups=["interface", "free_end"], n_modes=1)
+    builder.tie_retained_groups("part_a:interface", "part_b:interface")
     return builder.build()
 
 
