@@ -104,17 +104,21 @@ the least-squares dual map. The original nodal multiplier remains available with
 `MultiplierSpec(family="nodal")`.
 
 The same multiplier object also supports an initial coarse mortar option:
-`MultiplierSpec(coarse_rank=k)` builds a QR-based row-space projection from
-`B`, while `MultiplierSpec(coarse_projection=P)` applies an explicit
-projection matrix. This reduces multiplier rows after the chosen mortar family is
-assembled.
+`MultiplierSpec.coarse_dual_mortar()` selects a reduced row basis automatically
+from the assembled `B` matrix using SVD energy/numerical-rank criteria. Users can
+still pass `rank=k` for a QR-based fixed-rank projection, `max_rank=k` to cap the
+automatic rank, or `projection=P` for an explicit projection matrix. This
+reduces multiplier rows after the chosen mortar family is assembled.
 
 Current scope:
 
 - supported default: `ContactMultiplierSpace()` / `MultiplierSpec()` resolve to
   `family="dual_nodal", side="master"`
 - supported explicit legacy basis: `family="nodal"`
-- supported coarse options: `coarse_rank=k` or `coarse_projection=P`
+- supported user-facing constructors: `dual_mortar()`,
+  `coarse_dual_mortar()`, `nodal_mortar()`, `p0_mortar(contact)`
+- supported coarse options: auto SVD rank selection, fixed `rank=k`, capped
+  `max_rank=k`, or explicit `projection=P`
 - supported paths: `assemble_contact_constraint_operators`,
   `assemble_contact_kkt(..., format="dense|fluxsparse|bcoo")`
 - limitation: the sparse KKT path currently builds the small dual transform in

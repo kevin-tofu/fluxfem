@@ -307,6 +307,55 @@ def test_coarse_mortar_rank_projection_reduces_multiplier_rows_and_matches_spars
     assert np.allclose(np.asarray(K_sparse.to_dense()), K_dense, atol=1e-12)
 
 
+def test_coarse_dual_mortar_auto_selects_rank_without_user_rank():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    mult = ff.MultiplierSpec.coarse_dual_mortar(max_rank=2)
+
+    assert mult.family == "dual_nodal"
+    assert mult.coarse_rank is None
+    assert mult.coarse_mode == "auto"
+
+    ops = ff.assemble_multiplier(contact, rho=1.5, multiplier=mult, backend="numpy")
+    K_dense = np.asarray(contact.assemble_contact_kkt(rho=1.5, multiplier=mult, backend="numpy", format="dense"))
+
+    assert 1 <= int(ops.B.shape[0]) <= 2
+    assert K_dense.shape[-1] == int(ops.B.shape[1] + ops.B.shape[0])
+
+
+def test_multiplier_factory_constructors_cover_common_mortar_choices():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+
+    assert ff.MultiplierSpec.dual_mortar().family == "dual_nodal"
+    assert ff.MultiplierSpec.nodal_mortar().family == "nodal"
+    p0 = ff.MultiplierSpec.p0_mortar(contact)
+    assert p0.family == "p0"
+    assert p0.facet_conn is not None
+    with pytest.raises(ValueError, match="contact or facet_conn"):
+        ff.MultiplierSpec.p0_mortar()
+
+
 def test_coarse_mortar_explicit_projection_reduces_multiplier_rows():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(

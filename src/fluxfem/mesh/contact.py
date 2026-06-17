@@ -589,6 +589,10 @@ class ContactMultiplierSpace:
     facet_conn: np.ndarray | None = None
     coarse_rank: int | None = None
     coarse_projection: np.ndarray | None = None
+    coarse_mode: str | None = None
+    coarse_energy_tol: float | None = None
+    coarse_rtol: float | None = None
+    coarse_max_rank: int | None = None
 
     def __post_init__(self) -> None:
         fam = str(self.family).lower()
@@ -605,6 +609,14 @@ class ContactMultiplierSpace:
             raise ValueError("ContactMultiplierSpace.coarse_rank must be positive when provided.")
         if self.coarse_projection is not None and np.asarray(self.coarse_projection).ndim != 2:
             raise ValueError("ContactMultiplierSpace.coarse_projection must be a 2D matrix.")
+        if self.coarse_mode is not None and str(self.coarse_mode).lower() not in {"qr", "svd", "auto"}:
+            raise ValueError("ContactMultiplierSpace.coarse_mode must be 'qr', 'svd', or 'auto'.")
+        if self.coarse_energy_tol is not None and not (0.0 < float(self.coarse_energy_tol) <= 1.0):
+            raise ValueError("ContactMultiplierSpace.coarse_energy_tol must be in (0, 1].")
+        if self.coarse_rtol is not None and float(self.coarse_rtol) < 0.0:
+            raise ValueError("ContactMultiplierSpace.coarse_rtol must be non-negative.")
+        if self.coarse_max_rank is not None and int(self.coarse_max_rank) <= 0:
+            raise ValueError("ContactMultiplierSpace.coarse_max_rank must be positive when provided.")
 
     @classmethod
     def from_contact(
@@ -617,6 +629,10 @@ class ContactMultiplierSpace:
         facet_conn: np.ndarray | None = None,
         coarse_rank: int | None = None,
         coarse_projection: np.ndarray | None = None,
+        coarse_mode: str | None = None,
+        coarse_energy_tol: float | None = None,
+        coarse_rtol: float | None = None,
+        coarse_max_rank: int | None = None,
     ) -> "ContactMultiplierSpace":
         fc = None if facet_conn is None else np.asarray(facet_conn, dtype=int)
         if str(family).lower() in {"p0", "p0_active", "p0_supermesh"} and fc is None:
@@ -628,6 +644,74 @@ class ContactMultiplierSpace:
             facet_conn=fc,
             coarse_rank=None if coarse_rank is None else int(coarse_rank),
             coarse_projection=None if coarse_projection is None else np.asarray(coarse_projection, dtype=float),
+            coarse_mode=None if coarse_mode is None else str(coarse_mode).lower(),
+            coarse_energy_tol=None if coarse_energy_tol is None else float(coarse_energy_tol),
+            coarse_rtol=None if coarse_rtol is None else float(coarse_rtol),
+            coarse_max_rank=None if coarse_max_rank is None else int(coarse_max_rank),
+        )
+
+    @classmethod
+    def dual_mortar(
+        cls,
+        *,
+        side: str = "master",
+        value_dim: int = 1,
+    ) -> "ContactMultiplierSpace":
+        return cls(family="dual_nodal", side=side, value_dim=int(value_dim))
+
+    @classmethod
+    def nodal_mortar(
+        cls,
+        *,
+        side: str = "master",
+        value_dim: int = 1,
+    ) -> "ContactMultiplierSpace":
+        return cls(family="nodal", side=side, value_dim=int(value_dim))
+
+    @classmethod
+    def coarse_dual_mortar(
+        cls,
+        *,
+        mode: str = "auto",
+        rank: int | None = None,
+        energy_tol: float = 0.999,
+        rtol: float = 1e-10,
+        max_rank: int | None = None,
+        projection: np.ndarray | None = None,
+        side: str = "master",
+        value_dim: int = 1,
+    ) -> "ContactMultiplierSpace":
+        coarse_mode = "qr" if rank is not None and str(mode).lower() == "auto" else str(mode).lower()
+        return cls(
+            family="dual_nodal",
+            side=side,
+            value_dim=int(value_dim),
+            coarse_rank=None if rank is None else int(rank),
+            coarse_projection=None if projection is None else np.asarray(projection, dtype=float),
+            coarse_mode=coarse_mode,
+            coarse_energy_tol=float(energy_tol),
+            coarse_rtol=float(rtol),
+            coarse_max_rank=None if max_rank is None else int(max_rank),
+        )
+
+    @classmethod
+    def p0_mortar(
+        cls,
+        contact=None,
+        *,
+        side: str = "master",
+        value_dim: int = 1,
+        facet_conn: np.ndarray | None = None,
+        family: str = "p0",
+    ) -> "ContactMultiplierSpace":
+        if contact is None and facet_conn is None:
+            raise ValueError("p0_mortar requires contact or facet_conn.")
+        return cls.from_contact(
+            contact,
+            family=family,
+            side=side,
+            value_dim=value_dim,
+            facet_conn=facet_conn,
         )
 
 
@@ -1404,6 +1488,10 @@ def _resolve_multiplier_spec(
             if multiplier.coarse_projection is None
             else np.asarray(multiplier.coarse_projection, dtype=float)
         ),
+        coarse_mode=multiplier.coarse_mode,
+        coarse_energy_tol=multiplier.coarse_energy_tol,
+        coarse_rtol=multiplier.coarse_rtol,
+        coarse_max_rank=multiplier.coarse_max_rank,
     )
     return fam, facet_arr, resolved_multiplier
 
@@ -1461,10 +1549,46 @@ def _coarse_row_projection_from_rank(B, rank: int, *, backend: str):
     return q[:, : int(rank)].T
 
 
+def _coarse_row_projection_from_svd(
+    B,
+    *,
+    energy_tol: float,
+    rtol: float,
+    max_rank: int | None,
+    backend: str,
+):
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        u, s, _ = jnp.linalg.svd(B, full_matrices=False)
+        s_np = np.asarray(s, dtype=float)
+        xp = jnp
+    else:
+        u_np, s_np, _ = np.linalg.svd(np.asarray(B, dtype=float), full_matrices=False)
+        u = u_np
+        xp = np
+    if s_np.size == 0:
+        raise ValueError("Cannot build a coarse mortar projection from an empty B matrix.")
+    total = float(np.sum(s_np**2))
+    if total <= 0.0:
+        rank_energy = 1
+    else:
+        cumulative = np.cumsum(s_np**2) / total
+        rank_energy = int(np.searchsorted(cumulative, float(energy_tol), side="left") + 1)
+    threshold = float(rtol) * float(s_np[0]) if s_np.size else 0.0
+    rank_numeric = int(np.count_nonzero(s_np > threshold)) if threshold > 0.0 else int(s_np.size)
+    rank = max(1, min(rank_energy, rank_numeric if rank_numeric > 0 else 1))
+    if max_rank is not None:
+        rank = min(rank, int(max_rank))
+    rank = min(rank, int(u.shape[1]))
+    return xp.asarray(u[:, :rank]).T
+
+
 def _apply_coarse_mortar_projection(B_a, B_b, multiplier: ContactMultiplierSpace, *, backend: str):
     projection = multiplier.coarse_projection
     rank = multiplier.coarse_rank
-    if projection is None and rank is None:
+    mode = None if multiplier.coarse_mode is None else str(multiplier.coarse_mode).lower()
+    if projection is None and rank is None and mode is None:
         return B_a, B_b
     if backend == "jax":
         import jax.numpy as jnp
@@ -1477,8 +1601,17 @@ def _apply_coarse_mortar_projection(B_a, B_b, multiplier: ContactMultiplierSpace
         P = xp.asarray(projection)
         if int(P.shape[1]) != int(B.shape[0]):
             raise ValueError("coarse_projection must have shape (n_coarse, n_multiplier_rows).")
+    elif mode in {"svd", "auto"} and rank is None:
+        P = _coarse_row_projection_from_svd(
+            B,
+            energy_tol=0.999 if multiplier.coarse_energy_tol is None else float(multiplier.coarse_energy_tol),
+            rtol=1e-10 if multiplier.coarse_rtol is None else float(multiplier.coarse_rtol),
+            max_rank=multiplier.coarse_max_rank,
+            backend=backend,
+        )
     else:
-        P = _coarse_row_projection_from_rank(B, int(rank), backend=backend)
+        rank_eff = int(rank) if rank is not None else int(multiplier.coarse_max_rank or min(B.shape))
+        P = _coarse_row_projection_from_rank(B, rank_eff, backend=backend)
     B_coarse = P @ B
     n_a = int(B_a.shape[1])
     return B_coarse[:, :n_a], -B_coarse[:, n_a:]
@@ -1494,6 +1627,10 @@ def _kkt_coo_from_coupling(
     multiplier_value_dim: int = 1,
     coarse_rank: int | None = None,
     coarse_projection: np.ndarray | None = None,
+    coarse_mode: str | None = None,
+    coarse_energy_tol: float | None = None,
+    coarse_rtol: float | None = None,
+    coarse_max_rank: int | None = None,
 ):
     if multiplier_space == "p0_supermesh":
         raise NotImplementedError(
@@ -1566,7 +1703,7 @@ def _kkt_coo_from_coupling(
         n_cols=n_u,
         value_dim=int(multiplier_value_dim),
     )
-    if coarse_rank is not None or coarse_projection is not None:
+    if coarse_rank is not None or coarse_projection is not None or coarse_mode is not None:
         B_dense = np.zeros((n_l, n_u), dtype=float)
         B_dense[b_rows, b_cols] += b_data
         coarse_multiplier = ContactMultiplierSpace(
@@ -1574,6 +1711,10 @@ def _kkt_coo_from_coupling(
             value_dim=1,
             coarse_rank=coarse_rank,
             coarse_projection=coarse_projection,
+            coarse_mode=coarse_mode,
+            coarse_energy_tol=coarse_energy_tol,
+            coarse_rtol=coarse_rtol,
+            coarse_max_rank=coarse_max_rank,
         )
         n_a_expanded = int(n_a) * int(multiplier_value_dim)
         B_a_dense = B_dense[:, :n_a_expanded]
@@ -2033,6 +2174,10 @@ def assemble_contact_kkt(
             multiplier_value_dim=int(getattr(multiplier_eff, "value_dim", 1)),
             coarse_rank=getattr(multiplier_eff, "coarse_rank", None),
             coarse_projection=getattr(multiplier_eff, "coarse_projection", None),
+            coarse_mode=getattr(multiplier_eff, "coarse_mode", None),
+            coarse_energy_tol=getattr(multiplier_eff, "coarse_energy_tol", None),
+            coarse_rtol=getattr(multiplier_eff, "coarse_rtol", None),
+            coarse_max_rank=getattr(multiplier_eff, "coarse_max_rank", None),
         )
         if format == "fluxsparse":
             from ..solver import FluxSparseMatrix
