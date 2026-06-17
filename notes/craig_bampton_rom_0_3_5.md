@@ -92,3 +92,37 @@ production-scale DOF counts.
 2. Add direct contact integration so candidate contact DOFs can be retained and contact blocks can be attached by field name.
 3. Add an active-contact example where candidate contact DOFs are retained and only interior DOFs are reduced.
 4. Extend multi-field coupling beyond DOF ties to named spring/damper/interface operators.
+
+## Contact mortar and AL next tasks
+
+The existing mortar path has standard nodal and P0 multiplier spaces. It now has
+an initial `dual_nodal` entry point for master-side biorthogonal nodal mortar:
+`B_a = I` and `B_b = pinv(M_aa) M_ab`. For full-rank nodal mass blocks this is
+the usual inverse-based dual map; for rank-deficient or inactive rows it becomes
+the least-squares dual map. This is deliberately narrower than a full dual
+mortar implementation. It gives a readable API and a mathematically clear
+baseline while keeping the current contact coupling assembly intact.
+
+Current scope:
+
+- supported: `ContactMultiplierSpace(family="dual_nodal", side="master")`
+- supported paths: `assemble_contact_constraint_operators`,
+  `assemble_contact_kkt(..., format="dense|fluxsparse|bcoo")`
+- limitation: the sparse KKT path currently builds the small dual transform in
+  dense form before returning COO/BCOO
+- limitation: no slave-side dual basis yet, because the current generic coupling
+  API exposes `M_aa` and `M_ab`, but not an independent slave-side nodal mass
+  block
+- limitation: no P0/supermesh dual basis yet
+
+The next natural step is an augmented-Lagrangian outer loop on top of these
+constraint operators. The useful API should be lower level first:
+
+1. assemble or accept `(B, Kuu)` from `assemble_contact_constraint_operators`;
+2. solve the structural/multiplier subproblem;
+3. update multiplier state explicitly, e.g. projected normal update for
+   unilateral contact;
+4. stop on primal gap and multiplier-update norms.
+
+That keeps the contact law state outside differentiated residual evaluation,
+matching the active-contact/Newmark design used by the CB-ROM utilities.

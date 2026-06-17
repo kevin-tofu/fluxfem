@@ -33,6 +33,19 @@ def _nodal_multiplier():
     return ff.MultiplierSpec(family="nodal")
 
 
+def _dual_nodal_multiplier():
+    return ff.MultiplierSpec(family="dual_nodal", side="master")
+
+
+def _coupling_to_dense(coupling):
+    dense = np.zeros(coupling.shape, dtype=float)
+    dense[np.asarray(coupling.rows, dtype=int), np.asarray(coupling.cols, dtype=int)] += np.asarray(
+        coupling.data,
+        dtype=float,
+    )
+    return dense
+
+
 def test_contact_kkt_matches_module_and_class_api():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(
@@ -167,6 +180,89 @@ def test_contact_constraint_operators_match_kkt_blocks():
 
     n_u = int(np.asarray(ops.B).shape[1])
     assert np.allclose(np.asarray(ops.Kuu), np.asarray(K_dense)[:n_u, :n_u], atol=1e-12)
+
+
+def test_dual_nodal_contact_multiplier_builds_biorthogonal_blocks():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    m_aa, m_ab = contact.assemble_contact_coupling_matrices()
+    M_aa = _coupling_to_dense(m_aa)
+    M_ab = _coupling_to_dense(m_ab)
+
+    ops = ff.assemble_multiplier(
+        contact,
+        rho=2.5,
+        multiplier=_dual_nodal_multiplier(),
+        backend="numpy",
+    )
+
+    assert ops.multiplier.family == "dual_nodal"
+    assert np.allclose(np.asarray(ops.B_a), np.eye(M_aa.shape[0]), atol=1e-12)
+    assert np.allclose(M_aa @ np.asarray(ops.B_b), M_ab, atol=1e-12)
+
+    K_dense, B_a_ref, B_b_ref = contact.assemble_contact_kkt(
+        rho=2.5,
+        multiplier=_dual_nodal_multiplier(),
+        backend="numpy",
+        format="dense",
+        return_blocks=True,
+    )
+    assert np.allclose(np.asarray(ops.B_a), np.asarray(B_a_ref), atol=1e-12)
+    assert np.allclose(np.asarray(ops.B_b), np.asarray(B_b_ref), atol=1e-12)
+    assert np.allclose(np.asarray(ops.Kuu), np.asarray(K_dense)[: ops.B.shape[1], : ops.B.shape[1]], atol=1e-12)
+
+
+def test_dual_nodal_contact_kkt_sparse_formats_match_dense():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    mult = _dual_nodal_multiplier()
+
+    K_dense = np.asarray(contact.assemble_contact_kkt(rho=1.25, multiplier=mult, backend="numpy", format="dense"))
+    K_flux = contact.assemble_contact_kkt(rho=1.25, multiplier=mult, backend="numpy", format="fluxsparse")
+    K_bcoo = contact.assemble_contact_kkt(rho=1.25, multiplier=mult, backend="jax", format="bcoo")
+
+    assert np.allclose(np.asarray(K_flux.to_dense()), K_dense, atol=1e-12)
+    assert np.allclose(np.asarray(K_bcoo.todense()), K_dense, atol=1e-12)
+
+
+def test_dual_nodal_contact_multiplier_rejects_slave_side_until_slave_mass_is_available():
+    with pytest.raises(NotImplementedError, match="side='master'"):
+        ff.assemble_contact_kkt(
+            ff.ContactCouplingMatrix(
+                rows=np.array([0], dtype=int),
+                cols=np.array([0], dtype=int),
+                data=np.array([1.0], dtype=float),
+                shape=(1, 1),
+            ),
+            ff.ContactCouplingMatrix(
+                rows=np.array([0], dtype=int),
+                cols=np.array([0], dtype=int),
+                data=np.array([1.0], dtype=float),
+                shape=(1, 1),
+            ),
+            multiplier=ff.MultiplierSpec(family="dual_nodal", side="slave"),
+            format="dense",
+        )
 
 
 def test_contact_operator_method_aliases_match_existing_entrypoints():

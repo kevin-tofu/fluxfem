@@ -558,16 +558,16 @@ class OneSidedContactSpaces:
 class ContactMultiplierSpace:
     """Discrete LM-space description used by constraint-family contact assembly."""
 
-    family: str = "nodal"  # "nodal" | "p0" | "p0_active" | "p0_supermesh"
+    family: str = "nodal"  # "nodal" | "dual_nodal" | "p0" | "p0_active" | "p0_supermesh"
     side: str = "master"  # For p0-like families, current implementation supports only "master".
     value_dim: int = 1
     facet_conn: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         fam = str(self.family).lower()
-        if fam not in {"nodal", "p0", "p0_active", "p0_supermesh"}:
+        if fam not in {"nodal", "dual_nodal", "p0", "p0_active", "p0_supermesh"}:
             raise ValueError(
-                "ContactMultiplierSpace.family must be 'nodal', 'p0', 'p0_active', or 'p0_supermesh'."
+                "ContactMultiplierSpace.family must be 'nodal', 'dual_nodal', 'p0', 'p0_active', or 'p0_supermesh'."
             )
         side = str(self.side).lower()
         if side not in {"master", "slave"}:
@@ -1348,8 +1348,13 @@ def _resolve_multiplier_spec(
         facet = _infer_contact_side_facets(contact, side=str(multiplier.side))
     if facet is None:
         facet = facet_conn_master
-    if fam not in {"nodal", "p0", "p0_active", "p0_supermesh"}:
-        raise ValueError("multiplier.family must be 'nodal', 'p0', 'p0_active', or 'p0_supermesh'")
+    if fam == "dual_nodal" and str(multiplier.side).lower() != "master":
+        raise NotImplementedError(
+            "dual_nodal multipliers currently support only side='master' "
+            "(requires the master-side nodal mass block)."
+        )
+    if fam not in {"nodal", "dual_nodal", "p0", "p0_active", "p0_supermesh"}:
+        raise ValueError("multiplier.family must be 'nodal', 'dual_nodal', 'p0', 'p0_active', or 'p0_supermesh'")
     if fam in {"p0", "p0_active"} and facet is None:
         raise ValueError(f"facet_conn_master is required when multiplier.family='{fam}'.")
     facet_arr = None if facet is None else np.asarray(facet, dtype=int)
@@ -1367,6 +1372,37 @@ def _coalesce_int_coo(rows: np.ndarray, cols: np.ndarray, data: np.ndarray):
 
     r, c, d = coalesce_coo(rows, cols, data)
     return np.asarray(r, dtype=int), np.asarray(c, dtype=int), np.asarray(d, dtype=float)
+
+
+def _dual_nodal_blocks_from_dense(M_aa, M_ab, *, backend: str):
+    """Build master-side dual nodal mortar blocks.
+
+    Full-rank nodal mass blocks use the exact inverse. Rank-deficient blocks use
+    the Moore-Penrose pseudoinverse, which gives the least-squares dual map and
+    keeps inactive/degenerate rows from making the public API unusable.
+    """
+    if int(M_aa.shape[0]) != int(M_aa.shape[1]):
+        raise ValueError("dual_nodal requires a square master-side nodal coupling block.")
+    if int(M_ab.shape[0]) != int(M_aa.shape[0]):
+        raise ValueError("dual_nodal requires compatible master/slave coupling row counts.")
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        xp = jnp
+    else:
+        xp = np
+    B_a = xp.eye(int(M_aa.shape[0]), dtype=M_aa.dtype)
+    B_b = xp.linalg.pinv(M_aa) @ M_ab
+    return B_a, B_b
+
+
+def _dense_to_coo_entries(mat: np.ndarray, *, tol: float = 0.0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    arr = np.asarray(mat, dtype=float)
+    if tol > 0.0:
+        rows, cols = np.nonzero(np.abs(arr) > float(tol))
+    else:
+        rows, cols = np.nonzero(arr)
+    return rows.astype(int), cols.astype(int), arr[rows, cols].astype(float)
 
 
 def _kkt_coo_from_coupling(
@@ -1393,6 +1429,16 @@ def _kkt_coo_from_coupling(
         b_rows = np.concatenate([rows_aa, rows_ab])
         b_cols = np.concatenate([cols_aa, n_a + cols_ab])
         b_data = np.concatenate([data_aa, -data_ab])
+    elif multiplier_space == "dual_nodal":
+        M_aa = _coo_to_dense(rows_aa, cols_aa, data_aa, coupling_aa.shape, backend="numpy")
+        M_ab = _coo_to_dense(rows_ab, cols_ab, data_ab, coupling_ab.shape, backend="numpy")
+        B_a, B_b = _dual_nodal_blocks_from_dense(M_aa, M_ab, backend="numpy")
+        rows_a, cols_a, data_a = _dense_to_coo_entries(B_a)
+        rows_b, cols_b, data_b = _dense_to_coo_entries(B_b)
+        n_l = int(B_a.shape[0])
+        b_rows = np.concatenate([rows_a, rows_b])
+        b_cols = np.concatenate([cols_a, n_a + cols_b])
+        b_data = np.concatenate([data_a, -data_b])
     elif multiplier_space == "p0":
         if facet_conn_master is None:
             raise ValueError("facet_conn_master is required when multiplier_space='p0'.")
@@ -1430,7 +1476,7 @@ def _kkt_coo_from_coupling(
             b_cols = np.zeros((0,), dtype=int)
             b_data = np.zeros((0,), dtype=float)
     else:
-        raise ValueError("multiplier_space must be 'nodal' or 'p0'")
+        raise ValueError("multiplier_space must be 'nodal', 'dual_nodal', or 'p0'")
     b_rows, b_cols, b_data, n_l, n_u = _expand_scalar_constraint_coo(
         b_rows,
         b_cols,
@@ -1664,6 +1710,8 @@ def assemble_contact_constraint_operators(
     if mult_space == "nodal":
         B_a = M_aa
         B_b = M_ab
+    elif mult_space == "dual_nodal":
+        B_a, B_b = _dual_nodal_blocks_from_dense(M_aa, M_ab, backend=backend)
     elif mult_space == "p0":
         n_master_nodes = int(coupling_aa.shape[0])
         S_np = _p0_reduction_matrix_from_facets(facet_conn_master, n_master_nodes)
@@ -1696,7 +1744,7 @@ def assemble_contact_constraint_operators(
             B_a = xp.asarray(B_a)
             B_b = xp.asarray(B_b)
     else:
-        raise ValueError("multiplier.family must be 'nodal', 'p0', 'p0_active', or 'p0_supermesh'.")
+        raise ValueError("multiplier.family must be 'nodal', 'dual_nodal', 'p0', 'p0_active', or 'p0_supermesh'.")
 
     B = xp.concatenate([B_a, -B_b], axis=1)
     Kuu = xp.asarray(rho) * (B.T @ B)
@@ -1844,6 +1892,7 @@ def assemble_contact_kkt(
 
     multiplier:
     - ``family="nodal"``: lambda lives on interface nodal basis (B_a=M_aa, B_b=M_ab)
+    - ``family="dual_nodal"``: master-side dual nodal basis (B_a=I, B_b=pinv(M_aa) M_ab)
     - ``family="p0"``: lambda is facet-wise constant on master side (B_* = S * M_*)
     - ``family="p0_active"``/``family="p0_supermesh"``: use ``assemble_contact_constraint_operators`` and pass ``ops`` to the builder
     """
@@ -1901,6 +1950,8 @@ def assemble_contact_kkt(
     if mult_space == "nodal":
         B_a = M_aa
         B_b = M_ab
+    elif mult_space == "dual_nodal":
+        B_a, B_b = _dual_nodal_blocks_from_dense(M_aa, M_ab, backend=backend)
     else:
         n_master_nodes = int(coupling_aa.shape[0])
         S_np = _p0_reduction_matrix_from_facets(facet_conn_master, n_master_nodes)
