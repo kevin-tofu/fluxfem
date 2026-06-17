@@ -533,6 +533,30 @@ def test_reduced_coupled_system_builder_ties_named_retained_groups():
     np.testing.assert_allclose(u, np.asarray(full), rtol=1.0e-12, atol=1.0e-12)
 
 
+def test_reduced_coupled_system_builder_retains_surface_nodes():
+    stiffness = jnp.eye(8, dtype=jnp.float64)
+    mass = jnp.eye(8, dtype=jnp.float64)
+    force = jnp.zeros((8,), dtype=jnp.float64)
+    coords = np.array(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+        ],
+        dtype=float,
+    )
+    surface = ff.make_surface_from_facets(coords, np.array([[1, 3], [3, 2]], dtype=np.int32))
+
+    builder = ff.ReducedCoupledSystemBuilder.from_structural("body", stiffness, force, mass=mass, value_dim=2)
+    retained = builder.retain_surface_nodes("body", "contact", surface, components=[1])
+    cb = builder.reduce_field("body", retained_groups=["contact"], n_modes=1)
+
+    np.testing.assert_array_equal(retained, np.array([3, 5, 7], dtype=np.int32))
+    np.testing.assert_array_equal(builder.retained_group_dofs("body:contact"), retained)
+    np.testing.assert_array_equal(np.asarray(cb.retained_dofs), retained)
+
+
 def test_cb_remote_fixture_utilities_are_top_level_api():
     np.testing.assert_array_equal(
         ff.vector_dofs_from_nodes(np.array([2, 4]), dim=3),

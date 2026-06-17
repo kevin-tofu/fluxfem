@@ -1211,6 +1211,27 @@ class ReducedCoupledSystemBuilder:
         dofs = (nodes_arr[:, None] * dim_resolved + comps[None, :]).reshape(-1)
         return self.retain_dof_group(source.name, name, dofs)
 
+    def retain_surface_nodes(
+        self,
+        field: str | None,
+        name: str,
+        surface,
+        *,
+        dim: int | None = None,
+        components=None,
+    ) -> np.ndarray:
+        """Register a retained group from all unique node ids in a surface."""
+        surface_obj = getattr(surface, "surface", surface)
+        if not hasattr(surface_obj, "conn"):
+            raise ValueError("surface must expose a conn array or a .surface.conn array.")
+        conn = np.asarray(surface_obj.conn, dtype=np.int32)
+        if conn.size == 0:
+            raise ValueError("surface contains no nodes.")
+        nodes = np.unique(conn.reshape(-1)).astype(np.int32)
+        return self.retain_node_set(field, name, nodes, dim=dim, components=components)
+
+    retain_surface = retain_surface_nodes
+
     def retained_group_dofs(self, ref: str, *, field: str | None = None) -> np.ndarray:
         group_field, group_name = self._parse_retained_group_ref(ref, field=field)
         return self._retained_groups[group_field][group_name].copy()
