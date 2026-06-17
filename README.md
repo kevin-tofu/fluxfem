@@ -606,7 +606,8 @@ Notes:
 - `prepare(...)` is the preferred public name for the reusable setup step; `to_contact_surface_space(...)` remains available as a compatibility entrypoint.
 - `ContactState` currently provides the public skeleton for state-explicit contact workflows; future nonlinear contact updates should build on this boundary.
 - `MultiplierSpec` is the preferred public name for multiplier discretization; `ContactMultiplierSpace` remains available as a compatibility name.
-- `MultiplierSpec(family="dual_nodal", side="master")` provides an initial master-side dual nodal mortar map using `B_a = I` and `B_b = pinv(M_aa) M_ab`.
+- `MultiplierSpec()` defaults to `family="dual_nodal"` for mortar, giving a master-side dual nodal map with `B_a = I` and `B_b = pinv(M_aa) M_ab`; pass `family="nodal"` to recover the original nodal multiplier basis.
+- Coarse mortar row reduction is available with `MultiplierSpec(coarse_rank=k)` for a QR-based row-space projection, or `MultiplierSpec(coarse_projection=P)` for an explicit row projection.
 - `solve_augmented_lagrangian_outer_loop(...)` provides a low-level AL loop around user-supplied inner solves and either `constraint_fn(solution)` or `ContactOperators.B @ solution - offset`.
 - `ContactMultiplierSpace` / `MultiplierSpec` p0-like families (`"p0"`, `"p0_active"`, `"p0_supermesh"`) currently support `side="master"` only.
 - See docs: `Usage -> Contact API Boundaries`.

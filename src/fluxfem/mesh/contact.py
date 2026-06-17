@@ -583,10 +583,12 @@ class OneSidedContactSpaces:
 class ContactMultiplierSpace:
     """Discrete LM-space description used by constraint-family contact assembly."""
 
-    family: str = "nodal"  # "nodal" | "dual_nodal" | "p0" | "p0_active" | "p0_supermesh"
+    family: str = "dual_nodal"  # "dual_nodal" | "nodal" | "p0" | "p0_active" | "p0_supermesh"
     side: str = "master"  # For p0-like families, current implementation supports only "master".
     value_dim: int = 1
     facet_conn: np.ndarray | None = None
+    coarse_rank: int | None = None
+    coarse_projection: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         fam = str(self.family).lower()
@@ -599,16 +601,22 @@ class ContactMultiplierSpace:
             raise ValueError("ContactMultiplierSpace.side must be 'master' or 'slave'.")
         if int(self.value_dim) <= 0:
             raise ValueError("ContactMultiplierSpace.value_dim must be positive.")
+        if self.coarse_rank is not None and int(self.coarse_rank) <= 0:
+            raise ValueError("ContactMultiplierSpace.coarse_rank must be positive when provided.")
+        if self.coarse_projection is not None and np.asarray(self.coarse_projection).ndim != 2:
+            raise ValueError("ContactMultiplierSpace.coarse_projection must be a 2D matrix.")
 
     @classmethod
     def from_contact(
         cls,
         contact,
         *,
-        family: str = "nodal",
+        family: str = "dual_nodal",
         side: str = "master",
         value_dim: int = 1,
         facet_conn: np.ndarray | None = None,
+        coarse_rank: int | None = None,
+        coarse_projection: np.ndarray | None = None,
     ) -> "ContactMultiplierSpace":
         fc = None if facet_conn is None else np.asarray(facet_conn, dtype=int)
         if str(family).lower() in {"p0", "p0_active", "p0_supermesh"} and fc is None:
@@ -618,6 +626,8 @@ class ContactMultiplierSpace:
             side=str(side).lower(),
             value_dim=int(value_dim),
             facet_conn=fc,
+            coarse_rank=None if coarse_rank is None else int(coarse_rank),
+            coarse_projection=None if coarse_projection is None else np.asarray(coarse_projection, dtype=float),
         )
 
 
@@ -1361,7 +1371,7 @@ def _resolve_multiplier_spec(
     if multiplier is not None and not isinstance(multiplier, ContactMultiplierSpace):
         raise TypeError("multiplier must be a ContactMultiplierSpace.")
     if multiplier is None:
-        raise TypeError("multiplier is required (ContactMultiplierSpace).")
+        multiplier = ContactMultiplierSpace.from_contact(contact, family="dual_nodal", side="master")
     fam = str(multiplier.family).lower()
     if fam in {"p0", "p0_active", "p0_supermesh"} and str(multiplier.side).lower() != "master":
         raise NotImplementedError(
@@ -1388,6 +1398,12 @@ def _resolve_multiplier_spec(
         side=str(multiplier.side).lower(),
         value_dim=int(multiplier.value_dim),
         facet_conn=facet_arr,
+        coarse_rank=None if multiplier.coarse_rank is None else int(multiplier.coarse_rank),
+        coarse_projection=(
+            None
+            if multiplier.coarse_projection is None
+            else np.asarray(multiplier.coarse_projection, dtype=float)
+        ),
     )
     return fam, facet_arr, resolved_multiplier
 
@@ -1430,6 +1446,44 @@ def _dense_to_coo_entries(mat: np.ndarray, *, tol: float = 0.0) -> tuple[np.ndar
     return rows.astype(int), cols.astype(int), arr[rows, cols].astype(float)
 
 
+def _coarse_row_projection_from_rank(B, rank: int, *, backend: str):
+    if int(rank) <= 0:
+        raise ValueError("coarse_rank must be positive.")
+    max_rank = min(int(B.shape[0]), int(B.shape[1]))
+    if int(rank) > max_rank:
+        raise ValueError("coarse_rank cannot exceed min(B.shape).")
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        q, _ = jnp.linalg.qr(B, mode="reduced")
+        return q[:, : int(rank)].T
+    q, _ = np.linalg.qr(np.asarray(B), mode="reduced")
+    return q[:, : int(rank)].T
+
+
+def _apply_coarse_mortar_projection(B_a, B_b, multiplier: ContactMultiplierSpace, *, backend: str):
+    projection = multiplier.coarse_projection
+    rank = multiplier.coarse_rank
+    if projection is None and rank is None:
+        return B_a, B_b
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        xp = jnp
+    else:
+        xp = np
+    B = xp.concatenate([B_a, -B_b], axis=1)
+    if projection is not None:
+        P = xp.asarray(projection)
+        if int(P.shape[1]) != int(B.shape[0]):
+            raise ValueError("coarse_projection must have shape (n_coarse, n_multiplier_rows).")
+    else:
+        P = _coarse_row_projection_from_rank(B, int(rank), backend=backend)
+    B_coarse = P @ B
+    n_a = int(B_a.shape[1])
+    return B_coarse[:, :n_a], -B_coarse[:, n_a:]
+
+
 def _kkt_coo_from_coupling(
     coupling_aa,
     coupling_ab,
@@ -1438,6 +1492,8 @@ def _kkt_coo_from_coupling(
     multiplier_space: str,
     facet_conn_master: np.ndarray | None,
     multiplier_value_dim: int = 1,
+    coarse_rank: int | None = None,
+    coarse_projection: np.ndarray | None = None,
 ):
     if multiplier_space == "p0_supermesh":
         raise NotImplementedError(
@@ -1510,6 +1566,28 @@ def _kkt_coo_from_coupling(
         n_cols=n_u,
         value_dim=int(multiplier_value_dim),
     )
+    if coarse_rank is not None or coarse_projection is not None:
+        B_dense = np.zeros((n_l, n_u), dtype=float)
+        B_dense[b_rows, b_cols] += b_data
+        coarse_multiplier = ContactMultiplierSpace(
+            family="nodal",
+            value_dim=1,
+            coarse_rank=coarse_rank,
+            coarse_projection=coarse_projection,
+        )
+        n_a_expanded = int(n_a) * int(multiplier_value_dim)
+        B_a_dense = B_dense[:, :n_a_expanded]
+        B_b_dense = -B_dense[:, n_a_expanded:]
+        B_a_dense, B_b_dense = _apply_coarse_mortar_projection(
+            B_a_dense,
+            B_b_dense,
+            coarse_multiplier,
+            backend="numpy",
+        )
+        B_dense = np.concatenate([B_a_dense, -B_b_dense], axis=1)
+        b_rows, b_cols, b_data = _dense_to_coo_entries(B_dense)
+        n_l = int(B_dense.shape[0])
+        n_u = int(B_dense.shape[1])
 
     # Build Kuu = rho * B^T B from row-wise products.
     by_row: dict[int, list[int]] = {}
@@ -1671,7 +1749,7 @@ def assemble_contact_constraint_operators(
     law: str | None = None,
     formulation: str | None = None,
     rho: float = 0.0,
-    multiplier: ContactMultiplierSpace,
+    multiplier: ContactMultiplierSpace | None = None,
     backend: str | None = None,
     weak_form: MixedSurfaceResidualForm | None = None,
     state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
@@ -1771,6 +1849,7 @@ def assemble_contact_constraint_operators(
     else:
         raise ValueError("multiplier.family must be 'nodal', 'dual_nodal', 'p0', 'p0_active', or 'p0_supermesh'.")
 
+    B_a, B_b = _apply_coarse_mortar_projection(B_a, B_b, multiplier_resolved, backend=backend)
     B = xp.concatenate([B_a, -B_b], axis=1)
     Kuu = xp.asarray(rho) * (B.T @ B)
     residual = None
@@ -1900,7 +1979,7 @@ def assemble_contact_kkt(
     coupling_ab,
     *,
     rho: float = 0.0,
-    multiplier: ContactMultiplierSpace,
+    multiplier: ContactMultiplierSpace | None = None,
     facet_conn_master: np.ndarray | None = None,
     backend: str | None = None,
     format: str = "fluxsparse",
@@ -1924,9 +2003,10 @@ def assemble_contact_kkt(
     backend = _infer_contact_backend(coupling_aa, coupling_ab, rho, multiplier, default="numpy") if backend is None else str(backend).lower()
     if backend not in {"numpy", "jax"}:
         raise ValueError("backend must be 'numpy' or 'jax'")
+    multiplier_eff = ContactMultiplierSpace() if multiplier is None else multiplier
     mult_space, facet_conn_master, _ = _resolve_multiplier_spec(
         None,
-        multiplier=multiplier,
+        multiplier=multiplier_eff,
         facet_conn_master=facet_conn_master,
     )
     if mult_space in {"p0_active", "p0_supermesh"}:
@@ -1950,7 +2030,9 @@ def assemble_contact_kkt(
             rho=float(rho),
             multiplier_space=mult_space,
             facet_conn_master=facet_conn_master,
-            multiplier_value_dim=int(getattr(multiplier, "value_dim", 1)),
+            multiplier_value_dim=int(getattr(multiplier_eff, "value_dim", 1)),
+            coarse_rank=getattr(multiplier_eff, "coarse_rank", None),
+            coarse_projection=getattr(multiplier_eff, "coarse_projection", None),
         )
         if format == "fluxsparse":
             from ..solver import FluxSparseMatrix
@@ -1985,14 +2067,15 @@ def assemble_contact_kkt(
         B_b = S @ M_ab
     B_a = _expand_scalar_constraint_dense(
         B_a,
-        value_dim=int(getattr(multiplier, "value_dim", 1)),
+        value_dim=int(getattr(multiplier_eff, "value_dim", 1)),
         backend=backend,
     )
     B_b = _expand_scalar_constraint_dense(
         B_b,
-        value_dim=int(getattr(multiplier, "value_dim", 1)),
+        value_dim=int(getattr(multiplier_eff, "value_dim", 1)),
         backend=backend,
     )
+    B_a, B_b = _apply_coarse_mortar_projection(B_a, B_b, multiplier_eff, backend=backend)
 
     B = xp.concatenate([B_a, -B_b], axis=1)
     Kuu = xp.asarray(rho) * (B.T @ B)
@@ -3508,7 +3591,7 @@ class ContactSurfaceSpace:
         self,
         *,
         rho: float = 0.0,
-        multiplier: ContactMultiplierSpace,
+        multiplier: ContactMultiplierSpace | None = None,
         backend: str | None = None,
         format: str = "fluxsparse",
         return_blocks: bool = False,
@@ -3531,7 +3614,7 @@ class ContactSurfaceSpace:
         law: str | None = None,
         formulation: str | None = None,
         rho: float = 0.0,
-        multiplier: ContactMultiplierSpace,
+        multiplier: ContactMultiplierSpace | None = None,
         backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
@@ -3565,7 +3648,7 @@ class ContactSurfaceSpace:
         law: str | None = None,
         formulation: str | None = None,
         rho: float = 0.0,
-        multiplier: ContactMultiplierSpace,
+        multiplier: ContactMultiplierSpace | None = None,
         backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
@@ -3600,7 +3683,7 @@ class ContactSurfaceSpace:
         law: str | None = None,
         formulation: str | None = None,
         rho: float = 0.0,
-        multiplier: ContactMultiplierSpace,
+        multiplier: ContactMultiplierSpace | None = None,
         backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None = None,
@@ -4624,7 +4707,7 @@ class OneToManyContactSurfaceSpace:
         self,
         *,
         rho: float = 0.0,
-        multiplier: ContactMultiplierSpace,
+        multiplier: ContactMultiplierSpace | None = None,
         backend: str | None = None,
         format: str = "fluxsparse",
         return_blocks: bool = False,
@@ -4648,7 +4731,7 @@ class OneToManyContactSurfaceSpace:
         law: str | None = None,
         formulation: str | None = None,
         rho: float = 0.0,
-        multiplier: ContactMultiplierSpace,
+        multiplier: ContactMultiplierSpace | None = None,
         backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,
@@ -4682,7 +4765,7 @@ class OneToManyContactSurfaceSpace:
         law: str | None = None,
         formulation: str | None = None,
         rho: float = 0.0,
-        multiplier: ContactMultiplierSpace,
+        multiplier: ContactMultiplierSpace | None = None,
         backend: str | None = None,
         weak_form: MixedSurfaceResidualForm | None = None,
         state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None = None,

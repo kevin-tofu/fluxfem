@@ -797,7 +797,9 @@ class CoupledSystemBuilder:
 
             if resolved_family == "constraint":
                 if multiplier is None:
-                    raise ValueError("constraint-family contact requires multiplier.")
+                    from ..mesh.contact import ContactMultiplierSpace
+
+                    multiplier = ContactMultiplierSpace.from_contact(contact_obj)
                 contact_obj = assemble_contact_constraint_operators(
                     contact_obj,
                     law=law,

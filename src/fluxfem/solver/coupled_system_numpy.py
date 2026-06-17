@@ -1206,9 +1206,9 @@ class NumpyCoupledSystemBuilder:
                 resolved_family = "constraint"
 
             if resolved_family == "constraint":
-                from ..mesh.contact import assemble_contact_constraint_operators as _assemble_ops
+                from ..mesh.contact import ContactMultiplierSpace, assemble_contact_constraint_operators as _assemble_ops
                 if multiplier is None:
-                    raise ValueError("family='constraint' requires multiplier (ContactMultiplierSpace).")
+                    multiplier = ContactMultiplierSpace.from_contact(contact_obj)
 
                 contact_obj = _assemble_ops(
                     contact_obj,

@@ -95,17 +95,26 @@ production-scale DOF counts.
 
 ## Contact mortar and AL next tasks
 
-The existing mortar path has standard nodal and P0 multiplier spaces. It now has
-an initial `dual_nodal` entry point for master-side biorthogonal nodal mortar:
+The existing mortar path has standard nodal and P0 multiplier spaces.
+`dual_nodal` is now the default multiplier family for mortar. It provides a
+master-side biorthogonal nodal map:
 `B_a = I` and `B_b = pinv(M_aa) M_ab`. For full-rank nodal mass blocks this is
 the usual inverse-based dual map; for rank-deficient or inactive rows it becomes
-the least-squares dual map. This is deliberately narrower than a full dual
-mortar implementation. It gives a readable API and a mathematically clear
-baseline while keeping the current contact coupling assembly intact.
+the least-squares dual map. The original nodal multiplier remains available with
+`MultiplierSpec(family="nodal")`.
+
+The same multiplier object also supports an initial coarse mortar option:
+`MultiplierSpec(coarse_rank=k)` builds a QR-based row-space projection from
+`B`, while `MultiplierSpec(coarse_projection=P)` applies an explicit
+projection matrix. This reduces multiplier rows after the chosen mortar family is
+assembled.
 
 Current scope:
 
-- supported: `ContactMultiplierSpace(family="dual_nodal", side="master")`
+- supported default: `ContactMultiplierSpace()` / `MultiplierSpec()` resolve to
+  `family="dual_nodal", side="master"`
+- supported explicit legacy basis: `family="nodal"`
+- supported coarse options: `coarse_rank=k` or `coarse_projection=P`
 - supported paths: `assemble_contact_constraint_operators`,
   `assemble_contact_kkt(..., format="dense|fluxsparse|bcoo")`
 - limitation: the sparse KKT path currently builds the small dual transform in

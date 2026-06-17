@@ -222,6 +222,42 @@ def test_dual_nodal_contact_multiplier_builds_biorthogonal_blocks():
     assert np.allclose(np.asarray(ops.Kuu), np.asarray(K_dense)[: ops.B.shape[1], : ops.B.shape[1]], atol=1e-12)
 
 
+def test_dual_nodal_is_default_mortar_multiplier():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+
+    assert ff.MultiplierSpec().family == "dual_nodal"
+    assert ff.MultiplierSpec.from_contact(contact).family == "dual_nodal"
+
+    ops_default = ff.assemble_multiplier(contact, rho=2.0, backend="numpy")
+    ops_dual = ff.assemble_multiplier(contact, rho=2.0, multiplier=_dual_nodal_multiplier(), backend="numpy")
+    assert ops_default.multiplier.family == "dual_nodal"
+    assert np.allclose(np.asarray(ops_default.B), np.asarray(ops_dual.B), atol=1e-12)
+    assert np.allclose(np.asarray(ops_default.Kuu), np.asarray(ops_dual.Kuu), atol=1e-12)
+
+    m_aa, m_ab = contact.assemble_contact_coupling_matrices()
+    K_default = ff.assemble_contact_kkt(m_aa, m_ab, rho=2.0, backend="numpy", format="dense")
+    K_dual = ff.assemble_contact_kkt(
+        m_aa,
+        m_ab,
+        rho=2.0,
+        multiplier=_dual_nodal_multiplier(),
+        backend="numpy",
+        format="dense",
+    )
+    assert np.allclose(np.asarray(K_default), np.asarray(K_dual), atol=1e-12)
+
+
 def test_dual_nodal_contact_kkt_sparse_formats_match_dense():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(
@@ -243,6 +279,63 @@ def test_dual_nodal_contact_kkt_sparse_formats_match_dense():
 
     assert np.allclose(np.asarray(K_flux.to_dense()), K_dense, atol=1e-12)
     assert np.allclose(np.asarray(K_bcoo.todense()), K_dense, atol=1e-12)
+
+
+def test_coarse_mortar_rank_projection_reduces_multiplier_rows_and_matches_sparse():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    mult = ff.MultiplierSpec(family="dual_nodal", coarse_rank=1)
+
+    ops = ff.assemble_multiplier(contact, rho=1.5, multiplier=mult, backend="numpy")
+    assert ops.B.shape[0] == 1
+    assert ops.B_a.shape[0] == 1
+    assert ops.B_b.shape[0] == 1
+
+    K_dense = np.asarray(contact.assemble_contact_kkt(rho=1.5, multiplier=mult, backend="numpy", format="dense"))
+    K_sparse = contact.assemble_contact_kkt(rho=1.5, multiplier=mult, backend="numpy", format="fluxsparse")
+    assert K_dense.shape[-1] == int(ops.B.shape[1] + 1)
+    assert np.allclose(np.asarray(K_sparse.to_dense()), K_dense, atol=1e-12)
+
+
+def test_coarse_mortar_explicit_projection_reduces_multiplier_rows():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    P = np.zeros((1, 4), dtype=float)
+    P[0, 0] = 1.0
+    mult = ff.MultiplierSpec(family="dual_nodal", coarse_projection=P)
+
+    ops = ff.assemble_multiplier(contact, rho=1.0, multiplier=mult, backend="numpy")
+    _, B_a_ref, B_b_ref = contact.assemble_contact_kkt(
+        rho=1.0,
+        multiplier=mult,
+        backend="numpy",
+        format="dense",
+        return_blocks=True,
+    )
+
+    assert ops.B.shape[0] == 1
+    assert np.allclose(np.asarray(ops.B_a), np.asarray(B_a_ref), atol=1e-12)
+    assert np.allclose(np.asarray(ops.B_b), np.asarray(B_b_ref), atol=1e-12)
 
 
 def test_dual_nodal_contact_multiplier_rejects_slave_side_until_slave_mass_is_available():
