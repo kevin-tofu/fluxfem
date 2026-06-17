@@ -627,11 +627,49 @@ force a specific solver path.</p>
 <h2>Constraint with Builder<a class="headerlink" href="#constraint-with-builder" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">assemble_contact_constraint_operators(...)</span></code> and builder are consistent:
 assemble operators first, then pass them to <code class="docutils literal notranslate"><span class="pre">add_contact</span></code> (or <code class="docutils literal notranslate"><span class="pre">add_contact_mortar</span></code>).</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">lm_space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">ContactMultiplierSpace</span><span class="o">.</span><span class="n">from_contact</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">family</span><span class="o">=</span><span class="s2">&quot;p0&quot;</span><span class="p">,</span> <span class="n">side</span><span class="o">=</span><span class="s2">&quot;master&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">lm_space</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">dual_mortar</span><span class="p">()</span>
 <span class="n">ops_mortar</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">assemble_contact_constraint_operators</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">multiplier</span><span class="o">=</span><span class="n">lm_space</span><span class="p">)</span>
 <span class="n">builder</span><span class="o">.</span><span class="n">add_contact</span><span class="p">(</span><span class="n">ops_mortar</span><span class="p">,</span> <span class="n">master</span><span class="o">=</span><span class="s2">&quot;top&quot;</span><span class="p">,</span> <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support&quot;</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>Raw prepared contacts can also be passed directly and assembled by the builder:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">builder</span><span class="o">.</span><span class="n">add_contact</span><span class="p">(</span>
+    <span class="n">contact</span><span class="p">,</span>
+    <span class="n">master</span><span class="o">=</span><span class="s2">&quot;top&quot;</span><span class="p">,</span>
+    <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support&quot;</span><span class="p">,</span>
+    <span class="n">family</span><span class="o">=</span><span class="s2">&quot;constraint&quot;</span><span class="p">,</span>
+    <span class="n">mortar</span><span class="o">=</span><span class="s2">&quot;coarse_dual&quot;</span><span class="p">,</span>
+    <span class="n">rho</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="mortar-method-selection">
+<h2>Mortar Method Selection<a class="headerlink" href="#mortar-method-selection" title="Link to this heading">#</a></h2>
+<p>Dual nodal mortar is the default multiplier basis for constraint-family contact.
+Use the explicit factory constructors when the choice should be visible in code:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">dual_mortar</span><span class="p">()</span>
+<span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">coarse_dual_mortar</span><span class="p">()</span>
+<span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">coarse_dual_mortar</span><span class="p">(</span><span class="n">rank</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+<span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">coarse_dual_mortar</span><span class="p">(</span><span class="n">max_rank</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">energy_tol</span><span class="o">=</span><span class="mf">0.999</span><span class="p">)</span>
+<span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">nodal_mortar</span><span class="p">()</span>
+<span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">p0_mortar</span><span class="p">(</span><span class="n">contact</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>For builder-managed raw prepared contacts, select the method directly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">builder</span><span class="o">.</span><span class="n">add_contact</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">master</span><span class="o">=</span><span class="s2">&quot;top&quot;</span><span class="p">,</span> <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support&quot;</span><span class="p">,</span>
+                    <span class="n">family</span><span class="o">=</span><span class="s2">&quot;constraint&quot;</span><span class="p">,</span> <span class="n">mortar</span><span class="o">=</span><span class="s2">&quot;dual&quot;</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">add_contact</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">master</span><span class="o">=</span><span class="s2">&quot;top&quot;</span><span class="p">,</span> <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support&quot;</span><span class="p">,</span>
+                    <span class="n">family</span><span class="o">=</span><span class="s2">&quot;constraint&quot;</span><span class="p">,</span> <span class="n">mortar</span><span class="o">=</span><span class="s2">&quot;coarse_dual&quot;</span><span class="p">,</span>
+                    <span class="n">mortar_max_rank</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">mortar=&quot;nodal&quot;</span></code> keeps the original nodal multiplier basis available for
+compatibility and comparisons. Coarse dual mortar reduces multiplier rows after
+the dual mortar operator has been assembled; fixed <code class="docutils literal notranslate"><span class="pre">mortar_rank</span></code> uses a QR
+row-space projection, while rank-free selection uses SVD energy and numerical
+rank criteria.</p>
 </section>
 <section id="mixed-numpy-jax-inputs">
 <h2>Mixed NumPy/JAX Inputs<a class="headerlink" href="#mixed-numpy-jax-inputs" title="Link to this heading">#</a></h2>
@@ -730,6 +768,7 @@ with NumPy arrays or Python scalars, FluxFEM prefers the JAX path.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notes">Notes</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#coupledsystembuilder-penalty">CoupledSystemBuilder (Penalty)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#constraint-with-builder">Constraint with Builder</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mortar-method-selection">Mortar Method Selection</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mixed-numpy-jax-inputs">Mixed NumPy/JAX Inputs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#embedding-map-with-unmapped-report">Embedding Map (With Unmapped Report)</a></li>
 </ul>
