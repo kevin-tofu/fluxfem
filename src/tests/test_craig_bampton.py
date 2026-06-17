@@ -583,11 +583,19 @@ def test_reduced_coupled_system_builder_records_contact_pair_metadata():
     system = builder.build()
 
     assert ff.ReducedContactPair is ff.solver.ReducedContactPair
+    assert ff.ReducedContactPairDofs is ff.solver.ReducedContactPairDofs
     assert pair.name == "candidate"
-    assert system.contact_pairs == (pair,)
+    assert system.contact_pair("candidate") == system.contact_pairs[0]
     assert system.contact_pairs[0].slave_field == "slave"
     assert system.contact_pairs[0].master_group == "contact"
     assert system.contact_pairs[0].enforcement == "external"
+    np.testing.assert_array_equal(system.retained_group_dofs("slave:contact"), np.array([0, 1, 2, 3], dtype=np.int32))
+    np.testing.assert_array_equal(system.reduced_group_dofs("slave:contact"), np.array([0, 1, 2, 3], dtype=np.int32))
+    pair_dofs = system.contact_pair_dofs("candidate")
+    np.testing.assert_array_equal(pair_dofs.slave_full_dofs, np.array([0, 1, 2, 3], dtype=np.int32))
+    np.testing.assert_array_equal(pair_dofs.master_full_dofs, np.array([4, 5, 6, 7], dtype=np.int32))
+    np.testing.assert_array_equal(pair_dofs.slave_reduced_dofs, np.array([0, 1, 2, 3], dtype=np.int32))
+    np.testing.assert_array_equal(pair_dofs.master_reduced_dofs, np.array([5, 6, 7, 8], dtype=np.int32))
 
 
 def test_cb_remote_fixture_utilities_are_top_level_api():

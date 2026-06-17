@@ -962,6 +962,17 @@ class ReducedContactPair:
 
 
 @dataclass(frozen=True)
+class ReducedContactPairDofs:
+    """Full and reduced DOFs associated with a named contact-candidate pair."""
+
+    pair: ReducedContactPair
+    slave_full_dofs: np.ndarray
+    slave_reduced_dofs: np.ndarray
+    master_full_dofs: np.ndarray
+    master_reduced_dofs: np.ndarray
+
+
+@dataclass(frozen=True)
 class ReducedCoupledSystem:
     """Built reduced KKT system with named fields and explicit extra DOFs."""
 
@@ -974,6 +985,7 @@ class ReducedCoupledSystem:
     bases: dict[str, CraigBamptonBasis] | None = None
     n_extra_dofs: int = 0
     contact_pairs: tuple[ReducedContactPair, ...] = ()
+    retained_groups: dict[str, dict[str, np.ndarray]] | None = None
 
     @property
     def n_dofs(self) -> int:
@@ -1094,6 +1106,55 @@ class ReducedCoupledSystem:
             return np.asarray([mapping[int(dof)] for dof in full], dtype=np.int32)
         except KeyError as exc:
             raise ValueError("All fixed full DOFs must be retained in the CB basis.") from exc
+
+    def retained_group_dofs(self, ref: str, *, field: str | None = None) -> np.ndarray:
+        group_field, group_name = self._parse_retained_group_ref(ref, field=field)
+        return self.retained_groups[group_field][group_name].copy()
+
+    def reduced_group_dofs(self, ref: str, *, field: str | None = None) -> np.ndarray:
+        group_field, _ = self._parse_retained_group_ref(ref, field=field)
+        return self.reduced_dofs_from_full(group_field, self.retained_group_dofs(ref, field=field))
+
+    def contact_pair(self, name: str) -> ReducedContactPair:
+        key = str(name)
+        for pair in self.contact_pairs:
+            if pair.name == key:
+                return pair
+        raise ValueError(f"Contact pair '{key}' is not registered.")
+
+    def contact_pair_dofs(self, name: str) -> ReducedContactPairDofs:
+        pair = self.contact_pair(name)
+        slave_ref = f"{pair.slave_field}:{pair.slave_group}"
+        master_ref = f"{pair.master_field}:{pair.master_group}"
+        slave_full = self.retained_group_dofs(slave_ref)
+        master_full = self.retained_group_dofs(master_ref)
+        return ReducedContactPairDofs(
+            pair=pair,
+            slave_full_dofs=slave_full,
+            slave_reduced_dofs=self.reduced_dofs_from_full(pair.slave_field, slave_full),
+            master_full_dofs=master_full,
+            master_reduced_dofs=self.reduced_dofs_from_full(pair.master_field, master_full),
+        )
+
+    def _parse_retained_group_ref(self, ref: str, *, field: str | None = None) -> tuple[str, str]:
+        if self.retained_groups is None:
+            raise ValueError("This reduced system does not carry retained group metadata.")
+        text = str(ref)
+        if ":" in text:
+            if field is not None:
+                raise ValueError("Do not pass field when retained group ref already uses 'field:group'.")
+            group_field, group_name = text.split(":", 1)
+            if not group_field or not group_name:
+                raise ValueError("retained group refs must have form 'field:group'.")
+        else:
+            if field is None:
+                raise ValueError("field is required when retained group ref omits 'field:'.")
+            group_field, group_name = str(field), text
+        if group_field not in self.fields:
+            raise ValueError(f"Field '{group_field}' is not registered.")
+        if group_name not in self.retained_groups.get(group_field, {}):
+            raise ValueError(f"Retained group '{group_name}' is not registered for field '{group_field}'.")
+        return group_field, group_name
 
 
 class ReducedCoupledSystemBuilder:
@@ -1687,10 +1748,12 @@ class ReducedCoupledSystemBuilder:
 
         fields: dict[str, ReducedFieldBlock] = {}
         bases: dict[str, CraigBamptonBasis] = {}
+        structural_to_reduced: dict[str, str] = {}
         primary_name = self._structural_fields[self.structural_name].reduced_name or self.structural_name
         for source in self._structural_fields.values():
             cb = source.basis
             reduced_name = source.reduced_name or source.name
+            structural_to_reduced[source.name] = reduced_name
             fields[reduced_name] = ReducedFieldBlock(
                 name=reduced_name,
                 offset=structural_offsets[source.name],
@@ -1710,6 +1773,24 @@ class ReducedCoupledSystemBuilder:
                 n_nodes=block.n_nodes,
             )
         primary_basis = self._structural_fields[self.structural_name].basis
+        retained_groups = {
+            structural_to_reduced[field]: {group: dofs.copy() for group, dofs in groups.items()}
+            for field, groups in self._retained_groups.items()
+            if field in structural_to_reduced
+        }
+        contact_pairs = tuple(
+            ReducedContactPair(
+                name=pair.name,
+                slave=f"{structural_to_reduced[pair.slave_field]}:{pair.slave_group}",
+                master=f"{structural_to_reduced[pair.master_field]}:{pair.master_group}",
+                slave_field=structural_to_reduced[pair.slave_field],
+                slave_group=pair.slave_group,
+                master_field=structural_to_reduced[pair.master_field],
+                master_group=pair.master_group,
+                enforcement=pair.enforcement,
+            )
+            for pair in self._contact_pairs
+        )
         return ReducedCoupledSystem(
             stiffness=k,
             force=f,
@@ -1719,7 +1800,8 @@ class ReducedCoupledSystemBuilder:
             basis=primary_basis,
             bases=bases,
             n_extra_dofs=n_extra,
-            contact_pairs=tuple(self._contact_pairs),
+            contact_pairs=contact_pairs,
+            retained_groups=retained_groups,
         )
 
     def _add_tie_side_to_row(
@@ -2416,6 +2498,7 @@ __all__ = [
     "RBE3Patch",
     "RBE3RemoteFixture",
     "ReducedContactPair",
+    "ReducedContactPairDofs",
     "ReducedCoupledSystem",
     "ReducedCoupledSystemBuilder",
     "ReducedContactDynamics",

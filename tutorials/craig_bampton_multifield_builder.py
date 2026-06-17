@@ -96,6 +96,7 @@ def main() -> None:
     print(f"fields:              {list(system.fields)}")
     print(f"reduced DOFs:         {system.n_dofs}")
     print(f"contact pairs:        {[pair.name for pair in system.contact_pairs]}")
+    print(f"contact reduced DOFs: {system.contact_pair_dofs('interface_candidate').slave_reduced_dofs.tolist()}")
     print(f"constraint norm:      {float(jnp.linalg.norm(system.constraints.residual(q))):.3e}")
     print(f"full/reference error: {float(jnp.linalg.norm(u - u_ref)):.3e}")
     print(f"interface values:     part_a[2]={float(u[2]):.8e}, part_b[0]={float(u[3]):.8e}")
