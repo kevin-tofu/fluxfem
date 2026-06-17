@@ -959,6 +959,7 @@ class ReducedContactPair:
     master_field: str
     master_group: str
     enforcement: str = "external"
+    params: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -1557,6 +1558,7 @@ class ReducedCoupledSystemBuilder:
         master: str,
         name: str | None = None,
         enforcement: str = "external",
+        **params,
     ) -> ReducedContactPair:
         """Record a named contact-candidate pair between retained groups."""
         slave_field, slave_group = self._parse_retained_group_ref(slave)
@@ -1572,6 +1574,7 @@ class ReducedCoupledSystemBuilder:
             master_field=master_field,
             master_group=master_group,
             enforcement=str(enforcement),
+            params=dict(params),
         )
         self._contact_pairs.append(pair)
         return pair
@@ -1788,6 +1791,7 @@ class ReducedCoupledSystemBuilder:
                 master_field=structural_to_reduced[pair.master_field],
                 master_group=pair.master_group,
                 enforcement=pair.enforcement,
+                params={} if pair.params is None else dict(pair.params),
             )
             for pair in self._contact_pairs
         )

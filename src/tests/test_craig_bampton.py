@@ -579,7 +579,14 @@ def test_reduced_coupled_system_builder_records_contact_pair_metadata():
     builder.retain_surface("master", "contact", master_surface)
     builder.reduce_field("slave", retained_groups=["contact"], n_modes=1)
     builder.reduce_field("master", retained_groups=["contact"], n_modes=1)
-    pair = builder.register_contact_pair(slave="slave:contact", master="master:contact", name="candidate")
+    pair = builder.register_contact_pair(
+        slave="slave:contact",
+        master="master:contact",
+        name="candidate",
+        normal=[0.0, 1.0],
+        penalty=25.0,
+        search_radius=0.2,
+    )
     system = builder.build()
 
     assert ff.ReducedContactPair is ff.solver.ReducedContactPair
@@ -589,6 +596,7 @@ def test_reduced_coupled_system_builder_records_contact_pair_metadata():
     assert system.contact_pairs[0].slave_field == "slave"
     assert system.contact_pairs[0].master_group == "contact"
     assert system.contact_pairs[0].enforcement == "external"
+    assert system.contact_pairs[0].params == {"normal": [0.0, 1.0], "penalty": 25.0, "search_radius": 0.2}
     np.testing.assert_array_equal(system.retained_group_dofs("slave:contact"), np.array([0, 1, 2, 3], dtype=np.int32))
     np.testing.assert_array_equal(system.reduced_group_dofs("slave:contact"), np.array([0, 1, 2, 3], dtype=np.int32))
     pair_dofs = system.contact_pair_dofs("candidate")
