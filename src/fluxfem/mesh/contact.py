@@ -344,6 +344,31 @@ class ContactSolveResult:
     residual_norm: float
 
 
+@dataclass(frozen=True)
+class AugmentedLagrangianState:
+    """State passed through a generic augmented-Lagrangian outer loop."""
+
+    lambda_values: Any
+    rho: float
+    iteration: int = 0
+    constraint: Any | None = None
+    active_mask: Any | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AugmentedLagrangianResult:
+    """Result of a generic augmented-Lagrangian outer loop."""
+
+    solution: Any
+    state: AugmentedLagrangianState
+    converged: bool
+    iters: int
+    constraint_norm: float
+    lambda_update_norm: float
+    info: Any | None = None
+
+
 def _summarize_contact_field_state(state: Mapping[str, npt.ArrayLike] | Sequence[Any] | None) -> dict[str, Any]:
     def _shape_summary(value: Any) -> tuple[int, ...]:
         shape = getattr(value, "shape", None)
@@ -2509,6 +2534,177 @@ def solve_contact_al_jax(
         iters=np.asarray(int(contact_state_curr.iteration)),
         residual_norm=inner_result.residual_norm,
     )
+
+
+def _al_backend_namespace(*values: Any):
+    if any(_contains_jax_value(v) for v in values):
+        import jax.numpy as jnp
+
+        return jnp
+    return np
+
+
+def _al_asarray(xp, value: Any):
+    return xp.asarray(value)
+
+
+def _al_norm(value: Any) -> float:
+    arr = np.asarray(value, dtype=float)
+    return float(np.linalg.norm(arr.reshape(-1), ord=np.inf)) if arr.size else 0.0
+
+
+def _al_constraint_from_operator(B: Any, *, offset: Any | None = None) -> Callable[[Any], Any]:
+    def constraint(solution: Any) -> Any:
+        xp = _al_backend_namespace(B, solution, offset)
+        value = _al_asarray(xp, B) @ _al_asarray(xp, solution)
+        if offset is not None:
+            value = value - _al_asarray(xp, offset)
+        return value
+
+    return constraint
+
+
+def _al_project_lambda(
+    lambda_trial: Any,
+    *,
+    projection: str | Callable[[Any, Any, Any, AugmentedLagrangianState], Any] | None,
+    constraint: Any,
+    solution: Any,
+    state: AugmentedLagrangianState,
+) -> Any:
+    if projection is None or str(projection).lower() in {"none", "identity"}:
+        return lambda_trial
+    if isinstance(projection, str):
+        key = projection.lower()
+        if key in {"nonnegative", "positive", "unilateral"}:
+            xp = _al_backend_namespace(lambda_trial)
+            return xp.maximum(_al_asarray(xp, lambda_trial), 0.0)
+        raise ValueError("projection must be None, 'nonnegative', or a callable.")
+    return projection(lambda_trial, constraint, solution, state)
+
+
+def solve_augmented_lagrangian_outer_loop(
+    solve_subproblem: Callable[[Any, AugmentedLagrangianState], Any],
+    x0: Any,
+    *,
+    constraint_fn: Callable[[Any], Any] | None = None,
+    operators: ContactOperators | None = None,
+    B: Any | None = None,
+    offset: Any | None = None,
+    lambda0: Any | None = None,
+    rho: float = 1.0,
+    maxiter: int = 10,
+    tol: float = 1e-8,
+    atol: float = 0.0,
+    lambda_tol: float | None = None,
+    penalty_growth: float = 1.0,
+    projection: str | Callable[[Any, Any, Any, AugmentedLagrangianState], Any] | None = None,
+    update_fn: Callable[[Any, Any, Any, AugmentedLagrangianState], Any] | None = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> AugmentedLagrangianResult:
+    """
+    Generic augmented-Lagrangian outer loop.
+
+    ``solve_subproblem(x, state)`` solves the current inner problem using
+    ``state.lambda_values`` and ``state.rho`` and returns either ``solution`` or
+    ``(solution, info)``. The outer loop then evaluates ``constraint_fn(solution)``
+    and updates the multiplier. If ``constraint_fn`` is omitted, pass
+    ``operators`` or ``B`` to use ``B @ solution - offset``.
+    """
+    if float(rho) <= 0.0:
+        raise ValueError("rho must be positive.")
+    if int(maxiter) <= 0:
+        raise ValueError("maxiter must be positive.")
+    if constraint_fn is None:
+        B_eff = B
+        if B_eff is None and operators is not None:
+            B_eff = operators.B
+        if B_eff is None:
+            raise ValueError("constraint_fn, operators, or B is required.")
+        constraint_fn = _al_constraint_from_operator(B_eff, offset=offset)
+
+    x_curr = x0
+    g0 = constraint_fn(x_curr)
+    xp = _al_backend_namespace(x_curr, g0, lambda0)
+    lam_curr = xp.zeros_like(_al_asarray(xp, g0)) if lambda0 is None else _al_asarray(xp, lambda0)
+    rho_curr = float(rho)
+    state_curr = AugmentedLagrangianState(
+        lambda_values=lam_curr,
+        rho=rho_curr,
+        iteration=0,
+        constraint=g0,
+        metadata=dict(metadata or {}),
+    )
+    info_curr: Any | None = None
+    constraint_norm = _al_norm(g0)
+    lambda_update_norm = float("inf")
+    converged = False
+
+    for outer in range(1, int(maxiter) + 1):
+        result = solve_subproblem(x_curr, state_curr)
+        if isinstance(result, tuple) and len(result) == 2:
+            x_next, info_curr = result
+        else:
+            x_next = result
+            info_curr = None
+        g_next = constraint_fn(x_next)
+        xp = _al_backend_namespace(x_next, g_next, lam_curr)
+        lam_arr = _al_asarray(xp, lam_curr)
+        g_arr = _al_asarray(xp, g_next)
+        if update_fn is None:
+            lam_trial = lam_arr + xp.asarray(rho_curr) * g_arr
+        else:
+            lam_trial = update_fn(lam_arr, g_arr, x_next, state_curr)
+        state_for_projection = AugmentedLagrangianState(
+            lambda_values=lam_arr,
+            rho=rho_curr,
+            iteration=outer,
+            constraint=g_arr,
+            metadata=dict(metadata or {}),
+        )
+        lam_next = _al_project_lambda(
+            lam_trial,
+            projection=projection,
+            constraint=g_arr,
+            solution=x_next,
+            state=state_for_projection,
+        )
+        lambda_update = _al_asarray(xp, lam_next) - lam_arr
+        constraint_norm = _al_norm(g_arr)
+        lambda_update_norm = _al_norm(lambda_update)
+        active_mask = None
+        if isinstance(projection, str) and projection.lower() in {"nonnegative", "positive", "unilateral"}:
+            active_mask = _al_asarray(xp, lam_next) > 0.0
+        state_curr = AugmentedLagrangianState(
+            lambda_values=lam_next,
+            rho=rho_curr,
+            iteration=outer,
+            constraint=g_arr,
+            active_mask=active_mask,
+            metadata=dict(metadata or {}),
+        )
+        x_curr = x_next
+        lam_curr = lam_next
+        lambda_limit = float(tol if lambda_tol is None else lambda_tol)
+        if constraint_norm <= max(float(atol), float(tol)) and lambda_update_norm <= max(float(atol), lambda_limit):
+            converged = True
+            break
+        rho_curr *= float(penalty_growth)
+        if rho_curr <= 0.0:
+            raise ValueError("penalty_growth produced a non-positive rho.")
+        if rho_curr != state_curr.rho:
+            state_curr = replace(state_curr, rho=rho_curr)
+
+    return AugmentedLagrangianResult(
+        solution=x_curr,
+        state=state_curr,
+        converged=converged,
+        iters=int(state_curr.iteration),
+        constraint_norm=float(constraint_norm),
+        lambda_update_norm=float(lambda_update_norm),
+        info=info_curr,
+    )
+
 
 def solve_contact_kkt(
     kkt_matrix,
@@ -4699,6 +4895,8 @@ __all__ = [
     "MultiplierContactContribution",
     "PenaltyContactContribution",
     "ContactState",
+    "AugmentedLagrangianState",
+    "AugmentedLagrangianResult",
     "MultiplierSpec",
     "ContactMultiplierSpace",
     "ContactPairSpec",
@@ -4723,6 +4921,7 @@ __all__ = [
     "assemble_contact_coupling_matrices",
     "assemble_contact_kkt",
     "solve_contact_kkt",
+    "solve_augmented_lagrangian_outer_loop",
     "facet_gap_values",
     "active_contact_facets",
 ]

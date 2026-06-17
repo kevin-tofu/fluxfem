@@ -265,6 +265,87 @@ def test_dual_nodal_contact_multiplier_rejects_slave_side_until_slave_mass_is_av
         )
 
 
+def test_augmented_lagrangian_outer_loop_solves_scalar_equality_constraint():
+    stiffness = 4.0
+    force = 3.0
+    target = 0.25
+
+    def solve_subproblem(x0, state):
+        _ = x0
+        lam = jnp.asarray(state.lambda_values)[0]
+        rho = state.rho
+        x = (force - lam + rho * target) / (stiffness + rho)
+        return jnp.array([x]), {"rho": rho}
+
+    result = ff.solve_augmented_lagrangian_outer_loop(
+        solve_subproblem,
+        jnp.array([0.0]),
+        constraint_fn=lambda x: x - jnp.array([target]),
+        lambda0=jnp.array([0.0]),
+        rho=1.0,
+        maxiter=120,
+        tol=1e-6,
+        lambda_tol=1e-6,
+    )
+
+    assert isinstance(result.state, ff.AugmentedLagrangianState)
+    assert isinstance(result, ff.AugmentedLagrangianResult)
+    assert result.converged
+    assert np.allclose(np.asarray(result.solution), np.array([target]), atol=1e-6)
+    assert np.allclose(np.asarray(result.state.lambda_values), np.array([force - stiffness * target]), atol=1e-6)
+    assert result.constraint_norm < 1e-6
+    assert result.info["rho"] == 1.0
+
+
+def test_augmented_lagrangian_outer_loop_accepts_contact_operator_B_path():
+    stiffness = jnp.diag(jnp.array([3.0, 2.0]))
+    force = jnp.array([1.0, -0.5])
+    B = jnp.array([[1.0, 0.0]])
+    target = jnp.array([0.1])
+    ops = ff.MultiplierContactContribution(enforcement="mortar", B=B)
+
+    def solve_subproblem(x0, state):
+        _ = x0
+        lam = jnp.asarray(state.lambda_values)
+        rho = state.rho
+        A = stiffness + rho * (B.T @ B)
+        rhs = force - B.T @ lam + rho * (B.T @ target)
+        return jnp.linalg.solve(A, rhs)
+
+    result = ff.solve_augmented_lagrangian_outer_loop(
+        solve_subproblem,
+        jnp.zeros(2),
+        operators=ops,
+        offset=target,
+        rho=1.0,
+        maxiter=120,
+        tol=1e-6,
+        lambda_tol=1e-6,
+    )
+
+    assert result.converged
+    assert np.allclose(np.asarray(B @ result.solution), np.asarray(target), atol=1e-6)
+
+
+def test_augmented_lagrangian_outer_loop_nonnegative_projection_clips_multiplier():
+    def solve_subproblem(x0, state):
+        _ = (x0, state)
+        return jnp.array([-1.0])
+
+    result = ff.solve_augmented_lagrangian_outer_loop(
+        solve_subproblem,
+        jnp.array([0.0]),
+        constraint_fn=lambda x: x,
+        lambda0=jnp.array([0.0]),
+        rho=2.0,
+        maxiter=2,
+        projection="nonnegative",
+    )
+
+    assert np.allclose(np.asarray(result.state.lambda_values), np.array([0.0]), atol=1e-12)
+    assert np.asarray(result.state.active_mask).shape == (1,)
+
+
 def test_contact_operator_method_aliases_match_existing_entrypoints():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(

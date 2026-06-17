@@ -116,13 +116,24 @@ Current scope:
 - limitation: no P0/supermesh dual basis yet
 
 The next natural step is an augmented-Lagrangian outer loop on top of these
-constraint operators. The useful API should be lower level first:
+constraint operators. The first generic API is now
+`solve_augmented_lagrangian_outer_loop(...)`.
+
+It is intentionally lower level than a contact-specific solver:
 
 1. assemble or accept `(B, Kuu)` from `assemble_contact_constraint_operators`;
-2. solve the structural/multiplier subproblem;
-3. update multiplier state explicitly, e.g. projected normal update for
-   unilateral contact;
-4. stop on primal gap and multiplier-update norms.
+2. pass a `solve_subproblem(x, state)` callback that uses
+   `state.lambda_values` and `state.rho`;
+3. define constraints with either `constraint_fn(solution)` or
+   `ContactOperators.B @ solution - offset`;
+4. update multiplier state explicitly, with optional `projection="nonnegative"`
+   or a custom update/projection callback;
+5. stop on constraint and multiplier-update norms.
 
 That keeps the contact law state outside differentiated residual evaluation,
 matching the active-contact/Newmark design used by the CB-ROM utilities.
+
+This API is enough for equality-style mortar constraints and for a unilateral
+prototype where the user supplies a positive penetration constraint and a
+nonnegative multiplier projection. A contact-specific AL convenience wrapper can
+now be added on top without changing the low-level interface.
