@@ -583,7 +583,7 @@ class OneSidedContactSpaces:
 class ContactMultiplierSpace:
     """Discrete LM-space description used by constraint-family contact assembly."""
 
-    family: str = "dual_nodal"  # "dual_nodal" | "nodal" | "p0" | "p0_active" | "p0_supermesh"
+    family: str = "dual_nodal"  # "dual_nodal" | "nodal" | "coarse_p1" | "p0" | "p0_active" | "p0_supermesh"
     side: str = "master"  # For p0-like families, current implementation supports only "master".
     value_dim: int = 1
     facet_conn: np.ndarray | None = None
@@ -594,16 +594,23 @@ class ContactMultiplierSpace:
     coarse_rtol: float | None = None
     coarse_max_rank: int | None = None
     coarse_patch_ids: np.ndarray | None = None
+    coarse_basis: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         fam = str(self.family).lower()
-        if fam not in {"nodal", "dual_nodal", "p0", "p0_active", "p0_supermesh"}:
+        if fam not in {"nodal", "dual_nodal", "coarse_p1", "p0", "p0_active", "p0_supermesh"}:
             raise ValueError(
-                "ContactMultiplierSpace.family must be 'nodal', 'dual_nodal', 'p0', 'p0_active', or 'p0_supermesh'."
+                "ContactMultiplierSpace.family must be 'nodal', 'dual_nodal', 'coarse_p1', "
+                "'p0', 'p0_active', or 'p0_supermesh'."
             )
         side = str(self.side).lower()
         if side not in {"master", "slave"}:
             raise ValueError("ContactMultiplierSpace.side must be 'master' or 'slave'.")
+        if fam == "coarse_p1" and side != "master":
+            raise NotImplementedError(
+                "coarse_p1 multipliers currently support only side='master' "
+                "(coarse basis is defined in the master-side nodal space)."
+            )
         if int(self.value_dim) <= 0:
             raise ValueError("ContactMultiplierSpace.value_dim must be positive.")
         if self.coarse_rank is not None and int(self.coarse_rank) <= 0:
@@ -626,6 +633,16 @@ class ContactMultiplierSpace:
                 raise ValueError("ContactMultiplierSpace.coarse_patch_ids must not contain negative ids.")
             if fam not in {"p0", "p0_active", "p0_supermesh"}:
                 raise ValueError("ContactMultiplierSpace.coarse_patch_ids are supported only for p0-like families.")
+        if self.coarse_basis is not None:
+            basis = np.asarray(self.coarse_basis, dtype=float)
+            if basis.ndim != 2:
+                raise ValueError("ContactMultiplierSpace.coarse_basis must be a 2D matrix.")
+            if basis.shape[0] <= 0 or basis.shape[1] <= 0:
+                raise ValueError("ContactMultiplierSpace.coarse_basis must be non-empty.")
+            if fam != "coarse_p1":
+                raise ValueError("ContactMultiplierSpace.coarse_basis is supported only for family='coarse_p1'.")
+        if fam == "coarse_p1" and self.coarse_basis is None:
+            raise ValueError("ContactMultiplierSpace.coarse_basis is required when family='coarse_p1'.")
 
     @classmethod
     def from_contact(
@@ -643,6 +660,7 @@ class ContactMultiplierSpace:
         coarse_rtol: float | None = None,
         coarse_max_rank: int | None = None,
         coarse_patch_ids: np.ndarray | None = None,
+        coarse_basis: np.ndarray | None = None,
     ) -> "ContactMultiplierSpace":
         fc = None if facet_conn is None else np.asarray(facet_conn, dtype=int)
         if str(family).lower() in {"p0", "p0_active", "p0_supermesh"} and fc is None:
@@ -659,6 +677,7 @@ class ContactMultiplierSpace:
             coarse_rtol=None if coarse_rtol is None else float(coarse_rtol),
             coarse_max_rank=None if coarse_max_rank is None else int(coarse_max_rank),
             coarse_patch_ids=None if coarse_patch_ids is None else np.asarray(coarse_patch_ids, dtype=int),
+            coarse_basis=None if coarse_basis is None else np.asarray(coarse_basis, dtype=float),
         )
 
     @classmethod
@@ -747,6 +766,28 @@ class ContactMultiplierSpace:
             value_dim=value_dim,
             facet_conn=facet_conn,
             coarse_patch_ids=np.asarray(patch_ids, dtype=int),
+        )
+
+    @classmethod
+    def coarse_p1_mortar(
+        cls,
+        *,
+        basis: np.ndarray,
+        side: str = "master",
+        value_dim: int = 1,
+    ) -> "ContactMultiplierSpace":
+        """Integrated coarse P1 mortar from coarse master-side nodal basis rows.
+
+        ``basis`` has shape ``(n_coarse_nodes, n_master_nodes)``.  Each row is a
+        coarse multiplier shape function represented in the fine master nodal
+        basis, and the assembled rows are ``basis @ M_aa`` and ``basis @ M_ab``.
+        """
+
+        return cls(
+            family="coarse_p1",
+            side=side,
+            value_dim=int(value_dim),
+            coarse_basis=np.asarray(basis, dtype=float),
         )
 
 
@@ -1534,8 +1575,16 @@ def _resolve_multiplier_spec(
             "dual_nodal multipliers currently support only side='master' "
             "(requires the master-side nodal mass block)."
         )
-    if fam not in {"nodal", "dual_nodal", "p0", "p0_active", "p0_supermesh"}:
-        raise ValueError("multiplier.family must be 'nodal', 'dual_nodal', 'p0', 'p0_active', or 'p0_supermesh'")
+    if fam == "coarse_p1" and str(multiplier.side).lower() != "master":
+        raise NotImplementedError(
+            "coarse_p1 multipliers currently support only side='master' "
+            "(coarse basis is defined in the master-side nodal space)."
+        )
+    if fam not in {"nodal", "dual_nodal", "coarse_p1", "p0", "p0_active", "p0_supermesh"}:
+        raise ValueError(
+            "multiplier.family must be 'nodal', 'dual_nodal', 'coarse_p1', "
+            "'p0', 'p0_active', or 'p0_supermesh'"
+        )
     if fam in {"p0", "p0_active"} and facet is None:
         raise ValueError(f"facet_conn_master is required when multiplier.family='{fam}'.")
     facet_arr = None if facet is None else np.asarray(facet, dtype=int)
@@ -1558,6 +1607,11 @@ def _resolve_multiplier_spec(
             None
             if multiplier.coarse_patch_ids is None
             else np.asarray(multiplier.coarse_patch_ids, dtype=int)
+        ),
+        coarse_basis=(
+            None
+            if multiplier.coarse_basis is None
+            else np.asarray(multiplier.coarse_basis, dtype=float)
         ),
     )
     return fam, facet_arr, resolved_multiplier
@@ -1699,6 +1753,7 @@ def _kkt_coo_from_coupling(
     coarse_rtol: float | None = None,
     coarse_max_rank: int | None = None,
     coarse_patch_ids: np.ndarray | None = None,
+    coarse_basis: np.ndarray | None = None,
 ):
     if multiplier_space == "p0_supermesh":
         raise NotImplementedError(
@@ -1719,6 +1774,22 @@ def _kkt_coo_from_coupling(
         M_aa = _coo_to_dense(rows_aa, cols_aa, data_aa, coupling_aa.shape, backend="numpy")
         M_ab = _coo_to_dense(rows_ab, cols_ab, data_ab, coupling_ab.shape, backend="numpy")
         B_a, B_b = _dual_nodal_blocks_from_dense(M_aa, M_ab, backend="numpy")
+        rows_a, cols_a, data_a = _dense_to_coo_entries(B_a)
+        rows_b, cols_b, data_b = _dense_to_coo_entries(B_b)
+        n_l = int(B_a.shape[0])
+        b_rows = np.concatenate([rows_a, rows_b])
+        b_cols = np.concatenate([cols_a, n_a + cols_b])
+        b_data = np.concatenate([data_a, -data_b])
+    elif multiplier_space == "coarse_p1":
+        if coarse_basis is None:
+            raise ValueError("coarse_basis is required when multiplier_space='coarse_p1'.")
+        M_aa = _coo_to_dense(rows_aa, cols_aa, data_aa, coupling_aa.shape, backend="numpy")
+        M_ab = _coo_to_dense(rows_ab, cols_ab, data_ab, coupling_ab.shape, backend="numpy")
+        C = np.asarray(coarse_basis, dtype=float)
+        if C.ndim != 2 or int(C.shape[1]) != int(M_aa.shape[0]):
+            raise ValueError("coarse_basis must have shape (n_coarse_nodes, n_master_nodes).")
+        B_a = C @ M_aa
+        B_b = C @ M_ab
         rows_a, cols_a, data_a = _dense_to_coo_entries(B_a)
         rows_b, cols_b, data_b = _dense_to_coo_entries(B_b)
         n_l = int(B_a.shape[0])
@@ -1762,7 +1833,7 @@ def _kkt_coo_from_coupling(
             b_cols = np.zeros((0,), dtype=int)
             b_data = np.zeros((0,), dtype=float)
     else:
-        raise ValueError("multiplier_space must be 'nodal', 'dual_nodal', or 'p0'")
+        raise ValueError("multiplier_space must be 'nodal', 'dual_nodal', 'coarse_p1', or 'p0'")
     if coarse_patch_ids is not None:
         if multiplier_space != "p0":
             raise ValueError("coarse_patch_ids are supported only for p0 multiplier_space in sparse KKT assembly.")
@@ -1793,6 +1864,7 @@ def _kkt_coo_from_coupling(
             coarse_rtol=coarse_rtol,
             coarse_max_rank=coarse_max_rank,
             coarse_patch_ids=None,
+            coarse_basis=None,
         )
         n_a_expanded = int(n_a) * int(multiplier_value_dim)
         B_a_dense = B_dense[:, :n_a_expanded]
@@ -2048,6 +2120,22 @@ def assemble_contact_constraint_operators(
         B_b = M_ab
     elif mult_space == "dual_nodal":
         B_a, B_b = _dual_nodal_blocks_from_dense(M_aa, M_ab, backend=backend)
+    elif mult_space == "coarse_p1":
+        C = xp.asarray(multiplier_resolved.coarse_basis)
+        if int(C.shape[1]) != int(M_aa.shape[0]):
+            raise ValueError("coarse_basis must have shape (n_coarse_nodes, n_master_nodes).")
+        B_a = C @ M_aa
+        B_b = C @ M_ab
+        B_a = _expand_scalar_constraint_dense(
+            B_a,
+            value_dim=int(multiplier_resolved.value_dim),
+            backend=backend,
+        )
+        B_b = _expand_scalar_constraint_dense(
+            B_b,
+            value_dim=int(multiplier_resolved.value_dim),
+            backend=backend,
+        )
     elif mult_space == "p0":
         n_master_nodes = int(coupling_aa.shape[0])
         S_np = _p0_reduction_matrix_from_facets(facet_conn_master, n_master_nodes)
@@ -2088,7 +2176,10 @@ def assemble_contact_constraint_operators(
             B_a = xp.asarray(B_a)
             B_b = xp.asarray(B_b)
     else:
-        raise ValueError("multiplier.family must be 'nodal', 'dual_nodal', 'p0', 'p0_active', or 'p0_supermesh'.")
+        raise ValueError(
+            "multiplier.family must be 'nodal', 'dual_nodal', 'coarse_p1', "
+            "'p0', 'p0_active', or 'p0_supermesh'."
+        )
 
     B_a, B_b = _apply_coarse_mortar_projection(B_a, B_b, multiplier_resolved, backend=backend)
     B = xp.concatenate([B_a, -B_b], axis=1)
@@ -2237,6 +2328,7 @@ def assemble_contact_kkt(
 
     multiplier:
     - ``family="nodal"``: lambda lives on interface nodal basis (B_a=M_aa, B_b=M_ab)
+    - ``family="coarse_p1"``: lambda lives on user-supplied coarse P1 rows (B_*=C M_*)
     - ``family="dual_nodal"``: master-side dual nodal basis (B_a=I, B_b=pinv(M_aa) M_ab)
     - ``family="p0"``: lambda is facet-wise constant on master side (B_* = S * M_*)
     - ``family="p0_active"``/``family="p0_supermesh"``: use ``assemble_contact_constraint_operators`` and pass ``ops`` to the builder
@@ -2279,6 +2371,7 @@ def assemble_contact_kkt(
             coarse_rtol=getattr(multiplier_eff, "coarse_rtol", None),
             coarse_max_rank=getattr(multiplier_eff, "coarse_max_rank", None),
             coarse_patch_ids=getattr(multiplier_eff, "coarse_patch_ids", None),
+            coarse_basis=getattr(multiplier_eff, "coarse_basis", None),
         )
         if format == "fluxsparse":
             from ..solver import FluxSparseMatrix
@@ -2305,6 +2398,12 @@ def assemble_contact_kkt(
         B_b = M_ab
     elif mult_space == "dual_nodal":
         B_a, B_b = _dual_nodal_blocks_from_dense(M_aa, M_ab, backend=backend)
+    elif mult_space == "coarse_p1":
+        C = xp.asarray(multiplier_eff.coarse_basis)
+        if int(C.shape[1]) != int(M_aa.shape[0]):
+            raise ValueError("coarse_basis must have shape (n_coarse_nodes, n_master_nodes).")
+        B_a = C @ M_aa
+        B_b = C @ M_ab
     else:
         n_master_nodes = int(coupling_aa.shape[0])
         S_np = _p0_reduction_matrix_from_facets(facet_conn_master, n_master_nodes)

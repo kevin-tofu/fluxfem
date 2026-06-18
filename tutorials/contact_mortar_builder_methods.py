@@ -95,18 +95,25 @@ def main() -> None:
         contact,
         ff.MultiplierSpec.coarse_p0_mortar(contact, patch_ids=np.array([0, 0], dtype=int)),
     )
+    coarse_p1_basis = np.array([[0.25, 0.25, 0.25, 0.25]], dtype=float)
+    coarse_p1_explicit, coarse_p1_ops = build_from_explicit_ops(
+        contact,
+        ff.MultiplierSpec.coarse_p1_mortar(basis=coarse_p1_basis),
+    )
 
     print("dual explicit lambda dofs:", dense(dual_explicit).shape[0] - n_structural)
     print("coarse fixed-rank lambda dofs:", dense(coarse_explicit).shape[0] - n_structural)
     print("coarse auto lambda dofs:", dense(coarse_auto).shape[0] - n_structural)
     print("p0 lambda dofs:", dense(p0_explicit).shape[0] - n_structural)
     print("integrated coarse p0 lambda dofs:", dense(coarse_p0_explicit).shape[0] - n_structural)
+    print("integrated coarse p1 lambda dofs:", dense(coarse_p1_explicit).shape[0] - n_structural)
     print("dual explicit-vs-sugar K error:", f"{dual_error:.3e}")
     print("coarse explicit-vs-sugar K error:", f"{coarse_error:.3e}")
     print("dual B rows:", dual_ops.B.shape[0])
     print("coarse B rows:", coarse_ops.B.shape[0])
     print("p0 B rows:", p0_ops.B.shape[0])
     print("integrated coarse p0 B rows:", coarse_p0_ops.B.shape[0])
+    print("integrated coarse p1 B rows:", coarse_p1_ops.B.shape[0])
 
 
 if __name__ == "__main__":

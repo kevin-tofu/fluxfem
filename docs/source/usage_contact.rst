@@ -313,11 +313,14 @@ Use the explicit factory constructors when the choice should be visible in code:
    ff.MultiplierSpec.nodal_mortar()
    ff.MultiplierSpec.p0_mortar(contact)
    ff.MultiplierSpec.coarse_p0_mortar(contact, patch_ids=patch_ids)
+   ff.MultiplierSpec.coarse_p1_mortar(basis=C)
 
 ``coarse_dual_mortar`` is an algebraic row compression of the assembled
 dual-nodal mortar operator.  ``coarse_p0_mortar`` instead groups fine P0
 facet/supermesh integral rows by user-provided patch ids, which is the
-integrated coarse P0 path.
+integrated coarse P0 path.  ``coarse_p1_mortar`` represents coarse multiplier
+shape functions as rows of ``C`` in the master-side fine nodal basis and
+assembles integrated rows as ``C @ M_aa`` and ``C @ M_ab``.
 
 For builder-managed raw prepared contacts, select the method directly:
 

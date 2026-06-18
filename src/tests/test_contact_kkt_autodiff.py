@@ -349,11 +349,118 @@ def test_multiplier_factory_constructors_cover_common_mortar_choices():
 
     assert ff.MultiplierSpec.dual_mortar().family == "dual_nodal"
     assert ff.MultiplierSpec.nodal_mortar().family == "nodal"
+    assert ff.MultiplierSpec.coarse_p1_mortar(basis=np.eye(4)).family == "coarse_p1"
     p0 = ff.MultiplierSpec.p0_mortar(contact)
     assert p0.family == "p0"
     assert p0.facet_conn is not None
     with pytest.raises(ValueError, match="contact or facet_conn"):
         ff.MultiplierSpec.p0_mortar()
+
+
+def test_integrated_coarse_p1_mortar_projects_nodal_integral_rows():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2], [0, 2, 3]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    basis = np.array(
+        [
+            [0.5, 0.0, 0.5, 0.0],
+            [0.0, 0.5, 0.0, 0.5],
+        ],
+        dtype=float,
+    )
+    fine = ff.assemble_multiplier(
+        contact,
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.nodal_mortar(),
+        backend="numpy",
+    )
+    coarse = ff.assemble_multiplier(
+        contact,
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.coarse_p1_mortar(basis=basis),
+        backend="numpy",
+    )
+
+    assert coarse.multiplier.family == "coarse_p1"
+    np.testing.assert_allclose(coarse.multiplier.coarse_basis, basis)
+    assert coarse.B.shape == (2, 8)
+    np.testing.assert_allclose(np.asarray(coarse.B), basis @ np.asarray(fine.B))
+    np.testing.assert_allclose(np.asarray(coarse.B_a), basis @ np.asarray(fine.B_a))
+    np.testing.assert_allclose(np.asarray(coarse.B_b), basis @ np.asarray(fine.B_b))
+
+    K_dense = np.asarray(contact.assemble_contact_kkt(rho=1.25, multiplier=coarse.multiplier, backend="numpy", format="dense"))
+    K_sparse = contact.assemble_contact_kkt(rho=1.25, multiplier=coarse.multiplier, backend="numpy", format="fluxsparse")
+    assert K_dense.shape[-1] == int(coarse.B.shape[1] + coarse.B.shape[0])
+    np.testing.assert_allclose(np.asarray(K_sparse.to_dense()), K_dense, atol=1e-12)
+
+
+def test_integrated_coarse_p1_mortar_supports_vector_components():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=3,
+        value_dim_slave=3,
+        quad_order=1,
+    )
+    basis = np.array([[0.25, 0.25, 0.25, 0.25]], dtype=float)
+    coarse = ff.assemble_multiplier(
+        contact,
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.coarse_p1_mortar(basis=basis, value_dim=3),
+        backend="numpy",
+    )
+
+    assert coarse.B.shape == (3, 24)
+    assert coarse.B_a.shape == (3, 12)
+    assert coarse.B_b.shape == (3, 12)
+
+
+def test_integrated_coarse_p1_mortar_rejects_invalid_basis_shape():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    with pytest.raises(ValueError, match="n_coarse_nodes, n_master_nodes"):
+        ff.assemble_multiplier(
+            contact,
+            rho=0.0,
+            multiplier=ff.MultiplierSpec.coarse_p1_mortar(basis=np.ones((1, 3))),
+            backend="numpy",
+        )
+    with pytest.raises(NotImplementedError, match="side='master'"):
+        ff.MultiplierSpec.coarse_p1_mortar(basis=np.ones((1, 4)), side="slave")
 
 
 def test_integrated_coarse_p0_mortar_groups_facet_integral_rows():

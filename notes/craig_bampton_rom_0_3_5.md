@@ -112,6 +112,9 @@ reduces multiplier rows after the chosen mortar family is assembled.
 `MultiplierSpec.coarse_p0_mortar(contact, patch_ids=...)` is different: it
 builds an integrated coarse P0 multiplier by summing fine P0 facet/supermesh
 integral rows over user-defined patch ids.
+`MultiplierSpec.coarse_p1_mortar(basis=C)` is the first integrated coarse P1
+path: rows of `C` define coarse master-side nodal multiplier shapes and assemble
+`B_a = C M_aa`, `B_b = C M_ab`.
 
 Current scope:
 
@@ -120,7 +123,7 @@ Current scope:
 - supported explicit legacy basis: `family="nodal"`
 - supported user-facing constructors: `dual_mortar()`,
   `coarse_dual_mortar()`, `nodal_mortar()`, `p0_mortar(contact)`,
-  `coarse_p0_mortar(contact, patch_ids=...)`
+  `coarse_p0_mortar(contact, patch_ids=...)`, `coarse_p1_mortar(basis=C)`
 - supported coarse options: auto SVD rank selection, fixed `rank=k`, capped
   `max_rank=k`, explicit algebraic `projection=P`, or integrated P0 patch
   grouping with `patch_ids`
