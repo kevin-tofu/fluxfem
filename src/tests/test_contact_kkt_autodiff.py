@@ -1183,6 +1183,91 @@ def test_contact_mortar_solve_variants_agree_on_fixture_workpiece_example():
         np.testing.assert_allclose(float(force @ solution), reference_work, rtol=5e-3, atol=1e-12)
 
 
+def test_contact_mortar_solve_variants_agree_on_nonmatching_fixture_workpiece_meshes():
+    fixture_coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    fixture_facets = np.array([[0, 1, 2], [0, 2, 3]], dtype=int)
+    workpiece_coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.5, 0.5, 0.0],
+        ],
+        dtype=float,
+    )
+    workpiece_facets = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        fixture_coords,
+        fixture_facets,
+        workpiece_coords,
+        workpiece_facets,
+        facet_dofs_master=fixture_facets,
+        facet_dofs_slave=workpiece_facets,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    assert contact.supermesh_conn.shape[0] == 4
+
+    fixture_smoother = np.eye(4) - np.ones((4, 4), dtype=float) / 4.0
+    workpiece_smoother = np.eye(5) - np.ones((5, 5), dtype=float) / 5.0
+    stiffness = np.block(
+        [
+            [25.0 * np.eye(4) + 100000.0 * fixture_smoother, np.zeros((4, 5), dtype=float)],
+            [np.zeros((5, 4), dtype=float), np.eye(5) + 100000.0 * workpiece_smoother],
+        ]
+    )
+    force = np.concatenate([np.zeros(4, dtype=float), np.ones(5, dtype=float)])
+    multipliers = {
+        "nodal": ff.MultiplierSpec.nodal_mortar(),
+        "dual": ff.MultiplierSpec.dual_mortar(),
+        "coarse_dual": ff.MultiplierSpec.coarse_dual_mortar(rank=1),
+        "p0": ff.MultiplierSpec.p0_mortar(contact),
+        "p0_active": ff.MultiplierSpec.from_contact(contact, family="p0_active", side="master"),
+        "p0_supermesh": ff.MultiplierSpec.from_contact(contact, family="p0_supermesh", side="master"),
+        "coarse_p0": ff.MultiplierSpec.coarse_p0_mortar(contact, patch_ids=np.array([0, 0], dtype=int)),
+        "coarse_p1": ff.MultiplierSpec.coarse_p1_mortar(
+            basis=ff.coarse_p1_basis_from_node_groups(4, [[0, 1, 2, 3]])
+        ),
+        "grid_p1": ff.MultiplierSpec.coarse_p1_mortar(
+            basis=ff.coarse_p1_basis_from_surface_grid(contact.surface_master, shape=(2, 2), axes=(0, 1))
+        ),
+    }
+
+    solutions = {}
+    for name, multiplier in multipliers.items():
+        ops = ff.assemble_multiplier(contact, rho=0.0, multiplier=multiplier, backend="numpy")
+        B = np.asarray(ops.B, dtype=float)
+        system = np.block(
+            [
+                [stiffness, B.T],
+                [B, np.zeros((B.shape[0], B.shape[0]), dtype=float)],
+            ]
+        )
+        rhs = np.concatenate([force, np.zeros(B.shape[0], dtype=float)])
+        solutions[name] = np.linalg.lstsq(system, rhs, rcond=None)[0][:9]
+        np.testing.assert_allclose(B @ solutions[name], np.zeros(B.shape[0]), atol=1e-9)
+
+    reference = solutions["dual"]
+    np.testing.assert_allclose(solutions["nodal"], reference, atol=1e-10)
+    np.testing.assert_allclose(solutions["grid_p1"], reference, atol=1e-10)
+    for name in ("coarse_dual", "p0", "p0_active", "p0_supermesh", "coarse_p0", "coarse_p1"):
+        np.testing.assert_allclose(solutions[name], reference, atol=1e-4)
+
+    reference_work = float(force @ reference)
+    for solution in solutions.values():
+        np.testing.assert_allclose(float(force @ solution), reference_work, rtol=2e-3, atol=1e-12)
+
+
 def test_contact_penalty_operators_from_inputs():
     class _ContactStub:
         def assemble_residual(self, res_form, u, params, *, normal_source="master"):
