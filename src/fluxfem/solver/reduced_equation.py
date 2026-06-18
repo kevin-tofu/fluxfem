@@ -354,6 +354,63 @@ def solve_reduced_equation(
     return q, ReducedEquationSolveInfo(False, int(maxiter), final_norm, residual0, rel, "maxiter")
 
 
+def solve_reduced_equation_active(
+    q0: Array,
+    initial_state: Any,
+    problem_from_state: Callable[[Any], ReducedEquationProblem],
+    update_state: Callable[[Array], Any],
+    params: Any = None,
+    *,
+    fixed_dofs: Array | None = None,
+    fixed_values: Array | None = None,
+    tol: float = 1e-8,
+    atol: float = 0.0,
+    maxiter: int = 20,
+    state_changed: Callable[[Any, Any], bool] | None = None,
+    max_active_updates: int = 8,
+) -> tuple[Array, Any]:
+    """Solve a reduced equation with an outer active/contact-state loop."""
+    from .craig_bampton import active_contact_fixed_point_solve
+
+    q_initial = jnp.asarray(q0)
+    n_dofs = int(q_initial.size)
+
+    def residual_from_state(state: Any) -> Callable[[Array], Array]:
+        problem = problem_from_state(state)
+        if problem.n_dofs != n_dofs:
+            raise ValueError(f"problem_from_state returned {problem.n_dofs} DOFs, expected {n_dofs}.")
+        return lambda q: problem.residual(q, params)
+
+    def solve_fn(residual_fn: Callable[[Array], Array], q_init: Array) -> tuple[Array, ReducedEquationSolveInfo]:
+        class _ResidualProblem:
+            def residual(self, q: Array, _params: Any = None) -> Array:
+                return residual_fn(q)
+
+            def jacobian(self, q: Array, _params: Any = None) -> Array:
+                return jax.jacrev(residual_fn)(q)
+
+        _ResidualProblem.n_dofs = n_dofs
+        return solve_reduced_equation(
+            _ResidualProblem(),
+            q_init,
+            fixed_dofs=fixed_dofs,
+            fixed_values=fixed_values,
+            tol=tol,
+            atol=atol,
+            maxiter=maxiter,
+        )
+
+    return active_contact_fixed_point_solve(
+        q_initial,
+        initial_state,
+        residual_from_state,
+        solve_fn,
+        update_state,
+        state_changed=state_changed,
+        max_active_updates=max_active_updates,
+    )
+
+
 def _checked_square_matrix(matrix: Array, n_dofs: int, name: str) -> Array:
     arr = jnp.asarray(matrix)
     if arr.shape != (n_dofs, n_dofs):
@@ -450,5 +507,6 @@ __all__ = [
     "ReducedEquationSolveInfo",
     "make_reduced_equation_newmark_residual",
     "reduced_equation_newmark_step",
+    "solve_reduced_equation_active",
     "solve_reduced_equation",
 ]

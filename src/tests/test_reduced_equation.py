@@ -202,7 +202,48 @@ def test_reduced_equation_exports_are_available_from_public_api():
     assert ff.ReducedEquationProblem is ff.solver.ReducedEquationProblem
     assert ff.ReducedEquationField is ff.solver.ReducedEquationField
     assert ff.solve_reduced_equation is ff.solver.solve_reduced_equation
+    assert ff.solve_reduced_equation_active is ff.solver.solve_reduced_equation_active
     assert ff.reduced_equation_newmark_step is ff.solver.reduced_equation_newmark_step
+
+
+def test_solve_reduced_equation_active_updates_frozen_contact_state():
+    contact = ff.PlanePenaltyContact(
+        ff.ContactKinematics(
+            n_dofs=1,
+            dofs=jnp.array([[0]], dtype=jnp.int32),
+            normals=jnp.array([[1.0]], dtype=jnp.float64),
+            gaps0=jnp.array([0.05], dtype=jnp.float64),
+        ),
+        penalty=10.0,
+    )
+    stiffness = jnp.array([[4.0]], dtype=jnp.float64)
+    force = jnp.array([-1.0], dtype=jnp.float64)
+
+    def problem_from_state(active_state):
+        builder = ff.ReducedEquationBuilder()
+        builder.register_field("u", n_dofs=1)
+        builder.add_field_residual("u", lambda u: stiffness @ u - force)
+        builder.add_constraint("u", contact.residual_with_state(active_state))
+        return builder.build()
+
+    q0 = jnp.zeros(1, dtype=jnp.float64)
+    initial_state = contact.state_from_displacement(q0)
+    q, info = ff.solve_reduced_equation_active(
+        q0,
+        initial_state,
+        problem_from_state,
+        contact.state_from_displacement,
+        tol=1.0e-12,
+        maxiter=10,
+        max_active_updates=4,
+    )
+
+    assert info.converged
+    assert info.iters == 2
+    assert bool(info.records[0].active_changed)
+    assert not bool(info.records[1].active_changed)
+    assert bool(info.contact_state.active[0])
+    np.testing.assert_allclose(np.asarray(q), np.array([-0.10714285714285714]), rtol=1.0e-12, atol=1.0e-12)
 
 
 def test_solve_reduced_equation_converges_for_nonlinear_residual():

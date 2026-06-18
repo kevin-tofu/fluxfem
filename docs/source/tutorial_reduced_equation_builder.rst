@@ -76,5 +76,14 @@ Contact constraints follow the same pattern:
    builder.register_field("body", basis=cb)
    builder.add_constraint(CBPlaneContactConstraint())
 
+For frozen-active contact or similar stateful constraints, provide a problem
+factory and an update callback:
+
+.. code-block:: python
+
+   q, info = ff.solve_reduced_equation_active(
+       q0, initial_state, problem_from_state, update_state
+   )
+
 Residual functions own the physics.  The builder only handles reduced-field
 slicing and scattering.

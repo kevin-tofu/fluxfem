@@ -43,6 +43,8 @@ The residual-first layer now has:
 - fixed reduced-DoF support shared by static and Newmark solves
 - `ReducedEquationBuilder.add_constraint` for user-defined constraint
   residuals supplied as callables or objects with `fields` and `residual`
+- `solve_reduced_equation_active` for outer active/contact-state updates around
+  reduced-equation Newton solves
 
 This keeps transient dynamics compatible with field-local residuals, nonlinear
 coupling residuals, CB bases, and future contact residuals.
@@ -64,6 +66,11 @@ class CBPlaneContactConstraint:
 
 This keeps contact-specific logic outside the builder while preserving
 autodiff and the same static/Newmark solve interfaces.
+
+For frozen-active constraints, `solve_reduced_equation_active` takes a
+`problem_from_state(state)` callback and an `update_state(q)` callback.  This
+keeps active-set/search/friction state outside the builder while still using
+the same `ReducedEquationProblem` solve path inside each outer iteration.
 
 ## Non-goals for the first pass
 
