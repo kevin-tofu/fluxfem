@@ -326,6 +326,7 @@ For simple grouped coarse nodes, build ``C`` with:
 .. code-block:: python
 
    C = ff.coarse_p1_basis_from_node_groups(n_master_nodes, [[0, 2], [1, 3]])
+   C = ff.coarse_p1_basis_from_surface_grid(master_surface, shape=(4, 4), axes=(0, 1))
 
 For builder-managed raw prepared contacts, select the method directly:
 

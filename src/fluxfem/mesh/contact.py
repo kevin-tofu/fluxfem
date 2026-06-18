@@ -1543,6 +1543,75 @@ def coarse_p1_basis_from_node_groups(
     return np.vstack(rows)
 
 
+def coarse_p1_basis_from_surface_grid(
+    surface,
+    *,
+    shape: tuple[int, int],
+    axes: tuple[int, int] = (0, 1),
+    bounds: tuple[tuple[float, float], tuple[float, float]] | None = None,
+    clamp: bool = True,
+) -> np.ndarray:
+    """Build coarse P1 rows by bilinear interpolation on a surface coordinate grid.
+
+    The returned matrix has shape ``(shape[0] * shape[1], n_surface_nodes)``.
+    It is intended for planar or nearly planar surfaces where two coordinate
+    axes provide a reasonable parameterization.
+    """
+
+    coords = np.asarray(getattr(surface, "coords", surface), dtype=float)
+    if coords.ndim != 2:
+        raise ValueError("surface must provide coords with shape (n_nodes, dim).")
+    n_nodes = int(coords.shape[0])
+    if n_nodes <= 0:
+        raise ValueError("surface must contain at least one node.")
+    ax0, ax1 = (int(axes[0]), int(axes[1]))
+    if ax0 == ax1:
+        raise ValueError("axes must contain two distinct coordinate axes.")
+    if ax0 < 0 or ax1 < 0 or ax0 >= int(coords.shape[1]) or ax1 >= int(coords.shape[1]):
+        raise ValueError("axes are out of range for surface coordinates.")
+    nu, nv = int(shape[0]), int(shape[1])
+    if nu < 2 or nv < 2:
+        raise ValueError("shape must be at least (2, 2) for P1 grid basis.")
+    uv = coords[:, [ax0, ax1]]
+    if bounds is None:
+        umin, vmin = np.min(uv, axis=0)
+        umax, vmax = np.max(uv, axis=0)
+    else:
+        (umin, umax), (vmin, vmax) = bounds
+        umin, umax, vmin, vmax = float(umin), float(umax), float(vmin), float(vmax)
+    if not (umax > umin and vmax > vmin):
+        raise ValueError("surface grid bounds must have positive extent.")
+
+    u = (uv[:, 0] - umin) / (umax - umin) * (nu - 1)
+    v = (uv[:, 1] - vmin) / (vmax - vmin) * (nv - 1)
+    if clamp:
+        u = np.clip(u, 0.0, float(nu - 1))
+        v = np.clip(v, 0.0, float(nv - 1))
+    elif np.any((u < 0.0) | (u > nu - 1) | (v < 0.0) | (v > nv - 1)):
+        raise ValueError("surface node lies outside the requested grid bounds.")
+
+    iu0 = np.floor(u).astype(int)
+    iv0 = np.floor(v).astype(int)
+    iu0 = np.clip(iu0, 0, nu - 2)
+    iv0 = np.clip(iv0, 0, nv - 2)
+    du = u - iu0
+    dv = v - iv0
+
+    basis = np.zeros((nu * nv, n_nodes), dtype=float)
+    for node_id in range(n_nodes):
+        i = int(iu0[node_id])
+        j = int(iv0[node_id])
+        weights = (
+            ((1.0 - du[node_id]) * (1.0 - dv[node_id]), i, j),
+            (du[node_id] * (1.0 - dv[node_id]), i + 1, j),
+            ((1.0 - du[node_id]) * dv[node_id], i, j + 1),
+            (du[node_id] * dv[node_id], i + 1, j + 1),
+        )
+        for value, ii, jj in weights:
+            basis[int(jj) * nu + int(ii), node_id] += float(value)
+    return basis
+
+
 def _expand_scalar_constraint_dense(B_scalar, *, value_dim: int, backend: str):
     vd = int(value_dim)
     if vd <= 1:
@@ -5382,6 +5451,7 @@ __all__ = [
     "MultiplierSpec",
     "ContactMultiplierSpace",
     "coarse_p1_basis_from_node_groups",
+    "coarse_p1_basis_from_surface_grid",
     "ContactPairSpec",
     "ContactGroupSpec",
     "OneSidedContactSpec",

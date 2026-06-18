@@ -463,6 +463,48 @@ def test_coarse_p1_basis_from_node_groups_supports_weights_and_validation():
         ff.coarse_p1_basis_from_node_groups(3, [[0], [1]], weights=[[1.0]])
 
 
+def test_coarse_p1_basis_from_surface_grid_builds_bilinear_rows():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    surface = ff.make_surface_from_facets(coords, np.array([[0, 1, 3], [0, 3, 2]], dtype=int))
+    basis = ff.coarse_p1_basis_from_surface_grid(surface, shape=(2, 2), axes=(0, 1))
+    expected = np.eye(4, dtype=float)
+    expected = expected[[0, 1, 2, 3], :]
+
+    assert ff.coarse_p1_basis_from_surface_grid is ff.mesh.coarse_p1_basis_from_surface_grid
+    np.testing.assert_allclose(basis, expected)
+    np.testing.assert_allclose(np.sum(basis, axis=0), np.ones(4))
+
+    with_center = np.vstack([coords, np.array([[0.5, 0.5, 0.0]], dtype=float)])
+    basis3 = ff.coarse_p1_basis_from_surface_grid(with_center, shape=(3, 3), axes=(0, 1))
+    assert basis3.shape == (9, 5)
+    np.testing.assert_allclose(basis3[:, 4], np.eye(9)[4])
+    np.testing.assert_allclose(np.sum(basis3, axis=0), np.ones(5))
+
+
+def test_coarse_p1_basis_from_surface_grid_supports_bounds_and_validation():
+    coords = np.array([[0.25, 0.25, 0.0]], dtype=float)
+    basis = ff.coarse_p1_basis_from_surface_grid(
+        coords,
+        shape=(2, 2),
+        bounds=((0.0, 1.0), (0.0, 1.0)),
+    )
+    np.testing.assert_allclose(basis[:, 0], np.array([0.5625, 0.1875, 0.1875, 0.0625]))
+    with pytest.raises(ValueError, match="outside"):
+        ff.coarse_p1_basis_from_surface_grid(coords, shape=(2, 2), bounds=((0.5, 1.0), (0.5, 1.0)), clamp=False)
+    with pytest.raises(ValueError, match="at least"):
+        ff.coarse_p1_basis_from_surface_grid(coords, shape=(1, 2))
+    with pytest.raises(ValueError, match="distinct"):
+        ff.coarse_p1_basis_from_surface_grid(coords, shape=(2, 2), axes=(0, 0))
+
+
 def test_integrated_coarse_p1_mortar_rejects_invalid_basis_shape():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(

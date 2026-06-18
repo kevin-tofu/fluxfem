@@ -246,6 +246,7 @@ __all__ = [
     "MultiplierSpec",
     "ContactMultiplierSpace",
     "coarse_p1_basis_from_node_groups",
+    "coarse_p1_basis_from_surface_grid",
     "ContactKKTSolveConfig",
     "EmbeddingMap",
     "build_nodal_embedding_map",

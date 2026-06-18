@@ -183,6 +183,7 @@ _MESH_EXPORTS = {
     "MultiplierSpec",
     "ContactMultiplierSpace",
     "coarse_p1_basis_from_node_groups",
+    "coarse_p1_basis_from_surface_grid",
     "ContactKKTSolveConfig",
     "EmbeddingMap",
     "build_nodal_embedding_map",

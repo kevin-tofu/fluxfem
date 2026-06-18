@@ -115,7 +115,9 @@ integral rows over user-defined patch ids.
 `MultiplierSpec.coarse_p1_mortar(basis=C)` is the first integrated coarse P1
 path: rows of `C` define coarse master-side nodal multiplier shapes and assemble
 `B_a = C M_aa`, `B_b = C M_ab`. For simple grouped coarse nodes, use
-`coarse_p1_basis_from_node_groups(...)` to build `C`.
+`coarse_p1_basis_from_node_groups(...)` to build `C`; for planar or nearly
+planar surfaces, `coarse_p1_basis_from_surface_grid(...)` builds `C` from a
+bilinear coordinate grid.
 
 Current scope:
 

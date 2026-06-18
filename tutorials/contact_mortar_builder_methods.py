@@ -95,7 +95,7 @@ def main() -> None:
         contact,
         ff.MultiplierSpec.coarse_p0_mortar(contact, patch_ids=np.array([0, 0], dtype=int)),
     )
-    coarse_p1_basis = ff.coarse_p1_basis_from_node_groups(4, [[0, 1, 2, 3]])
+    coarse_p1_basis = ff.coarse_p1_basis_from_surface_grid(contact.surface_master, shape=(2, 2), axes=(0, 1))
     coarse_p1_explicit, coarse_p1_ops = build_from_explicit_ops(
         contact,
         ff.MultiplierSpec.coarse_p1_mortar(basis=coarse_p1_basis),
