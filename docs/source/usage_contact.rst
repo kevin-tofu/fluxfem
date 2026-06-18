@@ -344,6 +344,13 @@ the dual mortar operator has been assembled; fixed ``mortar_rank`` uses a QR
 row-space projection, while rank-free selection uses SVD energy and numerical
 rank criteria.
 
+For a compact numerical check of coarse P1 mortar, run
+``tutorials/mortar_fixture_workpiece_comparison.py``.  It solves matching and
+nonmatching fixture/workpiece interface problems and compares the reduced
+coarse P1 response against the dual mortar reference.  Passing ``--output-dir``
+also writes surface VTU files for visual inspection when ``meshio`` is
+available.
+
 Mixed NumPy/JAX Inputs
 ----------------------
 

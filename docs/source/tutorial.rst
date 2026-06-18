@@ -14,3 +14,4 @@ This section contains tutorials for FluxFEM.
    tutorial_mixed_block
    tutorial_petsc_shell
    tutorial_contact_supported_box
+   tutorial_mortar_fixture_workpiece

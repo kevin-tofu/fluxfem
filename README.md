@@ -627,6 +627,7 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 - `tutorials/thermoelastic_bar_1d.py` / `tutorials/thermoelastic_bar_1d_mixed.py` (thermoelastic coupling)
 - `tutorials/contact_supported_box_by_pillars.py` (large box supported by multiple small boxes via penalty contact + Dirichlet supports)
 - `tutorials/contact_mortar_builder_methods.py` (dual/coarse mortar multiplier selection through explicit operators and builder-managed raw contacts)
+- `tutorials/mortar_fixture_workpiece_comparison.py` (matching/nonmatching fixture-workpiece mortar solves, centered on coarse P1 mortar versus the dual reference)
 - `tutorials/petsc_shell_poisson_demo.py` (PETSc shell solver integration; see also `tutorials/petsc_shell_poisson_pmat_demo.py`)
 
 Craig-Bampton ROM tutorials:
