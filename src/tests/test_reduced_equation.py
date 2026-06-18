@@ -65,6 +65,46 @@ def test_reduced_equation_coupling_accepts_tuple_and_flat_outputs():
     np.testing.assert_allclose(np.asarray(flat_problem.residual(q)), np.array([3.0, 1.0, 3.0]), atol=1.0e-12)
 
 
+def test_reduced_equation_add_constraint_accepts_callable_single_field():
+    builder = ff.ReducedEquationBuilder()
+    builder.register_field("x", n_dofs=2)
+    builder.add_constraint("x", lambda q: jnp.array([3.0 * q[0], -2.0 * q[1]], dtype=q.dtype))
+    problem = builder.build()
+
+    q = jnp.array([0.5, -0.25], dtype=jnp.float64)
+
+    np.testing.assert_allclose(np.asarray(problem.residual(q)), np.array([1.5, 0.5]), atol=1.0e-12)
+
+
+def test_reduced_equation_add_constraint_accepts_object_with_fields_and_params():
+    class GapConstraint:
+        fields = ("left", "right")
+
+        def __init__(self, stiffness: float, target: float):
+            self.stiffness = stiffness
+            self.target = target
+
+        def residual(self, q_left, q_right, params=None):
+            scale = 1.0 if params is None else params["scale"]
+            gap = q_left[0] - q_right[0] - self.target
+            traction = scale * self.stiffness * gap
+            return {
+                "left": jnp.array([traction, 0.0], dtype=q_left.dtype),
+                "right": jnp.array([-traction], dtype=q_left.dtype),
+            }
+
+    builder = ff.ReducedEquationBuilder()
+    builder.register_field("left", n_dofs=2)
+    builder.register_field("right", n_dofs=1)
+    builder.add_constraint(GapConstraint(stiffness=10.0, target=0.2))
+    problem = builder.build()
+
+    q = jnp.array([0.8, 0.1, 0.3], dtype=jnp.float64)
+    residual = problem.residual(q, params={"scale": 2.0})
+
+    np.testing.assert_allclose(np.asarray(residual), np.array([6.0, 0.0, -6.0]), atol=1.0e-12)
+
+
 def test_reduced_equation_field_can_use_craig_bampton_basis_and_autodiff():
     stiffness = jnp.array(
         [

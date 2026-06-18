@@ -53,6 +53,22 @@ def _call_residual(fn: ResidualFn, args: tuple[Array, ...], params: Any) -> Arra
     return fn(*args, params)
 
 
+def _constraint_residual(constraint: Any) -> ResidualFn:
+    if hasattr(constraint, "residual"):
+        residual = constraint.residual
+    else:
+        residual = constraint
+    if not callable(residual):
+        raise TypeError("constraint must be callable or expose a callable residual method.")
+    return residual
+
+
+def _field_keys(fields: str | Sequence[str]) -> tuple[str, ...]:
+    if isinstance(fields, str):
+        return (fields,)
+    return tuple(str(field) for field in fields)
+
+
 class ReducedEquationProblem:
     """Composable reduced residual problem with autodiff Jacobian support."""
 
@@ -207,7 +223,7 @@ class ReducedEquationBuilder:
         return self
 
     def add_coupling_residual(self, fields: Sequence[str], residual: ResidualFn) -> "ReducedEquationBuilder":
-        keys = tuple(str(field) for field in fields)
+        keys = _field_keys(fields)
         if len(keys) < 2:
             raise ValueError("A coupling residual must reference at least two fields.")
         for key in keys:
@@ -215,6 +231,30 @@ class ReducedEquationBuilder:
                 raise ValueError(f"Reduced field '{key}' is not registered.")
         self._coupling_blocks.append(_CouplingResidualBlock(fields=keys, residual=residual))
         return self
+
+    def add_constraint(
+        self,
+        fields: str | Sequence[str] | Any,
+        constraint: Any | None = None,
+    ) -> "ReducedEquationBuilder":
+        """Register a user constraint residual on one or more reduced fields.
+
+        ``constraint`` may be a callable or an object exposing
+        ``residual(...)``.  If ``constraint`` is omitted, ``fields`` is treated
+        as a constraint object and must expose a ``fields`` attribute.
+        """
+        if constraint is None:
+            constraint = fields
+            if not hasattr(constraint, "fields"):
+                raise ValueError("A constraint object must expose fields when fields are not passed explicitly.")
+            keys = _field_keys(constraint.fields)
+        else:
+            keys = _field_keys(fields)
+
+        residual = _constraint_residual(constraint)
+        if len(keys) == 1:
+            return self.add_field_residual(keys[0], residual)
+        return self.add_coupling_residual(keys, residual)
 
     def build(self) -> ReducedEquationProblem:
         if not self._fields:

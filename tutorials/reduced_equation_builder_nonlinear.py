@@ -46,6 +46,21 @@ def make_cb(stiffness_scale: float) -> tuple[ff.CraigBamptonBasis, jnp.ndarray]:
     return cb, stiffness
 
 
+class InterfaceGapConstraint:
+    fields = ("part_a", "part_b")
+
+    def __init__(self, stiffness: float, cubic_stiffness: float):
+        self.stiffness = float(stiffness)
+        self.cubic_stiffness = float(cubic_stiffness)
+
+    def residual(self, qa, qb):
+        gap = qa[1] - qb[0]
+        traction = self.stiffness * gap + self.cubic_stiffness * gap**3
+        ra = jnp.zeros_like(qa).at[1].add(traction)
+        rb = jnp.zeros_like(qb).at[0].add(-traction)
+        return {"part_a": ra, "part_b": rb}
+
+
 def main() -> None:
     cb_a, k_a = make_cb(1.0)
     cb_b, k_b = make_cb(0.7)
@@ -64,14 +79,7 @@ def main() -> None:
     builder.add_field_residual("part_a", lambda qa: reduced_internal(cb_a, k_a, force_a, qa))
     builder.add_field_residual("part_b", lambda qb: reduced_internal(cb_b, k_b, force_b, qb))
 
-    def nonlinear_interface_spring(qa, qb):
-        gap = qa[1] - qb[0]
-        traction = 40.0 * gap + 5.0 * gap**3
-        ra = jnp.zeros_like(qa).at[1].add(traction)
-        rb = jnp.zeros_like(qb).at[0].add(-traction)
-        return {"part_a": ra, "part_b": rb}
-
-    builder.add_coupling_residual(("part_a", "part_b"), nonlinear_interface_spring)
+    builder.add_constraint(InterfaceGapConstraint(stiffness=40.0, cubic_stiffness=5.0))
     problem = builder.build()
 
     q0 = jnp.zeros((problem.n_dofs,), dtype=jnp.float64)

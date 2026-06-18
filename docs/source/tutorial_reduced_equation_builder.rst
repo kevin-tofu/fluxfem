@@ -18,7 +18,7 @@ What It Does
 The script creates two Craig-Bampton-reduced fields and composes:
 
 - one nonlinear field-local residual per subsystem
-- one nonlinear coupling residual across the retained interface coordinates
+- one user-defined constraint residual across the retained interface coordinates
 - a global reduced residual vector
 - a global reduced Jacobian from ``jax.jacrev``
 - optional static Newton and implicit Newmark solves on the same residual API
@@ -38,7 +38,15 @@ Key API Shape
 
    builder.add_field_residual("part_a", residual_a)
    builder.add_field_residual("part_b", residual_b)
-   builder.add_coupling_residual(("part_a", "part_b"), coupling_residual)
+   builder.add_constraint(("part_a", "part_b"), coupling_residual)
+
+   class GapConstraint:
+       fields = ("part_a", "part_b")
+
+       def residual(self, qa, qb):
+           ...
+
+   builder.add_constraint(GapConstraint())
 
    problem = builder.build()
    q, info = ff.solve_reduced_equation(problem, q0)

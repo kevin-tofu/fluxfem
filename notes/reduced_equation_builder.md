@@ -41,6 +41,8 @@ The residual-first layer now has:
 - `reduced_equation_newmark_step` for implicit Newmark dynamics using
   `problem.residual(q, params)` as the internal reduced force
 - fixed reduced-DoF support shared by static and Newmark solves
+- `ReducedEquationBuilder.add_constraint` for user-defined constraint
+  residuals supplied as callables or objects with `fields` and `residual`
 
 This keeps transient dynamics compatible with field-local residuals, nonlinear
 coupling residuals, CB bases, and future contact residuals.
@@ -69,6 +71,10 @@ builder.add_coupling_residual(
         "part_a": k * (qa[a] - qb[b]) * ea,
         "part_b": -k * (qa[a] - qb[b]) * eb,
     },
+)
+
+builder.add_constraint(
+    CustomConstraint(fields=("part_a", "part_b"))
 )
 
 problem = builder.build()
