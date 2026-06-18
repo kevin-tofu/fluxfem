@@ -32,11 +32,22 @@ Add a small `ReducedEquationBuilder` API:
 This is intentionally residual-first. Linear systems can still use the existing
 coupled-system builders.
 
+## Added Solver Layer
+
+The residual-first layer now has:
+
+- `solve_reduced_equation` for dense Newton solves on the assembled reduced
+  residual
+- `reduced_equation_newmark_step` for implicit Newmark dynamics using
+  `problem.residual(q, params)` as the internal reduced force
+- fixed reduced-DoF support shared by static and Newmark solves
+
+This keeps transient dynamics compatible with field-local residuals, nonlinear
+coupling residuals, CB bases, and future contact residuals.
+
 ## Non-goals for the first pass
 
-- no global Newton driver wrapper yet
 - no sparse Jacobian assembly
-- no time integration state manager
 - no contact search ownership
 - no replacement for `ReducedCoupledSystemBuilder`
 
@@ -61,8 +72,10 @@ builder.add_coupling_residual(
 )
 
 problem = builder.build()
-r = problem.residual(q)
-j = problem.jacobian(q)
+q, solve_info = ff.solve_reduced_equation(problem, q0)
+next_state, step_info = ff.reduced_equation_newmark_step(
+    problem, mass, damping, external_force, state, config
+)
 ```
 
 ## Design Rule

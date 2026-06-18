@@ -314,10 +314,101 @@ def solve_reduced_equation(
     return q, ReducedEquationSolveInfo(False, int(maxiter), final_norm, residual0, rel, "maxiter")
 
 
+def _checked_square_matrix(matrix: Array, n_dofs: int, name: str) -> Array:
+    arr = jnp.asarray(matrix)
+    if arr.shape != (n_dofs, n_dofs):
+        raise ValueError(f"{name} must have shape {(n_dofs, n_dofs)}, got {arr.shape}.")
+    return arr
+
+
+def _external_force_next(external_force: Array | Callable[[float], Array], state: Any, config: Any) -> Array:
+    if callable(external_force):
+        return external_force(float(state.t) + float(config.dt))
+    return external_force
+
+
+def make_reduced_equation_newmark_residual(
+    problem: ReducedEquationProblem,
+    mass: Array,
+    damping: Array | None,
+    external_force: Array | Callable[[float], Array],
+    state: Any,
+    config: Any,
+    params: Any = None,
+) -> Callable[[Array], Array]:
+    """Build the implicit Newmark residual for a reduced equation problem."""
+    from .craig_bampton import newmark_kinematics
+
+    mass_arr = _checked_square_matrix(mass, problem.n_dofs, "mass")
+    damping_arr = None if damping is None else _checked_square_matrix(damping, problem.n_dofs, "damping")
+    force = jnp.asarray(_external_force_next(external_force, state, config))
+    if force.shape != (problem.n_dofs,):
+        raise ValueError(f"external_force must have shape {(problem.n_dofs,)}, got {force.shape}.")
+
+    def _residual(q_next: Array) -> Array:
+        qd_next, qdd_next = newmark_kinematics(q_next, state, config)
+        residual = mass_arr @ qdd_next + problem.residual(q_next, params) - force
+        if damping_arr is not None:
+            residual = residual + damping_arr @ qd_next
+        return residual
+
+    return _residual
+
+
+def reduced_equation_newmark_step(
+    problem: ReducedEquationProblem,
+    mass: Array,
+    damping: Array | None,
+    external_force: Array | Callable[[float], Array],
+    state: Any,
+    config: Any,
+    params: Any = None,
+    *,
+    q_initial: Array | None = None,
+    fixed_dofs: Array | None = None,
+    fixed_values: Array | None = None,
+) -> tuple[Any, ReducedEquationSolveInfo]:
+    """Solve one implicit Newmark step using ``problem.residual`` as internal force."""
+    from .craig_bampton import NewmarkState, newmark_kinematics
+
+    q = jnp.asarray(state.q)
+    if q.shape != (problem.n_dofs,):
+        raise ValueError(f"state.q must have shape {(problem.n_dofs,)}, got {q.shape}.")
+    dt = float(config.dt)
+    beta = float(config.beta)
+    q_pred = q + dt * jnp.asarray(state.qd) + dt**2 * (0.5 - beta) * jnp.asarray(state.qdd)
+    q0 = jnp.asarray(q_initial) if q_initial is not None else q_pred
+    residual_fn = make_reduced_equation_newmark_residual(problem, mass, damping, external_force, state, config, params)
+
+    class _EffectiveProblem:
+        n_dofs = problem.n_dofs
+
+        def residual(self, q_next: Array, _params: Any = None) -> Array:
+            return residual_fn(q_next)
+
+        def jacobian(self, q_next: Array, _params: Any = None) -> Array:
+            return jax.jacrev(residual_fn)(q_next)
+
+    q_next, info = solve_reduced_equation(
+        _EffectiveProblem(),
+        q0,
+        fixed_dofs=fixed_dofs,
+        fixed_values=fixed_values,
+        tol=float(config.tol),
+        atol=float(config.atol),
+        maxiter=int(config.maxiter),
+    )
+    qd_next, qdd_next = newmark_kinematics(q_next, state, config)
+    next_state = NewmarkState(q=q_next, qd=qd_next, qdd=qdd_next, t=float(state.t) + dt)
+    return next_state, info
+
+
 __all__ = [
     "ReducedEquationBuilder",
     "ReducedEquationField",
     "ReducedEquationProblem",
     "ReducedEquationSolveInfo",
+    "make_reduced_equation_newmark_residual",
+    "reduced_equation_newmark_step",
     "solve_reduced_equation",
 ]

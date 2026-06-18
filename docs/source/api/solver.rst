@@ -46,6 +46,8 @@ Craig-Bampton Constraints and Dynamics
 .. autoclass:: fluxfem.solver.ReducedEquationSolveInfo
 .. autoclass:: fluxfem.solver.ReducedEquationBuilder
 .. autofunction:: fluxfem.solver.solve_reduced_equation
+.. autofunction:: fluxfem.solver.make_reduced_equation_newmark_residual
+.. autofunction:: fluxfem.solver.reduced_equation_newmark_step
 .. autoclass:: fluxfem.solver.RBE3Patch
 .. autoclass:: fluxfem.solver.ReferencePointFixture
 .. autoclass:: fluxfem.solver.RBE3RemoteFixture

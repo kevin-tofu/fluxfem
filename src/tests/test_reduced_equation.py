@@ -104,6 +104,7 @@ def test_reduced_equation_exports_are_available_from_public_api():
     assert ff.ReducedEquationProblem is ff.solver.ReducedEquationProblem
     assert ff.ReducedEquationField is ff.solver.ReducedEquationField
     assert ff.solve_reduced_equation is ff.solver.solve_reduced_equation
+    assert ff.reduced_equation_newmark_step is ff.solver.reduced_equation_newmark_step
 
 
 def test_solve_reduced_equation_converges_for_nonlinear_residual():
@@ -152,3 +153,71 @@ def test_solve_reduced_equation_reports_maxiter_without_convergence():
     assert not info.converged
     assert info.iters == 2
     assert info.stop_reason == "maxiter"
+
+
+def test_reduced_equation_newmark_step_matches_existing_linear_newmark():
+    stiffness = jnp.array([[6.0, -1.0], [-1.0, 4.0]], dtype=jnp.float64)
+    mass = jnp.array([[2.0, 0.1], [0.1, 1.5]], dtype=jnp.float64)
+    damping = 0.03 * mass
+    external_force = jnp.array([0.3, -0.2], dtype=jnp.float64)
+    state = ff.NewmarkState(
+        q=jnp.array([0.1, -0.05], dtype=jnp.float64),
+        qd=jnp.array([0.02, 0.01], dtype=jnp.float64),
+        qdd=jnp.array([0.0, 0.0], dtype=jnp.float64),
+        t=0.2,
+    )
+    config = ff.NewmarkConfig(dt=0.05, tol=1.0e-12, atol=1.0e-13, maxiter=8)
+
+    builder = ff.ReducedEquationBuilder()
+    builder.register_field("u", n_dofs=2)
+    builder.add_field_residual("u", lambda q: stiffness @ q)
+    problem = builder.build()
+
+    state_re, info_re = ff.reduced_equation_newmark_step(problem, mass, damping, external_force, state, config)
+    state_ref, info_ref = ff.newmark_step(mass, damping, lambda q: stiffness @ q, external_force, state, config)
+
+    assert info_re.converged
+    assert info_ref.converged
+    np.testing.assert_allclose(np.asarray(state_re.q), np.asarray(state_ref.q), rtol=1.0e-11, atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(state_re.qd), np.asarray(state_ref.qd), rtol=1.0e-11, atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(state_re.qdd), np.asarray(state_ref.qdd), rtol=1.0e-11, atol=1.0e-12)
+
+
+def test_reduced_equation_newmark_step_supports_force_callback_and_fixed_dofs():
+    stiffness = jnp.diag(jnp.array([4.0, 5.0], dtype=jnp.float64))
+    mass = jnp.eye(2, dtype=jnp.float64)
+    state = ff.NewmarkState(
+        q=jnp.array([0.25, 0.0], dtype=jnp.float64),
+        qd=jnp.zeros(2, dtype=jnp.float64),
+        qdd=jnp.zeros(2, dtype=jnp.float64),
+        t=0.0,
+    )
+    config = ff.NewmarkConfig(dt=0.1, tol=1.0e-12, atol=1.0e-13, maxiter=8)
+
+    builder = ff.ReducedEquationBuilder()
+    builder.register_field("u", n_dofs=2)
+    builder.add_field_residual("u", lambda q: stiffness @ q)
+    problem = builder.build()
+
+    next_state, info = ff.reduced_equation_newmark_step(
+        problem,
+        mass,
+        None,
+        lambda t: jnp.array([0.0, 1.0 + t], dtype=jnp.float64),
+        state,
+        config,
+        fixed_dofs=jnp.array([0], dtype=jnp.int32),
+        fixed_values=jnp.array([0.25], dtype=jnp.float64),
+    )
+
+    assert info.converged
+    effective_residual = ff.make_reduced_equation_newmark_residual(
+        problem,
+        mass,
+        None,
+        lambda t: jnp.array([0.0, 1.0 + t], dtype=jnp.float64),
+        state,
+        config,
+    )
+    np.testing.assert_allclose(np.asarray(next_state.q[0]), np.array(0.25), atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(effective_residual(next_state.q)[1]), np.array(0.0), atol=1.0e-12)

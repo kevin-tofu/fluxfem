@@ -51,6 +51,8 @@ from .reduced_equation import (
     ReducedEquationField,
     ReducedEquationProblem,
     ReducedEquationSolveInfo,
+    make_reduced_equation_newmark_residual,
+    reduced_equation_newmark_step,
     solve_reduced_equation,
 )
 from .craig_bampton import (
@@ -215,6 +217,8 @@ __all__ = [
     "ReducedEquationField",
     "ReducedEquationProblem",
     "ReducedEquationSolveInfo",
+    "make_reduced_equation_newmark_residual",
+    "reduced_equation_newmark_step",
     "solve_reduced_equation",
     "ReducedContactDynamics",
     "ReducedLinearConstraintSystem",
