@@ -41,6 +41,9 @@ Craig-Bampton Constraints and Dynamics
 .. autoclass:: fluxfem.solver.ReducedLinearConstraintSystem
 .. autoclass:: fluxfem.solver.ReducedCoupledSystem
 .. autoclass:: fluxfem.solver.ReducedCoupledSystemBuilder
+.. autoclass:: fluxfem.solver.ReducedEquationField
+.. autoclass:: fluxfem.solver.ReducedEquationProblem
+.. autoclass:: fluxfem.solver.ReducedEquationBuilder
 .. autoclass:: fluxfem.solver.RBE3Patch
 .. autoclass:: fluxfem.solver.ReferencePointFixture
 .. autoclass:: fluxfem.solver.RBE3RemoteFixture

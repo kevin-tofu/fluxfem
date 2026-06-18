@@ -17,3 +17,4 @@ This section contains tutorials for FluxFEM.
    tutorial_mortar_fixture_workpiece
    tutorial_craig_bampton_vibration
    tutorial_craig_bampton_two_bar_subsystems
+   tutorial_reduced_equation_builder

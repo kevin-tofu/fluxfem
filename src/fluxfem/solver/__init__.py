@@ -46,6 +46,7 @@ from .petsc import petsc_solve, petsc_shell_solve, petsc_is_available
 from .dynamics import NewmarkResult, newmark_solve_linear
 from .coupled_system import CoupledSystem, CoupledSystemBuilder, DirichletSpec, ConstraintSpec
 from .coupled_system_numpy import NumpyCoupledSystem, NumpyCoupledSystemBuilder
+from .reduced_equation import ReducedEquationBuilder, ReducedEquationField, ReducedEquationProblem
 from .craig_bampton import (
     ActiveContactIterationRecord,
     ActiveContactNewmarkStepInfo,
@@ -204,6 +205,9 @@ __all__ = [
     "ReducedContactPairDofs",
     "ReducedCoupledSystem",
     "ReducedCoupledSystemBuilder",
+    "ReducedEquationBuilder",
+    "ReducedEquationField",
+    "ReducedEquationProblem",
     "ReducedContactDynamics",
     "ReducedLinearConstraintSystem",
     "ReferencePointFixture",
