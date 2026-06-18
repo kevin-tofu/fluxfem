@@ -109,6 +109,9 @@ from the assembled `B` matrix using SVD energy/numerical-rank criteria. Users ca
 still pass `rank=k` for a QR-based fixed-rank projection, `max_rank=k` to cap the
 automatic rank, or `projection=P` for an explicit projection matrix. This
 reduces multiplier rows after the chosen mortar family is assembled.
+`MultiplierSpec.coarse_p0_mortar(contact, patch_ids=...)` is different: it
+builds an integrated coarse P0 multiplier by summing fine P0 facet/supermesh
+integral rows over user-defined patch ids.
 
 Current scope:
 
@@ -116,9 +119,11 @@ Current scope:
   `family="dual_nodal", side="master"`
 - supported explicit legacy basis: `family="nodal"`
 - supported user-facing constructors: `dual_mortar()`,
-  `coarse_dual_mortar()`, `nodal_mortar()`, `p0_mortar(contact)`
+  `coarse_dual_mortar()`, `nodal_mortar()`, `p0_mortar(contact)`,
+  `coarse_p0_mortar(contact, patch_ids=...)`
 - supported coarse options: auto SVD rank selection, fixed `rank=k`, capped
-  `max_rank=k`, or explicit `projection=P`
+  `max_rank=k`, explicit algebraic `projection=P`, or integrated P0 patch
+  grouping with `patch_ids`
 - supported paths: `assemble_contact_constraint_operators`,
   `assemble_contact_kkt(..., format="dense|fluxsparse|bcoo")`
 - limitation: the sparse KKT path currently builds the small dual transform in

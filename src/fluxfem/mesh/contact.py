@@ -593,6 +593,7 @@ class ContactMultiplierSpace:
     coarse_energy_tol: float | None = None
     coarse_rtol: float | None = None
     coarse_max_rank: int | None = None
+    coarse_patch_ids: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         fam = str(self.family).lower()
@@ -617,6 +618,14 @@ class ContactMultiplierSpace:
             raise ValueError("ContactMultiplierSpace.coarse_rtol must be non-negative.")
         if self.coarse_max_rank is not None and int(self.coarse_max_rank) <= 0:
             raise ValueError("ContactMultiplierSpace.coarse_max_rank must be positive when provided.")
+        if self.coarse_patch_ids is not None:
+            patch_ids = np.asarray(self.coarse_patch_ids, dtype=int).reshape(-1)
+            if patch_ids.size == 0:
+                raise ValueError("ContactMultiplierSpace.coarse_patch_ids must be non-empty when provided.")
+            if np.any(patch_ids < 0):
+                raise ValueError("ContactMultiplierSpace.coarse_patch_ids must not contain negative ids.")
+            if fam not in {"p0", "p0_active", "p0_supermesh"}:
+                raise ValueError("ContactMultiplierSpace.coarse_patch_ids are supported only for p0-like families.")
 
     @classmethod
     def from_contact(
@@ -633,6 +642,7 @@ class ContactMultiplierSpace:
         coarse_energy_tol: float | None = None,
         coarse_rtol: float | None = None,
         coarse_max_rank: int | None = None,
+        coarse_patch_ids: np.ndarray | None = None,
     ) -> "ContactMultiplierSpace":
         fc = None if facet_conn is None else np.asarray(facet_conn, dtype=int)
         if str(family).lower() in {"p0", "p0_active", "p0_supermesh"} and fc is None:
@@ -648,6 +658,7 @@ class ContactMultiplierSpace:
             coarse_energy_tol=None if coarse_energy_tol is None else float(coarse_energy_tol),
             coarse_rtol=None if coarse_rtol is None else float(coarse_rtol),
             coarse_max_rank=None if coarse_max_rank is None else int(coarse_max_rank),
+            coarse_patch_ids=None if coarse_patch_ids is None else np.asarray(coarse_patch_ids, dtype=int),
         )
 
     @classmethod
@@ -712,6 +723,30 @@ class ContactMultiplierSpace:
             side=side,
             value_dim=value_dim,
             facet_conn=facet_conn,
+        )
+
+    @classmethod
+    def coarse_p0_mortar(
+        cls,
+        contact=None,
+        *,
+        patch_ids: np.ndarray,
+        side: str = "master",
+        value_dim: int = 1,
+        facet_conn: np.ndarray | None = None,
+        family: str = "p0",
+    ) -> "ContactMultiplierSpace":
+        """Facet-integrated coarse P0 mortar grouped by patch ids."""
+
+        if contact is None and facet_conn is None:
+            raise ValueError("coarse_p0_mortar requires contact or facet_conn.")
+        return cls.from_contact(
+            contact,
+            family=family,
+            side=side,
+            value_dim=value_dim,
+            facet_conn=facet_conn,
+            coarse_patch_ids=np.asarray(patch_ids, dtype=int),
         )
 
 
@@ -1392,6 +1427,33 @@ def _p0_reduction_matrix_from_facets(facet_conn: np.ndarray, n_nodes: int):
     return S
 
 
+def _p0_patch_group_matrix(patch_ids: np.ndarray, n_rows: int) -> np.ndarray:
+    patches = np.asarray(patch_ids, dtype=int).reshape(-1)
+    if int(patches.size) != int(n_rows):
+        raise ValueError("coarse_patch_ids must have one entry per fine P0 multiplier row.")
+    if np.any(patches < 0):
+        raise ValueError("coarse_patch_ids must not contain negative ids.")
+    unique = np.unique(patches)
+    row_of_patch = {int(patch): i for i, patch in enumerate(unique.tolist())}
+    P = np.zeros((int(unique.size), int(n_rows)), dtype=float)
+    for fine_row, patch in enumerate(patches.tolist()):
+        P[row_of_patch[int(patch)], int(fine_row)] = 1.0
+    return P
+
+
+def _apply_integrated_coarse_p0_groups(B_a, B_b, patch_ids: np.ndarray | None, *, backend: str):
+    if patch_ids is None:
+        return B_a, B_b
+    P_np = _p0_patch_group_matrix(patch_ids, int(B_a.shape[0]))
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        P = jnp.asarray(P_np)
+    else:
+        P = P_np
+    return P @ B_a, P @ B_b
+
+
 def _expand_scalar_constraint_dense(B_scalar, *, value_dim: int, backend: str):
     vd = int(value_dim)
     if vd <= 1:
@@ -1492,6 +1554,11 @@ def _resolve_multiplier_spec(
         coarse_energy_tol=multiplier.coarse_energy_tol,
         coarse_rtol=multiplier.coarse_rtol,
         coarse_max_rank=multiplier.coarse_max_rank,
+        coarse_patch_ids=(
+            None
+            if multiplier.coarse_patch_ids is None
+            else np.asarray(multiplier.coarse_patch_ids, dtype=int)
+        ),
     )
     return fam, facet_arr, resolved_multiplier
 
@@ -1631,6 +1698,7 @@ def _kkt_coo_from_coupling(
     coarse_energy_tol: float | None = None,
     coarse_rtol: float | None = None,
     coarse_max_rank: int | None = None,
+    coarse_patch_ids: np.ndarray | None = None,
 ):
     if multiplier_space == "p0_supermesh":
         raise NotImplementedError(
@@ -1695,6 +1763,15 @@ def _kkt_coo_from_coupling(
             b_data = np.zeros((0,), dtype=float)
     else:
         raise ValueError("multiplier_space must be 'nodal', 'dual_nodal', or 'p0'")
+    if coarse_patch_ids is not None:
+        if multiplier_space != "p0":
+            raise ValueError("coarse_patch_ids are supported only for p0 multiplier_space in sparse KKT assembly.")
+        B_dense = np.zeros((n_l, n_u), dtype=float)
+        B_dense[b_rows, b_cols] += b_data
+        P = _p0_patch_group_matrix(coarse_patch_ids, int(n_l))
+        B_dense = P @ B_dense
+        b_rows, b_cols, b_data = _dense_to_coo_entries(B_dense)
+        n_l = int(B_dense.shape[0])
     b_rows, b_cols, b_data, n_l, n_u = _expand_scalar_constraint_coo(
         b_rows,
         b_cols,
@@ -1715,6 +1792,7 @@ def _kkt_coo_from_coupling(
             coarse_energy_tol=coarse_energy_tol,
             coarse_rtol=coarse_rtol,
             coarse_max_rank=coarse_max_rank,
+            coarse_patch_ids=None,
         )
         n_a_expanded = int(n_a) * int(multiplier_value_dim)
         B_a_dense = B_dense[:, :n_a_expanded]
@@ -1783,7 +1861,13 @@ def _kkt_coo_from_coupling(
     return rows, cols, data, n_total
 
 
-def _assemble_supermesh_triangle_p0_blocks(contact, *, backend: str, value_dim: int):
+def _assemble_supermesh_triangle_p0_blocks(
+    contact,
+    *,
+    backend: str,
+    value_dim: int,
+    coarse_patch_ids: np.ndarray | None = None,
+):
     if not all(
         hasattr(contact, name)
         for name in (
@@ -1828,12 +1912,19 @@ def _assemble_supermesh_triangle_p0_blocks(contact, *, backend: str, value_dim: 
         B_a[tri_id, facet_master] += area * N_master
         B_b[tri_id, facet_slave] += area * N_slave
 
+    B_a, B_b = _apply_integrated_coarse_p0_groups(B_a, B_b, coarse_patch_ids, backend=backend)
     B_a = _expand_scalar_constraint_dense(B_a, value_dim=int(value_dim), backend=backend)
     B_b = _expand_scalar_constraint_dense(B_b, value_dim=int(value_dim), backend=backend)
     return B_a, B_b
 
 
-def _assemble_active_master_facet_p0_blocks(contact, *, backend: str, value_dim: int):
+def _assemble_active_master_facet_p0_blocks(
+    contact,
+    *,
+    backend: str,
+    value_dim: int,
+    coarse_patch_ids: np.ndarray | None = None,
+):
     if not all(
         hasattr(contact, name)
         for name in (
@@ -1879,6 +1970,7 @@ def _assemble_active_master_facet_p0_blocks(contact, *, backend: str, value_dim:
         B_a[row, facet_master] += area * N_master
         B_b[row, facet_slave] += area * N_slave
 
+    B_a, B_b = _apply_integrated_coarse_p0_groups(B_a, B_b, coarse_patch_ids, backend=backend)
     B_a = _expand_scalar_constraint_dense(B_a, value_dim=int(value_dim), backend=backend)
     B_b = _expand_scalar_constraint_dense(B_b, value_dim=int(value_dim), backend=backend)
     return B_a, B_b, facet_conn_master_all[active_facets]
@@ -1962,6 +2054,12 @@ def assemble_contact_constraint_operators(
         S = xp.asarray(S_np)
         B_a = S @ M_aa
         B_b = S @ M_ab
+        B_a, B_b = _apply_integrated_coarse_p0_groups(
+            B_a,
+            B_b,
+            multiplier_resolved.coarse_patch_ids,
+            backend=backend,
+        )
         B_a = _expand_scalar_constraint_dense(
             B_a,
             value_dim=int(multiplier_resolved.value_dim),
@@ -1977,12 +2075,14 @@ def assemble_contact_constraint_operators(
             contact,
             backend=backend,
             value_dim=int(multiplier_resolved.value_dim),
+            coarse_patch_ids=multiplier_resolved.coarse_patch_ids,
         )
     elif mult_space == "p0_supermesh":
         B_a, B_b = _assemble_supermesh_triangle_p0_blocks(
             contact,
             backend=backend,
             value_dim=int(multiplier_resolved.value_dim),
+            coarse_patch_ids=multiplier_resolved.coarse_patch_ids,
         )
         if backend == "jax":
             B_a = xp.asarray(B_a)
@@ -2178,6 +2278,7 @@ def assemble_contact_kkt(
             coarse_energy_tol=getattr(multiplier_eff, "coarse_energy_tol", None),
             coarse_rtol=getattr(multiplier_eff, "coarse_rtol", None),
             coarse_max_rank=getattr(multiplier_eff, "coarse_max_rank", None),
+            coarse_patch_ids=getattr(multiplier_eff, "coarse_patch_ids", None),
         )
         if format == "fluxsparse":
             from ..solver import FluxSparseMatrix
@@ -2210,6 +2311,12 @@ def assemble_contact_kkt(
         S = xp.asarray(S_np)
         B_a = S @ M_aa
         B_b = S @ M_ab
+        B_a, B_b = _apply_integrated_coarse_p0_groups(
+            B_a,
+            B_b,
+            getattr(multiplier_eff, "coarse_patch_ids", None),
+            backend=backend,
+        )
     B_a = _expand_scalar_constraint_dense(
         B_a,
         value_dim=int(getattr(multiplier_eff, "value_dim", 1)),

@@ -356,6 +356,177 @@ def test_multiplier_factory_constructors_cover_common_mortar_choices():
         ff.MultiplierSpec.p0_mortar()
 
 
+def test_integrated_coarse_p0_mortar_groups_facet_integral_rows():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2], [0, 2, 3]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    fine = ff.assemble_multiplier(
+        contact,
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.p0_mortar(contact),
+        backend="numpy",
+    )
+    coarse = ff.assemble_multiplier(
+        contact,
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.coarse_p0_mortar(contact, patch_ids=np.array([0, 0])),
+        backend="numpy",
+    )
+
+    assert coarse.multiplier.family == "p0"
+    np.testing.assert_array_equal(coarse.multiplier.coarse_patch_ids, np.array([0, 0]))
+    assert coarse.B.shape[0] == 1
+    np.testing.assert_allclose(np.asarray(coarse.B), np.asarray(fine.B)[[0], :] + np.asarray(fine.B)[[1], :])
+    np.testing.assert_allclose(np.asarray(coarse.B_a), np.asarray(fine.B_a)[[0], :] + np.asarray(fine.B_a)[[1], :])
+    np.testing.assert_allclose(np.asarray(coarse.B_b), np.asarray(fine.B_b)[[0], :] + np.asarray(fine.B_b)[[1], :])
+
+    K_dense = np.asarray(contact.assemble_contact_kkt(rho=1.25, multiplier=coarse.multiplier, backend="numpy", format="dense"))
+    K_sparse = contact.assemble_contact_kkt(rho=1.25, multiplier=coarse.multiplier, backend="numpy", format="fluxsparse")
+    assert K_dense.shape[-1] == int(coarse.B.shape[1] + coarse.B.shape[0])
+    np.testing.assert_allclose(np.asarray(K_sparse.to_dense()), K_dense, atol=1e-12)
+
+
+def test_integrated_coarse_p0_mortar_keeps_distinct_patch_rows():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2], [0, 2, 3]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=3,
+        value_dim_slave=3,
+        quad_order=1,
+    )
+    mult = ff.MultiplierSpec.coarse_p0_mortar(contact, patch_ids=np.array([0, 1]), value_dim=3)
+    ops = ff.assemble_multiplier(contact, rho=0.0, multiplier=mult, backend="numpy")
+
+    assert ops.B.shape == (6, 24)
+    assert ops.B_a.shape == (6, 12)
+    assert ops.B_b.shape == (6, 12)
+
+
+def test_integrated_coarse_p0_active_and_supermesh_group_integral_rows():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2], [0, 2, 3]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=3,
+        value_dim_slave=3,
+        quad_order=1,
+    )
+
+    fine_active = ff.assemble_multiplier(
+        contact,
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.from_contact(contact, family="p0_active", side="master", value_dim=3),
+        backend="numpy",
+    )
+    n_active = int(np.unique(contact.source_facets_master).shape[0])
+    coarse_active = ff.assemble_multiplier(
+        contact,
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.coarse_p0_mortar(
+            contact,
+            patch_ids=np.zeros(n_active, dtype=int),
+            family="p0_active",
+            value_dim=3,
+        ),
+        backend="numpy",
+    )
+    assert coarse_active.B.shape[0] == 3
+    np.testing.assert_allclose(
+        np.asarray(coarse_active.B),
+        np.sum(np.asarray(fine_active.B).reshape(n_active, 3, -1), axis=0),
+    )
+
+    n_tri = int(contact.supermesh_conn.shape[0])
+    fine_super = ff.assemble_multiplier(
+        contact,
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.from_contact(contact, family="p0_supermesh", side="master", value_dim=3),
+        backend="numpy",
+    )
+    coarse_super = ff.assemble_multiplier(
+        contact,
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.coarse_p0_mortar(
+            contact,
+            patch_ids=np.zeros(n_tri, dtype=int),
+            family="p0_supermesh",
+            value_dim=3,
+        ),
+        backend="numpy",
+    )
+    assert coarse_super.B.shape[0] == 3
+    np.testing.assert_allclose(
+        np.asarray(coarse_super.B),
+        np.sum(np.asarray(fine_super.B).reshape(n_tri, 3, -1), axis=0),
+    )
+
+
+def test_integrated_coarse_p0_mortar_rejects_invalid_patch_count():
+    coords, conn, facets = _tet4_fixture()
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    mult = ff.MultiplierSpec.coarse_p0_mortar(contact, patch_ids=np.array([0, 1]))
+    with pytest.raises(ValueError, match="one entry per fine P0 multiplier row"):
+        ff.assemble_multiplier(contact, rho=0.0, multiplier=mult, backend="numpy")
+
+
 def test_coarse_mortar_explicit_projection_reduces_multiplier_rows():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(
