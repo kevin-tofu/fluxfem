@@ -103,3 +103,52 @@ def test_reduced_equation_exports_are_available_from_public_api():
     assert ff.ReducedEquationBuilder is ff.solver.ReducedEquationBuilder
     assert ff.ReducedEquationProblem is ff.solver.ReducedEquationProblem
     assert ff.ReducedEquationField is ff.solver.ReducedEquationField
+    assert ff.solve_reduced_equation is ff.solver.solve_reduced_equation
+
+
+def test_solve_reduced_equation_converges_for_nonlinear_residual():
+    builder = ff.ReducedEquationBuilder()
+    builder.register_field("x", n_dofs=2)
+    builder.add_field_residual(
+        "x",
+        lambda q: jnp.array([q[0] ** 2 + q[1] - 1.0, q[0] + q[1] ** 2 - 1.0], dtype=q.dtype),
+    )
+    problem = builder.build()
+
+    q, info = ff.solve_reduced_equation(problem, jnp.array([0.6, 0.6], dtype=jnp.float64), tol=1.0e-12)
+
+    assert info.converged
+    assert info.iters > 0
+    np.testing.assert_allclose(np.asarray(problem.residual(q)), np.zeros(2), atol=1.0e-11)
+    np.testing.assert_allclose(np.asarray(q), np.array([0.61803399, 0.61803399]), rtol=1.0e-7)
+
+
+def test_solve_reduced_equation_honors_fixed_dofs_and_problem_method():
+    builder = ff.ReducedEquationBuilder()
+    builder.register_field("x", n_dofs=2)
+    builder.add_field_residual("x", lambda q: jnp.array([q[0], q[1] - 2.0], dtype=q.dtype))
+    problem = builder.build()
+
+    q, info = problem.solve(
+        jnp.array([0.5, 0.0], dtype=jnp.float64),
+        fixed_dofs=jnp.array([0], dtype=jnp.int32),
+        fixed_values=jnp.array([0.5], dtype=jnp.float64),
+        tol=1.0e-12,
+    )
+
+    assert info.converged
+    np.testing.assert_allclose(np.asarray(q), np.array([0.5, 2.0]), atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(problem.residual(q)[1:]), np.zeros(1), atol=1.0e-12)
+
+
+def test_solve_reduced_equation_reports_maxiter_without_convergence():
+    builder = ff.ReducedEquationBuilder()
+    builder.register_field("x", n_dofs=1)
+    builder.add_field_residual("x", lambda q: jnp.array([jnp.exp(q[0]) + 1.0], dtype=q.dtype))
+    problem = builder.build()
+
+    _q, info = ff.solve_reduced_equation(problem, jnp.array([1.0], dtype=jnp.float64), maxiter=2)
+
+    assert not info.converged
+    assert info.iters == 2
+    assert info.stop_reason == "maxiter"

@@ -5,6 +5,7 @@ from typing import Callable, Mapping, Sequence, Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 
 Array = Any
@@ -139,6 +140,28 @@ class ReducedEquationProblem:
     def jacobian(self, q: Array, params: Any = None) -> Array:
         return jax.jacrev(lambda x: self.residual(x, params))(q)
 
+    def solve(
+        self,
+        q0: Array,
+        params: Any = None,
+        *,
+        fixed_dofs: Array | None = None,
+        fixed_values: Array | None = None,
+        tol: float = 1e-8,
+        atol: float = 0.0,
+        maxiter: int = 20,
+    ) -> tuple[Array, "ReducedEquationSolveInfo"]:
+        return solve_reduced_equation(
+            self,
+            q0,
+            params,
+            fixed_dofs=fixed_dofs,
+            fixed_values=fixed_values,
+            tol=tol,
+            atol=atol,
+            maxiter=maxiter,
+        )
+
 
 class ReducedEquationBuilder:
     """Build a global reduced residual from named reduced fields."""
@@ -199,8 +222,102 @@ class ReducedEquationBuilder:
         return ReducedEquationProblem(self._fields, self._field_blocks, self._coupling_blocks)
 
 
+@dataclass(frozen=True)
+class ReducedEquationSolveInfo:
+    """Newton solve summary for a reduced equation problem."""
+
+    converged: bool
+    iters: int
+    residual_norm: float
+    residual0: float
+    rel_residual: float
+    stop_reason: str
+
+
+def _normalized_fixed_dofs(n_dofs: int, fixed_dofs: Array | None) -> tuple[jnp.ndarray, jnp.ndarray]:
+    if fixed_dofs is None:
+        fixed = jnp.zeros((0,), dtype=jnp.int32)
+    else:
+        fixed = jnp.asarray(fixed_dofs, dtype=jnp.int32).reshape(-1)
+    if fixed.size:
+        fixed_np = np.asarray(fixed)
+        if fixed_np.min() < 0 or fixed_np.max() >= n_dofs:
+            raise ValueError("fixed_dofs contains an index outside the reduced problem.")
+        fixed = jnp.asarray(np.unique(fixed_np).astype(np.int32))
+    all_dofs = np.arange(n_dofs, dtype=np.int32)
+    if fixed.size:
+        mask = np.ones((n_dofs,), dtype=bool)
+        mask[np.asarray(fixed, dtype=np.int32)] = False
+        free = jnp.asarray(all_dofs[mask], dtype=jnp.int32)
+    else:
+        free = jnp.asarray(all_dofs, dtype=jnp.int32)
+    return fixed, free
+
+
+def _apply_fixed_values(q: Array, fixed_dofs: Array, fixed_values: Array | None) -> Array:
+    q_arr = jnp.asarray(q)
+    fixed = jnp.asarray(fixed_dofs, dtype=jnp.int32).reshape(-1)
+    if fixed.size == 0:
+        return q_arr
+    if fixed_values is None:
+        values = jnp.zeros((fixed.size,), dtype=q_arr.dtype)
+    else:
+        values = jnp.asarray(fixed_values, dtype=q_arr.dtype).reshape(-1)
+        if values.size == 1 and fixed.size != 1:
+            values = jnp.full((fixed.size,), values[0], dtype=q_arr.dtype)
+        if values.shape != (fixed.size,):
+            raise ValueError("fixed_values must be scalar or match fixed_dofs.")
+    return q_arr.at[fixed].set(values)
+
+
+def solve_reduced_equation(
+    problem: ReducedEquationProblem,
+    q0: Array,
+    params: Any = None,
+    *,
+    fixed_dofs: Array | None = None,
+    fixed_values: Array | None = None,
+    tol: float = 1e-8,
+    atol: float = 0.0,
+    maxiter: int = 20,
+) -> tuple[Array, ReducedEquationSolveInfo]:
+    """Solve a reduced residual equation with dense Newton iterations."""
+    q = jnp.asarray(q0)
+    if q.shape != (problem.n_dofs,):
+        raise ValueError(f"q0 must have shape {(problem.n_dofs,)}, got {q.shape}.")
+    fixed, free = _normalized_fixed_dofs(problem.n_dofs, fixed_dofs)
+    q = _apply_fixed_values(q, fixed, fixed_values)
+
+    def free_residual(q_current):
+        return problem.residual(q_current, params)[free]
+
+    residual = free_residual(q)
+    residual0 = float(jnp.linalg.norm(residual, ord=jnp.inf))
+    threshold = max(float(atol), float(tol) * residual0)
+    if residual0 <= threshold:
+        return q, ReducedEquationSolveInfo(True, 0, residual0, residual0, 1.0, "initial_converged")
+
+    final_norm = residual0
+    for iteration in range(1, int(maxiter) + 1):
+        jacobian = problem.jacobian(q, params)
+        jac_free = jacobian[jnp.ix_(free, free)]
+        delta_free = jnp.linalg.solve(jac_free, -residual)
+        q = q.at[free].add(delta_free)
+        q = _apply_fixed_values(q, fixed, fixed_values)
+        residual = free_residual(q)
+        final_norm = float(jnp.linalg.norm(residual, ord=jnp.inf))
+        if final_norm <= threshold:
+            rel = final_norm / max(residual0, 1.0e-30)
+            return q, ReducedEquationSolveInfo(True, iteration, final_norm, residual0, rel, "converged")
+
+    rel = final_norm / max(residual0, 1.0e-30)
+    return q, ReducedEquationSolveInfo(False, int(maxiter), final_norm, residual0, rel, "maxiter")
+
+
 __all__ = [
     "ReducedEquationBuilder",
     "ReducedEquationField",
     "ReducedEquationProblem",
+    "ReducedEquationSolveInfo",
+    "solve_reduced_equation",
 ]

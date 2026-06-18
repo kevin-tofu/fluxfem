@@ -40,6 +40,7 @@ Key API Shape
    builder.add_coupling_residual(("part_a", "part_b"), coupling_residual)
 
    problem = builder.build()
+   q, info = ff.solve_reduced_equation(problem, q0)
    r = problem.residual(q)
    j = problem.jacobian(q)
 

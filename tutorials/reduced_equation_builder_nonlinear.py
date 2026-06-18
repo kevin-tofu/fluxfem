@@ -74,12 +74,8 @@ def main() -> None:
     builder.add_coupling_residual(("part_a", "part_b"), nonlinear_interface_spring)
     problem = builder.build()
 
-    q = jnp.zeros((problem.n_dofs,), dtype=jnp.float64)
-    for _ in range(8):
-        residual = problem.residual(q)
-        jacobian = problem.jacobian(q)
-        q = q + jnp.linalg.solve(jacobian, -residual)
-
+    q0 = jnp.zeros((problem.n_dofs,), dtype=jnp.float64)
+    q, info = ff.solve_reduced_equation(problem, q0, tol=1.0e-12, maxiter=12)
     residual = problem.residual(q)
     jacobian = problem.jacobian(q)
     fields = problem.split(q)
@@ -88,6 +84,8 @@ def main() -> None:
     print("reduced equation builder nonlinear demo")
     print(f"global reduced DOFs: {problem.n_dofs}")
     print(f"part_a reduced DOFs: {cb_a.n_reduced}, part_b reduced DOFs: {cb_b.n_reduced}")
+    print(f"converged:           {info.converged}")
+    print(f"newton iterations:   {info.iters}")
     print(f"residual norm:       {float(jnp.linalg.norm(residual)):.3e}")
     print(f"jacobian shape:      {tuple(jacobian.shape)}")
     print(f"part_a q:            {np.asarray(fields['part_a'])}")
