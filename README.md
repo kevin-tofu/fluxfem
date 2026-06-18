@@ -634,6 +634,7 @@ Craig-Bampton ROM tutorials:
 
 - `tutorials/craig_bampton_reduced_coupled_builder.py` is the preferred compact API path: name-based structural registration, `reduce_field(..., method="craig_bampton")`, explicit RBE3 remote fixture fields, preload, and prescribed-reference variants.
 - `tutorials/craig_bampton_multifield_builder.py` extends the same builder pattern to multiple reduced subsystems connected by named retained interface groups, including surface-derived groups, inspectable reduced contact-pair DOFs, and contact-pair parameter metadata for contact-ready interfaces.
+- `tutorials/craig_bampton_two_bar_subsystems.py` builds two larger sparse FE subsystems, reduces each one with its own CB basis, ties the retained interface, and compares against the full coupled KKT solve.
 - `tutorials/craig_bampton_rbe3_preload_component.py` is the experiment-2 style validation tutorial. It compares full explicit-reference RBE3 KKT solves against the CB-projected ROM for preload and Dirichlet fixture boundaries, with optional rotational RBE3 reference DOFs.
 - `tutorials/craig_bampton_sparse_fe_basis.py` demonstrates CB basis construction from current sparse FE matrices, sparse-preserving projection, and matrix-free reduced operator actions with `project_operator(...)`.
 - `tutorials/craig_bampton_vibration_rom.py` projects both stiffness and mass matrices and compares full-order and CB-ROM free-vibration frequencies.

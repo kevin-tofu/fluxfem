@@ -16,3 +16,4 @@ This section contains tutorials for FluxFEM.
    tutorial_contact_supported_box
    tutorial_mortar_fixture_workpiece
    tutorial_craig_bampton_vibration
+   tutorial_craig_bampton_two_bar_subsystems
