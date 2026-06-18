@@ -85,5 +85,15 @@ factory and an update callback:
        q0, initial_state, problem_from_state, update_state
    )
 
+The same active-state callback shape is available for one implicit Newmark
+step:
+
+.. code-block:: python
+
+   next_state, info = ff.reduced_equation_active_newmark_step(
+       problem_from_state, mass, damping, external_force, state, config,
+       initial_state, update_state
+   )
+
 Residual functions own the physics.  The builder only handles reduced-field
 slicing and scattering.

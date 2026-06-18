@@ -45,6 +45,8 @@ The residual-first layer now has:
   residuals supplied as callables or objects with `fields` and `residual`
 - `solve_reduced_equation_active` for outer active/contact-state updates around
   reduced-equation Newton solves
+- `reduced_equation_active_newmark_step` for one implicit Newmark step with the
+  same active/contact-state callback shape
 
 This keeps transient dynamics compatible with field-local residuals, nonlinear
 coupling residuals, CB bases, and future contact residuals.
@@ -71,6 +73,8 @@ For frozen-active constraints, `solve_reduced_equation_active` takes a
 `problem_from_state(state)` callback and an `update_state(q)` callback.  This
 keeps active-set/search/friction state outside the builder while still using
 the same `ReducedEquationProblem` solve path inside each outer iteration.
+`reduced_equation_active_newmark_step` uses the same callbacks for a single
+implicit Newmark step.
 
 ## Non-goals for the first pass
 

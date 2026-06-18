@@ -500,12 +500,57 @@ def reduced_equation_newmark_step(
     return next_state, info
 
 
+def reduced_equation_active_newmark_step(
+    problem_from_state: Callable[[Any], ReducedEquationProblem],
+    mass: Array,
+    damping: Array | None,
+    external_force: Array | Callable[[float], Array],
+    state: Any,
+    config: Any,
+    initial_state: Any,
+    update_state: Callable[[Array], Any],
+    params: Any = None,
+    *,
+    state_changed: Callable[[Any, Any], bool] | None = None,
+    max_active_updates: int = 8,
+    q_initial: Array | None = None,
+) -> tuple[Any, Any]:
+    """Solve one reduced Newmark step with an outer active/contact-state loop."""
+    from .craig_bampton import active_contact_newmark_step
+
+    n_dofs = int(jnp.asarray(state.q).size)
+    force = jnp.asarray(_external_force_next(external_force, state, config))
+    if force.shape != (n_dofs,):
+        raise ValueError(f"external_force must have shape {(n_dofs,)}, got {force.shape}.")
+
+    def internal_force_from_state(active_state: Any) -> Callable[[Array], Array]:
+        problem = problem_from_state(active_state)
+        if problem.n_dofs != n_dofs:
+            raise ValueError(f"problem_from_state returned {problem.n_dofs} DOFs, expected {n_dofs}.")
+        return lambda q: problem.residual(q, params)
+
+    return active_contact_newmark_step(
+        mass,
+        damping,
+        internal_force_from_state,
+        force,
+        state,
+        config,
+        initial_state,
+        update_state,
+        state_changed=state_changed,
+        max_active_updates=max_active_updates,
+        q_initial=q_initial,
+    )
+
+
 __all__ = [
     "ReducedEquationBuilder",
     "ReducedEquationField",
     "ReducedEquationProblem",
     "ReducedEquationSolveInfo",
     "make_reduced_equation_newmark_residual",
+    "reduced_equation_active_newmark_step",
     "reduced_equation_newmark_step",
     "solve_reduced_equation_active",
     "solve_reduced_equation",

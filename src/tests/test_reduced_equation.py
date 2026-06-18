@@ -203,6 +203,7 @@ def test_reduced_equation_exports_are_available_from_public_api():
     assert ff.ReducedEquationField is ff.solver.ReducedEquationField
     assert ff.solve_reduced_equation is ff.solver.solve_reduced_equation
     assert ff.solve_reduced_equation_active is ff.solver.solve_reduced_equation_active
+    assert ff.reduced_equation_active_newmark_step is ff.solver.reduced_equation_active_newmark_step
     assert ff.reduced_equation_newmark_step is ff.solver.reduced_equation_newmark_step
 
 
@@ -320,6 +321,71 @@ def test_reduced_equation_newmark_step_matches_existing_linear_newmark():
     np.testing.assert_allclose(np.asarray(state_re.q), np.asarray(state_ref.q), rtol=1.0e-11, atol=1.0e-12)
     np.testing.assert_allclose(np.asarray(state_re.qd), np.asarray(state_ref.qd), rtol=1.0e-11, atol=1.0e-12)
     np.testing.assert_allclose(np.asarray(state_re.qdd), np.asarray(state_ref.qdd), rtol=1.0e-11, atol=1.0e-12)
+
+
+def test_reduced_equation_active_newmark_step_updates_frozen_contact_state():
+    contact = ff.PlanePenaltyContact(
+        ff.ContactKinematics(
+            n_dofs=1,
+            dofs=jnp.array([[0]], dtype=jnp.int32),
+            normals=jnp.array([[1.0]], dtype=jnp.float64),
+            gaps0=jnp.array([0.02], dtype=jnp.float64),
+        ),
+        penalty=8.0,
+    )
+    mass = jnp.eye(1, dtype=jnp.float64)
+    stiffness = jnp.array([[2.0]], dtype=jnp.float64)
+    external_force = jnp.array([-1.0], dtype=jnp.float64)
+    state = ff.NewmarkState(
+        q=jnp.zeros(1, dtype=jnp.float64),
+        qd=jnp.zeros(1, dtype=jnp.float64),
+        qdd=jnp.zeros(1, dtype=jnp.float64),
+        t=0.0,
+    )
+    config = ff.NewmarkConfig(dt=1.0, tol=1.0e-12, atol=1.0e-13, maxiter=12)
+
+    def problem_from_state(active_state):
+        builder = ff.ReducedEquationBuilder()
+        builder.register_field("u", n_dofs=1)
+        builder.add_field_residual("u", lambda q: stiffness @ q)
+        builder.add_constraint("u", contact.residual_with_state(active_state))
+        return builder.build()
+
+    def internal_force_from_state(active_state):
+        return lambda q: problem_from_state(active_state).residual(q)
+
+    initial_state = contact.state_from_displacement(state.q)
+    next_state, info = ff.reduced_equation_active_newmark_step(
+        problem_from_state,
+        mass,
+        None,
+        external_force,
+        state,
+        config,
+        initial_state,
+        contact.state_from_displacement,
+        max_active_updates=4,
+    )
+    reference_state, reference_info = ff.active_contact_newmark_step(
+        mass,
+        None,
+        internal_force_from_state,
+        external_force,
+        state,
+        config,
+        initial_state,
+        contact.state_from_displacement,
+        max_active_updates=4,
+    )
+
+    assert info.converged
+    assert info.iters == 2
+    assert bool(info.contact_state.active[0])
+    assert bool(info.contact_info.records[0].active_changed)
+    np.testing.assert_allclose(np.asarray(next_state.q), np.asarray(reference_state.q), atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(next_state.qd), np.asarray(reference_state.qd), atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(next_state.qdd), np.asarray(reference_state.qdd), atol=1.0e-12)
+    assert reference_info.converged
 
 
 def test_reduced_equation_newmark_step_supports_force_callback_and_fixed_dofs():
