@@ -1495,6 +1495,54 @@ def _apply_integrated_coarse_p0_groups(B_a, B_b, patch_ids: np.ndarray | None, *
     return P @ B_a, P @ B_b
 
 
+def coarse_p1_basis_from_node_groups(
+    n_fine_nodes: int,
+    groups,
+    *,
+    weights=None,
+    normalize: bool = True,
+) -> np.ndarray:
+    """Build coarse P1 rows from groups of fine master-side nodes.
+
+    Each group defines one coarse multiplier shape function represented in the
+    fine nodal basis.  With the default ``normalize=True``, every row sums to
+    one, giving a simple partition-style averaging basis.
+    """
+
+    n_nodes = int(n_fine_nodes)
+    if n_nodes <= 0:
+        raise ValueError("n_fine_nodes must be positive.")
+    rows = []
+    weight_rows = None if weights is None else list(weights)
+    group_rows = list(groups)
+    if not group_rows:
+        raise ValueError("groups must contain at least one node group.")
+    if weight_rows is not None and len(weight_rows) != len(group_rows):
+        raise ValueError("weights must have the same number of rows as groups.")
+    for row_id, group in enumerate(group_rows):
+        nodes = np.asarray(group, dtype=int).reshape(-1)
+        if nodes.size == 0:
+            raise ValueError("each node group must be non-empty.")
+        if np.any(nodes < 0) or np.any(nodes >= n_nodes):
+            raise ValueError("node group contains an out-of-range node id.")
+        if weight_rows is None:
+            values = np.ones((int(nodes.size),), dtype=float)
+        else:
+            values = np.asarray(weight_rows[row_id], dtype=float).reshape(-1)
+            if int(values.size) != int(nodes.size):
+                raise ValueError("each weight row must match the corresponding node group size.")
+        if normalize:
+            total = float(np.sum(values))
+            if abs(total) <= np.finfo(float).eps:
+                raise ValueError("cannot normalize a coarse P1 basis row with zero weight sum.")
+            values = values / total
+        row = np.zeros((n_nodes,), dtype=float)
+        for node, value in zip(nodes.tolist(), values.tolist()):
+            row[int(node)] += float(value)
+        rows.append(row)
+    return np.vstack(rows)
+
+
 def _expand_scalar_constraint_dense(B_scalar, *, value_dim: int, backend: str):
     vd = int(value_dim)
     if vd <= 1:
@@ -5333,6 +5381,7 @@ __all__ = [
     "AugmentedLagrangianResult",
     "MultiplierSpec",
     "ContactMultiplierSpace",
+    "coarse_p1_basis_from_node_groups",
     "ContactPairSpec",
     "ContactGroupSpec",
     "OneSidedContactSpec",

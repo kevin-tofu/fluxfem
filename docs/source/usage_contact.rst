@@ -321,6 +321,11 @@ facet/supermesh integral rows by user-provided patch ids, which is the
 integrated coarse P0 path.  ``coarse_p1_mortar`` represents coarse multiplier
 shape functions as rows of ``C`` in the master-side fine nodal basis and
 assembles integrated rows as ``C @ M_aa`` and ``C @ M_ab``.
+For simple grouped coarse nodes, build ``C`` with:
+
+.. code-block:: python
+
+   C = ff.coarse_p1_basis_from_node_groups(n_master_nodes, [[0, 2], [1, 3]])
 
 For builder-managed raw prepared contacts, select the method directly:
 

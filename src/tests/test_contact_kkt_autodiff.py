@@ -380,13 +380,7 @@ def test_integrated_coarse_p1_mortar_projects_nodal_integral_rows():
         value_dim_slave=1,
         quad_order=1,
     )
-    basis = np.array(
-        [
-            [0.5, 0.0, 0.5, 0.0],
-            [0.0, 0.5, 0.0, 0.5],
-        ],
-        dtype=float,
-    )
+    basis = ff.coarse_p1_basis_from_node_groups(4, [[0, 2], [1, 3]])
     fine = ff.assemble_multiplier(
         contact,
         rho=0.0,
@@ -401,6 +395,7 @@ def test_integrated_coarse_p1_mortar_projects_nodal_integral_rows():
     )
 
     assert coarse.multiplier.family == "coarse_p1"
+    assert ff.coarse_p1_basis_from_node_groups is ff.mesh.coarse_p1_basis_from_node_groups
     np.testing.assert_allclose(coarse.multiplier.coarse_basis, basis)
     assert coarse.B.shape == (2, 8)
     np.testing.assert_allclose(np.asarray(coarse.B), basis @ np.asarray(fine.B))
@@ -426,7 +421,7 @@ def test_integrated_coarse_p1_mortar_supports_vector_components():
         value_dim_slave=3,
         quad_order=1,
     )
-    basis = np.array([[0.25, 0.25, 0.25, 0.25]], dtype=float)
+    basis = ff.coarse_p1_basis_from_node_groups(4, [[0, 1, 2, 3]])
     coarse = ff.assemble_multiplier(
         contact,
         rho=0.0,
@@ -437,6 +432,35 @@ def test_integrated_coarse_p1_mortar_supports_vector_components():
     assert coarse.B.shape == (3, 24)
     assert coarse.B_a.shape == (3, 12)
     assert coarse.B_b.shape == (3, 12)
+
+
+def test_coarse_p1_basis_from_node_groups_supports_weights_and_validation():
+    basis = ff.coarse_p1_basis_from_node_groups(
+        5,
+        [[0, 1, 3], [2, 4]],
+        weights=[[2.0, 1.0, 1.0], [3.0, 1.0]],
+    )
+    expected = np.array(
+        [
+            [0.5, 0.25, 0.0, 0.25, 0.0],
+            [0.0, 0.0, 0.75, 0.0, 0.25],
+        ],
+        dtype=float,
+    )
+    np.testing.assert_allclose(basis, expected)
+    unnormalized = ff.coarse_p1_basis_from_node_groups(
+        3,
+        [[0, 2]],
+        weights=[[2.0, 3.0]],
+        normalize=False,
+    )
+    np.testing.assert_allclose(unnormalized, np.array([[2.0, 0.0, 3.0]]))
+    with pytest.raises(ValueError, match="out-of-range"):
+        ff.coarse_p1_basis_from_node_groups(3, [[0, 3]])
+    with pytest.raises(ValueError, match="zero weight sum"):
+        ff.coarse_p1_basis_from_node_groups(3, [[0, 1]], weights=[[1.0, -1.0]])
+    with pytest.raises(ValueError, match="same number of rows"):
+        ff.coarse_p1_basis_from_node_groups(3, [[0], [1]], weights=[[1.0]])
 
 
 def test_integrated_coarse_p1_mortar_rejects_invalid_basis_shape():

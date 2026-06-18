@@ -245,6 +245,7 @@ __all__ = [
     "AugmentedLagrangianResult",
     "MultiplierSpec",
     "ContactMultiplierSpace",
+    "coarse_p1_basis_from_node_groups",
     "ContactKKTSolveConfig",
     "EmbeddingMap",
     "build_nodal_embedding_map",
