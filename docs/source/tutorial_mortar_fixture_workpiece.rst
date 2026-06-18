@@ -21,6 +21,9 @@ The dual mortar result is used as the reference.  The main quantity to inspect
 is the coarse P1 row, which should stay close to the dual reference while using
 fewer multiplier DOFs for this low-order interface response.
 
+Pass ``--all-variants`` when you want to inspect the lower-level diagnostic
+rows used for development comparisons.
+
 Output
 ------
 
@@ -38,5 +41,6 @@ Optional VTU output:
    PYTHONPATH=src python tutorials/mortar_fixture_workpiece_comparison.py \
        --output-dir result/tutorials/mortar_fixture_workpiece
 
-The VTU path writes fixture and workpiece surface files for each mortar variant
-when ``meshio`` is installed.
+The VTU path writes fixture and workpiece surface files for the displayed rows
+when ``meshio`` is installed.  Combine it with ``--all-variants`` to export the
+diagnostic variants too.

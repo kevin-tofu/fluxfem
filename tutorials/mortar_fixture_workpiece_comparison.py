@@ -1,13 +1,14 @@
-"""Compare mortar variants on small fixture/workpiece interface solves.
+"""Compare coarse P1 mortar on small fixture/workpiece interface solves.
 
 This tutorial solves two linear KKT interface problems:
 
 * matching fixture/workpiece surface meshes,
 * nonmatching fixture/workpiece surface meshes with a supermesh.
 
-The structural model is intentionally low-order along the interface, so reduced
-multiplier spaces should recover nearly the same response as the dual mortar
-reference while using fewer multiplier DOFs.
+The structural model is intentionally low-order along the interface, so the
+coarse P1 multiplier should recover nearly the same response as the dual mortar
+reference while using fewer multiplier DOFs.  Pass ``--all-variants`` to print
+the lower-level comparison rows used for development diagnostics.
 """
 
 from __future__ import annotations
@@ -96,22 +97,33 @@ def _low_order_stiffness(n_fixture: int, n_workpiece: int, *, gamma: float) -> n
     )
 
 
-def _multipliers(contact: ff.ContactSurfaceSpace, *, include_supermesh_p0: bool) -> dict[str, ff.MultiplierSpec]:
+def _multipliers(
+    contact: ff.ContactSurfaceSpace,
+    *,
+    include_supermesh_p0: bool,
+    all_variants: bool,
+) -> dict[str, ff.MultiplierSpec]:
     fixture_nodes = int(contact.surface_master.n_nodes)
-    specs = {
+    core = {
         "dual": ff.MultiplierSpec.dual_mortar(),
+        "coarse_p1": ff.MultiplierSpec.coarse_p1_mortar(
+            basis=ff.coarse_p1_basis_from_node_groups(fixture_nodes, [list(range(fixture_nodes))])
+        ),
+    }
+    if not all_variants:
+        return core
+
+    specs = {
+        **core,
+        "grid_p1": ff.MultiplierSpec.coarse_p1_mortar(
+            basis=ff.coarse_p1_basis_from_surface_grid(contact.surface_master, shape=(2, 2), axes=(0, 1))
+        ),
         "nodal": ff.MultiplierSpec.nodal_mortar(),
         "coarse_dual": ff.MultiplierSpec.coarse_dual_mortar(rank=1),
         "p0": ff.MultiplierSpec.p0_mortar(contact),
         "coarse_p0": ff.MultiplierSpec.coarse_p0_mortar(
             contact,
             patch_ids=np.zeros(int(contact.surface_master.conn.shape[0]), dtype=int),
-        ),
-        "coarse_p1": ff.MultiplierSpec.coarse_p1_mortar(
-            basis=ff.coarse_p1_basis_from_node_groups(fixture_nodes, [list(range(fixture_nodes))])
-        ),
-        "grid_p1": ff.MultiplierSpec.coarse_p1_mortar(
-            basis=ff.coarse_p1_basis_from_surface_grid(contact.surface_master, shape=(2, 2), axes=(0, 1))
         ),
     }
     if include_supermesh_p0:
@@ -143,7 +155,14 @@ def _solve_variant(
     return solution[: stiffness.shape[0]], int(B.shape[0]), rank
 
 
-def solve_case(name: str, contact: ff.ContactSurfaceSpace, *, gamma: float, include_supermesh_p0: bool) -> list[dict[str, float | int | str]]:
+def solve_case(
+    name: str,
+    contact: ff.ContactSurfaceSpace,
+    *,
+    gamma: float,
+    include_supermesh_p0: bool,
+    all_variants: bool,
+) -> list[dict[str, float | int | str]]:
     n_fixture = int(contact.surface_master.n_nodes)
     n_workpiece = int(contact.surface_slave.n_nodes)
     stiffness = _low_order_stiffness(n_fixture, n_workpiece, gamma=gamma)
@@ -151,7 +170,11 @@ def solve_case(name: str, contact: ff.ContactSurfaceSpace, *, gamma: float, incl
 
     results = []
     solutions = {}
-    for label, multiplier in _multipliers(contact, include_supermesh_p0=include_supermesh_p0).items():
+    for label, multiplier in _multipliers(
+        contact,
+        include_supermesh_p0=include_supermesh_p0,
+        all_variants=all_variants,
+    ).items():
         u, lambda_dofs, kkt_rank = _solve_variant(contact, stiffness, force, multiplier)
         solutions[label] = u
         results.append(
@@ -202,7 +225,7 @@ def _write_surface_vtu(path: Path, coords: np.ndarray, facets: np.ndarray, value
     ).write(path)
 
 
-def write_vtu_outputs(output_dir: Path) -> None:
+def write_vtu_outputs(output_dir: Path, *, all_variants: bool) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     for case, contact, gamma, include_supermesh in (
         ("matching", _matching_contact(), 30000.0, False),
@@ -212,7 +235,11 @@ def write_vtu_outputs(output_dir: Path) -> None:
         n_workpiece = int(contact.surface_slave.n_nodes)
         stiffness = _low_order_stiffness(n_fixture, n_workpiece, gamma=gamma)
         force = np.concatenate([np.zeros(n_fixture, dtype=float), np.ones(n_workpiece, dtype=float)])
-        for mortar, multiplier in _multipliers(contact, include_supermesh_p0=include_supermesh).items():
+        for mortar, multiplier in _multipliers(
+            contact,
+            include_supermesh_p0=include_supermesh,
+            all_variants=all_variants,
+        ).items():
             u, _, _ = _solve_variant(contact, stiffness, force, multiplier)
             fixture_u = u[:n_fixture]
             workpiece_u = u[n_fixture:]
@@ -232,15 +259,32 @@ def write_vtu_outputs(output_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--all-variants", action="store_true", help="Show all mortar variants instead of the coarse-P1-focused table.")
     parser.add_argument("--output-dir", type=Path, default=None, help="Optional directory for surface VTU outputs.")
     args = parser.parse_args()
 
     rows = []
-    rows.extend(solve_case("matching", _matching_contact(), gamma=30000.0, include_supermesh_p0=False))
-    rows.extend(solve_case("nonmatching", _nonmatching_contact(), gamma=100000.0, include_supermesh_p0=True))
+    rows.extend(
+        solve_case(
+            "matching",
+            _matching_contact(),
+            gamma=30000.0,
+            include_supermesh_p0=False,
+            all_variants=args.all_variants,
+        )
+    )
+    rows.extend(
+        solve_case(
+            "nonmatching",
+            _nonmatching_contact(),
+            gamma=100000.0,
+            include_supermesh_p0=True,
+            all_variants=args.all_variants,
+        )
+    )
     _print_table(rows)
     if args.output_dir is not None:
-        write_vtu_outputs(args.output_dir)
+        write_vtu_outputs(args.output_dir, all_variants=args.all_variants)
         print(f"VTU output directory: {args.output_dir}")
 
 
