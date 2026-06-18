@@ -139,6 +139,64 @@ def test_reduced_equation_field_can_use_craig_bampton_basis_and_autodiff():
     np.testing.assert_allclose(np.asarray(jac), np.asarray(expected), rtol=1.0e-10, atol=1.0e-12)
 
 
+def test_reduced_equation_contact_constraint_matches_full_order_with_complete_cb_basis():
+    stiffness = jnp.array(
+        [
+            [6.0, -2.0, 0.0, 0.0],
+            [-2.0, 5.0, -1.5, 0.0],
+            [0.0, -1.5, 4.0, -1.0],
+            [0.0, 0.0, -1.0, 3.0],
+        ],
+        dtype=jnp.float64,
+    )
+    mass = jnp.eye(4, dtype=jnp.float64)
+    force = jnp.array([-1.0, 0.1, 0.0, 0.0], dtype=jnp.float64)
+    contact = ff.PlanePenaltyContact(
+        ff.ContactKinematics(
+            n_dofs=4,
+            dofs=jnp.array([[0]], dtype=jnp.int32),
+            normals=jnp.array([[1.0]], dtype=jnp.float64),
+            gaps0=jnp.array([0.01], dtype=jnp.float64),
+        ),
+        penalty=50.0,
+    )
+
+    class FullPlaneContactConstraint:
+        fields = ("u",)
+
+        def residual(self, u):
+            return contact.residual(u)
+
+    full_builder = ff.ReducedEquationBuilder()
+    full_builder.register_field("u", n_dofs=4)
+    full_builder.add_field_residual("u", lambda u: stiffness @ u - force)
+    full_builder.add_constraint(FullPlaneContactConstraint())
+    full_problem = full_builder.build()
+    full_u, full_info = full_problem.solve(jnp.zeros(4, dtype=jnp.float64), tol=1.0e-12, maxiter=12)
+
+    cb = ff.make_craig_bampton_basis(stiffness, mass, retained_dofs=jnp.array([0], dtype=jnp.int32), n_modes=3)
+
+    class ReducedPlaneContactConstraint:
+        fields = ("body",)
+
+        def residual(self, q):
+            return cb.project_vector(contact.residual(cb.expand(q)))
+
+    reduced_builder = ff.ReducedEquationBuilder()
+    reduced_builder.register_field("body", basis=cb)
+    reduced_builder.add_field_residual("body", lambda q: cb.project_vector(stiffness @ cb.expand(q) - force))
+    reduced_builder.add_constraint(ReducedPlaneContactConstraint())
+    reduced_problem = reduced_builder.build()
+    q, reduced_info = reduced_problem.solve(jnp.zeros(cb.n_reduced, dtype=jnp.float64), tol=1.0e-12, maxiter=12)
+    rom_u = cb.expand(q)
+
+    assert full_info.converged
+    assert reduced_info.converged
+    assert int(contact.active_count(full_u)) == 1
+    np.testing.assert_allclose(np.asarray(rom_u), np.asarray(full_u), atol=1.0e-10)
+    np.testing.assert_allclose(np.asarray(reduced_problem.residual(q)), np.zeros(cb.n_reduced), atol=1.0e-10)
+
+
 def test_reduced_equation_exports_are_available_from_public_api():
     assert ff.ReducedEquationBuilder is ff.solver.ReducedEquationBuilder
     assert ff.ReducedEquationProblem is ff.solver.ReducedEquationProblem

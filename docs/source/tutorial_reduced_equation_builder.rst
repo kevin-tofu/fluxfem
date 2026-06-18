@@ -1,9 +1,9 @@
 Reduced Equation Builder
 ========================
 
-This tutorial summarizes ``tutorials/reduced_equation_builder_nonlinear.py``.
-It shows the residual-first layer for future differentiable reduced
-formulations.
+This tutorial summarizes ``tutorials/reduced_equation_builder_nonlinear.py``
+and ``tutorials/reduced_equation_contact_constraint.py``.  It shows the
+residual-first layer for future differentiable reduced formulations.
 
 Run
 ---
@@ -11,6 +11,7 @@ Run
 .. code-block:: bash
 
    PYTHONPATH=src python tutorials/reduced_equation_builder_nonlinear.py
+   PYTHONPATH=src python tutorials/reduced_equation_contact_constraint.py
 
 What It Does
 ------------
@@ -60,6 +61,20 @@ For transient reduced dynamics, use the same residual as the internal force:
    next_state, info = ff.reduced_equation_newmark_step(
        problem, mass, damping, external_force, state, config
    )
+
+Contact constraints follow the same pattern:
+
+.. code-block:: python
+
+   class CBPlaneContactConstraint:
+       fields = ("body",)
+
+       def residual(self, q):
+           u = cb.expand(q)
+           return cb.project_vector(contact.residual(u))
+
+   builder.register_field("body", basis=cb)
+   builder.add_constraint(CBPlaneContactConstraint())
 
 Residual functions own the physics.  The builder only handles reduced-field
 slicing and scattering.

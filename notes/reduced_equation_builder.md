@@ -47,6 +47,24 @@ The residual-first layer now has:
 This keeps transient dynamics compatible with field-local residuals, nonlinear
 coupling residuals, CB bases, and future contact residuals.
 
+## Contact Constraint Pattern
+
+Contact can be expressed as a user constraint object.  For a CB-reduced field,
+the object expands the reduced coordinate, evaluates the full contact residual,
+and projects it back:
+
+```python
+class CBPlaneContactConstraint:
+    fields = ("body",)
+
+    def residual(self, q):
+        u = cb.expand(q)
+        return cb.project_vector(contact.residual(u))
+```
+
+This keeps contact-specific logic outside the builder while preserving
+autodiff and the same static/Newmark solve interfaces.
+
 ## Non-goals for the first pass
 
 - no sparse Jacobian assembly
