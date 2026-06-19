@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Installation &#8212; FluxFEM 0.3.8 documentation</title>
+    <title>Mortar Fixture-Workpiece Comparison &#8212; FluxFEM 0.3.8 documentation</title>
   
   
   
@@ -41,12 +41,12 @@
     <script src="_static/documentation_options.js?v=bb7d7d07"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'installation';</script>
-    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/installation.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial_mortar_fixture_workpiece';</script>
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial_mortar_fixture_workpiece.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Usage" href="usage.html" />
-    <link rel="prev" title="Concept" href="concept.html" />
+    <link rel="next" title="Craig-Bampton Vibration ROM" href="tutorial_craig_bampton_vibration.html" />
+    <link rel="prev" title="Supported Box Contact Tutorial" href="tutorial_contact_supported_box.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -125,7 +125,7 @@
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item current active">
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="project.html">
     Project
   </a>
@@ -139,7 +139,7 @@
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="tutorial.html">
     Tutorial Page
   </a>
@@ -241,7 +241,7 @@
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item current active">
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="project.html">
     Project
   </a>
@@ -255,7 +255,7 @@
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="tutorial.html">
     Tutorial Page
   </a>
@@ -311,10 +311,19 @@
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Project</span></p>
-<ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="concept.html">Concept</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Installation</a></li>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_gmsh_msh.html">Load a Gmsh .msh and use it in analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_kernel_assembly.html">Kernel-based Assembly (JIT-Friendly)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_contact_supported_box.html">Supported Box Contact Tutorial</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Mortar Fixture-Workpiece Comparison</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_craig_bampton_vibration.html">Craig-Bampton Vibration ROM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_craig_bampton_two_bar_subsystems.html">Craig-Bampton Two-Subsystem ROM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_reduced_equation_builder.html">Reduced Equation Builder</a></li>
 </ul>
 </div>
 </nav></div>
@@ -356,9 +365,9 @@
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="project.html" class="nav-link">Project</a></li>
+    <li class="breadcrumb-item"><a href="tutorial.html" class="nav-link">Tutorial Page</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Installation</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Mortar Fixture-Workpiece Comparison</span></li>
   </ul>
 </nav>
 </div>
@@ -375,81 +384,44 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="installation">
-<h1>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h1>
-<p>FluxFEM supports Python 3.11-3.13 (inclusive) and depends on JAX &gt;= 0.8.2.
-The base install includes CPU JAX. Use the CUDA extra if you need GPU support.</p>
-<section id="jax-cpu">
-<h2>JAX (CPU)<a class="headerlink" href="#jax-cpu" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-U<span class="w"> </span><span class="s2">&quot;jax[cpu]&quot;</span>
+  <section id="mortar-fixture-workpiece-comparison">
+<h1>Mortar Fixture-Workpiece Comparison<a class="headerlink" href="#mortar-fixture-workpiece-comparison" title="Link to this heading">#</a></h1>
+<p>This tutorial summarizes <code class="docutils literal notranslate"><span class="pre">tutorials/mortar_fixture_workpiece_comparison.py</span></code>.
+It is a compact numerical check for coarse P1 mortar on small
+fixture/workpiece interface solves.</p>
+<section id="run">
+<h2>Run<a class="headerlink" href="#run" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>python<span class="w"> </span>tutorials/mortar_fixture_workpiece_comparison.py
 </pre></div>
 </div>
+<p>The script runs two cases:</p>
+<ul class="simple">
+<li><p>matching fixture/workpiece surface meshes</p></li>
+<li><p>nonmatching fixture/workpiece surface meshes with a supermesh</p></li>
+</ul>
+<p>The dual mortar result is used as the reference.  The main quantity to inspect
+is the coarse P1 row, which should stay close to the dual reference while using
+fewer multiplier DOFs for this low-order interface response.</p>
+<p>Pass <code class="docutils literal notranslate"><span class="pre">--all-variants</span></code> when you want to inspect the lower-level diagnostic
+rows used for development comparisons.</p>
 </section>
-<section id="jax-gpu">
-<h2>JAX (GPU)<a class="headerlink" href="#jax-gpu" title="Link to this heading">#</a></h2>
-<p>Install the CUDA-enabled JAX build that matches your CUDA toolkit. See the
-official JAX install guide for the latest wheels:</p>
-<p><a class="reference external" href="https://jax.readthedocs.io/en/latest/installation.html">https://jax.readthedocs.io/en/latest/installation.html</a></p>
-<p>Example (CUDA 12):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-U<span class="w"> </span><span class="s2">&quot;jax[cuda12]&quot;</span><span class="w"> </span>-f<span class="w"> </span>https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+<section id="output">
+<h2>Output<a class="headerlink" href="#output" title="Link to this heading">#</a></h2>
+<p>The table reports:</p>
+<ul class="simple">
+<li><p>multiplier DOFs</p></li>
+<li><p>KKT rank and size</p></li>
+<li><p>displacement infinity-norm error against dual mortar</p></li>
+<li><p>relative work-like scalar error against dual mortar</p></li>
+</ul>
+<p>Optional VTU output:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>python<span class="w"> </span>tutorials/mortar_fixture_workpiece_comparison.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-dir<span class="w"> </span>result/tutorials/mortar_fixture_workpiece
 </pre></div>
 </div>
-</section>
-<section id="quick-install-pip">
-<h2>Quick install (pip)<a class="headerlink" href="#quick-install-pip" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>fluxfem
-pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;fluxfem[cuda12]&quot;</span><span class="w"> </span>-f<span class="w"> </span>https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-</pre></div>
-</div>
-</section>
-<section id="poetry">
-<h2>Poetry<a class="headerlink" href="#poetry" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>add<span class="w"> </span>fluxfem
-poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="o">[</span>cuda12<span class="o">]</span>
-</pre></div>
-</div>
-<p>If you need a specific CUDA wheel, you can install JAX inside the Poetry env:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>run<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-U<span class="w"> </span><span class="s2">&quot;jax[cuda12]&quot;</span><span class="w"> </span>-f<span class="w"> </span>https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-</pre></div>
-</div>
-</section>
-<section id="petsc-optional">
-<h2>PETSc (optional)<a class="headerlink" href="#petsc-optional" title="Link to this heading">#</a></h2>
-<p>Optional PETSc-based solvers are available via <cite>petsc4py</cite>.
-Enable with the <cite>petsc</cite> extra:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;fluxfem[petsc]&quot;</span>
-poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="w"> </span>--extras<span class="w"> </span><span class="s2">&quot;petsc&quot;</span>
-</pre></div>
-</div>
-<p>If you build or link against a custom PETSc installation, set <cite>PETSC_DIR</cite>
-(and <cite>PETSC_ARCH</cite> if applicable) so <cite>petsc4py</cite> can locate the libraries:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_DIR</span><span class="o">=</span>/path/to/petsc
-<span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_ARCH</span><span class="o">=</span>arch-linux-c-opt<span class="w">  </span><span class="c1"># optional</span>
-</pre></div>
-</div>
-<p>Note: match the <cite>petsc4py</cite> version to your PETSc installation.
-FluxFEM currently pins <cite>petsc4py==3.24.4</cite> in extras, so use a compatible PETSc
-build or override the version to fit your environment.</p>
-<p>For source checkouts with a custom PETSc build, prefer installing the normal
-Poetry environment first and then building <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> against that PETSc:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_DIR</span><span class="o">=</span>/path/to/petsc-3.24.4
-<span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_ARCH</span><span class="o">=</span>arch-linux-c-opt
-scripts/install_petsc4py
-</pre></div>
-</div>
-<p>The script uses <code class="docutils literal notranslate"><span class="pre">PETSC4PY_VERSION=3.24.4</span></code> by default and verifies that
-<code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> can import PETSc. PETSc remains optional; if it cannot be imported,
-PETSc-specific tests are skipped by <code class="docutils literal notranslate"><span class="pre">petsc_is_available()</span></code>.</p>
-<p>GPU note: this repo currently tests CUDA via the <cite>cuda12</cite> extra only. Other
-CUDA versions are not covered by CI and may require manual JAX installation.</p>
-</section>
-<section id="from-source">
-<h2>From source<a class="headerlink" href="#from-source" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/kevin-tofu/fluxfem.git
-<span class="nb">cd</span><span class="w"> </span>fluxfem
-pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
-</pre></div>
-</div>
+<p>The VTU path writes fixture and workpiece surface files for the displayed rows
+when <code class="docutils literal notranslate"><span class="pre">meshio</span></code> is installed.  Combine it with <code class="docutils literal notranslate"><span class="pre">--all-variants</span></code> to export the
+diagnostic variants too.</p>
 </section>
 </section>
 
@@ -464,20 +436,20 @@ pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </s
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="concept.html"
+       href="tutorial_contact_supported_box.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Concept</p>
+        <p class="prev-next-title">Supported Box Contact Tutorial</p>
       </div>
     </a>
     <a class="right-next"
-       href="usage.html"
+       href="tutorial_craig_bampton_vibration.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Usage</p>
+        <p class="prev-next-title">Craig-Bampton Vibration ROM</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -500,12 +472,8 @@ pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </s
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#jax-cpu">JAX (CPU)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#jax-gpu">JAX (GPU)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-install-pip">Quick install (pip)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#poetry">Poetry</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#petsc-optional">PETSc (optional)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#from-source">From source</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run">Run</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#output">Output</a></li>
 </ul>
   </nav></div>
 
@@ -513,7 +481,7 @@ pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </s
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="_sources/installation.rst.txt"
+      <li><a href="_sources/tutorial_mortar_fixture_workpiece.rst.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>

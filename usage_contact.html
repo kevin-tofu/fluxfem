@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Contact Interface Usage &#8212; FluxFEM 0.3.7 documentation</title>
+    <title>Contact Interface Usage &#8212; FluxFEM 0.3.8 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=190a8c40"></script>
+    <script src="_static/documentation_options.js?v=bb7d7d07"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'usage_contact';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.7 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.8 documentation</p>
   
 </a></div>
     
@@ -655,6 +655,19 @@ Use the explicit factory constructors when the choice should be visible in code:
 <span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">coarse_dual_mortar</span><span class="p">(</span><span class="n">max_rank</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">energy_tol</span><span class="o">=</span><span class="mf">0.999</span><span class="p">)</span>
 <span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">nodal_mortar</span><span class="p">()</span>
 <span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">p0_mortar</span><span class="p">(</span><span class="n">contact</span><span class="p">)</span>
+<span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">coarse_p0_mortar</span><span class="p">(</span><span class="n">contact</span><span class="p">,</span> <span class="n">patch_ids</span><span class="o">=</span><span class="n">patch_ids</span><span class="p">)</span>
+<span class="n">ff</span><span class="o">.</span><span class="n">MultiplierSpec</span><span class="o">.</span><span class="n">coarse_p1_mortar</span><span class="p">(</span><span class="n">basis</span><span class="o">=</span><span class="n">C</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">coarse_dual_mortar</span></code> is an algebraic row compression of the assembled
+dual-nodal mortar operator.  <code class="docutils literal notranslate"><span class="pre">coarse_p0_mortar</span></code> instead groups fine P0
+facet/supermesh integral rows by user-provided patch ids, which is the
+integrated coarse P0 path.  <code class="docutils literal notranslate"><span class="pre">coarse_p1_mortar</span></code> represents coarse multiplier
+shape functions as rows of <code class="docutils literal notranslate"><span class="pre">C</span></code> in the master-side fine nodal basis and
+assembles integrated rows as <code class="docutils literal notranslate"><span class="pre">C</span> <span class="pre">&#64;</span> <span class="pre">M_aa</span></code> and <code class="docutils literal notranslate"><span class="pre">C</span> <span class="pre">&#64;</span> <span class="pre">M_ab</span></code>.
+For simple grouped coarse nodes, build <code class="docutils literal notranslate"><span class="pre">C</span></code> with:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">C</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">coarse_p1_basis_from_node_groups</span><span class="p">(</span><span class="n">n_master_nodes</span><span class="p">,</span> <span class="p">[[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">]])</span>
+<span class="n">C</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">coarse_p1_basis_from_surface_grid</span><span class="p">(</span><span class="n">master_surface</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">axes</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
 </pre></div>
 </div>
 <p>For builder-managed raw prepared contacts, select the method directly:</p>
@@ -670,6 +683,12 @@ compatibility and comparisons. Coarse dual mortar reduces multiplier rows after
 the dual mortar operator has been assembled; fixed <code class="docutils literal notranslate"><span class="pre">mortar_rank</span></code> uses a QR
 row-space projection, while rank-free selection uses SVD energy and numerical
 rank criteria.</p>
+<p>For a compact numerical check of coarse P1 mortar, run
+<code class="docutils literal notranslate"><span class="pre">tutorials/mortar_fixture_workpiece_comparison.py</span></code>.  It solves matching and
+nonmatching fixture/workpiece interface problems and compares the reduced
+coarse P1 response against the dual mortar reference.  Passing <code class="docutils literal notranslate"><span class="pre">--output-dir</span></code>
+also writes surface VTU files for visual inspection when <code class="docutils literal notranslate"><span class="pre">meshio</span></code> is
+available.</p>
 </section>
 <section id="mixed-numpy-jax-inputs">
 <h2>Mixed NumPy/JAX Inputs<a class="headerlink" href="#mixed-numpy-jax-inputs" title="Link to this heading">#</a></h2>
