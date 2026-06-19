@@ -28,6 +28,17 @@ def _matrix_shape(matrix) -> tuple[int, int]:
     return tuple(int(v) for v in arr.shape)
 
 
+def _normalize_cb_backend(backend: str | None) -> str:
+    if backend is None:
+        return "jax"
+    backend_eff = str(backend).lower()
+    if backend_eff in {"numpy", "scipy"}:
+        return "scipy"
+    if backend_eff == "jax":
+        return "jax"
+    raise ValueError("backend must be 'jax', 'numpy', or 'scipy'.")
+
+
 def _as_dense_array(matrix) -> Array:
     if hasattr(matrix, "to_dense"):
         return jnp.asarray(matrix.to_dense())
@@ -45,12 +56,31 @@ def _as_scipy_sparse_matrix(matrix):
     return None
 
 
+def _as_numpy_dense(matrix) -> np.ndarray:
+    if hasattr(matrix, "to_dense"):
+        return np.asarray(matrix.to_dense())
+    if hasattr(matrix, "toarray"):
+        return np.asarray(matrix.toarray())
+    return np.asarray(matrix)
+
+
+def _result_np_dtype(*matrices):
+    return np.result_type(*[_as_numpy_dense(matrix).dtype if not hasattr(matrix, "dtype") else matrix.dtype for matrix in matrices])
+
+
 def _project_matrix_with_basis(matrix, basis: Array) -> Array:
     sparse = _as_scipy_sparse_matrix(matrix)
     if sparse is not None:
         basis_np = np.asarray(basis)
         return jnp.asarray(basis_np.T @ (sparse @ basis_np))
     return basis.T @ _as_dense_array(matrix) @ basis
+
+
+def _project_matrix_with_numpy_basis(matrix, basis: np.ndarray) -> np.ndarray:
+    sparse = _as_scipy_sparse_matrix(matrix)
+    if sparse is not None:
+        return np.asarray(basis.T @ (sparse @ basis))
+    return np.asarray(basis.T @ _as_numpy_dense(matrix) @ basis)
 
 
 def _operator_matvec(operator):
@@ -62,6 +92,17 @@ def _operator_matvec(operator):
     if sparse is not None:
         return lambda vector: jnp.asarray(sparse @ np.asarray(vector))
     return lambda vector: jnp.asarray(operator) @ vector
+
+
+def _operator_matvec_numpy(operator):
+    if hasattr(operator, "matvec"):
+        return lambda vector: np.asarray(operator.matvec(vector))
+    if callable(operator):
+        return lambda vector: np.asarray(operator(vector))
+    sparse = _as_scipy_sparse_matrix(operator)
+    if sparse is not None:
+        return lambda vector: np.asarray(sparse @ np.asarray(vector))
+    return lambda vector: np.asarray(operator) @ vector
 
 
 def _matrix_dtype(matrix):
@@ -87,10 +128,28 @@ def _take_block(matrix, rows: Array, cols: Array):
     return jnp.asarray(matrix)[jnp.asarray(rows, dtype=jnp.int32)[:, None], jnp.asarray(cols, dtype=jnp.int32)[None, :]]
 
 
+def _take_block_numpy(matrix, rows, cols):
+    sp = _optional_scipy_sparse()
+    if hasattr(matrix, "to_csr"):
+        matrix = matrix.to_csr()
+    rows_np = np.asarray(rows, dtype=np.int32).reshape(-1)
+    cols_np = np.asarray(cols, dtype=np.int32).reshape(-1)
+    if sp is not None and sp.issparse(matrix):
+        return matrix.tocsr()[rows_np, :][:, cols_np].tocsr()
+    return np.asarray(matrix)[np.ix_(rows_np, cols_np)]
+
+
 def complement_dofs(n_dofs: int, retained_dofs: Array) -> Array:
     retained = jnp.asarray(retained_dofs, dtype=jnp.int32)
     mask = jnp.ones((int(n_dofs),), dtype=bool).at[retained].set(False)
     return jnp.nonzero(mask, size=int(n_dofs) - int(retained.size))[0].astype(jnp.int32)
+
+
+def _complement_dofs_numpy(n_dofs: int, retained_dofs) -> np.ndarray:
+    retained = np.asarray(retained_dofs, dtype=np.int32).reshape(-1)
+    mask = np.ones((int(n_dofs),), dtype=bool)
+    mask[retained] = False
+    return np.flatnonzero(mask).astype(np.int32)
 
 
 def remote_reference_size(*, include_rotation: bool) -> int:
@@ -389,6 +448,48 @@ def solve_constraint_modes(
     raise ValueError("constraint_solver must be 'dense', 'cg', 'spsolve', or a callable.")
 
 
+def _solve_constraint_modes_scipy(
+    stiffness_ii,
+    stiffness_ir,
+    *,
+    solver: str | Callable[[object, np.ndarray], np.ndarray] = "spsolve",
+) -> np.ndarray:
+    """NumPy/SciPy solve for Craig-Bampton static constraint modes."""
+    stiffness_shape = _matrix_shape(stiffness_ii)
+    stiffness_ir_np = _as_numpy_dense(stiffness_ir)
+    if stiffness_shape[0] != stiffness_shape[1]:
+        raise ValueError("stiffness_ii must be square.")
+    if stiffness_ir_np.ndim != 2 or stiffness_ir_np.shape[0] != stiffness_shape[0]:
+        raise ValueError("stiffness_ir must have shape (n_internal, n_retained).")
+    if stiffness_ir_np.shape[1] == 0:
+        return np.zeros((stiffness_shape[0], 0), dtype=_result_np_dtype(stiffness_ii, stiffness_ir_np))
+
+    rhs = -stiffness_ir_np
+    if callable(solver):
+        return np.asarray(solver(stiffness_ii, rhs))
+    if solver == "dense":
+        return np.linalg.solve(_as_numpy_dense(stiffness_ii), rhs)
+    if solver == "spsolve":
+        try:
+            import scipy.sparse as sp
+            import scipy.sparse.linalg as spla
+        except Exception as exc:  # pragma: no cover
+            raise ImportError("scipy is required for backend='scipy' with constraint_solver='spsolve'.") from exc
+        if hasattr(stiffness_ii, "to_csr"):
+            k_csr = stiffness_ii.to_csr()
+        elif sp.issparse(stiffness_ii):
+            k_csr = stiffness_ii.tocsr()
+        else:
+            k_csr = sp.csr_matrix(np.asarray(stiffness_ii))
+        solution = spla.spsolve(k_csr, rhs)
+        if solution.ndim == 1:
+            solution = solution[:, None]
+        return np.asarray(solution, dtype=_result_np_dtype(stiffness_ii, rhs))
+    if solver == "cg":
+        raise ValueError("backend='scipy' supports constraint_solver='dense', 'spsolve', or a callable.")
+    raise ValueError("constraint_solver must be 'dense', 'spsolve', or a callable for backend='scipy'.")
+
+
 def _dense_fixed_interface_modes(stiffness_ii, mass_ii, n_modes: int) -> tuple[Array, Array]:
     stiffness_ii = _as_dense_array(stiffness_ii)
     mass_ii = _as_dense_array(mass_ii)
@@ -401,6 +502,23 @@ def _dense_fixed_interface_modes(stiffness_ii, mass_ii, n_modes: int) -> tuple[A
     modes = jnp.linalg.solve(chol_m.T, z)
     modes = _mass_normalize(modes, mass_ii)
     return modes, eigvals[:n_modes]
+
+
+def _mass_normalize_numpy(modes: np.ndarray, mass) -> np.ndarray:
+    mass_dense = _as_numpy_dense(mass)
+    norms2 = np.einsum("ia,ij,ja->a", modes, mass_dense, modes)
+    eps = np.finfo(modes.dtype).eps if np.issubdtype(modes.dtype, np.floating) else np.finfo(float).eps
+    return modes / np.sqrt(np.maximum(norms2, eps))[None, :]
+
+
+def _dense_fixed_interface_modes_scipy(stiffness_ii, mass_ii, n_modes: int) -> tuple[np.ndarray, np.ndarray]:
+    try:
+        import scipy.linalg as la
+    except Exception as exc:  # pragma: no cover
+        raise ImportError("scipy is required for backend='scipy' dense modal solves.") from exc
+    eigvals, eigvecs = la.eigh(_as_numpy_dense(stiffness_ii), _as_numpy_dense(mass_ii), subset_by_index=(0, int(n_modes) - 1))
+    modes = _mass_normalize_numpy(np.asarray(eigvecs), mass_ii)
+    return modes, np.asarray(eigvals)
 
 
 def _m_orthonormalize(vectors: Array, mass) -> Array:
@@ -501,6 +619,38 @@ def _scipy_eigsh_fixed_interface_modes(stiffness_ii, mass_ii, n_modes: int, *, t
     return modes, jnp.asarray(eigvals, dtype=modes.dtype)
 
 
+def _scipy_eigsh_fixed_interface_modes_numpy(stiffness_ii, mass_ii, n_modes: int, *, tol: float, maxiter: int):
+    try:
+        import scipy.sparse as sp
+        import scipy.sparse.linalg as spla
+    except Exception as exc:  # pragma: no cover
+        raise ImportError("scipy is required for backend='scipy' with modal_solver='eigsh'.") from exc
+
+    n_internal = int(_matrix_shape(stiffness_ii)[0])
+    if n_modes >= n_internal:
+        return _dense_fixed_interface_modes_scipy(stiffness_ii, mass_ii, n_modes)
+
+    if hasattr(stiffness_ii, "to_csr"):
+        k_csr = stiffness_ii.to_csr()
+    elif sp.issparse(stiffness_ii):
+        k_csr = stiffness_ii.tocsr()
+    else:
+        k_csr = sp.csr_matrix(np.asarray(stiffness_ii))
+    if hasattr(mass_ii, "to_csr"):
+        m_csr = mass_ii.to_csr()
+    elif sp.issparse(mass_ii):
+        m_csr = mass_ii.tocsr()
+    else:
+        m_csr = sp.csr_matrix(np.asarray(mass_ii))
+
+    eigvals, eigvecs = spla.eigsh(k_csr, k=int(n_modes), M=m_csr, which="SM", tol=float(tol), maxiter=int(maxiter))
+    order = np.argsort(eigvals)
+    eigvals = np.asarray(eigvals[order])
+    eigvecs = np.asarray(eigvecs[:, order])
+    modes = _mass_normalize_numpy(eigvecs, mass_ii)
+    return modes, eigvals.astype(modes.dtype, copy=False)
+
+
 def fixed_interface_modes(
     stiffness_ii,
     mass_ii,
@@ -543,6 +693,122 @@ def fixed_interface_modes(
     if solver == "eigsh":
         return _scipy_eigsh_fixed_interface_modes(stiffness_ii, mass_ii, n_keep, tol=modal_tol, maxiter=modal_maxiter)
     raise ValueError("modal_solver must be 'dense', 'subspace', 'eigsh', or a callable.")
+
+
+def _fixed_interface_modes_scipy(
+    stiffness_ii,
+    mass_ii,
+    n_modes: int,
+    *,
+    solver: str | Callable[[object, object, int], tuple[np.ndarray, np.ndarray]] = "eigsh",
+    modal_tol: float = 1e-8,
+    modal_maxiter: int = 30,
+) -> tuple[np.ndarray, np.ndarray]:
+    """NumPy/SciPy fixed-interface modal extraction."""
+    if n_modes < 0:
+        raise ValueError("n_modes must be non-negative.")
+    n_internal = int(_matrix_shape(stiffness_ii)[0])
+    if n_modes == 0 or n_internal == 0:
+        dtype = _result_np_dtype(stiffness_ii, mass_ii)
+        return np.zeros((n_internal, 0), dtype=dtype), np.zeros((0,), dtype=dtype)
+
+    n_keep = min(int(n_modes), n_internal)
+    if callable(solver):
+        modes, eigenvalues = solver(stiffness_ii, mass_ii, n_keep)
+        return _mass_normalize_numpy(np.asarray(modes), mass_ii), np.asarray(eigenvalues)[:n_keep]
+    if solver == "dense":
+        return _dense_fixed_interface_modes_scipy(stiffness_ii, mass_ii, n_keep)
+    if solver == "eigsh":
+        return _scipy_eigsh_fixed_interface_modes_numpy(stiffness_ii, mass_ii, n_keep, tol=modal_tol, maxiter=modal_maxiter)
+    if solver == "subspace":
+        raise ValueError("backend='scipy' supports modal_solver='dense', 'eigsh', or a callable.")
+    raise ValueError("modal_solver must be 'dense', 'eigsh', or a callable for backend='scipy'.")
+
+
+@dataclass(frozen=True)
+class ScipyProjectedReducedOperator:
+    """Matrix-free NumPy/SciPy reduced operator ``q -> Phi.T A(Phi q)``."""
+
+    basis: "ScipyCraigBamptonBasis"
+    operator: Any
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return (self.basis.n_reduced, self.basis.n_reduced)
+
+    def matvec(self, q) -> np.ndarray:
+        q_arr = np.asarray(q)
+        if q_arr.shape != (self.basis.n_reduced,):
+            raise ValueError("q must have shape (n_reduced,).")
+        full_action = _operator_matvec_numpy(self.operator)(self.basis.expand(q_arr))
+        return self.basis.project_vector(full_action)
+
+    def __matmul__(self, q) -> np.ndarray:
+        return self.matvec(q)
+
+    def to_dense(self) -> np.ndarray:
+        if self.basis.n_reduced == 0:
+            return np.zeros(self.shape, dtype=self.basis.basis.dtype)
+        columns = [self.matvec(eye_col) for eye_col in np.eye(self.basis.n_reduced, dtype=self.basis.basis.dtype)]
+        return np.stack(columns, axis=1)
+
+
+@dataclass(frozen=True)
+class ScipyCraigBamptonBasis:
+    """Craig-Bampton basis backed by NumPy/SciPy arrays.
+
+    This is the linear ROM backend for users who want SciPy sparse solves and
+    NumPy arrays instead of JAX arrays.  Autodiff helpers remain available only
+    on the JAX-backed `CraigBamptonBasis`.
+    """
+
+    basis: np.ndarray
+    retained_dofs: np.ndarray
+    internal_dofs: np.ndarray
+    eigenvalues: np.ndarray
+
+    def __post_init__(self):
+        object.__setattr__(self, "basis", np.asarray(self.basis))
+        object.__setattr__(self, "retained_dofs", np.asarray(self.retained_dofs, dtype=np.int32).reshape(-1))
+        object.__setattr__(self, "internal_dofs", np.asarray(self.internal_dofs, dtype=np.int32).reshape(-1))
+        object.__setattr__(self, "eigenvalues", np.asarray(self.eigenvalues).reshape(-1))
+
+    @property
+    def n_full(self) -> int:
+        return int(self.basis.shape[0])
+
+    @property
+    def n_reduced(self) -> int:
+        return int(self.basis.shape[1])
+
+    @property
+    def n_retained(self) -> int:
+        return int(self.retained_dofs.size)
+
+    @property
+    def n_modes(self) -> int:
+        return int(self.eigenvalues.size)
+
+    def expand(self, q) -> np.ndarray:
+        return self.basis @ np.asarray(q)
+
+    def project_vector(self, vector) -> np.ndarray:
+        return self.basis.T @ np.asarray(vector)
+
+    def project_matrix(self, matrix) -> np.ndarray:
+        return _project_matrix_with_numpy_basis(matrix, self.basis)
+
+    def project_operator(self, operator) -> ScipyProjectedReducedOperator:
+        return ScipyProjectedReducedOperator(self, operator)
+
+    def reduced_residual(self, residual_fn: Callable[[np.ndarray], np.ndarray]) -> Callable[[np.ndarray], np.ndarray]:
+        def _residual(q) -> np.ndarray:
+            return self.project_vector(residual_fn(self.expand(q)))
+
+        return _residual
+
+    def reduced_jacobian(self, residual_fn):
+        raise NotImplementedError("ScipyCraigBamptonBasis does not provide autodiff; use backend='jax' for reduced_jacobian.")
 
 
 @dataclass(frozen=True)
@@ -2139,6 +2405,7 @@ def make_craig_bampton_basis(
     retained_dofs: Array,
     n_modes: int,
     *,
+    backend: str | None = None,
     constraint_solver: str | Callable[[object, Array], Array] = "dense",
     modal_solver: str | Callable[[object, object, int], tuple[Array, Array]] = "dense",
     modal_linear_solver: str | Callable[[object, Array], Array] = "dense",
@@ -2147,8 +2414,26 @@ def make_craig_bampton_basis(
     modal_maxiter: int = 30,
     cg_tol: float = 1e-10,
     cg_maxiter: int | None = None,
-) -> CraigBamptonBasis:
-    """Build a Craig-Bampton basis for assembled full-order matrices."""
+) -> CraigBamptonBasis | ScipyCraigBamptonBasis:
+    """Build a Craig-Bampton basis for assembled full-order matrices.
+
+    `backend="jax"` returns the existing JAX-backed `CraigBamptonBasis`.
+    `backend="scipy"` (or `"numpy"`) returns a NumPy/SciPy-backed
+    `ScipyCraigBamptonBasis` for linear ROM workflows without JAX arrays.
+    """
+    backend_eff = _normalize_cb_backend(backend)
+    if backend_eff == "scipy":
+        return _make_craig_bampton_basis_scipy(
+            stiffness,
+            mass,
+            retained_dofs,
+            n_modes,
+            constraint_solver=constraint_solver,
+            modal_solver=modal_solver,
+            modal_tol=modal_tol,
+            modal_maxiter=modal_maxiter,
+        )
+
     stiffness_shape = _matrix_shape(stiffness)
     mass_shape = _matrix_shape(mass)
     if stiffness_shape[0] != stiffness_shape[1]:
@@ -2209,6 +2494,69 @@ def make_craig_bampton_basis(
         basis = basis.at[internal, retained.size :].set(normal_modes)
 
     return CraigBamptonBasis(basis=basis, retained_dofs=retained, internal_dofs=internal, eigenvalues=eigenvalues)
+
+
+def _make_craig_bampton_basis_scipy(
+    stiffness,
+    mass,
+    retained_dofs,
+    n_modes: int,
+    *,
+    constraint_solver: str | Callable[[object, np.ndarray], np.ndarray] = "spsolve",
+    modal_solver: str | Callable[[object, object, int], tuple[np.ndarray, np.ndarray]] = "eigsh",
+    modal_tol: float = 1e-8,
+    modal_maxiter: int = 30,
+) -> ScipyCraigBamptonBasis:
+    stiffness_shape = _matrix_shape(stiffness)
+    mass_shape = _matrix_shape(mass)
+    if stiffness_shape[0] != stiffness_shape[1]:
+        raise ValueError("stiffness must be square.")
+    if mass_shape != stiffness_shape:
+        raise ValueError("mass must have the same shape as stiffness.")
+
+    n_full = int(stiffness_shape[0])
+    retained = np.asarray(retained_dofs, dtype=np.int32).reshape(-1)
+    if retained.size and (retained.min() < 0 or retained.max() >= n_full):
+        raise ValueError("retained_dofs contains an index outside the full DOF range.")
+    if np.unique(retained).size != retained.size:
+        raise ValueError("retained_dofs must not contain duplicates.")
+
+    internal = _complement_dofs_numpy(n_full, retained)
+    dtype = _result_np_dtype(stiffness, mass)
+    if internal.size == 0:
+        return ScipyCraigBamptonBasis(
+            basis=np.eye(n_full, dtype=dtype),
+            retained_dofs=retained,
+            internal_dofs=internal,
+            eigenvalues=np.zeros((0,), dtype=dtype),
+        )
+
+    k_ii = _take_block_numpy(stiffness, internal, internal)
+    k_ir = _take_block_numpy(stiffness, internal, retained)
+    m_ii = _take_block_numpy(mass, internal, internal)
+
+    if retained.size:
+        constraint_modes = _solve_constraint_modes_scipy(k_ii, k_ir, solver=constraint_solver)
+    else:
+        constraint_modes = np.zeros((internal.size, 0), dtype=dtype)
+    normal_modes, eigenvalues = _fixed_interface_modes_scipy(
+        k_ii,
+        m_ii,
+        n_modes,
+        solver=modal_solver,
+        modal_tol=modal_tol,
+        modal_maxiter=modal_maxiter,
+    )
+
+    n_reduced = int(retained.size) + int(normal_modes.shape[1])
+    basis = np.zeros((n_full, n_reduced), dtype=np.result_type(dtype, constraint_modes.dtype, normal_modes.dtype))
+    if retained.size:
+        basis[np.ix_(internal, np.arange(retained.size))] = constraint_modes
+        basis[np.ix_(retained, np.arange(retained.size))] = np.eye(int(retained.size), dtype=basis.dtype)
+    if normal_modes.shape[1]:
+        basis[np.ix_(internal, np.arange(retained.size, n_reduced))] = normal_modes
+
+    return ScipyCraigBamptonBasis(basis=basis, retained_dofs=retained, internal_dofs=internal, eigenvalues=eigenvalues)
 
 
 def reduced_residual_from_full(cb: CraigBamptonBasis, residual_fn: Callable[[Array], Array]) -> Callable[[Array], Array]:
@@ -2658,6 +3006,8 @@ __all__ = [
     "ReducedContactDynamics",
     "ReducedLinearConstraintSystem",
     "ReferencePointFixture",
+    "ScipyCraigBamptonBasis",
+    "ScipyProjectedReducedOperator",
     "active_contact_fixed_point_solve",
     "active_contact_newmark_step",
     "assemble_reference_fixture_preload",

@@ -192,8 +192,69 @@ def test_craig_bampton_project_operator_matvec_matches_projected_matrix():
     assert ff.ProjectedReducedOperator is ff.solver.ProjectedReducedOperator
 
 
+def test_craig_bampton_scipy_backend_matches_jax_backend():
+    sp = pytest.importorskip("scipy.sparse")
+
+    stiffness = sp.csr_matrix(
+        np.array(
+            [
+                [6.0, -1.0, 0.0, 0.0, 0.0],
+                [-1.0, 7.0, -1.5, 0.0, 0.0],
+                [0.0, -1.5, 8.0, -1.0, 0.0],
+                [0.0, 0.0, -1.0, 7.0, -1.0],
+                [0.0, 0.0, 0.0, -1.0, 5.0],
+            ],
+            dtype=float,
+        )
+    )
+    mass = sp.eye(5, format="csr", dtype=float)
+    retained = np.array([0, 4], dtype=np.int32)
+
+    cb_scipy = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=retained,
+        n_modes=2,
+        backend="scipy",
+        constraint_solver="spsolve",
+        modal_solver="eigsh",
+    )
+    cb_jax = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=retained,
+        n_modes=2,
+        backend="jax",
+        constraint_solver="spsolve",
+        modal_solver="eigsh",
+    )
+
+    assert isinstance(cb_scipy, ff.ScipyCraigBamptonBasis)
+    assert isinstance(cb_scipy.basis, np.ndarray)
+    assert cb_scipy.n_reduced == cb_jax.n_reduced
+    np.testing.assert_allclose(cb_scipy.eigenvalues, np.asarray(cb_jax.eigenvalues), rtol=1.0e-10, atol=1.0e-12)
+
+    aligned_basis = cb_scipy.basis.copy()
+    for i in range(cb_scipy.n_modes):
+        col = cb_scipy.n_retained + i
+        sign = np.sign(float(np.dot(aligned_basis[:, col], np.asarray(cb_jax.basis)[:, col])))
+        aligned_basis[:, col] *= 1.0 if sign == 0.0 else sign
+
+    q = np.array([0.2, -0.1, 0.05, -0.03])
+    np.testing.assert_allclose(aligned_basis @ q, np.asarray(cb_jax.expand(jnp.asarray(q))), atol=1.0e-12)
+    np.testing.assert_allclose(aligned_basis.T @ (stiffness @ aligned_basis), np.asarray(cb_jax.project_matrix(stiffness)), atol=1.0e-12)
+    np.testing.assert_allclose(
+        aligned_basis.T @ (stiffness @ (aligned_basis @ q)),
+        np.asarray(cb_jax.project_operator(stiffness).matvec(jnp.asarray(q))),
+        atol=1.0e-12,
+    )
+    with pytest.raises(NotImplementedError, match="autodiff"):
+        cb_scipy.reduced_jacobian(lambda u: u)
+
+
 def test_craig_bampton_top_level_exports_are_available():
     assert ff.CraigBamptonBasis is not None
+    assert ff.ScipyCraigBamptonBasis is ff.solver.ScipyCraigBamptonBasis
     assert ff.make_craig_bampton_basis is ff.solver.make_craig_bampton_basis
 
 
