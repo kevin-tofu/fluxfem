@@ -59,6 +59,7 @@ Craig-Bampton Constraints and Dynamics
 .. autofunction:: fluxfem.solver.remote_reference_direction
 .. autofunction:: fluxfem.solver.rbe3_remote_reference_rank
 .. autofunction:: fluxfem.solver.validate_rbe3_remote_reference_rank
+.. autofunction:: fluxfem.solver.make_average_rigid_body_constraint
 .. autofunction:: fluxfem.solver.linear_constraint_system_from_reference_fixtures
 .. autofunction:: fluxfem.solver.assemble_reference_fixture_preload
 .. autofunction:: fluxfem.solver.solve_linear_constraint_kkt

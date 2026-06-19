@@ -685,6 +685,48 @@ def test_linear_constraint_kkt_supports_nonzero_fixed_values():
     np.testing.assert_allclose(np.asarray(constraints.residual(u)), np.zeros(1), atol=1.0e-12)
 
 
+def test_average_rigid_body_constraint_measures_rigid_translation_and_rotation():
+    coords = np.array(
+        [
+            [-1.0, -1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [-1.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    translation = np.array([0.2, -0.3, 0.4])
+    omega = np.array([0.0, 0.0, 0.5])
+    center = coords.mean(axis=0)
+    u = np.asarray([translation + np.cross(omega, x - center) for x in coords], dtype=float).reshape(-1)
+
+    constraints = ff.make_average_rigid_body_constraint(coords)
+    values = np.asarray(constraints.matrix @ jnp.asarray(u))
+
+    np.testing.assert_allclose(values[:3], translation, atol=1.0e-12)
+    np.testing.assert_allclose(values[3:5], np.zeros(2), atol=1.0e-12)
+    assert values[5] > 0.0
+
+
+def test_average_rigid_body_constraint_can_remove_mean_modes_in_kkt_solve():
+    coords = np.array(
+        [
+            [-1.0, -1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [-1.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    constraints = ff.make_average_rigid_body_constraint(coords, components=("tx", "ty", "rz"))
+    stiffness = jnp.eye(coords.shape[0] * 3, dtype=jnp.float64)
+    force = jnp.ones((coords.shape[0] * 3,), dtype=jnp.float64)
+
+    u = constraints.solve(stiffness, force, solver="dense")
+
+    np.testing.assert_allclose(np.asarray(constraints.residual(u)), np.zeros(3), atol=1.0e-12)
+
+
 def test_newmark_and_active_contact_callbacks_are_autodiff_friendly():
     mass = jnp.array([[2.0]], dtype=jnp.float64)
     stiffness = jnp.array([[8.0]], dtype=jnp.float64)

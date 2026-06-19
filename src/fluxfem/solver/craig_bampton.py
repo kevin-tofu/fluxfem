@@ -130,6 +130,102 @@ def vector_dofs_from_nodes(nodes, dim: int = 3) -> np.ndarray:
     return (nodes_arr[:, None] * dim + np.arange(dim, dtype=np.int32)[None, :]).reshape(-1)
 
 
+def make_average_rigid_body_constraint(
+    coords,
+    nodes=None,
+    *,
+    weights=None,
+    n_dofs: int | None = None,
+    dim: int = 3,
+    components: Sequence[str] = ("tx", "ty", "tz", "rx", "ry", "rz"),
+    center=None,
+    rhs=None,
+) -> "LinearConstraintSystem":
+    """Build average rigid-body constraints for vector nodal DOFs.
+
+    The returned system enforces selected rows of
+    ``sum_i w_i u_i = rhs_t`` and
+    ``sum_i w_i (x_i - center) cross u_i = rhs_r``.
+    This is useful for removing rigid body modes without pinning individual
+    nodes.
+    """
+    dim = int(dim)
+    if dim != 3:
+        raise ValueError("average rigid-body constraints currently require dim=3.")
+    coords_np = np.asarray(coords, dtype=float)
+    if coords_np.ndim != 2 or coords_np.shape[1] != 3:
+        raise ValueError("coords must have shape (n_nodes, 3).")
+    if nodes is None:
+        nodes_np = np.arange(coords_np.shape[0], dtype=np.int32)
+    else:
+        nodes_np = np.asarray(nodes, dtype=np.int32).reshape(-1)
+    if nodes_np.size == 0:
+        raise ValueError("nodes must contain at least one node.")
+    if nodes_np.min() < 0 or nodes_np.max() >= coords_np.shape[0]:
+        raise ValueError("nodes contains an index outside coords.")
+
+    if weights is None:
+        weights_np = np.ones(nodes_np.size, dtype=float)
+    else:
+        weights_np = np.asarray(weights, dtype=float).reshape(-1)
+        if weights_np.shape != (nodes_np.size,):
+            raise ValueError("weights must have shape (len(nodes),).")
+    weight_sum = float(np.sum(weights_np))
+    if not np.isfinite(weight_sum) or abs(weight_sum) <= 0.0:
+        raise ValueError("weights must have a finite non-zero sum.")
+    weights_np = weights_np / weight_sum
+
+    selected = tuple(str(c).lower() for c in components)
+    valid = ("tx", "ty", "tz", "rx", "ry", "rz")
+    if len(selected) == 0:
+        raise ValueError("components must contain at least one component.")
+    unknown = [c for c in selected if c not in valid]
+    if unknown:
+        raise ValueError(f"unknown average rigid-body components: {unknown}")
+    if len(set(selected)) != len(selected):
+        raise ValueError("components must not contain duplicates.")
+
+    n_total = int(coords_np.shape[0] * dim if n_dofs is None else n_dofs)
+    if n_total < coords_np.shape[0] * dim:
+        raise ValueError("n_dofs is smaller than coords.shape[0] * dim.")
+
+    x = coords_np[nodes_np]
+    if center is None:
+        x0 = np.average(x, axis=0, weights=weights_np)
+    else:
+        x0 = np.asarray(center, dtype=float).reshape(-1)
+        if x0.shape != (3,):
+            raise ValueError("center must have shape (3,).")
+    rel = x - x0[None, :]
+
+    rows = []
+    for comp in selected:
+        row = np.zeros(n_total, dtype=float)
+        axis = "xyz".index(comp[1])
+        if comp[0] == "t":
+            for node, weight in zip(nodes_np, weights_np, strict=True):
+                row[int(node) * dim + axis] += weight
+        else:
+            for node, weight, r in zip(nodes_np, weights_np, rel, strict=True):
+                base = int(node) * dim
+                if axis == 0:
+                    row[base + 1] += -weight * r[2]
+                    row[base + 2] += weight * r[1]
+                elif axis == 1:
+                    row[base + 0] += weight * r[2]
+                    row[base + 2] += -weight * r[0]
+                else:
+                    row[base + 0] += -weight * r[1]
+                    row[base + 1] += weight * r[0]
+        rows.append(row)
+
+    matrix = jnp.asarray(np.vstack(rows))
+    rhs_arr = jnp.zeros((len(rows),), dtype=matrix.dtype) if rhs is None else jnp.asarray(rhs, dtype=matrix.dtype)
+    if rhs_arr.shape != (len(rows),):
+        raise ValueError("rhs must have shape (len(components),).")
+    return LinearConstraintSystem(matrix, rhs_arr)
+
+
 def retained_dofs_from_node_sets(*node_sets, dim: int = 3, extra_dofs=None) -> np.ndarray:
     """Collect sorted vector DOFs from node groups plus optional explicit DOFs."""
     groups: list[np.ndarray] = []
@@ -2569,6 +2665,7 @@ __all__ = [
     "fixed_interface_modes",
     "integrate_newmark",
     "linear_constraint_system_from_reference_fixtures",
+    "make_average_rigid_body_constraint",
     "make_craig_bampton_basis",
     "make_newmark_effective_residual",
     "newmark_kinematics",
