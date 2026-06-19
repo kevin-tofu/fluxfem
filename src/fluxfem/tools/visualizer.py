@@ -19,10 +19,13 @@ def _cell_type_for_mesh(mesh: BaseMesh) -> int:
 
 
 def _write_dataarray(name: str, data: np.ndarray, ncomp: int = 1) -> str:
-    flat = data.reshape(-1)
+    arr = np.asarray(data)
     comp_attr = f' NumberOfComponents="{ncomp}"' if ncomp > 1 else ""
-    values = " ".join(f"{v:.8e}" for v in flat)
-    return f'<DataArray type="Float32" Name="{name}" format="ascii"{comp_attr}>{values}</DataArray>'
+    tuples = arr.reshape(-1, ncomp)
+    lines = [f'<DataArray type="Float64" Name="{name}" format="ascii"{comp_attr}>']
+    lines.extend(" ".join(f"{float(v):.16e}" for v in row) for row in tuples)
+    lines.append("</DataArray>")
+    return "\n".join(lines)
 
 
 def write_vtu(
