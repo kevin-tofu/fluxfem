@@ -301,6 +301,52 @@ def retained_dofs_from_node_sets(*node_sets, dim: int = 3, extra_dofs=None) -> n
     return np.unique(np.concatenate(groups)).astype(np.int32)
 
 
+def retained_dofs_from_node_masks(*node_masks, dim: int = 3, components=None, extra_dofs=None) -> np.ndarray:
+    """Collect sorted vector DOFs from boolean/indicator node masks.
+
+    This is a small convenience for label-driven ROM partitioning: VTU point-data
+    arrays can be passed directly after thresholding or as numeric masks.
+    """
+    dim = int(dim)
+    if dim <= 0:
+        raise ValueError("dim must be positive.")
+    comps = np.arange(dim, dtype=np.int32) if components is None else np.asarray(components, dtype=np.int32).reshape(-1)
+    if comps.size == 0:
+        raise ValueError("components must contain at least one component.")
+    if comps.min() < 0 or comps.max() >= dim:
+        raise ValueError("components contain an index outside dim.")
+    groups: list[np.ndarray] = []
+    for mask in node_masks:
+        arr = np.asarray(mask)
+        if arr.ndim != 1:
+            raise ValueError("node masks must be one-dimensional.")
+        nodes = np.flatnonzero(arr.astype(float) > 0.5).astype(np.int32)
+        if nodes.size:
+            groups.append((nodes[:, None] * dim + comps[None, :]).reshape(-1))
+    if extra_dofs is not None:
+        extra = np.asarray(extra_dofs, dtype=np.int32).reshape(-1)
+        if extra.size:
+            groups.append(extra)
+    if not groups:
+        return np.asarray([], dtype=np.int32)
+    return np.unique(np.concatenate(groups)).astype(np.int32)
+
+
+def active_dofs_from_full_dofs(full_dofs, active_dofs) -> np.ndarray:
+    """Map full-system DOF ids into local indices of an active/free DOF array."""
+    full = np.asarray(full_dofs, dtype=np.int64).reshape(-1)
+    active = np.asarray(active_dofs, dtype=np.int64).reshape(-1)
+    if full.size == 0 or active.size == 0:
+        return np.asarray([], dtype=np.int64)
+    if np.any(full < 0) or np.any(active < 0):
+        raise ValueError("DOF ids must be non-negative.")
+    max_dof = int(max(int(full.max(initial=0)), int(active.max(initial=0))))
+    full_to_active = -np.ones(max_dof + 1, dtype=np.int64)
+    full_to_active[active] = np.arange(active.size, dtype=np.int64)
+    mapped = full_to_active[full]
+    return np.unique(mapped[mapped >= 0]).astype(np.int64)
+
+
 def rbe3_remote_reference_rank(
     ref_point,
     slave_coords,
@@ -587,7 +633,15 @@ def _subspace_fixed_interface_modes(
     return modes, eigenvalues
 
 
-def _scipy_eigsh_fixed_interface_modes(stiffness_ii, mass_ii, n_modes: int, *, tol: float, maxiter: int):
+def _scipy_eigsh_fixed_interface_modes(
+    stiffness_ii,
+    mass_ii,
+    n_modes: int,
+    *,
+    tol: float,
+    maxiter: int,
+    shift_invert: bool = False,
+):
     try:
         import scipy.sparse as sp
         import scipy.sparse.linalg as spla
@@ -611,7 +665,18 @@ def _scipy_eigsh_fixed_interface_modes(stiffness_ii, mass_ii, n_modes: int, *, t
     else:
         m_csr = sp.csr_matrix(np.asarray(mass_ii))
 
-    eigvals, eigvecs = spla.eigsh(k_csr, k=int(n_modes), M=m_csr, which="SM", tol=float(tol), maxiter=int(maxiter))
+    if shift_invert:
+        eigvals, eigvecs = spla.eigsh(
+            k_csr,
+            k=int(n_modes),
+            M=m_csr,
+            sigma=0.0,
+            which="LM",
+            tol=float(tol),
+            maxiter=int(maxiter),
+        )
+    else:
+        eigvals, eigvecs = spla.eigsh(k_csr, k=int(n_modes), M=m_csr, which="SM", tol=float(tol), maxiter=int(maxiter))
     order = np.argsort(eigvals)
     eigvals = eigvals[order]
     eigvecs = eigvecs[:, order]
@@ -619,7 +684,15 @@ def _scipy_eigsh_fixed_interface_modes(stiffness_ii, mass_ii, n_modes: int, *, t
     return modes, jnp.asarray(eigvals, dtype=modes.dtype)
 
 
-def _scipy_eigsh_fixed_interface_modes_numpy(stiffness_ii, mass_ii, n_modes: int, *, tol: float, maxiter: int):
+def _scipy_eigsh_fixed_interface_modes_numpy(
+    stiffness_ii,
+    mass_ii,
+    n_modes: int,
+    *,
+    tol: float,
+    maxiter: int,
+    shift_invert: bool = False,
+):
     try:
         import scipy.sparse as sp
         import scipy.sparse.linalg as spla
@@ -643,7 +716,18 @@ def _scipy_eigsh_fixed_interface_modes_numpy(stiffness_ii, mass_ii, n_modes: int
     else:
         m_csr = sp.csr_matrix(np.asarray(mass_ii))
 
-    eigvals, eigvecs = spla.eigsh(k_csr, k=int(n_modes), M=m_csr, which="SM", tol=float(tol), maxiter=int(maxiter))
+    if shift_invert:
+        eigvals, eigvecs = spla.eigsh(
+            k_csr,
+            k=int(n_modes),
+            M=m_csr,
+            sigma=0.0,
+            which="LM",
+            tol=float(tol),
+            maxiter=int(maxiter),
+        )
+    else:
+        eigvals, eigvecs = spla.eigsh(k_csr, k=int(n_modes), M=m_csr, which="SM", tol=float(tol), maxiter=int(maxiter))
     order = np.argsort(eigvals)
     eigvals = np.asarray(eigvals[order])
     eigvecs = np.asarray(eigvecs[:, order])
@@ -692,7 +776,16 @@ def fixed_interface_modes(
         )
     if solver == "eigsh":
         return _scipy_eigsh_fixed_interface_modes(stiffness_ii, mass_ii, n_keep, tol=modal_tol, maxiter=modal_maxiter)
-    raise ValueError("modal_solver must be 'dense', 'subspace', 'eigsh', or a callable.")
+    if solver in {"eigsh-shift-invert", "eigsh_shift_invert", "shift-invert", "shift_invert"}:
+        return _scipy_eigsh_fixed_interface_modes(
+            stiffness_ii,
+            mass_ii,
+            n_keep,
+            tol=modal_tol,
+            maxiter=modal_maxiter,
+            shift_invert=True,
+        )
+    raise ValueError("modal_solver must be 'dense', 'subspace', 'eigsh', 'eigsh-shift-invert', or a callable.")
 
 
 def _fixed_interface_modes_scipy(
@@ -720,9 +813,18 @@ def _fixed_interface_modes_scipy(
         return _dense_fixed_interface_modes_scipy(stiffness_ii, mass_ii, n_keep)
     if solver == "eigsh":
         return _scipy_eigsh_fixed_interface_modes_numpy(stiffness_ii, mass_ii, n_keep, tol=modal_tol, maxiter=modal_maxiter)
+    if solver in {"eigsh-shift-invert", "eigsh_shift_invert", "shift-invert", "shift_invert"}:
+        return _scipy_eigsh_fixed_interface_modes_numpy(
+            stiffness_ii,
+            mass_ii,
+            n_keep,
+            tol=modal_tol,
+            maxiter=modal_maxiter,
+            shift_invert=True,
+        )
     if solver == "subspace":
-        raise ValueError("backend='scipy' supports modal_solver='dense', 'eigsh', or a callable.")
-    raise ValueError("modal_solver must be 'dense', 'eigsh', or a callable for backend='scipy'.")
+        raise ValueError("backend='scipy' supports modal_solver='dense', 'eigsh', 'eigsh-shift-invert', or a callable.")
+    raise ValueError("modal_solver must be 'dense', 'eigsh', 'eigsh-shift-invert', or a callable for backend='scipy'.")
 
 
 @dataclass(frozen=True)
@@ -961,6 +1063,34 @@ class LinearConstraintSystem:
         )
 
 
+def project_constraints_through_basis(
+    constraints: LinearConstraintSystem | Array,
+    basis: Array,
+    *,
+    n_extra_dofs: int = 0,
+) -> LinearConstraintSystem:
+    """Project full constraints through an arbitrary dense reduction basis.
+
+    The full unknown ordering is assumed to be ``[u_full, u_extra]`` and the
+    reduced unknown ordering is ``[q_reduced, u_extra]``.
+    """
+    constraint_system = constraints if isinstance(constraints, LinearConstraintSystem) else LinearConstraintSystem(constraints)
+    basis_arr = jnp.asarray(basis)
+    if basis_arr.ndim != 2:
+        raise ValueError("basis must have shape (n_full_dofs, n_reduced_dofs).")
+    n_extra_dofs = int(n_extra_dofs)
+    if n_extra_dofs < 0:
+        raise ValueError("n_extra_dofs must be non-negative.")
+    if constraint_system.n_dofs != int(basis_arr.shape[0]) + n_extra_dofs:
+        raise ValueError("constraint column count must match basis rows plus n_extra_dofs.")
+    dtype = jnp.result_type(constraint_system.matrix, basis_arr)
+    transform = jnp.zeros((constraint_system.n_dofs, int(basis_arr.shape[1]) + n_extra_dofs), dtype=dtype)
+    transform = transform.at[: basis_arr.shape[0], : basis_arr.shape[1]].set(basis_arr)
+    if n_extra_dofs:
+        transform = transform.at[basis_arr.shape[0] :, basis_arr.shape[1] :].set(jnp.eye(n_extra_dofs, dtype=dtype))
+    return LinearConstraintSystem(constraint_system.matrix @ transform, rhs=constraint_system.rhs)
+
+
 @dataclass(frozen=True)
 class ReducedLinearConstraintSystem:
     """Linear constraints projected into `[q_cb, u_extra]` coordinates."""
@@ -1109,6 +1239,101 @@ class ReferencePointFixture:
         k = k.at[refs[:, None], refs[None, :]].add(kk)
         f = f.at[refs].add(ff)
         return k, f
+
+
+@dataclass(frozen=True)
+class RBE2RemoteFixture:
+    """RBE2 remote fixture tying slave nodes to a 3-DOF or 6-DOF remote point."""
+
+    name: str
+    ref_point: Array
+    slave_coords: Array
+    slave_dofs: Array
+    include_rotation: bool = True
+    reference_dofs: Array | None = None
+
+    def __post_init__(self):
+        ref_point = jnp.asarray(self.ref_point)
+        slave_coords = jnp.asarray(self.slave_coords, dtype=ref_point.dtype)
+        slave_dofs = jnp.asarray(self.slave_dofs, dtype=jnp.int32)
+        if ref_point.shape != (3,):
+            raise ValueError("ref_point must have shape (3,).")
+        if slave_coords.ndim != 2 or slave_coords.shape[1] != 3:
+            raise ValueError("slave_coords must have shape (n_slave, 3).")
+        if slave_coords.shape[0] == 0:
+            raise ValueError("slave_coords must contain at least one node.")
+        if slave_dofs.shape != (slave_coords.shape[0], 3):
+            raise ValueError("slave_dofs must have shape (n_slave, 3).")
+        if bool(jnp.any(slave_dofs < 0)):
+            raise ValueError("slave_dofs must be non-negative.")
+        n_ref = 6 if bool(self.include_rotation) else 3
+        if self.reference_dofs is None:
+            reference_dofs = jnp.arange(n_ref, dtype=jnp.int32)
+        else:
+            reference_dofs = jnp.asarray(self.reference_dofs, dtype=jnp.int32)
+        if reference_dofs.shape != (n_ref,):
+            raise ValueError("reference_dofs must have shape (6,) with rotation or (3,) without rotation.")
+        if bool(jnp.any(reference_dofs < 0)):
+            raise ValueError("reference_dofs must be non-negative.")
+        if np.unique(np.asarray(reference_dofs)).size != int(reference_dofs.size):
+            raise ValueError("reference_dofs must not contain duplicates.")
+        object.__setattr__(self, "ref_point", ref_point)
+        object.__setattr__(self, "slave_coords", slave_coords)
+        object.__setattr__(self, "slave_dofs", slave_dofs)
+        object.__setattr__(self, "reference_dofs", reference_dofs)
+
+    @property
+    def n_reference_dofs(self) -> int:
+        return int(self.reference_dofs.size)
+
+    @property
+    def n_constraints(self) -> int:
+        return int(3 * self.slave_coords.shape[0])
+
+    @property
+    def retained_dofs(self) -> Array:
+        return jnp.unique(self.slave_dofs.reshape(-1)).astype(jnp.int32)
+
+    def local_constraint_matrix(self) -> Array:
+        """Return C for local ordering [q_ref, u_slave_0, ..., u_slave_n]."""
+        dtype = self.slave_coords.dtype
+        n_slave = int(self.slave_coords.shape[0])
+        c = jnp.zeros((3 * n_slave, self.n_reference_dofs + 3 * n_slave), dtype=dtype)
+        for i in range(n_slave):
+            rows = slice(3 * i, 3 * i + 3)
+            cols = self.n_reference_dofs + 3 * i
+            c = c.at[rows, cols : cols + 3].set(jnp.eye(3, dtype=dtype))
+            c = c.at[rows, 0:3].set(-jnp.eye(3, dtype=dtype))
+            if bool(self.include_rotation):
+                rx, ry, rz = self.slave_coords[i] - self.ref_point
+                rot = jnp.array(
+                    [
+                        [0.0, -rz, ry],
+                        [rz, 0.0, -rx],
+                        [-ry, rx, 0.0],
+                    ],
+                    dtype=dtype,
+                )
+                c = c.at[rows, 3:6].set(rot)
+        return c
+
+    def constraint_matrix(self, n_structural_dofs: int, total_dofs: int) -> Array:
+        n_structural_dofs = int(n_structural_dofs)
+        total_dofs = int(total_dofs)
+        if total_dofs < n_structural_dofs:
+            raise ValueError("total_dofs must be at least n_structural_dofs.")
+        if int(jnp.max(self.slave_dofs)) >= n_structural_dofs:
+            raise ValueError("slave_dofs contain an index outside n_structural_dofs.")
+        if int(jnp.max(self.reference_dofs)) >= total_dofs:
+            raise ValueError("reference_dofs contain an index outside total_dofs.")
+        local = self.local_constraint_matrix()
+        c = jnp.zeros((self.n_constraints, total_dofs), dtype=local.dtype)
+        c = c.at[:, self.reference_dofs].set(local[:, : self.n_reference_dofs])
+        for i in range(int(self.slave_dofs.shape[0])):
+            cols = self.slave_dofs[i]
+            block = local[:, self.n_reference_dofs + 3 * i : self.n_reference_dofs + 3 * i + 3]
+            c = c.at[:, cols].add(block)
+        return c
 
 
 @dataclass(frozen=True)
@@ -1583,7 +1808,7 @@ class ReducedCoupledSystemBuilder:
         self._extra_blocks: dict[str, ReducedFieldBlock] = {}
         self._extra_points: dict[str, np.ndarray] = {}
         self._extra_k: list[tuple[np.ndarray, np.ndarray, np.ndarray | None]] = []
-        self._constraints: list[tuple[str, str, RBE3RemoteFixture]] = []
+        self._constraints: list[tuple[str, str, RBE2RemoteFixture | RBE3RemoteFixture]] = []
         self._tie_constraints: list[_DofTieConstraint] = []
         self._contact_pairs: list[ReducedContactPair] = []
 
@@ -1897,6 +2122,30 @@ class ReducedCoupledSystemBuilder:
             object.__setattr__(fixture, "weights", jnp.asarray(weights))
         self._constraints.append((str(master), slave_key, fixture))
 
+    def add_rbe2_constraint(
+        self,
+        *,
+        master: str,
+        slave: str,
+        ref_point,
+        slave_coords,
+        slave_dofs,
+    ) -> None:
+        """Constrain slave structural DOFs to a remote point by RBE2 kinematics."""
+        slave_key = self._resolve_structural_field_name(slave)
+        block = self._extra_blocks[str(master)]
+        if block.n_dofs not in {3, 6}:
+            raise ValueError("RBE2 master must be a 3-DOF or 6-DOF remote point.")
+        fixture = RBE2RemoteFixture(
+            str(master),
+            ref_point=jnp.asarray(ref_point),
+            slave_coords=jnp.asarray(slave_coords),
+            slave_dofs=jnp.asarray(slave_dofs, dtype=jnp.int32),
+            include_rotation=block.n_dofs == 6,
+            reference_dofs=jnp.asarray(block.offset + np.arange(block.n_dofs), dtype=jnp.int32),
+        )
+        self._constraints.append((str(master), slave_key, fixture))
+
     def _resolve_structural_field_name(self, name: str | None) -> str:
         key = self.structural_name if name is None else str(name)
         if key in self._structural_fields:
@@ -2083,6 +2332,78 @@ class ReducedCoupledSystemBuilder:
                 target_displacement=float(preload_target),
             )
 
+    def add_rbe2_fixture(
+        self,
+        name: str,
+        *,
+        body: str | None = None,
+        ref_point,
+        slave_coords,
+        slave_dofs,
+        include_rotation: bool = True,
+        translational_stiffness=None,
+        rotational_stiffness=None,
+        translational_target=0.0,
+        rotational_target=0.0,
+    ) -> None:
+        """Append and connect a remote RBE2 fixture."""
+        self.append_remote_point(name, point=ref_point, include_rotation=include_rotation)
+        self.add_rbe2_constraint(
+            master=name,
+            slave=body or self.structural_name,
+            ref_point=ref_point,
+            slave_coords=slave_coords,
+            slave_dofs=slave_dofs,
+        )
+        if translational_stiffness is not None or rotational_stiffness is not None:
+            self.add_remote_spring(
+                name,
+                translational_stiffness=translational_stiffness,
+                rotational_stiffness=rotational_stiffness,
+                translational_target=translational_target,
+                rotational_target=rotational_target,
+            )
+
+    def add_rbe2_fixture_from_nodes(
+        self,
+        name: str,
+        *,
+        body: str | None = None,
+        ref_point,
+        coords,
+        nodes,
+        dim: int = 3,
+        include_rotation: bool = True,
+        translational_stiffness=None,
+        rotational_stiffness=None,
+        translational_target=0.0,
+        rotational_target=0.0,
+    ) -> None:
+        """Append and connect a remote RBE2 fixture from structural node ids."""
+        nodes_arr = np.asarray(nodes, dtype=np.int32).reshape(-1)
+        coords_arr = np.asarray(coords, dtype=float)
+        if coords_arr.ndim != 2 or coords_arr.shape[1] != 3:
+            raise ValueError("coords must have shape (n_nodes, 3).")
+        if nodes_arr.size == 0:
+            raise ValueError("nodes must contain at least one node.")
+        if nodes_arr.min() < 0 or nodes_arr.max() >= coords_arr.shape[0]:
+            raise ValueError("nodes contain an index outside coords.")
+        if int(dim) != 3:
+            raise ValueError("RBE2 remote fixtures currently require dim=3.")
+        patch_dofs = vector_dofs_from_nodes(nodes_arr, dim=dim).reshape(-1, dim)
+        self.add_rbe2_fixture(
+            name,
+            body=body,
+            ref_point=ref_point,
+            slave_coords=coords_arr[nodes_arr],
+            slave_dofs=patch_dofs,
+            include_rotation=include_rotation,
+            translational_stiffness=translational_stiffness,
+            rotational_stiffness=rotational_stiffness,
+            translational_target=translational_target,
+            rotational_target=rotational_target,
+        )
+
     def build(self) -> ReducedCoupledSystem:
         if not self._structural_fields:
             raise ValueError("No structural fields are registered.")
@@ -2125,10 +2446,11 @@ class ReducedCoupledSystemBuilder:
             source = self._structural_fields[slave_name]
             cb = source.basis
             local = fixture.local_constraint_matrix()
-            row = jnp.zeros((fixture.n_reference_dofs, n_total), dtype=k.dtype)
+            n_constraint_rows = int(local.shape[0])
+            row = jnp.zeros((n_constraint_rows, n_total), dtype=k.dtype)
             ref_cols = n_structural_reduced + jnp.asarray(fixture.reference_dofs, dtype=jnp.int32)
             row = row.at[:, ref_cols].set(jnp.asarray(local[:, : fixture.n_reference_dofs], dtype=k.dtype))
-            c_full = jnp.zeros((fixture.n_reference_dofs, cb.n_full), dtype=k.dtype)
+            c_full = jnp.zeros((n_constraint_rows, cb.n_full), dtype=k.dtype)
             for i in range(int(fixture.slave_dofs.shape[0])):
                 cols = fixture.slave_dofs[i]
                 block = local[:, fixture.n_reference_dofs + 3 * i : fixture.n_reference_dofs + 3 * i + 3]
@@ -2138,7 +2460,7 @@ class ReducedCoupledSystemBuilder:
             reduced_cols = offset + jnp.arange(cb.n_reduced, dtype=jnp.int32)
             row = row.at[:, reduced_cols].add(c_reduced)
             rows.append(row)
-            rhs_rows.append(jnp.zeros((fixture.n_reference_dofs,), dtype=k.dtype))
+            rhs_rows.append(jnp.zeros((n_constraint_rows,), dtype=k.dtype))
         for tie in self._tie_constraints:
             row = jnp.zeros((tie.master_dofs.size, n_total), dtype=k.dtype)
             row = self._add_tie_side_to_row(
@@ -2988,6 +3310,7 @@ __all__ = [
     "ActiveContactIterationRecord",
     "ActiveContactNewmarkStepInfo",
     "ActiveContactSolveInfo",
+    "active_dofs_from_full_dofs",
     "ContactSearchManagerLike",
     "CraigBamptonBasis",
     "FrictionManagerLike",
@@ -2997,6 +3320,7 @@ __all__ = [
     "NewmarkStepInfo",
     "ProjectedReducedOperator",
     "RBE3Patch",
+    "RBE2RemoteFixture",
     "RBE3RemoteFixture",
     "ReducedContactPair",
     "ReducedContactPairAdapter",
@@ -3020,8 +3344,10 @@ __all__ = [
     "make_newmark_effective_residual",
     "newmark_kinematics",
     "newmark_step",
+    "project_constraints_through_basis",
     "remote_reference_direction",
     "remote_reference_size",
+    "retained_dofs_from_node_masks",
     "retained_dofs_from_node_sets",
     "rbe3_remote_reference_rank",
     "reduced_jacobian_from_full",

@@ -1230,6 +1230,132 @@ def assemble_rbe2_constraint_matrix(
     return C
 
 
+def assemble_fixed_rigid_hub_constraint_matrix(
+    ref_point: np.ndarray,
+    hub_coords: np.ndarray,
+    hub_dofs: np.ndarray | None = None,
+    *,
+    n_structural_dofs: int | None = None,
+    backend: str | None = None,
+):
+    """
+    Assemble structural-only constraints for a rigid hub fixed in 6 DOFs.
+
+    This is the fixed-reference specialization of an RBE2 coupling:
+
+      u_i - u_ref - omega_ref x (x_i - x_ref) = 0
+
+    with ``u_ref = 0`` and ``omega_ref = 0``.  The returned matrix therefore
+    has only structural DOF columns and can be used directly as ``C u = 0``.
+
+    Parameters
+    ----------
+    ref_point:
+        Hub reference point, shape ``(3,)``.
+    hub_coords:
+        Coordinates of bore/hub nodes rigidly attached to the fixed hub,
+        shape ``(n_hub_nodes, 3)``.
+    hub_dofs:
+        Optional global structural DOF ids for each hub node, shape
+        ``(n_hub_nodes, 3)``.  If omitted, local node-major ordering is used.
+    n_structural_dofs:
+        Total structural DOF count.  Required when ``hub_dofs`` is passed and
+        larger than the inferred maximum is desired.
+
+    Returns
+    -------
+    numpy.ndarray
+        Constraint matrix with shape ``(3*n_hub_nodes, n_structural_dofs)``.
+        For a fixed rigid hub this matrix enforces zero displacement at every
+        attached hub node, which is equivalent to an RBE2 hub whose 6 reference
+        DOFs are fixed.
+    """
+    backend = "numpy" if backend is None else str(backend).lower()
+    if backend != "numpy":
+        raise ValueError("fixed rigid hub constraint assembly currently supports backend='numpy' only.")
+    x_ref = np.asarray(ref_point, dtype=float).reshape(-1)
+    x_hub = np.asarray(hub_coords, dtype=float)
+    if x_ref.shape != (3,):
+        raise ValueError("ref_point must have shape (3,).")
+    if x_hub.ndim != 2 or x_hub.shape[1] != 3:
+        raise ValueError("hub_coords must have shape (n_hub_nodes, 3).")
+    if x_hub.shape[0] == 0:
+        raise ValueError("hub_coords must contain at least one node.")
+
+    if hub_dofs is None:
+        dofs = np.arange(3 * x_hub.shape[0], dtype=np.int64).reshape(-1, 3)
+    else:
+        dofs = np.asarray(hub_dofs, dtype=np.int64)
+        if dofs.shape != (x_hub.shape[0], 3):
+            raise ValueError("hub_dofs must have shape (n_hub_nodes, 3).")
+        if np.any(dofs < 0):
+            raise ValueError("hub_dofs must be non-negative.")
+
+    inferred = int(dofs.max()) + 1
+    n_cols = inferred if n_structural_dofs is None else int(n_structural_dofs)
+    if n_cols < inferred:
+        raise ValueError("n_structural_dofs is smaller than the largest hub_dofs entry.")
+
+    c = np.zeros((3 * x_hub.shape[0], n_cols), dtype=float)
+    for i in range(x_hub.shape[0]):
+        rows = slice(3 * i, 3 * i + 3)
+        c[rows, dofs[i]] = np.eye(3)
+    return c
+
+
+def assemble_rigid_hub_constraint_matrix(
+    ref_point: np.ndarray,
+    hub_coords: np.ndarray,
+    hub_dofs: np.ndarray,
+    *,
+    hub_reference_dofs: np.ndarray | None = None,
+    n_total_dofs: int | None = None,
+    backend: str | None = None,
+):
+    """
+    Assemble RBE2 constraints between structural hub nodes and a 6-DOF hub.
+
+    The global unknown ordering is arbitrary and specified by ``hub_dofs`` and
+    ``hub_reference_dofs``.  The constraints enforce
+
+      u_i - u_ref - omega_ref x (x_i - x_ref) = 0
+
+    for each attached hub node.
+    """
+    backend = "numpy" if backend is None else str(backend).lower()
+    if backend != "numpy":
+        raise ValueError("rigid hub constraint assembly currently supports backend='numpy' only.")
+    x_hub = np.asarray(hub_coords, dtype=float)
+    dofs = np.asarray(hub_dofs, dtype=np.int64)
+    if x_hub.ndim != 2 or x_hub.shape[1] != 3:
+        raise ValueError("hub_coords must have shape (n_hub_nodes, 3).")
+    if dofs.shape != (x_hub.shape[0], 3):
+        raise ValueError("hub_dofs must have shape (n_hub_nodes, 3).")
+    if np.any(dofs < 0):
+        raise ValueError("hub_dofs must be non-negative.")
+    if hub_reference_dofs is None:
+        inferred_structural = int(dofs.max()) + 1
+        ref_dofs = np.arange(inferred_structural, inferred_structural + 6, dtype=np.int64)
+    else:
+        ref_dofs = np.asarray(hub_reference_dofs, dtype=np.int64).reshape(-1)
+        if ref_dofs.shape != (6,):
+            raise ValueError("hub_reference_dofs must have shape (6,).")
+        if np.any(ref_dofs < 0):
+            raise ValueError("hub_reference_dofs must be non-negative.")
+
+    inferred = int(max(int(dofs.max()), int(ref_dofs.max()))) + 1
+    n_cols = inferred if n_total_dofs is None else int(n_total_dofs)
+    if n_cols < inferred:
+        raise ValueError("n_total_dofs is smaller than the largest referenced DOF.")
+
+    local = assemble_rbe2_constraint_matrix(ref_point, x_hub, backend=backend)
+    c = np.zeros((local.shape[0], n_cols), dtype=float)
+    c[:, ref_dofs] = local[:, :6]
+    for i in range(x_hub.shape[0]):
+        c[:, dofs[i]] += local[:, 6 + 3 * i : 6 + 3 * i + 3]
+    return c
+
+
 def assemble_rbe3_constraint_matrix(
     ref_point: np.ndarray,
     slave_coords: np.ndarray,
@@ -5461,6 +5587,8 @@ __all__ = [
     "build_barycentric_embedding_map",
     "build_barycentric_embedding_map_from_meshes",
     "assemble_embedding_constraint_matrix",
+    "assemble_fixed_rigid_hub_constraint_matrix",
+    "assemble_rigid_hub_constraint_matrix",
     "assemble_rbe2_constraint_matrix",
     "assemble_rbe3_constraint_matrix",
     "build_rbe3_weights",

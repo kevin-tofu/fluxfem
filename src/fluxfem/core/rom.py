@@ -266,6 +266,7 @@ def _scipy_eigsh_fixed_interface_modes(
     *,
     tol: float,
     maxiter: int,
+    shift_invert: bool = False,
 ) -> tuple[Array, Array]:
     """Optional SciPy generalized sparse eigensolver adapter."""
     try:
@@ -290,14 +291,25 @@ def _scipy_eigsh_fixed_interface_modes(
         m_csr = mass_ii.tocsr()
     else:
         m_csr = sp.csr_matrix(np.asarray(mass_ii))
-    eigvals, eigvecs = spla.eigsh(
-        k_csr,
-        k=int(n_modes),
-        M=m_csr,
-        which="SM",
-        tol=float(tol),
-        maxiter=int(maxiter),
-    )
+    if shift_invert:
+        eigvals, eigvecs = spla.eigsh(
+            k_csr,
+            k=int(n_modes),
+            M=m_csr,
+            sigma=0.0,
+            which="LM",
+            tol=float(tol),
+            maxiter=int(maxiter),
+        )
+    else:
+        eigvals, eigvecs = spla.eigsh(
+            k_csr,
+            k=int(n_modes),
+            M=m_csr,
+            which="SM",
+            tol=float(tol),
+            maxiter=int(maxiter),
+        )
     order = np.argsort(eigvals)
     eigvals = eigvals[order]
     eigvecs = eigvecs[:, order]
@@ -363,7 +375,16 @@ def fixed_interface_modes(
             tol=modal_tol,
             maxiter=modal_maxiter,
         )
-    raise ValueError("modal_solver must be 'dense', 'subspace', 'eigsh', or a callable.")
+    if solver in {"eigsh-shift-invert", "eigsh_shift_invert", "shift-invert", "shift_invert"}:
+        return _scipy_eigsh_fixed_interface_modes(
+            stiffness_ii,
+            mass_ii,
+            n_keep,
+            tol=modal_tol,
+            maxiter=modal_maxiter,
+            shift_invert=True,
+        )
+    raise ValueError("modal_solver must be 'dense', 'subspace', 'eigsh', 'eigsh-shift-invert', or a callable.")
 
 
 @jax.tree_util.register_pytree_node_class

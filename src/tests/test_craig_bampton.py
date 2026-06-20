@@ -94,6 +94,14 @@ def test_craig_bampton_sparse_fluxfem_matrices_match_dense_eigenvalues():
         constraint_solver="spsolve",
         modal_solver="eigsh",
     )
+    cb_shift = ff.make_craig_bampton_basis(
+        k_free,
+        m_free,
+        retained,
+        n_modes=2,
+        constraint_solver="spsolve",
+        modal_solver="eigsh-shift-invert",
+    )
     cb_dense = ff.make_craig_bampton_basis(
         k_free.toarray(),
         m_free.toarray(),
@@ -104,13 +112,21 @@ def test_craig_bampton_sparse_fluxfem_matrices_match_dense_eigenvalues():
     )
 
     np.testing.assert_allclose(np.asarray(cb_sparse.eigenvalues), np.asarray(cb_dense.eigenvalues), rtol=1.0e-8)
+    np.testing.assert_allclose(np.asarray(cb_shift.eigenvalues), np.asarray(cb_dense.eigenvalues), rtol=1.0e-8)
     np.testing.assert_allclose(
         np.asarray(cb_sparse.basis)[retained, : retained.size],
         np.eye(retained.size),
         atol=1.0e-12,
     )
+    np.testing.assert_allclose(
+        np.asarray(cb_shift.basis)[retained, : retained.size],
+        np.eye(retained.size),
+        atol=1.0e-12,
+    )
     assert cb_sparse.n_full == free.size
     assert cb_sparse.n_modes == 2
+    assert cb_shift.n_full == free.size
+    assert cb_shift.n_modes == 2
 
 
 def test_craig_bampton_project_matrix_keeps_sparse_input_sparse():
@@ -487,6 +503,61 @@ def test_reduced_coupled_system_builder_matches_manual_rbe3_projection():
 
     np.testing.assert_allclose(np.asarray(q), np.asarray(q_manual), atol=1.0e-12)
     np.testing.assert_allclose(np.asarray(system.expand(q)), np.asarray(reduced_constraints.expand(q_manual)), atol=1.0e-12)
+
+
+def test_reduced_coupled_system_builder_rbe2_fixture_preserves_remote_dofs():
+    stiffness = jnp.diag(jnp.array([10.0, 11.0, 12.0], dtype=jnp.float64))
+    mass = jnp.eye(3, dtype=jnp.float64)
+    force = jnp.array([1.0, 0.0, 0.0], dtype=jnp.float64)
+    coords = np.array([[1.0, 0.0, 0.0]], dtype=float)
+
+    builder = ff.ReducedCoupledSystemBuilder.from_structural("wheel", stiffness, force, mass=mass, value_dim=3, n_nodes=1)
+    cb = builder.reduce_field("wheel", retained_dofs=jnp.array([0, 1, 2], dtype=jnp.int32), n_modes=0)
+    builder.add_rbe2_fixture_from_nodes(
+        "hub",
+        body="wheel",
+        ref_point=np.zeros(3, dtype=float),
+        coords=coords,
+        nodes=np.array([0], dtype=np.int32),
+        translational_stiffness=np.array([20.0, 20.0, 20.0], dtype=float),
+        rotational_stiffness=np.array([5.0, 5.0, 5.0], dtype=float),
+    )
+    system = builder.build()
+    q = system.solve(solver="dense")
+
+    constraint = ff.RBE2RemoteFixture(
+        "hub",
+        ref_point=jnp.zeros(3, dtype=jnp.float64),
+        slave_coords=jnp.asarray(coords),
+        slave_dofs=jnp.array([[0, 1, 2]], dtype=jnp.int32),
+        reference_dofs=jnp.arange(3, 9, dtype=jnp.int32),
+    )
+    c_full = constraint.constraint_matrix(n_structural_dofs=3, total_dofs=9)
+    constraints = ff.LinearConstraintSystem(c_full)
+    k_full = jnp.zeros((9, 9), dtype=jnp.float64)
+    k_full = k_full.at[:3, :3].set(stiffness)
+    k_full = k_full.at[3:6, 3:6].set(20.0 * jnp.eye(3, dtype=jnp.float64))
+    k_full = k_full.at[6:9, 6:9].set(5.0 * jnp.eye(3, dtype=jnp.float64))
+    f_full = jnp.concatenate([force, jnp.zeros((6,), dtype=jnp.float64)])
+    q_full = constraints.solve(k_full, f_full, solver="dense")
+
+    np.testing.assert_allclose(np.asarray(system.expand(q)), np.asarray(q_full), atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(cb.expand(q[: cb.n_reduced])), np.asarray(q_full[:3]), atol=1.0e-12)
+
+
+def test_retained_dofs_from_node_masks_and_active_mapping():
+    retained = ff.retained_dofs_from_node_masks(
+        np.array([False, True, False, True]),
+        np.array([False, False, True, False]),
+        dim=3,
+        components=[0, 2],
+        extra_dofs=np.array([1], dtype=np.int32),
+    )
+    np.testing.assert_array_equal(retained, np.array([1, 3, 5, 6, 8, 9, 11], dtype=np.int32))
+
+    active = np.array([0, 1, 3, 5, 8, 9, 11], dtype=np.int64)
+    mapped = ff.active_dofs_from_full_dofs(retained, active)
+    np.testing.assert_array_equal(mapped, np.array([1, 2, 3, 4, 5, 6], dtype=np.int64))
 
 
 def test_reduced_coupled_system_builder_ties_multiple_reduced_fields():

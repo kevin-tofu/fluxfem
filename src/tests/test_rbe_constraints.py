@@ -28,6 +28,75 @@ def test_rbe2_constraint_matrix_reproduces_rigid_kinematics():
     assert np.allclose(C_np @ q, np.zeros((6,), dtype=float), atol=1e-12)
 
 
+def test_fixed_rigid_hub_constraint_matches_rbe2_with_fixed_reference():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    x_hub = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+        ],
+        dtype=float,
+    )
+    hub_dofs = np.array([[2, 3, 4], [7, 8, 9]], dtype=int)
+    C_hub = ff.assemble_fixed_rigid_hub_constraint_matrix(
+        x_ref,
+        x_hub,
+        hub_dofs,
+        n_structural_dofs=12,
+    )
+    C_rbe2 = ff.assemble_rbe2_constraint_matrix(x_ref, x_hub, backend="numpy")
+
+    assert C_hub.shape == (6, 12)
+    expected = np.zeros((6, 12), dtype=float)
+    expected[:, hub_dofs.reshape(-1)] = C_rbe2[:, 6:]
+    np.testing.assert_allclose(C_hub, expected, atol=1.0e-12)
+
+
+def test_fixed_rigid_hub_constraint_kkt_enforces_zero_hub_dofs():
+    k = sp.eye(9, format="csr")
+    f = np.ones(9, dtype=float)
+    x_ref = np.zeros(3, dtype=float)
+    x_hub = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=float)
+    hub_dofs = np.array([[0, 1, 2], [3, 4, 5]], dtype=int)
+    C = ff.assemble_fixed_rigid_hub_constraint_matrix(x_ref, x_hub, hub_dofs, n_structural_dofs=9)
+    constraints = ff.LinearConstraintSystem(C)
+
+    u = np.asarray(constraints.solve(k, f, solver="spsolve"), dtype=float)
+
+    np.testing.assert_allclose(u[hub_dofs.reshape(-1)], 0.0, atol=1.0e-12)
+    np.testing.assert_allclose(u[6:], 1.0, atol=1.0e-12)
+
+
+def test_rigid_hub_constraint_matrix_preserves_hub_rigid_motion():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    x_hub = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+        ],
+        dtype=float,
+    )
+    hub_dofs = np.array([[0, 1, 2], [6, 7, 8]], dtype=int)
+    ref_dofs = np.array([10, 11, 12, 13, 14, 15], dtype=int)
+    C = ff.assemble_rigid_hub_constraint_matrix(
+        x_ref,
+        x_hub,
+        hub_dofs,
+        hub_reference_dofs=ref_dofs,
+        n_total_dofs=18,
+    )
+
+    u_ref = np.array([0.3, -0.2, 0.1], dtype=float)
+    w_ref = np.array([0.0, 0.0, 0.5], dtype=float)
+    q = np.zeros(18, dtype=float)
+    q[ref_dofs] = np.concatenate([u_ref, w_ref])
+    for dofs, point in zip(hub_dofs, x_hub, strict=True):
+        q[dofs] = u_ref + np.cross(w_ref, point - x_ref)
+
+    assert C.shape == (6, 18)
+    np.testing.assert_allclose(C @ q, 0.0, atol=1.0e-12)
+
+
 def test_rbe3_constraint_matrix_preserves_rigid_motion():
     x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
     x_slave = np.array(

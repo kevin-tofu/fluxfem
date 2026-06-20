@@ -272,6 +272,14 @@ def test_fixed_interface_eigsh_modes_match_dense_eigenvalues():
         modal_tol=1e-9,
         modal_maxiter=200,
     )
+    shift_modes, shift_eigvals = ff.fixed_interface_modes(
+        stiffness,
+        mass,
+        n_modes=2,
+        solver="eigsh-shift-invert",
+        modal_tol=1e-9,
+        modal_maxiter=200,
+    )
 
     np.testing.assert_allclose(
         np.asarray(eigsh_eigvals),
@@ -279,8 +287,16 @@ def test_fixed_interface_eigsh_modes_match_dense_eigenvalues():
         rtol=2e-5,
         atol=2e-5,
     )
+    np.testing.assert_allclose(
+        np.asarray(shift_eigvals),
+        np.asarray(dense_eigvals),
+        rtol=2e-5,
+        atol=2e-5,
+    )
     overlap = np.abs(np.asarray(dense_modes.T @ mass @ eigsh_modes))
     np.testing.assert_allclose(overlap, np.eye(2), rtol=3e-5, atol=3e-5)
+    shift_overlap = np.abs(np.asarray(dense_modes.T @ mass @ shift_modes))
+    np.testing.assert_allclose(shift_overlap, np.eye(2), rtol=3e-5, atol=3e-5)
 
 def test_craig_bampton_eigsh_modal_solver_matches_dense():
     stiffness = jnp.array(
@@ -309,9 +325,27 @@ def test_craig_bampton_eigsh_modal_solver_matches_dense():
         cg_tol=1e-9,
         cg_maxiter=100,
     )
+    shift = ff.make_craig_bampton_basis(
+        stiffness,
+        mass,
+        retained_dofs=retained,
+        n_modes=2,
+        constraint_solver="cg",
+        modal_solver="eigsh-shift-invert",
+        modal_tol=1e-9,
+        modal_maxiter=200,
+        cg_tol=1e-9,
+        cg_maxiter=100,
+    )
 
     np.testing.assert_allclose(
         np.asarray(eigsh.eigenvalues),
+        np.asarray(dense.eigenvalues),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        np.asarray(shift.eigenvalues),
         np.asarray(dense.eigenvalues),
         rtol=2e-5,
         atol=2e-5,
