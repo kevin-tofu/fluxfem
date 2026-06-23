@@ -395,6 +395,7 @@ __all__ = [
     "NewtonLoopConfig",
     "LoadStepResult",
     "NewtonSolveRunner",
+    "constrained_kkt_config",
     "solve_nonlinear",
     "NonlinearConstrainedProblem",
     "NonlinearConstrainedSolveResult",

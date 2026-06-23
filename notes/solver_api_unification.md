@@ -42,6 +42,8 @@ for the Newton-loop fields it can faithfully support:
 - selectable constrained KKT backends:
   `linear_solver="spsolve"` for direct solves, `"gmres"` for SciPy
   `LinearOperator` solves, and `"petsc_shell"` for optional PETSc KSP solves,
+- `constrained_kkt_config("direct" | "scipy-gmres" | "petsc-gmres" | "petsc-ilu")`
+  returns a typed `NewtonLoopConfig` for user-facing backend selection,
 - the tutorial uses the config object instead of a separate one-off signature.
 - the tutorial can compare a stepped solve against the direct single-step
   result with `--compare-single-step`.

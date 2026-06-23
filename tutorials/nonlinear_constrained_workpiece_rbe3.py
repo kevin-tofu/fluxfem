@@ -31,12 +31,16 @@ def parse_args():
     parser.add_argument("--atol", type=float, default=1.0e-10)
     parser.add_argument("--maxiter", type=int, default=20)
     parser.add_argument("--n-steps", type=int, default=1)
-    parser.add_argument("--linear-solver", choices=("spsolve", "gmres", "petsc_shell"), default="spsolve")
+    parser.add_argument(
+        "--backend",
+        choices=("direct", "scipy-gmres", "petsc-gmres", "petsc-ilu"),
+        default="direct",
+    )
     parser.add_argument("--linear-tol", type=float, default=None)
     parser.add_argument("--linear-maxiter", type=int, default=None)
     parser.add_argument("--linear-preconditioner", type=str, default=None)
-    parser.add_argument("--petsc-ksp-type", type=str, default="gmres")
-    parser.add_argument("--petsc-pc-type", type=str, default="none")
+    parser.add_argument("--petsc-ksp-type", type=str, default=None)
+    parser.add_argument("--petsc-pc-type", type=str, default=None)
     parser.add_argument("--petsc-use-pmat", action="store_true")
     parser.add_argument("--compare-single-step", action="store_true")
     parser.add_argument("--output-vtu", type=str, default="")
@@ -111,18 +115,18 @@ def main():
     problem.add_rbe3_patch_constraint(fixture_patch, rhs=jnp.zeros((2,), dtype=dtype))
     problem.add_local_force([tool_dof_y], [args.force])
 
-    config = ff.NewtonLoopConfig(
+    config = ff.constrained_kkt_config(
+        args.backend,
         tol=args.tol,
         atol=args.atol,
         maxiter=args.maxiter,
         n_steps=args.n_steps,
-        linear_solver=args.linear_solver,
         linear_tol=args.linear_tol,
         linear_maxiter=args.linear_maxiter,
         linear_preconditioner=args.linear_preconditioner,
         petsc_ksp_type=args.petsc_ksp_type,
         petsc_pc_type=args.petsc_pc_type,
-        petsc_use_pmat=args.petsc_use_pmat,
+        petsc_use_pmat=True if args.petsc_use_pmat else None,
     )
     result = problem.solve(config=config)
     u = np.asarray(result.u, dtype=float)
@@ -134,7 +138,8 @@ def main():
     print(f"converged: {result.info.converged}")
     print(f"iterations: {result.info.iters}")
     print(f"load_factors: {result.load_factors}")
-    print(f"linear_solver: {args.linear_solver}")
+    print(f"backend: {args.backend}")
+    print(f"linear_solver: {config.linear_solver}")
     print(f"linear_iters: {result.info.linear_iters}")
     print(f"linear_residual: {result.info.linear_residual}")
     print(f"residual_inf: {result.info.residual_norm:.6e}")

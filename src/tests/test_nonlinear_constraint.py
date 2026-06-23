@@ -111,6 +111,29 @@ def test_nonlinear_constrained_problem_accepts_newton_loop_config():
     assert result.info.tol == 1.0e-10
 
 
+def test_constrained_kkt_config_presets_return_typed_newton_config():
+    direct = ff.constrained_kkt_config("direct", tol=1.0e-9, n_steps=2)
+    assert isinstance(direct, ff.NewtonLoopConfig)
+    assert direct.linear_solver == "spsolve"
+    assert direct.n_steps == 2
+    assert direct.tol == 1.0e-9
+
+    scipy_gmres = ff.constrained_kkt_config("scipy-gmres", linear_tol=1.0e-12, linear_maxiter=50)
+    assert scipy_gmres.linear_solver == "gmres"
+    assert scipy_gmres.linear_tol == 1.0e-12
+    assert scipy_gmres.linear_maxiter == 50
+
+    petsc_ilu = ff.constrained_kkt_config("petsc-ilu", petsc_rtol=1.0e-11)
+    assert petsc_ilu.linear_solver == "petsc_shell"
+    assert petsc_ilu.petsc_ksp_type == "gmres"
+    assert petsc_ilu.petsc_pc_type == "ilu"
+    assert petsc_ilu.petsc_use_pmat
+    assert petsc_ilu.petsc_rtol == 1.0e-11
+
+    with pytest.raises(ValueError, match="Unknown constrained KKT backend"):
+        ff.constrained_kkt_config("unknown")
+
+
 def test_nonlinear_constrained_problem_rejects_unsupported_newton_loop_config():
     mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
     space = ff.make_hex_space(mesh, dim=1, intorder=2)
