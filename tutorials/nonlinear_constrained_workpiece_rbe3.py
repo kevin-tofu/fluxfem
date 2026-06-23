@@ -56,7 +56,6 @@ def main():
 
     xmin = float(coords[:, 0].min())
     xmax = float(coords[:, 0].max())
-    ymin = float(coords[:, 1].min())
     ymax = float(coords[:, 1].max())
     zmin = float(coords[:, 2].min())
     zmax = float(coords[:, 2].max())
@@ -122,7 +121,24 @@ def main():
     if args.output_vtu:
         out = Path(args.output_vtu)
         out.parent.mkdir(parents=True, exist_ok=True)
-        ff.write_elastic_vtu(mesh, space, result.u, str(out), compute_j=True, deformed_scale=1.0)
+        point_data = ff.make_elastic_point_data(mesh, space, result.u, compute_j=True, deformed_scale=1.0)
+        fixture_marker = np.zeros((coords.shape[0],), dtype=float)
+        fixture_marker[fixture_nodes] = 1.0
+        tool_marker = np.zeros((coords.shape[0],), dtype=float)
+        tool_marker[tool_nodes] = 1.0
+        dirichlet_marker = np.zeros((coords.shape[0],), dtype=float)
+        dirichlet_marker[np.unique(np.asarray(dirichlet.dofs, dtype=int) // 3)] = 1.0
+        process_force = np.zeros((coords.shape[0], 3), dtype=float)
+        process_force[int(tool_nodes[0]), 1] = float(args.force)
+        point_data.update(
+            {
+                "fixture_marker": fixture_marker,
+                "tool_marker": tool_marker,
+                "dirichlet_marker": dirichlet_marker,
+                "process_force": process_force,
+            }
+        )
+        ff.write_vtu(mesh, str(out), point_data=point_data)
         print(f"VTU written to {out}")
 
     if not result.info.converged:
