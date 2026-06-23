@@ -53,6 +53,7 @@ from .dynamics import NewmarkResult, newmark_solve_linear
 from .coupled_system import CoupledSystem, CoupledSystemBuilder, DirichletSpec, ConstraintSpec
 from .coupled_system_numpy import NumpyCoupledSystem, NumpyCoupledSystemBuilder
 from .reduced_equation import (
+    NonlinearReducedFEModel,
     ReducedEquationBuilder,
     ReducedEquationField,
     ReducedEquationProblem,
@@ -235,6 +236,7 @@ __all__ = [
     "ReducedCoupledSystem",
     "ReducedCoupledSystemBuilder",
     "ReducedEquationBuilder",
+    "NonlinearReducedFEModel",
     "ReducedEquationField",
     "ReducedEquationProblem",
     "ReducedEquationSolveInfo",

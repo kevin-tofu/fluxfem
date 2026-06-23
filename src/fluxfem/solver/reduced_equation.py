@@ -1,15 +1,99 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Mapping, Sequence, Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ..core.assembly import (
+    ResidualForm,
+    assemble_jacobian_scatter,
+    assemble_residual_scatter,
+    make_element_jacobian_kernel,
+    make_element_residual_kernel,
+    make_sparsity_pattern,
+)
+
 
 Array = Any
 ResidualFn = Callable[..., Array]
+
+
+@dataclass(frozen=True)
+class NonlinearReducedFEModel:
+    """Reduced nonlinear FE model using full residual assembly and projection.
+
+    This is the direct Galerkin ROM form
+    ``u = Phi q``, ``R_r(q) = Phi.T R(Phi q)``, and
+    ``J_r(q) = Phi.T J(Phi q) Phi``. It is intended as the first nonlinear ROM
+    layer before adding hyper-reduction.
+    """
+
+    space: Any
+    residual_form: ResidualForm[Any]
+    params: Any
+    basis: Any
+    external_vector: Any | None = None
+    jacobian_pattern: Any | None = None
+    assembly_policy: Any | None = None
+    _residual_kernel: Any = field(init=False, repr=False)
+    _jacobian_kernel: Any = field(init=False, repr=False)
+    _pattern: Any = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        n_full = int(self.basis.n_full) if hasattr(self.basis, "n_full") else int(self.basis.basis.shape[0])
+        if n_full != int(self.space.n_dofs):
+            raise ValueError("basis full dimension must match space.n_dofs.")
+        object.__setattr__(self, "_residual_kernel", make_element_residual_kernel(self.residual_form, self.params))
+        object.__setattr__(self, "_jacobian_kernel", make_element_jacobian_kernel(self.residual_form, self.params))
+        pattern = self.jacobian_pattern if self.jacobian_pattern is not None else make_sparsity_pattern(self.space)
+        object.__setattr__(self, "_pattern", pattern)
+
+    @property
+    def n_reduced(self) -> int:
+        return int(self.basis.n_reduced) if hasattr(self.basis, "n_reduced") else int(self.basis.basis.shape[1])
+
+    def expand(self, q: Array) -> Array:
+        return self.basis.expand(q)
+
+    def full_residual(self, q: Array) -> Array:
+        u = self.expand(q)
+        residual = assemble_residual_scatter(
+            self.space,
+            self.residual_form,
+            u,
+            self.params,
+            kernel=self._residual_kernel,
+            policy=self.assembly_policy,
+        )
+        if self.external_vector is not None:
+            residual = residual - jnp.asarray(self.external_vector, dtype=jnp.asarray(residual).dtype)
+        return residual
+
+    def residual(self, q: Array) -> Array:
+        return self.basis.project_vector(self.full_residual(q))
+
+    def full_jacobian(self, q: Array):
+        return assemble_jacobian_scatter(
+            self.space,
+            self.residual_form,
+            self.expand(q),
+            self.params,
+            kernel=self._jacobian_kernel,
+            pattern=self._pattern,
+            policy=self.assembly_policy,
+        )
+
+    def jacobian(self, q: Array) -> Array:
+        return self.basis.project_matrix(self.full_jacobian(q))
+
+    def as_problem(self, field_name: str = "u") -> "ReducedEquationProblem":
+        builder = ReducedEquationBuilder()
+        builder.register_field(field_name, basis=self.basis)
+        builder.add_field_residual(field_name, self.residual)
+        return builder.build()
 
 
 @dataclass(frozen=True)
@@ -545,6 +629,7 @@ def reduced_equation_active_newmark_step(
 
 
 __all__ = [
+    "NonlinearReducedFEModel",
     "ReducedEquationBuilder",
     "ReducedEquationField",
     "ReducedEquationProblem",

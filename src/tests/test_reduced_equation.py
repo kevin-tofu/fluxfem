@@ -139,6 +139,74 @@ def test_reduced_equation_field_can_use_craig_bampton_basis_and_autodiff():
     np.testing.assert_allclose(np.asarray(jac), np.asarray(expected), rtol=1.0e-10, atol=1.0e-12)
 
 
+def test_nonlinear_reduced_fe_model_projects_full_residual_and_jacobian():
+    class DenseBasis:
+        def __init__(self, basis):
+            self.basis = jnp.asarray(basis, dtype=jnp.float64)
+
+        @property
+        def n_full(self):
+            return int(self.basis.shape[0])
+
+        @property
+        def n_reduced(self):
+            return int(self.basis.shape[1])
+
+        def expand(self, q):
+            return self.basis @ q
+
+        def project_vector(self, vector):
+            return self.basis.T @ jnp.asarray(vector)
+
+        def project_matrix(self, matrix):
+            dense = matrix.to_dense() if hasattr(matrix, "to_dense") else matrix
+            return self.basis.T @ jnp.asarray(dense) @ self.basis
+
+    def nonlinear_diffusion(ctx, u_elem, kappa0):
+        u_q = jnp.einsum("qa,a->q", ctx.trial.N, u_elem)
+        k = kappa0 * (1.0 + 0.2 * u_q**2)
+        grad_u = jnp.einsum("qai,a->qi", ctx.trial.gradN, u_elem)
+        return jnp.einsum("q,qai,qi->qa", k, ctx.test.gradN, grad_u)
+
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    eye = jnp.eye(space.n_dofs, dtype=jnp.float64)
+    basis = DenseBasis(jnp.stack([eye[:, 1], 0.4 * eye[:, 2] + eye[:, 7]], axis=1))
+    external = jnp.linspace(0.0, 0.07, space.n_dofs, dtype=jnp.float64)
+    model = ff.NonlinearReducedFEModel(
+        space=space,
+        residual_form=nonlinear_diffusion,
+        params=2.0,
+        basis=basis,
+        external_vector=external,
+    )
+    q = jnp.array([0.12, -0.04], dtype=jnp.float64)
+    u = basis.expand(q)
+    full_residual = space.assemble_residual(nonlinear_diffusion, u, 2.0) - external
+    full_jacobian = space.assemble_jacobian(nonlinear_diffusion, u, 2.0).to_dense()
+
+    np.testing.assert_allclose(np.asarray(model.expand(q)), np.asarray(u), atol=1.0e-12)
+    np.testing.assert_allclose(
+        np.asarray(model.residual(q)),
+        np.asarray(basis.project_vector(full_residual)),
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(model.jacobian(q)),
+        np.asarray(basis.basis.T @ full_jacobian @ basis.basis),
+        rtol=1.0e-10,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(model.jacobian(q)),
+        np.asarray(jax.jacrev(model.residual)(q)),
+        rtol=1.0e-10,
+        atol=1.0e-12,
+    )
+    problem = model.as_problem("body")
+    np.testing.assert_allclose(np.asarray(problem.residual(q)), np.asarray(model.residual(q)), atol=1.0e-12)
+
+
 def test_reduced_equation_contact_constraint_matches_full_order_with_complete_cb_basis():
     stiffness = jnp.array(
         [
@@ -198,6 +266,7 @@ def test_reduced_equation_contact_constraint_matches_full_order_with_complete_cb
 
 
 def test_reduced_equation_exports_are_available_from_public_api():
+    assert ff.NonlinearReducedFEModel is ff.solver.NonlinearReducedFEModel
     assert ff.ReducedEquationBuilder is ff.solver.ReducedEquationBuilder
     assert ff.ReducedEquationProblem is ff.solver.ReducedEquationProblem
     assert ff.ReducedEquationField is ff.solver.ReducedEquationField

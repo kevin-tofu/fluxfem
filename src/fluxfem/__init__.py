@@ -116,6 +116,7 @@ __all__ = [
     "ReducedCoupledSystem",
     "ReducedCoupledSystemBuilder",
     "ReducedEquationBuilder",
+    "NonlinearReducedFEModel",
     "ReducedEquationField",
     "ReducedEquationProblem",
     "ReducedEquationSolveInfo",
