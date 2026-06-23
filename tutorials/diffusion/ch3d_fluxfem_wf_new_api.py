@@ -2,7 +2,7 @@
 """
 Cahn-Hilliard 3D (semi-implicit) example using the explicit mixed bindings API.
 
-This mirrors `tutorials/ch3d_fluxfem_wf.py`, but keeps the short local trial/test
+This mirrors `tutorials/diffusion/ch3d_fluxfem_wf.py`, but keeps the short local trial/test
 arguments and only uses explicit bindings where they help:
   - field names distinct from space keys
   - explicit residual labels via bind_mixed_residual(...)
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 from typing import List
 
 import numpy as np
@@ -51,7 +52,7 @@ def parse_args():
     p.add_argument(
         "--out-dir",
         type=str,
-        default=os.path.join("result", "tutorials", "ch_output_3d_fluxfem_wf_new_api"),
+        default=str(Path(__file__).resolve().parent / "results" / "ch_output_3d_fluxfem_wf_new_api"),
         help="Output directory.",
     )
     return p.parse_args()

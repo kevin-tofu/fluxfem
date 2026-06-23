@@ -202,16 +202,16 @@ state explicitly.
 - Added `friction_residual_from_history(...)` and `make_friction_residual(...)`
   to scatter stored tangential friction forces for plane, paired, and
   node-surface contacts.
-- Added `tutorials/craig_bampton_friction_history_rom.py` to show normal
+- Added `tutorials/craig_bampton/craig_bampton_friction_history_rom.py` to show normal
   contact, frozen friction residuals, and explicit history updates in a reduced
   Newmark loop.
 - Added `SurfaceQuadratureContactKinematics`,
   `SurfaceQuadraturePenaltyContact`, and
   `surface_quadrature_contact_kinematics_from_surfaces(...)` as a first
   quadrature-point contact prototype with centroid and vertex rules.
-- Added `tutorials/craig_bampton_surface_quadrature_active_newmark.py` to show
+- Added `tutorials/craig_bampton/craig_bampton_surface_quadrature_active_newmark.py` to show
   quadrature contact snapshots in an active reduced Newmark step.
-- Added `tutorials/craig_bampton_node_surface_active_newmark.py` to exercise CB
+- Added `tutorials/craig_bampton/craig_bampton_node_surface_active_newmark.py` to exercise CB
   projection, node-surface contact, deformed contact-weight updates, and active
   Newmark in one workflow.
 - Split the contact implementation from `core.rom` into `core.contact` while
@@ -240,7 +240,7 @@ state explicitly.
 - Added `contact_candidate_set_from_bounding_boxes(...)` to generate a
   `ContactCandidateSet` from slave/master AABBs and `search_radius`.
 - The AABB helper supports displaced geometry via `displacement=...` and is now
-  used by `tutorials/node_surface_contact_demo.py`.
+  used by `tutorials/contact/node_surface_contact_demo.py`.
 - Extended `ContactCandidateSet` to support per-contact candidate segments.
 - Added `contact_candidate_set_from_per_contact(...)` for manual variable-length
   per-contact candidates.
@@ -323,11 +323,11 @@ state explicitly.
 - Added sparse-aware CB block partitioning for SciPy sparse and
   `FluxSparseMatrix` inputs, plus `constraint_solver="spsolve"`.
 - Added assembled FE sparse CB regression coverage and
-  `tutorials/craig_bampton_sparse_fe_basis.py`.
+  `tutorials/craig_bampton/craig_bampton_sparse_fe_basis.py`.
 
 ## Verification snapshot
 
-- `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py`
+- `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_surface_quadrature_friction_active_newmark.py`
   completed successfully.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_penalty_form or independent_weighted_penalty_form"`
   passed with 3 tests.
@@ -345,7 +345,7 @@ state explicitly.
   passed with 10 tests.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "assembled_sparse_fe_matrices or craig_bampton_flux_sparse"`
   passed with 2 tests.
-- `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_sparse_fe_basis.py`
+- `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_sparse_fe_basis.py`
   completed successfully.
 - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
   passed with 74 tests.

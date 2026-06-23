@@ -8,7 +8,7 @@ and a translational spring preload is applied to the remote point.
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/remote_rbe3_spring_compliance.py
+    PYTHONPATH=src python tutorials/remote_constraints/remote_rbe3_spring_compliance.py
 """
 
 from __future__ import annotations

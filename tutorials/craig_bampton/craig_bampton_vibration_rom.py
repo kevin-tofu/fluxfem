@@ -7,7 +7,7 @@ from the full system and the Craig-Bampton reduced system.
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/craig_bampton_vibration_rom.py
+    PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_vibration_rom.py
 """
 
 from __future__ import annotations

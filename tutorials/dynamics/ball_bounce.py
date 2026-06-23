@@ -25,7 +25,7 @@ from fluxfem.tools.visualizer import write_displacement_vtu
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Elastic ball bounce demo (3D).")
     p.add_argument("--mesh", type=str, default="data/sphere_r10_lc0p7.msh")
-    p.add_argument("--out-dir", type=str, default="result/tutorials/ball_bounce")
+    p.add_argument("--out-dir", type=str, default=str(Path(__file__).resolve().parent / "results" / "ball_bounce"))
     p.add_argument("--dt", type=float, default=2.0e-4)
     p.add_argument("--steps", type=int, default=600)
     p.add_argument("--write-every", type=int, default=10)

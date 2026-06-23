@@ -1,7 +1,7 @@
 Craig-Bampton Vibration ROM
 ===========================
 
-This tutorial summarizes ``tutorials/craig_bampton_vibration_rom.py``.
+This tutorial summarizes ``tutorials/craig_bampton/craig_bampton_vibration_rom.py``.
 It shows that Craig-Bampton reduction in FluxFEM is not stiffness-only: the
 same basis projects the mass matrix for modal and transient dynamics.
 
@@ -10,7 +10,7 @@ Run
 
 .. code-block:: bash
 
-   PYTHONPATH=src python tutorials/craig_bampton_vibration_rom.py
+   PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_vibration_rom.py
 
 What It Does
 ------------

@@ -53,14 +53,14 @@ gap/contact variables behind modal coordinates.
 
 ## Current fourth slice
 
-- Added `tutorials/craig_bampton_contact_rom.py`.
+- Added `tutorials/craig_bampton/craig_bampton_contact_rom.py`.
 - The tutorial uses a small spring-chain model to demonstrate the full workflow:
   dense CB basis, retained boundary DOF, plane contact residual, reduced
   internal force, projected external force, and implicit Newmark stepping.
 
 ## Current fifth slice
 
-- Added `tutorials/craig_bampton_fe_surface_contact.py`.
+- Added `tutorials/craig_bampton/craig_bampton_fe_surface_contact.py`.
 - The tutorial builds a small 3D Hex FE space, assembles linear elasticity
   stiffness and mass, selects the +x `SurfaceMesh`, derives retained DOFs and
   plane-contact kinematics from that surface, and verifies reduced residual and
@@ -68,14 +68,14 @@ gap/contact variables behind modal coordinates.
 
 ## Current sixth slice
 
-- Added `tutorials/paired_surface_contact_demo.py`.
+- Added `tutorials/contact/paired_surface_contact_demo.py`.
 - The tutorial builds two toy surfaces, constructs nearest-node slave/master
   paired contact kinematics, evaluates paired penalty residuals, and checks that
   the AD Jacobian is available.
 
 ## Current seventh slice
 
-- Added `tutorials/node_surface_contact_demo.py`.
+- Added `tutorials/contact/node_surface_contact_demo.py`.
 - The tutorial builds one slave point and one master quad facet, constructs
   fixed-normal node-to-surface kinematics, distributes the reaction over master
   facet nodes with shape-function weights, and verifies force balance/Jacobian
@@ -89,7 +89,7 @@ gap/contact variables behind modal coordinates.
 - The outer loop freezes contact state, calls an inner solver, updates contact
   state from the new solution, and repeats until the active/contact state stops
   changing.
-- Added `tutorials/active_contact_outer_loop_demo.py`.
+- Added `tutorials/contact/active_contact_outer_loop_demo.py`.
 
 ## Current ninth slice
 
@@ -116,7 +116,7 @@ gap/contact variables behind modal coordinates.
 - `ContactUpdateSnapshot.changed(...)` compares active masks and contact
   kinematics, including node-surface master DOF maps, weights, normals, and
   reference gaps.
-- Added `tutorials/craig_bampton_node_surface_active_newmark.py`.
+- Added `tutorials/craig_bampton/craig_bampton_node_surface_active_newmark.py`.
 - The tutorial combines:
   - retained contact-surface DOFs,
   - internal fixed-interface modes,
@@ -223,7 +223,7 @@ gap/contact variables behind modal coordinates.
 
 ## Current eighteenth slice
 
-- Added `tutorials/craig_bampton_friction_history_rom.py`.
+- Added `tutorials/craig_bampton/craig_bampton_friction_history_rom.py`.
 - The tutorial demonstrates a small 2D Craig-Bampton ROM with:
   - retained contact-node DOFs,
   - normal plane penalty contact,
@@ -249,7 +249,7 @@ gap/contact variables behind modal coordinates.
 
 ## Current twentieth slice
 
-- Added `tutorials/craig_bampton_surface_quadrature_active_newmark.py`.
+- Added `tutorials/craig_bampton/craig_bampton_surface_quadrature_active_newmark.py`.
 - The tutorial demonstrates:
   - retained slave/master contact-surface DOFs,
   - internal fixed-interface modes,
@@ -386,7 +386,7 @@ gap/contact variables behind modal coordinates.
 - The helper currently returns a global master-facet subset, not per-contact
   candidates. This keeps the API simple while removing the need for users to
   hand-author candidate facet ids.
-- Updated `tutorials/node_surface_contact_demo.py` to build and pass candidates
+- Updated `tutorials/contact/node_surface_contact_demo.py` to build and pass candidates
   from the AABB helper.
 - Added tests for:
   - pruning distant master facets,
@@ -410,7 +410,7 @@ gap/contact variables behind modal coordinates.
   candidate sets and per-contact candidate sets.
 - Added `node_surface_candidate_set_from_bounding_boxes(...)`, which builds
   per-slave-node candidates from point-expanded AABBs.
-- Updated `tutorials/node_surface_contact_demo.py` to use the per-node AABB
+- Updated `tutorials/contact/node_surface_contact_demo.py` to use the per-node AABB
   helper.
 - Added tests for:
   - per-slave-node candidate pruning,
@@ -436,7 +436,7 @@ gap/contact variables behind modal coordinates.
   `needs_refresh(displacement)` when max nodal drift exceeds `skin / 2`.
 - `ContactNeighborList.max_drift(...)` reports the nodal drift used by the
   refresh criterion.
-- Updated `tutorials/node_surface_contact_demo.py` to build candidates through
+- Updated `tutorials/contact/node_surface_contact_demo.py` to build candidates through
   the neighbor-list helper and report whether refresh is needed.
 - Added tests for:
   - no refresh under small displacement,
@@ -461,7 +461,7 @@ gap/contact variables behind modal coordinates.
   candidates from the index.
 - Added `node_surface_neighbor_list_from_aabb_index(...)` to build a
   `ContactNeighborList` from a reusable index.
-- Updated `tutorials/node_surface_contact_demo.py` to use the indexed
+- Updated `tutorials/contact/node_surface_contact_demo.py` to use the indexed
   neighbor-list path.
 - Added tests for:
   - direct AABB index query,
@@ -487,7 +487,7 @@ gap/contact variables behind modal coordinates.
   slave quadrature point, in the same order used by
   `surface_quadrature_contact_kinematics_from_surfaces(...)`, and returns a
   per-contact `ContactCandidateSet`.
-- Updated `tutorials/craig_bampton_surface_quadrature_active_newmark.py` to use
+- Updated `tutorials/craig_bampton/craig_bampton_surface_quadrature_active_newmark.py` to use
   the indexed quadrature neighbor-list path before the exact contact search
   cache is established.
 - Added tests for:
@@ -517,7 +517,7 @@ gap/contact variables behind modal coordinates.
 - The manager refreshes the index/neighbor list when max displacement drift
   exceeds the neighbor-list skin criterion, otherwise it reuses the cached broad
   phase and exact pairing.
-- Updated `tutorials/craig_bampton_node_surface_active_newmark.py` to use the
+- Updated `tutorials/craig_bampton/craig_bampton_node_surface_active_newmark.py` to use the
   manager instead of tutorial-local search-cache bookkeeping.
 - Added tests for:
   - first contact build initializes index, neighbor list, and search cache,
@@ -540,7 +540,7 @@ gap/contact variables behind modal coordinates.
   rule, and penalty parameters.
 - `manager.build_contact(u)` returns `(contact, next_manager)`, keeping search
   state explicit and residual evaluation pure.
-- Updated `tutorials/craig_bampton_surface_quadrature_active_newmark.py` to use
+- Updated `tutorials/craig_bampton/craig_bampton_surface_quadrature_active_newmark.py` to use
   the manager instead of tutorial-local search-cache and neighbor-list
   bookkeeping.
 - Added tests for:
@@ -567,7 +567,7 @@ gap/contact variables behind modal coordinates.
 - `manager.advance(contact, u)` explicitly updates tangential penalty history
   after a converged displacement and returns the next manager state.
 - Added `manager.snapshot_and_advance(contact, u)` as convenience sugar.
-- Updated `tutorials/craig_bampton_friction_history_rom.py` to use the friction
+- Updated `tutorials/craig_bampton/craig_bampton_friction_history_rom.py` to use the friction
   manager instead of tutorial-local history updates and residual composition.
 - Added tests for:
   - snapshot residual with and without history,
@@ -589,7 +589,7 @@ gap/contact variables behind modal coordinates.
 - The test verifies that search-managed node-surface contact can feed the
   friction snapshot API and produce the expected combined normal/tangential
   residual distribution.
-- Added `tutorials/craig_bampton_node_surface_friction_active_newmark.py`.
+- Added `tutorials/craig_bampton/craig_bampton_node_surface_friction_active_newmark.py`.
 - The tutorial combines:
   - Craig-Bampton projection,
   - active node-surface contact search,
@@ -603,7 +603,7 @@ gap/contact variables behind modal coordinates.
   - `PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 50 tests.
   - `python -m py_compile` passed for the new tutorial and updated test.
-  - `PYTHONPATH=src python tutorials/craig_bampton_node_surface_friction_active_newmark.py`
+  - `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_node_surface_friction_active_newmark.py`
     completed successfully.
 
 ## Current thirty-sixth slice
@@ -640,14 +640,14 @@ gap/contact variables behind modal coordinates.
   - friction history creation,
   - quadrature weights in the contact kinematics,
   - combined normal/tangential residual distribution with quadrature weighting.
-- Added `tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py`.
+- Added `tutorials/craig_bampton/craig_bampton_surface_quadrature_friction_active_newmark.py`.
 - The tutorial combines CB projection, active quadrature contact search, frozen
   active snapshots, frozen friction history, and post-convergence friction
   history advance.
 - Verification:
   - `PYTHONPATH=src pytest -q src/tests/test_contact.py -k "surface_quadrature_search_and_friction"`
     passed.
-  - `PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py`
+  - `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_surface_quadrature_friction_active_newmark.py`
     completed successfully.
   - `PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 52 tests.
@@ -676,9 +676,9 @@ gap/contact variables behind modal coordinates.
 - Verification:
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "reduced_contact_dynamics_facade"`
     passed.
-  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_node_surface_friction_active_newmark.py`
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_node_surface_friction_active_newmark.py`
     completed successfully.
-  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py`
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_surface_quadrature_friction_active_newmark.py`
     completed successfully.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 53 tests.
@@ -733,7 +733,7 @@ gap/contact variables behind modal coordinates.
 
 ## Current forty-first slice
 
-- Added `tutorials/craig_bampton_full_order_contact_benchmark.py`.
+- Added `tutorials/craig_bampton/craig_bampton_full_order_contact_benchmark.py`.
 - The script promotes the full-order vs CB-ROM contact regression into a
   readable benchmark table over `n_modes = 0..4`.
 - Current output shows:
@@ -749,9 +749,9 @@ gap/contact variables behind modal coordinates.
   - `n_modes=3`: abs error `1.305716e-03`,
   - `n_modes=4`: abs error `1.947349e-09`.
 - Verification:
-  - `PYENV_VERSION=jaxfem python -m py_compile tutorials/craig_bampton_full_order_contact_benchmark.py`
+  - `PYENV_VERSION=jaxfem python -m py_compile tutorials/craig_bampton/craig_bampton_full_order_contact_benchmark.py`
     passed.
-  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_full_order_contact_benchmark.py`
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_full_order_contact_benchmark.py`
     completed successfully.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 55 tests.
@@ -769,7 +769,7 @@ gap/contact variables behind modal coordinates.
     reference,
   - all-mode CB-ROM solve matches the same reference,
   - both full-order and ROM active states are active.
-- Added `tutorials/craig_bampton_1d_obstacle_contact_reference.py`, which
+- Added `tutorials/craig_bampton/craig_bampton_1d_obstacle_contact_reference.py`, which
   prints the closed-form displacement, full-order displacement, and ROM error
   vs `n_modes`.
 - Representative tutorial output:
@@ -781,7 +781,7 @@ gap/contact variables behind modal coordinates.
 - Verification:
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "1d_obstacle"`
     passed.
-  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_1d_obstacle_contact_reference.py`
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_1d_obstacle_contact_reference.py`
     completed successfully.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 56 tests.
@@ -865,7 +865,7 @@ gap/contact variables behind modal coordinates.
   - all internal modes kept by CB reproduces the full-order displacement,
   - reduced models preserve the active surface-contact state,
   - an intermediate mode count improves error over the retained-only ROM.
-- Added `tutorials/craig_bampton_surface_contact_reference.py`.
+- Added `tutorials/craig_bampton/craig_bampton_surface_contact_reference.py`.
 - Representative tutorial output:
   - full active count: `2`,
   - full gaps: `[-0.00277478, -0.00277478]`,
@@ -877,7 +877,7 @@ gap/contact variables behind modal coordinates.
 - Verification:
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "surface_quadrature_contact_matches_full_order"`
     passed.
-  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_surface_contact_reference.py`
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_surface_contact_reference.py`
     completed successfully.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 59 tests.
@@ -913,7 +913,7 @@ gap/contact variables behind modal coordinates.
 - It verifies residual, active mask, gaps, and AD Jacobian against that
   independently assembled weighted penalty form.
 - Verification:
-  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py`
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_surface_quadrature_friction_active_newmark.py`
     completed successfully.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_contact.py -k "independent_penalty_form or independent_weighted_penalty_form"`
     passed: 3 tests.
@@ -1016,7 +1016,7 @@ gap/contact variables behind modal coordinates.
   - dense CB from `to_dense()` matrices,
   - sparse CB from `FluxSparseMatrix` inputs with
     `constraint_solver="spsolve"` and `modal_solver="eigsh"`.
-- Added `tutorials/craig_bampton_sparse_fe_basis.py` to print a dense-vs-sparse
+- Added `tutorials/craig_bampton/craig_bampton_sparse_fe_basis.py` to print a dense-vs-sparse
   CB comparison over mode counts.
 - Representative tutorial output:
   - full DOFs: `28`,
@@ -1027,9 +1027,9 @@ gap/contact variables behind modal coordinates.
 - Verification:
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py -k "assembled_sparse_fe_matrices or craig_bampton_flux_sparse"`
     passed: 2 tests.
-  - `PYENV_VERSION=jaxfem python -m py_compile tutorials/craig_bampton_sparse_fe_basis.py src/fluxfem/core/rom.py`
+  - `PYENV_VERSION=jaxfem python -m py_compile tutorials/craig_bampton/craig_bampton_sparse_fe_basis.py src/fluxfem/core/rom.py`
     passed.
-  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_sparse_fe_basis.py`
+  - `PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_sparse_fe_basis.py`
     completed successfully.
   - `PYENV_VERSION=jaxfem PYTHONPATH=src pytest -q src/tests/test_rom.py src/tests/test_contact.py`
     passed: 74 tests.
@@ -1055,7 +1055,7 @@ gap/contact variables behind modal coordinates.
   in both full and CB-reduced coordinates and checks that the reconstructed ROM
   displacement matches the full KKT solve when all internal modes are retained.
 - Added an autodiff check for reduced linear-constraint residuals.
-- Added `tutorials/craig_bampton_rbe3_preload_mpc.py` as a minimal executable
+- Added `tutorials/craig_bampton/craig_bampton_rbe3_preload_mpc.py` as a minimal executable
   reference for the pattern.
 - Verification:
   - `PYTHONPATH=src pytest -q src/tests/test_rom.py`
@@ -1071,7 +1071,7 @@ gap/contact variables behind modal coordinates.
     MPC rows,
   - `assemble_reference_fixture_preload(...)` assembles active reference-point
     preload spring stiffness/force additions.
-- Updated `tutorials/craig_bampton_rbe3_preload_mpc.py` to use the wrappers
+- Updated `tutorials/craig_bampton/craig_bampton_rbe3_preload_mpc.py` to use the wrappers
   instead of hand-writing the `C` matrix.
 - Added regression coverage for:
   - RBE3 average matrix and preload spring assembly,
@@ -1082,15 +1082,15 @@ gap/contact variables behind modal coordinates.
 - Verification:
   - `PYTHONPATH=src pytest -q src/tests/test_rom.py`
     passed: 30 tests.
-  - `python -m py_compile src/fluxfem/core/rom.py tutorials/craig_bampton_rbe3_preload_mpc.py`
+  - `python -m py_compile src/fluxfem/core/rom.py tutorials/craig_bampton/craig_bampton_rbe3_preload_mpc.py`
     passed.
-  - `PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_mpc.py`
+  - `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_rbe3_preload_mpc.py`
     completed successfully, with the known local CUDA plugin warning before CPU
     execution.
 
 ## Current fifty-fifth slice
 
-- Added `tutorials/craig_bampton_fluxfem_rbe3_preload_experiment2.py`, a
+- Added `tutorials/craig_bampton/craig_bampton_fluxfem_rbe3_preload_experiment2.py`, a
   FluxFEM version of the experiment-2 explicit reference-point RBE3/preload
   CB-ROM sample.
 - The tutorial preserves the reference experiment setup:
@@ -1116,7 +1116,7 @@ gap/contact variables behind modal coordinates.
   - the tutorial sets `JAX_ENABLE_X64=1` to match the NumPy/SciPy scikit-fem
     reference precision.
 - Verification:
-  - `python -m py_compile src/fluxfem/core/rom.py tutorials/craig_bampton_fluxfem_rbe3_preload_experiment2.py`
+  - `python -m py_compile src/fluxfem/core/rom.py tutorials/craig_bampton/craig_bampton_fluxfem_rbe3_preload_experiment2.py`
     passed.
   - `PYTHONPATH=src pytest -q src/tests/test_rom.py -k "linear_constraint or reference_point_fixture"`
     passed: 5 tests.

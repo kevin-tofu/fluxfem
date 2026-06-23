@@ -79,7 +79,7 @@ Result:
 Representative tutorial check:
 
 ```bash
-PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py
+PYENV_VERSION=jaxfem PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_surface_quadrature_friction_active_newmark.py
 ```
 
 The tutorial completed successfully. The current environment emits known

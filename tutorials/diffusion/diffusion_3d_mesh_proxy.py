@@ -6,7 +6,7 @@ Flow:
 1) Compute grad wrt node coords of the true error (u_h - u_exact), fixing boundary nodes.
 2) Build a ZZ-style proxy (recovered gradient mismatch) and take its coord gradient.
 3) Compare the two directions (cosine + top-k overlap).
-4) Save results and a side-by-side gradient plot to result/tutorials.
+4) Save results and a side-by-side gradient plot under tutorials/diffusion/results.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 
@@ -165,7 +166,11 @@ def main():
     parser.add_argument("--beta", type=float, default=1e-3)
     parser.add_argument("--topk_frac", type=float, default=0.1)
     parser.add_argument("--perturb", type=float, default=0.1)
-    parser.add_argument("--outdir", type=str, default="result/tutorials/diffusion_3d_mesh_proxy")
+    parser.add_argument(
+        "--outdir",
+        type=str,
+        default=str(Path(__file__).resolve().parent / "results" / "diffusion_3d_mesh_proxy"),
+    )
     parser.add_argument("--slice_z", type=float, default=0.5)
     parser.add_argument("--loss", choices=("l2", "h1"), default="l2")
     parser.add_argument("--h1_exact_grad", action="store_true")

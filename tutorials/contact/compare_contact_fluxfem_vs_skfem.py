@@ -1,5 +1,8 @@
 import os
 import importlib.util
+import sys
+from pathlib import Path
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -10,7 +13,12 @@ from fluxfem.core.weakform import einsum as wf_einsum
 from fluxfem.mesh.contact import compile_tagged_pair_nitsche_penalty_residual
 from fluxfem.mesh import contact_interface as contact_interface_mod
 from fluxfem.solver.bc import facet_normals
-from tutorials._contact_compare_utils import (
+
+TUTORIALS_ROOT = Path(__file__).resolve().parents[1]
+if str(TUTORIALS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TUTORIALS_ROOT))
+
+from common.contact_compare_utils import (
     build_fluxfem_contact_space,
     build_fluxfem_surface_mesh,
     fluxfem_mesh_for,

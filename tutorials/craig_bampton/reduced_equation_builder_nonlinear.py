@@ -9,7 +9,7 @@ residual.
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/reduced_equation_builder_nonlinear.py
+    PYTHONPATH=src python tutorials/craig_bampton/reduced_equation_builder_nonlinear.py
 """
 
 from __future__ import annotations

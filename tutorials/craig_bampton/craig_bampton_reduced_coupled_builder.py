@@ -11,7 +11,7 @@ This is the compact API-first pattern:
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/craig_bampton_reduced_coupled_builder.py
+    PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_reduced_coupled_builder.py
 """
 
 from __future__ import annotations

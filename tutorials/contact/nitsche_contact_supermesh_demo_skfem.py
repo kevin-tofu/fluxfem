@@ -1,5 +1,7 @@
 import os
 import sys
+from pathlib import Path
+
 import numpy as np
 
 sys.path.append(os.path.dirname(__file__))
@@ -34,19 +36,21 @@ def _params_from_env() -> NitscheContactParams:
 
 if __name__ == "__main__":
     params = _params_from_env()
+    out_dir = Path(__file__).resolve().parent / "results" / "nitsche_contact_supermesh_demo_skfem"
+    out_dir.mkdir(parents=True, exist_ok=True)
     log_path = os.getenv("NITSCHE_SKFEM_LOG")
     npz_path = os.getenv("NITSCHE_SKFEM_U_NPZ")
     result = run_skfem_demo(
         params,
         log_path=log_path,
         npz_path=npz_path,
-        vtu_path="combined-nitsche.vtu",
-        plot_path="mortar.png",
+        vtu_path=str(out_dir / "combined-nitsche.vtu"),
+        plot_path=str(out_dir / "mortar.png"),
         verbose=True,
     )
     if log_path:
         print(f"wrote summary log: {log_path}")
     if npz_path:
         print(f"wrote displacement npz: {npz_path}")
-    print("✅ Exported combined VTU: combined-nitsche.vtu")
-    np.savez("init_from_nitsche.npz", u=result.u)
+    print(f"Exported combined VTU: {out_dir / 'combined-nitsche.vtu'}")
+    np.savez(out_dir / "init_from_nitsche.npz", u=result.u)

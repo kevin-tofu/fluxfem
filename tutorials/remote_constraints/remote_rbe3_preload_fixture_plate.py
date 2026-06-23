@@ -12,7 +12,7 @@ reference-point fixture examples.  It uses the public coupled-system builder:
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/remote_rbe3_preload_fixture_plate.py
+    PYTHONPATH=src python tutorials/remote_constraints/remote_rbe3_preload_fixture_plate.py
 """
 
 from __future__ import annotations

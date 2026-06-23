@@ -56,7 +56,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--steps-per-period", type=int, default=240)
     p.add_argument("--periods", type=float, default=2.0)
     p.add_argument("--write-every", type=int, default=20)
-    p.add_argument("--out-dir", type=str, default="result/tutorials/dynamic_bar_3d")
+    p.add_argument("--out-dir", type=str, default=str(Path(__file__).resolve().parent / "results" / "dynamic_bar_3d"))
     return p.parse_args()
 
 

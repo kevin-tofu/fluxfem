@@ -210,7 +210,7 @@ In other words:
 - fixed-geometry solve/assembly: `FESpace`
 - geometry-sensitive differentiation: `FESpacePytree`
 
-The mesh-move example in [`tutorials/diffusion_3d_mesh_proxy.py`](tutorials/diffusion_3d_mesh_proxy.py)
+The mesh-move example in [`tutorials/diffusion/diffusion_3d_mesh_proxy.py`](tutorials/diffusion/diffusion_3d_mesh_proxy.py)
 computes `jax.grad(...)` with respect to node coordinates on top of
 `make_hex_space_pytree(...)`.
 
@@ -454,8 +454,8 @@ Mixed weak-form naming follows this convention:
 Use the explicit forms only where they help readability or avoid ambiguity.
 Examples:
 
-- [`tutorials/coupled_reaction_diffusion_new_api.py`](tutorials/coupled_reaction_diffusion_new_api.py)
-- [`tutorials/ch3d_fluxfem_wf_new_api.py`](tutorials/ch3d_fluxfem_wf_new_api.py)
+- [`tutorials/diffusion/coupled_reaction_diffusion_new_api.py`](tutorials/diffusion/coupled_reaction_diffusion_new_api.py)
+- [`tutorials/diffusion/ch3d_fluxfem_wf_new_api.py`](tutorials/diffusion/ch3d_fluxfem_wf_new_api.py)
 
 ### Backend notes
 
@@ -622,25 +622,25 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 
 ## Tutorials
 
-- `tutorials/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
-- `tutorials/neo_hookean_cantilever.py` (nonlinear hyperelasticity)
-- `tutorials/thermoelastic_bar_1d.py` / `tutorials/thermoelastic_bar_1d_mixed.py` (thermoelastic coupling)
-- `tutorials/contact_supported_box_by_pillars.py` (large box supported by multiple small boxes via penalty contact + Dirichlet supports)
-- `tutorials/contact_mortar_builder_methods.py` (dual/coarse mortar multiplier selection through explicit operators and builder-managed raw contacts)
-- `tutorials/mortar_fixture_workpiece_comparison.py` (matching/nonmatching fixture-workpiece mortar solves, centered on coarse P1 mortar versus the dual reference)
-- `tutorials/petsc_shell_poisson_demo.py` (PETSc shell solver integration; see also `tutorials/petsc_shell_poisson_pmat_demo.py`)
+- `tutorials/elasticity/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
+- `tutorials/nonlinear/neo_hookean_cantilever.py` (nonlinear hyperelasticity)
+- `tutorials/thermoelastic/thermoelastic_bar_1d.py` / `tutorials/thermoelastic/thermoelastic_bar_1d_mixed.py` (thermoelastic coupling)
+- `tutorials/contact/contact_supported_box_by_pillars.py` (large box supported by multiple small boxes via penalty contact + Dirichlet supports)
+- `tutorials/contact/contact_mortar_builder_methods.py` (dual/coarse mortar multiplier selection through explicit operators and builder-managed raw contacts)
+- `tutorials/contact/mortar_fixture_workpiece_comparison.py` (matching/nonmatching fixture-workpiece mortar solves, centered on coarse P1 mortar versus the dual reference)
+- `tutorials/petsc/petsc_shell_poisson_demo.py` (PETSc shell solver integration; see also `tutorials/petsc/petsc_shell_poisson_pmat_demo.py`)
 
 Craig-Bampton ROM tutorials:
 
-- `tutorials/craig_bampton_reduced_coupled_builder.py` is the preferred compact API path: name-based structural registration, `reduce_field(..., method="craig_bampton")`, explicit RBE3 remote fixture fields, preload, and prescribed-reference variants.
-- `tutorials/craig_bampton_multifield_builder.py` extends the same builder pattern to multiple reduced subsystems connected by named retained interface groups, including surface-derived groups, inspectable reduced contact-pair DOFs, and contact-pair parameter metadata for contact-ready interfaces.
-- `tutorials/craig_bampton_two_bar_subsystems.py` builds two larger sparse FE subsystems, reduces each one with its own CB basis, ties the retained interface, and compares against the full coupled KKT solve.
-- `tutorials/reduced_equation_builder_nonlinear.py` composes nonlinear residual equations over multiple CB-reduced fields and obtains the global reduced Jacobian through autodiff.
-- `tutorials/craig_bampton_rbe3_preload_component.py` is the experiment-2 style validation tutorial. It compares full explicit-reference RBE3 KKT solves against the CB-projected ROM for preload and Dirichlet fixture boundaries, with optional rotational RBE3 reference DOFs.
-- `tutorials/craig_bampton_sparse_fe_basis.py` demonstrates CB basis construction from current sparse FE matrices, sparse-preserving projection, and matrix-free reduced operator actions with `project_operator(...)`.
-- `tutorials/craig_bampton_vibration_rom.py` projects both stiffness and mass matrices and compares full-order and CB-ROM free-vibration frequencies.
-- `tutorials/craig_bampton_contact_rom.py`, `tutorials/craig_bampton_active_contact_newmark.py`, and the node/surface-quadrature contact variants demonstrate retained contact/interface DOFs with explicit active-contact updates outside the differentiated residual.
-- `tutorials/craig_bampton_rbe3_preload_mpc.py` and `tutorials/craig_bampton_fluxfem_rbe3_preload_experiment2.py` are lower-level compatibility/reference examples using `RBE3Patch`, `ReferencePointFixture`, and manual projection APIs.
+- `tutorials/craig_bampton/craig_bampton_reduced_coupled_builder.py` is the preferred compact API path: name-based structural registration, `reduce_field(..., method="craig_bampton")`, explicit RBE3 remote fixture fields, preload, and prescribed-reference variants.
+- `tutorials/craig_bampton/craig_bampton_multifield_builder.py` extends the same builder pattern to multiple reduced subsystems connected by named retained interface groups, including surface-derived groups, inspectable reduced contact-pair DOFs, and contact-pair parameter metadata for contact-ready interfaces.
+- `tutorials/craig_bampton/craig_bampton_two_bar_subsystems.py` builds two larger sparse FE subsystems, reduces each one with its own CB basis, ties the retained interface, and compares against the full coupled KKT solve.
+- `tutorials/craig_bampton/reduced_equation_builder_nonlinear.py` composes nonlinear residual equations over multiple CB-reduced fields and obtains the global reduced Jacobian through autodiff.
+- `tutorials/craig_bampton/craig_bampton_rbe3_preload_component.py` is the experiment-2 style validation tutorial. It compares full explicit-reference RBE3 KKT solves against the CB-projected ROM for preload and Dirichlet fixture boundaries, with optional rotational RBE3 reference DOFs.
+- `tutorials/craig_bampton/craig_bampton_sparse_fe_basis.py` demonstrates CB basis construction from current sparse FE matrices, sparse-preserving projection, and matrix-free reduced operator actions with `project_operator(...)`.
+- `tutorials/craig_bampton/craig_bampton_vibration_rom.py` projects both stiffness and mass matrices and compares full-order and CB-ROM free-vibration frequencies.
+- `tutorials/craig_bampton/craig_bampton_contact_rom.py`, `tutorials/craig_bampton/craig_bampton_active_contact_newmark.py`, and the node/surface-quadrature contact variants demonstrate retained contact/interface DOFs with explicit active-contact updates outside the differentiated residual.
+- `tutorials/craig_bampton/craig_bampton_rbe3_preload_mpc.py` and `tutorials/craig_bampton/craig_bampton_fluxfem_rbe3_preload_experiment2.py` are lower-level compatibility/reference examples using `RBE3Patch`, `ReferencePointFixture`, and manual projection APIs.
 
 ## Setup
 

@@ -9,7 +9,7 @@ KKT reference solve.
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/craig_bampton_two_bar_subsystems.py
+    PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_two_bar_subsystems.py
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@ Linear Elasticity: Tensile Bar
 ==============================
 
 This tutorial walks through the minimal tensile-bar example in
-``tutorials/linearelastic_tensile_bar.py`` and explains the weak form,
+``tutorials/elasticity/linearelastic_tensile_bar.py`` and explains the weak form,
 assembly, and boundary conditions with the key equations.
 
 Run the example
@@ -10,7 +10,7 @@ Run the example
 
 .. code-block:: bash
 
-   python tutorials/linearelastic_tensile_bar.py
+   python tutorials/elasticity/linearelastic_tensile_bar.py
 
 Problem statement
 ^^^^^^^^^^^^^^^^^

@@ -8,7 +8,7 @@ fixed-interface modes.
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/craig_bampton_sparse_fe_basis.py
+    PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_sparse_fe_basis.py
 """
 
 from __future__ import annotations

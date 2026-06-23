@@ -10,14 +10,14 @@ This tutorial demonstrates a large box supported by multiple smaller boxes.
 Script
 ------
 
-- ``tutorials/contact_supported_box_by_pillars.py``
+- ``tutorials/contact/contact_supported_box_by_pillars.py``
 
 Run
 ---
 
 .. code-block:: bash
 
-   PYTHONPATH=src python tutorials/contact_supported_box_by_pillars.py
+   PYTHONPATH=src python tutorials/contact/contact_supported_box_by_pillars.py
 
 What it showcases
 -----------------

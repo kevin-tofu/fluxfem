@@ -10,7 +10,7 @@ point used for contact-candidate surfaces:
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/craig_bampton_multifield_builder.py
+    PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_multifield_builder.py
 """
 
 from __future__ import annotations

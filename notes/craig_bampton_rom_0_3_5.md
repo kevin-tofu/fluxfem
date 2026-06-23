@@ -23,11 +23,11 @@ Small fixture utilities are now part of the public API rather than tutorial glue
 and `validate_rbe3_remote_reference_rank`. Tutorials should use these helpers so
 examples describe the model connection graph rather than low-level DOF indexing.
 
-`tutorials/craig_bampton_rbe3_preload_component.py` is the compact FluxFEM counterpart of `skfem-Craig-Bampton-ROM/experiment-2`: it compares a full explicit-reference RBE3 preload KKT solve with the CB-projected KKT solve on a notched tetrahedral workpiece.
+`tutorials/craig_bampton/craig_bampton_rbe3_preload_component.py` is the compact FluxFEM counterpart of `skfem-Craig-Bampton-ROM/experiment-2`: it compares a full explicit-reference RBE3 preload KKT solve with the CB-projected KKT solve on a notched tetrahedral workpiece.
 
 The same tutorial supports `--fixture-boundary preload`, `--fixture-boundary dirichlet`, and `--fixture-rotation none|rbe3`. The Dirichlet path prescribes the explicit RBE3 reference-point displacement using nonzero `fixed_values` in `LinearConstraintSystem.solve`, so a one-sided fixture can be represented either as a preload spring or as a prescribed support motion.
 
-`tutorials/craig_bampton_reduced_coupled_builder.py` is the preferred short-form tutorial for new users. It exercises the same conceptual pieces with named fields:
+`tutorials/craig_bampton/craig_bampton_reduced_coupled_builder.py` is the preferred short-form tutorial for new users. It exercises the same conceptual pieces with named fields:
 
 1. register `workpiece`,
 2. reduce it with `reduce_field(..., method="craig_bampton")`,
@@ -37,7 +37,7 @@ The same tutorial supports `--fixture-boundary preload`, `--fixture-boundary dir
 
 The older `craig_bampton_rbe3_preload_mpc.py` and `craig_bampton_fluxfem_rbe3_preload_experiment2.py` files remain useful as low-level compatibility/reference examples, but they should not be the first tutorial path for the current API.
 
-`tutorials/craig_bampton_multifield_builder.py` demonstrates the multi-subsystem path. It registers `part_a` and `part_b`, names support/interface retained groups, creates interface groups from surface objects, records an `interface_candidate` contact pair, reduces both fields from those group names, ties `part_a:interface` to `part_b:interface`, and checks the ROM solution against a full KKT reference.
+`tutorials/craig_bampton/craig_bampton_multifield_builder.py` demonstrates the multi-subsystem path. It registers `part_a` and `part_b`, names support/interface retained groups, creates interface groups from surface objects, records an `interface_candidate` contact pair, reduces both fields from those group names, ties `part_a:interface` to `part_b:interface`, and checks the ROM solution against a full KKT reference.
 
 The active-contact/Newmark helpers no longer depend on removed legacy contact classes. They accept user-provided contact-state callbacks:
 
@@ -59,23 +59,23 @@ Current contact tutorials follow this split: the reduced residual stays differen
 ## Verification snapshot
 
 - `PYTHONPATH=src pytest -q src/tests/test_craig_bampton.py src/tests/test_rbe_constraints.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_contact_rom.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_reduced_coupled_builder.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_multifield_builder.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_component.py --nx 12 --ny 9 --nz 1 --modes 3 --fixture-boundary preload --fixture-rotation rbe3`
-- `PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_component.py --nx 12 --ny 9 --nz 1 --modes 3 --fixture-boundary dirichlet --fixture-rotation rbe3`
-- `PYTHONPATH=src python tutorials/craig_bampton_1d_obstacle_contact_reference.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_full_order_contact_benchmark.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_surface_contact_reference.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_friction_history_rom.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_active_contact_newmark.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_node_surface_active_newmark.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_active_newmark.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_node_surface_friction_active_newmark.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_fe_surface_contact.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_sparse_fe_basis.py`
-- `PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_mpc.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_contact_rom.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_reduced_coupled_builder.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_multifield_builder.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_rbe3_preload_component.py --nx 12 --ny 9 --nz 1 --modes 3 --fixture-boundary preload --fixture-rotation rbe3`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_rbe3_preload_component.py --nx 12 --ny 9 --nz 1 --modes 3 --fixture-boundary dirichlet --fixture-rotation rbe3`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_1d_obstacle_contact_reference.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_full_order_contact_benchmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_surface_contact_reference.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_friction_history_rom.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_active_contact_newmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_node_surface_active_newmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_surface_quadrature_active_newmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_node_surface_friction_active_newmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_surface_quadrature_friction_active_newmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_fe_surface_contact.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_sparse_fe_basis.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_rbe3_preload_mpc.py`
 
 ## Important limitation
 

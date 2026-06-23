@@ -7,7 +7,7 @@ the residual/Jacobian used by Newton remains pure JAX code.
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/craig_bampton_active_contact_newmark.py
+    PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_active_contact_newmark.py
 """
 
 from __future__ import annotations

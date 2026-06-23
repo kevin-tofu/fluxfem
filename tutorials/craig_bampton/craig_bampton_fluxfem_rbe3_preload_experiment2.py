@@ -10,7 +10,7 @@ This mirrors `skfem-Craig-Bampton-ROM/experiment-2` while using FluxFEM for:
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/craig_bampton_fluxfem_rbe3_preload_experiment2.py
+    PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_fluxfem_rbe3_preload_experiment2.py
 """
 
 from __future__ import annotations
@@ -496,7 +496,10 @@ def evaluate_fluxfem_rbe3_preload_sample(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", default="results/fluxfem_rbe3_preload_component_sample")
+    parser.add_argument(
+        "--output-dir",
+        default=str(Path(__file__).resolve().parent / "results" / "fluxfem_rbe3_preload_component_sample"),
+    )
     parser.add_argument("--timing-repeats", type=int, default=3)
     parser.add_argument("--internal-modes", type=int, default=12)
     return parser.parse_args()

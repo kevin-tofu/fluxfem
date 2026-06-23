@@ -9,6 +9,8 @@ Hyperelastic cantilever (Neo-Hookean) — minimal FluxFEM demo.
 """
 
 import argparse
+from pathlib import Path
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -69,7 +71,11 @@ def parse_args():
         choices=["linearize", "jvp"],
     )
     output_group = p.add_mutually_exclusive_group()
-    output_group.add_argument("--output-vtu", type=str, default="result.vtu")
+    output_group.add_argument(
+        "--output-vtu",
+        type=str,
+        default=str(Path(__file__).resolve().parent / "results" / "neo_hookean_cantilever.vtu"),
+    )
     output_group.add_argument("--no-output", action="store_true")
     return p.parse_args()
 

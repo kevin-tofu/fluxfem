@@ -58,7 +58,7 @@ def parse_args():
     p.add_argument(
         "--vtu-dir",
         type=str,
-        default="result/tutorials/heat_mms_timeseries/vtu",
+        default=str(Path(__file__).resolve().parent / "results" / "heat_mms_timeseries" / "vtu"),
         help="Directory for VTU output files.",
     )
     p.add_argument("--backends", type=str, default="cpu", help="Comma-separated backends to run (cpu,gpu).")
@@ -66,13 +66,13 @@ def parse_args():
     p.add_argument(
         "--json",
         type=str,
-        default="result/tutorials/heat_mms_timeseries/results.json",
+        default=str(Path(__file__).resolve().parent / "results" / "heat_mms_timeseries" / "results.json"),
         help="Output JSON path (backend suffix is added automatically).",
     )
     p.add_argument(
         "--plot",
         type=str,
-        default="result/tutorials/heat_mms_timeseries/compare_cpu_gpu.png",
+        default=str(Path(__file__).resolve().parent / "results" / "heat_mms_timeseries" / "compare_cpu_gpu.png"),
         help="Output PNG path for CPU/GPU comparison.",
     )
     p.add_argument(
@@ -386,7 +386,7 @@ def main():
     out_json.write_text(json.dumps(result, indent=2))
     print(f"Saved results to {out_json}")
 
-    plot_path = Path("result/tutorials/heat_mms_timeseries") / f"mms_{backend}.png"
+    plot_path = Path(__file__).resolve().parent / "results" / "heat_mms_timeseries" / f"mms_{backend}.png"
     plot_backend(result, plot_path)
 
 

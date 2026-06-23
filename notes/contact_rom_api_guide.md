@@ -234,9 +234,9 @@ remeshing/reduction updates.
 
 ## Validated entry points
 
-- `tutorials/craig_bampton_surface_quadrature_friction_active_newmark.py`
-- `tutorials/craig_bampton_node_surface_friction_active_newmark.py`
-- `tutorials/craig_bampton_surface_contact_reference.py`
+- `tutorials/craig_bampton/craig_bampton_surface_quadrature_friction_active_newmark.py`
+- `tutorials/craig_bampton/craig_bampton_node_surface_friction_active_newmark.py`
+- `tutorials/craig_bampton/craig_bampton_surface_contact_reference.py`
 - `src/tests/test_rom.py -k "reduced_contact_dynamics"`
 - `src/tests/test_contact.py -k "independent_reference or independent_penalty_form or independent_weighted_penalty_form"`
 

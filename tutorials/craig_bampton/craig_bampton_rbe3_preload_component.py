@@ -18,11 +18,11 @@ Craig-Bampton basis; reference-point DOFs and RBE3 constraints remain explicit.
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_component.py
+    PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_rbe3_preload_component.py
 
 For rotational RBE3 fixtures:
 
-    PYTHONPATH=src python tutorials/craig_bampton_rbe3_preload_component.py --fixture-rotation rbe3
+    PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_rbe3_preload_component.py --fixture-rotation rbe3
 
 The rotational reference DOFs are not part of the workpiece CB basis.  They are
 kept as explicit appended DOFs in the projected KKT system.  Very coarse meshes

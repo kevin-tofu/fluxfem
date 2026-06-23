@@ -1,7 +1,7 @@
 Mortar Fixture-Workpiece Comparison
 ===================================
 
-This tutorial summarizes ``tutorials/mortar_fixture_workpiece_comparison.py``.
+This tutorial summarizes ``tutorials/contact/mortar_fixture_workpiece_comparison.py``.
 It is a compact numerical check for coarse P1 mortar on small
 fixture/workpiece interface solves.
 
@@ -10,7 +10,7 @@ Run
 
 .. code-block:: bash
 
-   PYTHONPATH=src python tutorials/mortar_fixture_workpiece_comparison.py
+   PYTHONPATH=src python tutorials/contact/mortar_fixture_workpiece_comparison.py
 
 The script runs two cases:
 
@@ -38,7 +38,7 @@ Optional VTU output:
 
 .. code-block:: bash
 
-   PYTHONPATH=src python tutorials/mortar_fixture_workpiece_comparison.py \
+   PYTHONPATH=src python tutorials/contact/mortar_fixture_workpiece_comparison.py \
        --output-dir result/tutorials/mortar_fixture_workpiece
 
 The VTU path writes fixture and workpiece surface files for the displayed rows

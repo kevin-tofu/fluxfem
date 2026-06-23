@@ -1,9 +1,17 @@
 import os
 import importlib.util
+import sys
+from pathlib import Path
+
 import numpy as np
 
 import fluxfem as ff
-from tutorials._contact_compare_utils import (
+
+TUTORIALS_ROOT = Path(__file__).resolve().parents[1]
+if str(TUTORIALS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TUTORIALS_ROOT))
+
+from common.contact_compare_utils import (
     build_fluxfem_onesided_contact_space,
     fluxfem_mesh_for,
     tet4_coords,

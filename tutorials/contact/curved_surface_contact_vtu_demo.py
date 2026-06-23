@@ -15,7 +15,7 @@ contact/ROM ingredients visible in ParaView:
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/curved_surface_contact_vtu_demo.py
+    PYTHONPATH=src python tutorials/contact/curved_surface_contact_vtu_demo.py
 
 Open the generated .pvd file in ParaView and apply Warp By Vector using
 `displacement`.
@@ -218,7 +218,11 @@ def _write_pvd(path: Path, files: list[Path], times: list[float]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out-dir", type=Path, default=Path("result/tutorials/curved_surface_contact_vtu_demo"))
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=Path(__file__).resolve().parent / "results" / "curved_surface_contact_vtu_demo",
+    )
     parser.add_argument("--nsteps", type=int, default=18)
     parser.add_argument("--nx", type=int, default=40)
     parser.add_argument("--ny", type=int, default=24)

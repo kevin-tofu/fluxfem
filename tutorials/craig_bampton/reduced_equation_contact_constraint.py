@@ -3,7 +3,7 @@
 
 Run from the repository root:
 
-    PYTHONPATH=src python tutorials/reduced_equation_contact_constraint.py
+    PYTHONPATH=src python tutorials/craig_bampton/reduced_equation_contact_constraint.py
 """
 
 from __future__ import annotations
