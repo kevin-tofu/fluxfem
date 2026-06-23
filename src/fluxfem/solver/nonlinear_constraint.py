@@ -28,6 +28,16 @@ class NonlinearConstrainedSolveResult:
     u: jnp.ndarray
     multipliers: jnp.ndarray
     info: SolverResult
+    load_factors: tuple[float, ...] = ()
+    step_infos: tuple[SolverResult, ...] = ()
+
+
+@dataclass(frozen=True)
+class _ConstrainedSolveControls:
+    tol: float
+    atol: float
+    maxiter: int
+    load_factors: tuple[float, ...]
 
 
 def _as_constraint_system(constraints: LinearConstraintSystem | None, n_dofs: int, dtype) -> LinearConstraintSystem:
@@ -58,24 +68,70 @@ def _normalize_dirichlet_optional(dirichlet, n_dofs: int, dtype):
     return dofs, values.astype(np.asarray(dtype).dtype if not isinstance(dtype, type) else dtype), np.flatnonzero(mask).astype(int)
 
 
-def _solve_controls_from_config(config: Any | None, *, tol: float, atol: float, maxiter: int) -> tuple[float, float, int]:
+def _validate_load_factors(load_factors) -> tuple[float, ...]:
+    schedule: list[float] = []
+    prev = 0.0
+    for value in load_factors:
+        factor = float(value)
+        if not np.isfinite(factor):
+            raise ValueError("load factors must be finite.")
+        if factor < 0.0 or factor > 1.0:
+            raise ValueError("load factors must lie in [0, 1].")
+        if factor < prev:
+            raise ValueError("load factors must be monotonically nondecreasing.")
+        schedule.append(factor)
+        prev = factor
+    if not schedule:
+        raise ValueError("load schedule must contain at least one load factor.")
+    return tuple(schedule)
+
+
+def _solve_controls_from_config(
+    config: Any | None,
+    *,
+    tol: float,
+    atol: float,
+    maxiter: int,
+) -> _ConstrainedSolveControls:
     if config is None:
-        return float(tol), float(atol), int(maxiter)
+        return _ConstrainedSolveControls(float(tol), float(atol), int(maxiter), (1.0,))
 
     unsupported: list[str] = []
     if bool(getattr(config, "line_search", False)):
         unsupported.append("line_search")
-    if getattr(config, "load_sequence", None) is not None:
-        unsupported.append("load_sequence")
-    if int(getattr(config, "n_steps", 1)) != 1:
-        unsupported.append("n_steps")
     if getattr(config, "linear_solver", "spsolve") not in (None, "spsolve"):
         unsupported.append("linear_solver")
     if unsupported:
         names = ", ".join(unsupported)
         raise NotImplementedError(f"NonlinearConstrainedProblem.solve(config=...) does not support: {names}.")
 
-    return float(config.tol), float(config.atol), int(config.maxiter)
+    load_factors = config.schedule() if hasattr(config, "schedule") else (1.0,)
+    return _ConstrainedSolveControls(
+        float(config.tol),
+        float(config.atol),
+        int(config.maxiter),
+        _validate_load_factors(load_factors),
+    )
+
+
+def _summarize_load_step_infos(step_infos: tuple[SolverResult, ...], *, tol: float, atol: float) -> SolverResult:
+    last = step_infos[-1]
+    converged = all(info.converged for info in step_infos)
+    stop_reason = "load_steps_converged" if converged else "load_steps_failed"
+    return SolverResult(
+        converged=converged,
+        iters=sum(int(info.iters) for info in step_infos),
+        residual_norm=last.residual_norm,
+        residual0=step_infos[0].residual0,
+        rel_residual=last.rel_residual,
+        line_search_steps=sum(int(info.line_search_steps) for info in step_infos),
+        tol=tol,
+        atol=atol,
+        stopping_criterion=last.stopping_criterion,
+        step_norm=last.step_norm,
+        stop_reason=stop_reason,
+        nan_detected=any(bool(info.nan_detected) for info in step_infos),
+    )
 
 
 def solve_nonlinear_constrained_kkt(
@@ -303,26 +359,58 @@ class NonlinearConstrainedProblem:
         atol: float = 1e-10,
         maxiter: int = 20,
     ) -> NonlinearConstrainedSolveResult:
-        tol, atol, maxiter = _solve_controls_from_config(config, tol=tol, atol=atol, maxiter=maxiter)
+        controls = _solve_controls_from_config(config, tol=tol, atol=atol, maxiter=maxiter)
         u_init = (
             jnp.zeros((int(self.space.n_dofs),), dtype=self.dtype)
             if u0 is None
             else jnp.asarray(u0, dtype=self.dtype)
         )
-        return solve_nonlinear_constrained_kkt(
-            self.space,
-            self.residual_form,
-            u_init,
-            self.params,
-            constraints=self.constraint_system(),
-            dirichlet=self.dirichlet,
-            external_vector=self.external_vector,
-            lambda0=lambda0,
-            tol=tol,
-            atol=atol,
-            maxiter=maxiter,
-            jacobian_pattern=self.jacobian_pattern,
-            assembly_policy=self.assembly_policy,
+        constraints = self.constraint_system()
+        base_external = (
+            None
+            if self.external_vector is None
+            else jnp.asarray(self.external_vector, dtype=self.dtype)
+        )
+        u_step = u_init
+        lambda_step = lambda0
+        step_infos: list[SolverResult] = []
+        last_result: NonlinearConstrainedSolveResult | None = None
+        for load_factor in controls.load_factors:
+            external = None if base_external is None else load_factor * base_external
+            last_result = solve_nonlinear_constrained_kkt(
+                self.space,
+                self.residual_form,
+                u_step,
+                self.params,
+                constraints=constraints,
+                dirichlet=self.dirichlet,
+                external_vector=external,
+                lambda0=lambda_step,
+                tol=controls.tol,
+                atol=controls.atol,
+                maxiter=controls.maxiter,
+                jacobian_pattern=self.jacobian_pattern,
+                assembly_policy=self.assembly_policy,
+            )
+            step_infos.append(last_result.info)
+            u_step = last_result.u
+            lambda_step = last_result.multipliers
+            if not last_result.info.converged:
+                break
+
+        if last_result is None:  # pragma: no cover - guarded by load schedule validation
+            raise RuntimeError("load schedule produced no solve steps.")
+        step_infos_tuple = tuple(step_infos)
+        if len(controls.load_factors) == 1:
+            info = last_result.info
+        else:
+            info = _summarize_load_step_infos(step_infos_tuple, tol=controls.tol, atol=controls.atol)
+        return NonlinearConstrainedSolveResult(
+            u=last_result.u,
+            multipliers=last_result.multipliers,
+            info=info,
+            load_factors=controls.load_factors[: len(step_infos_tuple)],
+            step_infos=step_infos_tuple,
         )
 
 

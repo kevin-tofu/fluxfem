@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument("--tol", type=float, default=1.0e-9)
     parser.add_argument("--atol", type=float, default=1.0e-10)
     parser.add_argument("--maxiter", type=int, default=20)
+    parser.add_argument("--n-steps", type=int, default=1)
     parser.add_argument("--output-vtu", type=str, default="")
     return parser.parse_args()
 
@@ -102,7 +103,7 @@ def main():
     problem.add_rbe3_patch_constraint(fixture_patch, rhs=jnp.zeros((2,), dtype=dtype))
     problem.add_local_force([tool_dof_y], [args.force])
 
-    config = ff.NewtonLoopConfig(tol=args.tol, atol=args.atol, maxiter=args.maxiter)
+    config = ff.NewtonLoopConfig(tol=args.tol, atol=args.atol, maxiter=args.maxiter, n_steps=args.n_steps)
     result = problem.solve(config=config)
     u = np.asarray(result.u, dtype=float)
     u_nodes = u.reshape(-1, 3)
@@ -112,6 +113,7 @@ def main():
 
     print(f"converged: {result.info.converged}")
     print(f"iterations: {result.info.iters}")
+    print(f"load_factors: {result.load_factors}")
     print(f"residual_inf: {result.info.residual_norm:.6e}")
     print(f"max_displacement: {max_disp:.6e}")
     print(f"tool_node: {int(tool_nodes[0])}")

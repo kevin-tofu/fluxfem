@@ -38,13 +38,13 @@ for the Newton-loop fields it can faithfully support:
 
 - `NonlinearConstrainedProblem.solve(config=...)`,
 - shared `tol`, `atol`, and `maxiter` controls,
+- `load_sequence` / `n_steps` load stepping by scaling the external vector,
 - the tutorial uses the config object instead of a separate one-off signature.
 
 Unsupported `NewtonLoopConfig` fields are rejected explicitly for this path
 instead of being silently ignored:
 
 - `line_search`,
-- `load_sequence` / `n_steps`,
 - non-`spsolve` linear solver selection.
 
 ## Next cleanup direction
@@ -52,7 +52,6 @@ instead of being silently ignored:
 The remaining work is to make more of `NewtonLoopConfig` meaningful for exact
 KKT/MPC solves:
 
-- add load stepping by scaling the external vector while keeping constraints exact,
 - decide whether line search is useful for the saddle-point Newton update,
 - expose iterative / matrix-free KKT linear solves for large constrained systems,
 - keep `solve_nonlinear_constrained_kkt(...)` as the lower-level implementation,
