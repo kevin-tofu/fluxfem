@@ -25,6 +25,19 @@ if str(TUTORIALS_ROOT) not in sys.path:
 from common.basis import DenseBasis
 
 
+BASIS_LABELS = {
+    "identity-full": "full-coordinate check",
+    "free-dofs": "free-DOF exact ROM",
+    "cantilever-bending-y": "1-mode bending ROM",
+}
+
+BASIS_ROLES = {
+    "identity-full": "Regression check: the ROM basis is the full coordinate basis.",
+    "free-dofs": "Exact reduced coordinate check: prescribed coordinates are removed, but all free DOFs are retained.",
+    "cantilever-bending-y": "Deliberately tiny ROM: one assumed cantilever bending shape in the loading direction.",
+}
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--nx", type=int, default=1)
@@ -166,6 +179,86 @@ def _write_json(path: str, payload: dict):
     print(f"JSON written to {out}")
 
 
+def _accuracy_verdict(relative_error: float) -> str:
+    if relative_error < 1.0e-5:
+        return "matches full-order solution"
+    if relative_error < 5.0e-2:
+        return "usable approximation for this small case"
+    return "too inaccurate for this deformation"
+
+
+def _write_summary(path: str, payload: dict):
+    if not path:
+        return
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# Geometric Nonlinear Full FEM vs ROM",
+        "",
+        "## Bottom Line",
+        "",
+    ]
+    exact_like = [case for case in payload["cases"] if case["relative_error_inf"] < 1.0e-5]
+    rough = [case for case in payload["cases"] if case["relative_error_inf"] >= 5.0e-2]
+    if exact_like:
+        names = ", ".join(BASIS_LABELS.get(case["basis"], case["basis"]) for case in exact_like)
+        lines.append(f"- {names} reproduce the full-order displacement for this setup.")
+    if rough:
+        names = ", ".join(BASIS_LABELS.get(case["basis"], case["basis"]) for case in rough)
+        verb = "is" if len(rough) == 1 else "are"
+        lines.append(f"- {names} {verb} intentionally small and not accurate enough here.")
+    lines.extend(
+        [
+            "- This tutorial currently demonstrates direct Galerkin projection; it is not yet a production hyper-reduced nonlinear ROM benchmark.",
+            "",
+            "## Reference Full FEM",
+            "",
+            f"- DOFs: {payload['problem']['n_full']}",
+            f"- converged: {payload['full']['converged']}",
+            f"- Newton iterations: {payload['full']['iters']}",
+            f"- tool y displacement: {payload['full']['tool_uy']:.6e}",
+            f"- build time: {payload['full']['build_time_s']:.6e} s",
+            f"- solve time: {payload['full']['solve_time_s']:.6e} s",
+            "",
+            "## ROM Cases",
+            "",
+            "| basis | role | reduced DOFs | relative error | tool y displacement | verdict |",
+            "|---|---|---:|---:|---:|---|",
+        ]
+    )
+    for case in payload["cases"]:
+        name = BASIS_LABELS.get(case["basis"], case["basis"])
+        role = BASIS_ROLES.get(case["basis"], "")
+        verdict = _accuracy_verdict(case["relative_error_inf"])
+        lines.append(
+            f"| {name} | {role} | {case['n_reduced']} | "
+            f"{case['relative_error_inf']:.6e} | {case['rom_tool_uy']:.6e} | {verdict} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Interpretation",
+            "",
+            "- If `identity-full` does not match the full FEM, the projection implementation is wrong.",
+            "- If `free-dofs` does not match the full FEM, the handling of prescribed coordinates is wrong.",
+            "- If `cantilever-bending-y` is inaccurate, that is expected: one bending shape cannot represent the full 3D nonlinear displacement field.",
+        ]
+    )
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Summary written to {out}")
+
+
+def _print_case_summary(payload: dict):
+    print("\nresult summary")
+    for case in payload["cases"]:
+        label = BASIS_LABELS.get(case["basis"], case["basis"])
+        verdict = _accuracy_verdict(case["relative_error_inf"])
+        print(
+            f"- {label}: n={case['n_reduced']}, "
+            f"rel_error={case['relative_error_inf']:.3e}, verdict={verdict}"
+        )
+
+
 def _write_plot(path: str, payload: dict):
     if not path:
         return
@@ -176,7 +269,7 @@ def _write_plot(path: str, payload: dict):
     import matplotlib.pyplot as plt
 
     cases = payload["cases"]
-    labels = [case["basis"] for case in cases]
+    labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
     error = [case["relative_error_inf"] for case in cases]
     full_build = [payload["full"]["build_time_s"] for _case in cases]
     full_solve = [payload["full"]["solve_time_s"] for _case in cases]
@@ -186,7 +279,7 @@ def _write_plot(path: str, payload: dict):
 
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0), constrained_layout=True)
     axes[0].bar(x, error, color="#4c78a8")
-    axes[0].set_xticks(x, labels)
+    axes[0].set_xticks(x, labels, rotation=15, ha="right")
     axes[0].set_yscale("log")
     axes[0].set_ylabel("relative displacement error inf-norm")
     axes[0].set_title("ROM displacement error")
@@ -196,7 +289,7 @@ def _write_plot(path: str, payload: dict):
     axes[1].bar(x - 0.5 * width, full_solve, width, label="full solve", color="#54a24b")
     axes[1].bar(x + 0.5 * width, rom_build, width, label="rom build", color="#f58518")
     axes[1].bar(x + 1.5 * width, rom_solve, width, label="rom solve", color="#e45756")
-    axes[1].set_xticks(x, labels)
+    axes[1].set_xticks(x, labels, rotation=15, ha="right")
     axes[1].set_ylabel("seconds")
     axes[1].set_title("Build / solve time")
     axes[1].legend(fontsize=8)
@@ -267,6 +360,8 @@ def main():
         rel_inf = error_inf / max(full_inf, 1.0e-30)
         case = {
             "basis": basis_name,
+            "basis_label": BASIS_LABELS.get(basis_name, basis_name),
+            "basis_role": BASIS_ROLES.get(basis_name, ""),
             "n_reduced": basis.n_reduced,
             "rom_converged": bool(rom_info.converged),
             "rom_iters": int(rom_info.iters),
@@ -309,8 +404,11 @@ def main():
     }
     output_json = args.output_json or (str(Path(args.output_dir) / "metrics.json") if args.output_dir else "")
     output_plot = args.output_plot or (str(Path(args.output_dir) / "comparison.png") if args.output_dir else "")
+    output_summary = str(Path(args.output_dir) / "summary.md") if args.output_dir else ""
+    _print_case_summary(payload)
     _write_json(output_json, payload)
     _write_plot(output_plot, payload)
+    _write_summary(output_summary, payload)
 
     if not full_info.converged or any(not case["rom_converged"] for case in cases):
         raise SystemExit(1)
