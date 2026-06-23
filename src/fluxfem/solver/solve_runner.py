@@ -116,6 +116,82 @@ class NewtonLoopConfig:
         return list(np.linspace(0.0, 1.0, n + 1, endpoint=True)[1:])
 
 
+def constrained_kkt_config(
+    backend: str = "direct",
+    *,
+    tol: float = 1e-8,
+    atol: float = 0.0,
+    maxiter: int = 20,
+    n_steps: int = 1,
+    load_sequence: Sequence[float] | None = None,
+    linear_tol: float | None = None,
+    linear_maxiter: int | None = None,
+    linear_preconditioner: Any | None = None,
+    petsc_ksp_type: str | None = None,
+    petsc_pc_type: str | None = None,
+    petsc_rtol: float | None = None,
+    petsc_atol: float | None = None,
+    petsc_max_it: int | None = None,
+    petsc_options: dict[str, Any] | None = None,
+    petsc_use_pmat: bool | None = None,
+) -> NewtonLoopConfig:
+    """
+    Create a typed Newton config for constrained KKT solves.
+
+    Parameters
+    ----------
+    backend:
+        One of ``"direct"``, ``"scipy-gmres"``, ``"petsc-gmres"``, or
+        ``"petsc-ilu"``. Aliases ``"spsolve"``, ``"gmres"``,
+        ``"petsc_shell"``, and ``"petsc"`` are accepted.
+    """
+    name = backend.lower().replace("_", "-")
+    if name in ("direct", "spsolve"):
+        linear_solver = "spsolve"
+        default_ksp = "gmres"
+        default_pc = "none"
+        default_use_pmat = False
+    elif name in ("scipy-gmres", "gmres"):
+        linear_solver = "gmres"
+        default_ksp = "gmres"
+        default_pc = "none"
+        default_use_pmat = False
+    elif name in ("petsc-gmres", "petsc-shell", "petsc"):
+        linear_solver = "petsc_shell"
+        default_ksp = "gmres"
+        default_pc = "none"
+        default_use_pmat = False
+    elif name in ("petsc-ilu", "petsc-gmres-ilu"):
+        linear_solver = "petsc_shell"
+        default_ksp = "gmres"
+        default_pc = "ilu"
+        default_use_pmat = True
+    else:
+        raise ValueError(
+            "Unknown constrained KKT backend. "
+            "Use 'direct', 'scipy-gmres', 'petsc-gmres', or 'petsc-ilu'."
+        )
+
+    return NewtonLoopConfig(
+        tol=tol,
+        atol=atol,
+        maxiter=maxiter,
+        linear_solver=linear_solver,
+        linear_tol=linear_tol,
+        linear_maxiter=linear_maxiter,
+        linear_preconditioner=linear_preconditioner,
+        petsc_ksp_type=default_ksp if petsc_ksp_type is None else petsc_ksp_type,
+        petsc_pc_type=default_pc if petsc_pc_type is None else petsc_pc_type,
+        petsc_rtol=petsc_rtol,
+        petsc_atol=petsc_atol,
+        petsc_max_it=petsc_max_it,
+        petsc_options=petsc_options,
+        petsc_use_pmat=default_use_pmat if petsc_use_pmat is None else petsc_use_pmat,
+        load_sequence=load_sequence,
+        n_steps=n_steps,
+    )
+
+
 class NewtonSolveRunner:
     """
     Run one or more Newton solves across load factors.
