@@ -32,7 +32,8 @@ fixture active sets to restrict nonlinear evaluations.
 full geometric nonlinear FEM against the direct Galerkin ROM. Use
 `--basis identity-full` as a regression check that the ROM reproduces the
 full-coordinate solve, `--basis free-dofs` to remove prescribed coordinates while
-retaining the full free subspace, `--basis linearized-modes` to build a practical
+retaining the full free subspace. `free-dofs` is a constraint-handling check, not
+a practical reduced model. Use `--basis linearized-modes` to build a practical
 low-dimensional basis from the initial linearized stiffness/mass eigenmodes, and
 `--basis cantilever-bending-y` as a deliberately small bending-shape ROM that
 exposes projection error. By default, JSON/PNG/VTU/Markdown summary outputs are

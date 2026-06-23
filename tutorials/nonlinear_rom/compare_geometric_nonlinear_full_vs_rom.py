@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -28,14 +29,14 @@ from common.basis import DenseBasis
 
 BASIS_LABELS = {
     "identity-full": "full-coordinate check",
-    "free-dofs": "free-DOF exact ROM",
+    "free-dofs": "free-coordinate check",
     "linearized-modes": "linearized modal ROM",
     "cantilever-bending-y": "1-mode bending ROM",
 }
 
 BASIS_ROLES = {
     "identity-full": "Regression check: the ROM basis is the full coordinate basis.",
-    "free-dofs": "Exact reduced coordinate check: prescribed coordinates are removed, but all free DOFs are retained.",
+    "free-dofs": "Constraint-handling check: prescribed coordinates are removed, but all free DOFs are retained.",
     "linearized-modes": "Low-dimensional ROM: lowest vibration modes of the initial linearized elastic model.",
     "cantilever-bending-y": "Deliberately tiny ROM: one assumed cantilever bending shape in the loading direction.",
 }
@@ -320,6 +321,7 @@ def _write_plot(path: str, payload: dict):
     rom_solve = [case["rom_solve_time_s"] for case in cases]
     x = np.arange(len(labels))
 
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0), constrained_layout=True)
     axes[0].bar(x, error, color="#4c78a8")
     axes[0].set_xticks(x, labels, rotation=15, ha="right")
@@ -336,12 +338,15 @@ def _write_plot(path: str, payload: dict):
     axes[1].set_ylabel("seconds")
     axes[1].set_title("Build / solve time")
     axes[1].legend(fontsize=8)
+    fig.suptitle(f"Generated {generated_at}", fontsize=9)
 
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=180)
+    if out.exists():
+        out.unlink()
+    fig.savefig(out, dpi=180, metadata={"Creation Time": generated_at})
     plt.close(fig)
-    print(f"PNG written to {out}")
+    print(f"PNG refreshed at {out}")
 
 
 def main():
