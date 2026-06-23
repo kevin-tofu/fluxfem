@@ -58,6 +58,26 @@ def _normalize_dirichlet_optional(dirichlet, n_dofs: int, dtype):
     return dofs, values.astype(np.asarray(dtype).dtype if not isinstance(dtype, type) else dtype), np.flatnonzero(mask).astype(int)
 
 
+def _solve_controls_from_config(config: Any | None, *, tol: float, atol: float, maxiter: int) -> tuple[float, float, int]:
+    if config is None:
+        return float(tol), float(atol), int(maxiter)
+
+    unsupported: list[str] = []
+    if bool(getattr(config, "line_search", False)):
+        unsupported.append("line_search")
+    if getattr(config, "load_sequence", None) is not None:
+        unsupported.append("load_sequence")
+    if int(getattr(config, "n_steps", 1)) != 1:
+        unsupported.append("n_steps")
+    if getattr(config, "linear_solver", "spsolve") not in (None, "spsolve"):
+        unsupported.append("linear_solver")
+    if unsupported:
+        names = ", ".join(unsupported)
+        raise NotImplementedError(f"NonlinearConstrainedProblem.solve(config=...) does not support: {names}.")
+
+    return float(config.tol), float(config.atol), int(config.maxiter)
+
+
 def solve_nonlinear_constrained_kkt(
     space,
     residual_form: ResidualForm[Any],
@@ -278,10 +298,12 @@ class NonlinearConstrainedProblem:
         u0=None,
         *,
         lambda0=None,
+        config: Any | None = None,
         tol: float = 1e-8,
         atol: float = 1e-10,
         maxiter: int = 20,
     ) -> NonlinearConstrainedSolveResult:
+        tol, atol, maxiter = _solve_controls_from_config(config, tol=tol, atol=atol, maxiter=maxiter)
         u_init = (
             jnp.zeros((int(self.space.n_dofs),), dtype=self.dtype)
             if u0 is None

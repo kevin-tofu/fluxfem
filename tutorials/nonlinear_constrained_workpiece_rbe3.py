@@ -102,7 +102,8 @@ def main():
     problem.add_rbe3_patch_constraint(fixture_patch, rhs=jnp.zeros((2,), dtype=dtype))
     problem.add_local_force([tool_dof_y], [args.force])
 
-    result = problem.solve(tol=args.tol, atol=args.atol, maxiter=args.maxiter)
+    config = ff.NewtonLoopConfig(tol=args.tol, atol=args.atol, maxiter=args.maxiter)
+    result = problem.solve(config=config)
     u = np.asarray(result.u, dtype=float)
     u_nodes = u.reshape(-1, 3)
     constraint_residual = np.asarray(problem.constraint_system().residual(result.u), dtype=float)

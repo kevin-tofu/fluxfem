@@ -1,6 +1,7 @@
 import numpy as np
 import jax
 import jax.numpy as jnp
+import pytest
 
 import fluxfem as ff
 
@@ -82,3 +83,42 @@ def test_solve_nonlinear_constrained_kkt_accepts_explicit_constraint_system():
     assert result.info.converged
     np.testing.assert_allclose(np.asarray(result.u)[7], 0.05, atol=1.0e-10)
     np.testing.assert_allclose(np.asarray(constraints.residual(result.u)), np.zeros(1), atol=1.0e-10)
+
+
+def test_nonlinear_constrained_problem_accepts_newton_loop_config():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    dtype = jnp.float64
+    dir_dofs = mesh.boundary_dofs_where(
+        lambda pts: np.isclose(pts[:, 0], 0.0),
+        components=[0],
+        dof_per_node=1,
+    )
+    matrix = jnp.zeros((1, space.n_dofs), dtype=dtype).at[0, 7].set(1.0)
+    problem = ff.NonlinearConstrainedProblem(
+        space=space,
+        residual_form=linear_diffusion_residual,
+        params=1.0,
+        dirichlet=(np.asarray(dir_dofs, dtype=int), np.zeros(len(dir_dofs))),
+        constraints=[ff.LinearConstraintSystem(matrix, jnp.array([0.03], dtype=dtype))],
+        dtype=dtype,
+    )
+
+    result = problem.solve(config=ff.NewtonLoopConfig(tol=1.0e-10, atol=1.0e-10, maxiter=20))
+
+    assert result.info.converged
+    np.testing.assert_allclose(np.asarray(problem.constraint_system().residual(result.u)), np.zeros(1), atol=1.0e-10)
+    assert result.info.tol == 1.0e-10
+
+
+def test_nonlinear_constrained_problem_rejects_unsupported_newton_loop_config():
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    problem = ff.NonlinearConstrainedProblem(
+        space=space,
+        residual_form=linear_diffusion_residual,
+        params=1.0,
+    )
+
+    with pytest.raises(NotImplementedError, match="line_search"):
+        problem.solve(config=ff.NewtonLoopConfig(line_search=True))
