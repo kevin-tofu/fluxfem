@@ -31,6 +31,7 @@ def parse_args():
     parser.add_argument("--atol", type=float, default=1.0e-10)
     parser.add_argument("--maxiter", type=int, default=20)
     parser.add_argument("--n-steps", type=int, default=1)
+    parser.add_argument("--compare-single-step", action="store_true")
     parser.add_argument("--output-vtu", type=str, default="")
     return parser.parse_args()
 
@@ -120,6 +121,15 @@ def main():
     print(f"tool_displacement: [{tool_disp[0]:.6e}, {tool_disp[1]:.6e}, {tool_disp[2]:.6e}]")
     print(f"constraint_residual_inf: {np.linalg.norm(constraint_residual, ord=np.inf):.6e}")
     print(f"multipliers: {np.asarray(result.multipliers, dtype=float)}")
+
+    if args.compare_single_step:
+        single_config = ff.NewtonLoopConfig(tol=args.tol, atol=args.atol, maxiter=args.maxiter)
+        single = problem.solve(config=single_config)
+        du_inf = float(np.linalg.norm(np.asarray(result.u - single.u), ord=np.inf))
+        dlambda_inf = float(np.linalg.norm(np.asarray(result.multipliers - single.multipliers), ord=np.inf))
+        print(f"single_step_converged: {single.info.converged}")
+        print(f"compare_single_step_u_inf: {du_inf:.6e}")
+        print(f"compare_single_step_multiplier_inf: {dlambda_inf:.6e}")
 
     if args.output_vtu:
         out = Path(args.output_vtu)

@@ -23,7 +23,14 @@ from .result import SolverResult
 
 @dataclass(frozen=True)
 class NonlinearConstrainedSolveResult:
-    """Result of a linearly constrained nonlinear solve."""
+    """Result of a linearly constrained nonlinear solve.
+
+    ``u`` and ``multipliers`` are the final displacement and Lagrange
+    multipliers. When load stepping is used through
+    ``NonlinearConstrainedProblem.solve(config=...)``, ``load_factors`` records
+    the completed factors and ``step_infos`` stores the per-step solver
+    diagnostics.
+    """
 
     u: jnp.ndarray
     multipliers: jnp.ndarray
@@ -303,7 +310,12 @@ def solve_nonlinear_constrained_kkt(
 
 @dataclass
 class NonlinearConstrainedProblem:
-    """Small facade for nonlinear FEM with linear MPC/RBE constraints."""
+    """Small facade for nonlinear FEM with linear MPC/RBE constraints.
+
+    The facade is the user-facing entry point for exact linear constraints such
+    as MPC and RBE3-style fixture averages. It assembles the combined constraint
+    system and calls the lower-level KKT Newton solver.
+    """
 
     space: Any
     residual_form: ResidualForm[Any]
@@ -359,6 +371,30 @@ class NonlinearConstrainedProblem:
         atol: float = 1e-10,
         maxiter: int = 20,
     ) -> NonlinearConstrainedSolveResult:
+        """Solve the constrained nonlinear problem.
+
+        Parameters
+        ----------
+        u0:
+            Optional full-DOF initial displacement. Fixed Dirichlet values are
+            imposed before each KKT solve.
+        lambda0:
+            Optional initial Lagrange multipliers for the first load step.
+            Subsequent load steps warm-start from the previous multipliers.
+        config:
+            Optional ``NewtonLoopConfig``. Supported fields are ``tol``,
+            ``atol``, ``maxiter``, ``n_steps``, and ``load_sequence``. Load
+            stepping scales only ``external_vector``; linear constraints and
+            Dirichlet values stay exact at every step.
+        tol, atol, maxiter:
+            Backward-compatible controls used when ``config`` is not provided.
+
+        Notes
+        -----
+        ``line_search`` and non-``spsolve`` ``linear_solver`` settings are not
+        implemented for the constrained KKT path yet and raise
+        ``NotImplementedError`` when requested.
+        """
         controls = _solve_controls_from_config(config, tol=tol, atol=atol, maxiter=maxiter)
         u_init = (
             jnp.zeros((int(self.space.n_dofs),), dtype=self.dtype)

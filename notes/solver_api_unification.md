@@ -40,6 +40,8 @@ for the Newton-loop fields it can faithfully support:
 - shared `tol`, `atol`, and `maxiter` controls,
 - `load_sequence` / `n_steps` load stepping by scaling the external vector,
 - the tutorial uses the config object instead of a separate one-off signature.
+- the tutorial can compare a stepped solve against the direct single-step
+  result with `--compare-single-step`.
 
 Unsupported `NewtonLoopConfig` fields are rejected explicitly for this path
 instead of being silently ignored:
