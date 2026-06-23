@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 from pathlib import Path
+import time
 
 import jax
 import jax.numpy as jnp
@@ -50,10 +53,12 @@ def parse_args():
     parser.add_argument("--E", type=float, default=250.0)
     parser.add_argument("--nu", type=float, default=0.3)
     parser.add_argument("--force", type=float, default=-0.001)
-    parser.add_argument("--basis", choices=("complete", "tip-y"), default="complete")
+    parser.add_argument("--basis", choices=("complete", "tip-y", "all"), default="all")
     parser.add_argument("--tol", type=float, default=1.0e-10)
     parser.add_argument("--maxiter", type=int, default=20)
     parser.add_argument("--output-dir", type=str, default="")
+    parser.add_argument("--output-json", type=str, default="")
+    parser.add_argument("--output-plot", type=str, default="")
     return parser.parse_args()
 
 
@@ -93,11 +98,14 @@ def _solve_full(space, residual_form, params, force, dirichlet, tol: float, maxi
         analysis,
         ff.NewtonLoopConfig(tol=tol, atol=tol, maxiter=maxiter, linear_solver="spsolve"),
     )
+    t0 = time.perf_counter()
     u, history = runner.run(u0=jnp.zeros(space.n_dofs, dtype=jnp.float64), newton_callback=lambda _cb: None)
-    return u, history[-1].info
+    solve_time = time.perf_counter() - t0
+    return u, history[-1].info, solve_time
 
 
 def _solve_rom(space, residual_form, params, force, basis, dirichlet, tol: float, maxiter: int):
+    t_build = time.perf_counter()
     model = ff.NonlinearReducedFEModel(
         space=space,
         residual_form=residual_form,
@@ -105,6 +113,8 @@ def _solve_rom(space, residual_form, params, force, basis, dirichlet, tol: float
         basis=basis,
         external_vector=force,
     )
+    build_time = time.perf_counter() - t_build
+    t_solve = time.perf_counter()
     q, info = model.as_problem("body").solve(
         jnp.zeros(basis.n_reduced, dtype=jnp.float64),
         fixed_dofs=dirichlet.dofs if basis.n_reduced == space.n_dofs else None,
@@ -113,22 +123,75 @@ def _solve_rom(space, residual_form, params, force, basis, dirichlet, tol: float
         atol=tol,
         maxiter=maxiter,
     )
-    return model.expand(q), info
+    solve_time = time.perf_counter() - t_solve
+    return model.expand(q), info, build_time, solve_time
 
 
-def _write_outputs(output_dir: str, mesh, space, full_u, rom_u):
+def _write_outputs(output_dir: str, basis_name: str, mesh, space, full_u, rom_u):
     if not output_dir:
         return
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     ff.write_elastic_vtu(mesh, space, full_u, str(out / "full.vtu"), compute_j=True, deformed_scale=1.0)
-    ff.write_elastic_vtu(mesh, space, rom_u, str(out / "rom.vtu"), compute_j=True, deformed_scale=1.0)
-    ff.write_elastic_vtu(mesh, space, full_u - rom_u, str(out / "error.vtu"), compute_j=False, deformed_scale=1.0)
+    ff.write_elastic_vtu(mesh, space, rom_u, str(out / f"rom_{basis_name}.vtu"), compute_j=True, deformed_scale=1.0)
+    ff.write_elastic_vtu(mesh, space, full_u - rom_u, str(out / f"error_{basis_name}.vtu"), compute_j=False, deformed_scale=1.0)
     print(f"VTU written to {out}")
+
+
+def _write_json(path: str, payload: dict):
+    if not path:
+        return
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    print(f"JSON written to {out}")
+
+
+def _write_plot(path: str, payload: dict):
+    if not path:
+        return
+    os.environ.setdefault("MPLCONFIGDIR", "/tmp/fluxfem_matplotlib")
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cases = payload["cases"]
+    labels = [case["basis"] for case in cases]
+    error = [case["relative_error_inf"] for case in cases]
+    full_build = [payload["full"]["build_time_s"] for _case in cases]
+    full_solve = [payload["full"]["solve_time_s"] for _case in cases]
+    rom_build = [case["rom_build_time_s"] for case in cases]
+    rom_solve = [case["rom_solve_time_s"] for case in cases]
+    x = np.arange(len(labels))
+
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0), constrained_layout=True)
+    axes[0].bar(x, error, color="#4c78a8")
+    axes[0].set_xticks(x, labels)
+    axes[0].set_yscale("log")
+    axes[0].set_ylabel("relative displacement error inf-norm")
+    axes[0].set_title("ROM displacement error")
+
+    width = 0.2
+    axes[1].bar(x - 1.5 * width, full_build, width, label="full build", color="#72b7b2")
+    axes[1].bar(x - 0.5 * width, full_solve, width, label="full solve", color="#54a24b")
+    axes[1].bar(x + 0.5 * width, rom_build, width, label="rom build", color="#f58518")
+    axes[1].bar(x + 1.5 * width, rom_solve, width, label="rom solve", color="#e45756")
+    axes[1].set_xticks(x, labels)
+    axes[1].set_ylabel("seconds")
+    axes[1].set_title("Build / solve time")
+    axes[1].legend(fontsize=8)
+
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=180)
+    plt.close(fig)
+    print(f"PNG written to {out}")
 
 
 def main():
     args = parse_args()
+    t_build = time.perf_counter()
     mesh = ff.StructuredHexBox(nx=args.nx, ny=args.ny, nz=args.nz, lx=args.lx, ly=args.ly, lz=args.lz).build()
     space = ff.make_hex_space(mesh, dim=3, intorder=2)
     coords = np.asarray(mesh.coords)
@@ -142,9 +205,9 @@ def main():
         lambda pts: np.isclose(pts[:, 0], xmin),
         components="xyz",
     )
-    basis = _make_basis(args.basis, space, tool_node)
+    full_build_time = time.perf_counter() - t_build
 
-    full_u, full_info = _solve_full(
+    full_u, full_info, full_solve_time = _solve_full(
         space,
         ff.neo_hookean_residual_form,
         params,
@@ -153,39 +216,84 @@ def main():
         args.tol,
         args.maxiter,
     )
-    rom_u, rom_info = _solve_rom(
-        space,
-        ff.neo_hookean_residual_form,
-        params,
-        force,
-        basis,
-        dirichlet,
-        args.tol,
-        args.maxiter,
-    )
-
     full_nodes = np.asarray(full_u).reshape(-1, 3)
-    rom_nodes = np.asarray(rom_u).reshape(-1, 3)
-    error = full_u - rom_u
-    error_inf = float(jnp.linalg.norm(error, ord=jnp.inf))
     full_inf = float(jnp.linalg.norm(full_u, ord=jnp.inf))
-    rel_inf = error_inf / max(full_inf, 1.0e-30)
+    basis_names = ("complete", "tip-y") if args.basis == "all" else (args.basis,)
+    cases = []
 
     print("geometric nonlinear full FEM vs ROM")
-    print(f"basis: {args.basis}")
     print(f"n_full: {space.n_dofs}")
-    print(f"n_reduced: {basis.n_reduced}")
     print(f"full_converged: {full_info.converged}")
-    print(f"rom_converged: {rom_info.converged}")
     print(f"full_iters: {full_info.iters}")
-    print(f"rom_iters: {rom_info.iters}")
     print(f"full_tool_uy: {full_nodes[tool_node, 1]:.6e}")
-    print(f"rom_tool_uy: {rom_nodes[tool_node, 1]:.6e}")
-    print(f"error_inf: {error_inf:.6e}")
-    print(f"relative_error_inf: {rel_inf:.6e}")
-    _write_outputs(args.output_dir, mesh, space, full_u, rom_u)
+    print(f"full_build_time_s: {full_build_time:.6e}")
+    print(f"full_solve_time_s: {full_solve_time:.6e}")
 
-    if not full_info.converged or not rom_info.converged:
+    for basis_name in basis_names:
+        basis = _make_basis(basis_name, space, tool_node)
+        rom_u, rom_info, rom_build_time, rom_solve_time = _solve_rom(
+            space,
+            ff.neo_hookean_residual_form,
+            params,
+            force,
+            basis,
+            dirichlet,
+            args.tol,
+            args.maxiter,
+        )
+        rom_nodes = np.asarray(rom_u).reshape(-1, 3)
+        error = full_u - rom_u
+        error_inf = float(jnp.linalg.norm(error, ord=jnp.inf))
+        error_l2 = float(jnp.linalg.norm(error))
+        rel_inf = error_inf / max(full_inf, 1.0e-30)
+        case = {
+            "basis": basis_name,
+            "n_reduced": basis.n_reduced,
+            "rom_converged": bool(rom_info.converged),
+            "rom_iters": int(rom_info.iters),
+            "rom_tool_uy": float(rom_nodes[tool_node, 1]),
+            "error_inf": error_inf,
+            "error_l2": error_l2,
+            "relative_error_inf": rel_inf,
+            "rom_build_time_s": rom_build_time,
+            "rom_solve_time_s": rom_solve_time,
+        }
+        cases.append(case)
+        print(f"[{basis_name}] n_reduced: {basis.n_reduced}")
+        print(f"[{basis_name}] rom_converged: {rom_info.converged}")
+        print(f"[{basis_name}] rom_iters: {rom_info.iters}")
+        print(f"[{basis_name}] rom_tool_uy: {rom_nodes[tool_node, 1]:.6e}")
+        print(f"[{basis_name}] error_inf: {error_inf:.6e}")
+        print(f"[{basis_name}] relative_error_inf: {rel_inf:.6e}")
+        print(f"[{basis_name}] rom_build_time_s: {rom_build_time:.6e}")
+        print(f"[{basis_name}] rom_solve_time_s: {rom_solve_time:.6e}")
+        _write_outputs(args.output_dir, basis_name, mesh, space, full_u, rom_u)
+
+    payload = {
+        "problem": {
+            "nx": args.nx,
+            "ny": args.ny,
+            "nz": args.nz,
+            "n_full": int(space.n_dofs),
+            "force": float(args.force),
+            "tol": float(args.tol),
+            "maxiter": int(args.maxiter),
+        },
+        "full": {
+            "converged": bool(full_info.converged),
+            "iters": int(full_info.iters),
+            "tool_uy": float(full_nodes[tool_node, 1]),
+            "build_time_s": full_build_time,
+            "solve_time_s": full_solve_time,
+        },
+        "cases": cases,
+    }
+    output_json = args.output_json or (str(Path(args.output_dir) / "metrics.json") if args.output_dir else "")
+    output_plot = args.output_plot or (str(Path(args.output_dir) / "comparison.png") if args.output_dir else "")
+    _write_json(output_json, payload)
+    _write_plot(output_plot, payload)
+
+    if not full_info.converged or any(not case["rom_converged"] for case in cases):
         raise SystemExit(1)
 
 
