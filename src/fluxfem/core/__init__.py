@@ -122,7 +122,21 @@ from .basis import (
 )
 import importlib
 
-from .solver import spdirect_solve_cpu, spdirect_solve_gpu, spdirect_solve_jax, coo_to_csr
+from .solver import (
+    ReducedDenseKktFactorization,
+    coo_to_csr,
+    factor_reduced_dense_kkt_jax,
+    make_reduced_dense_factorized_solver_jax,
+    make_reduced_rhs_projector_jax,
+    pack_reduced_kkt_rhs,
+    project_reduced_rhs_cpu,
+    project_reduced_rhs_jax,
+    solve_reduced_dense_batch_jax,
+    solve_reduced_dense_batch_jax_factorized,
+    spdirect_solve_cpu,
+    spdirect_solve_gpu,
+    spdirect_solve_jax,
+)
 
 _MESH_EXPORTS = {
     "BaseMeshPytree",
@@ -660,6 +674,15 @@ __all__ = [
     "spdirect_solve_cpu",
     "spdirect_solve_gpu",
     "spdirect_solve_jax",
+    "ReducedDenseKktFactorization",
+    "factor_reduced_dense_kkt_jax",
+    "make_reduced_dense_factorized_solver_jax",
+    "make_reduced_rhs_projector_jax",
+    "pack_reduced_kkt_rhs",
+    "project_reduced_rhs_cpu",
+    "project_reduced_rhs_jax",
+    "solve_reduced_dense_batch_jax",
+    "solve_reduced_dense_batch_jax_factorized",
     "coo_to_csr",
     "SparsityPattern",
     "FluxSparseMatrix",
