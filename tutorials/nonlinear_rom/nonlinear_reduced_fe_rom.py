@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
+import sys
 
 import jax
 import jax.numpy as jnp
@@ -13,6 +15,11 @@ import fluxfem as ff
 
 
 jax.config.update("jax_enable_x64", True)
+TUTORIALS_ROOT = Path(__file__).resolve().parents[1]
+if str(TUTORIALS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TUTORIALS_ROOT))
+
+from common.basis import DenseBasis
 
 
 def parse_args():
@@ -26,29 +33,6 @@ def parse_args():
     parser.add_argument("--tol", type=float, default=1.0e-10)
     parser.add_argument("--maxiter", type=int, default=20)
     return parser.parse_args()
-
-
-class DenseBasis:
-    def __init__(self, basis):
-        self.basis = jnp.asarray(basis, dtype=jnp.float64)
-
-    @property
-    def n_full(self):
-        return int(self.basis.shape[0])
-
-    @property
-    def n_reduced(self):
-        return int(self.basis.shape[1])
-
-    def expand(self, q):
-        return self.basis @ q
-
-    def project_vector(self, vector):
-        return self.basis.T @ jnp.asarray(vector)
-
-    def project_matrix(self, matrix):
-        dense = matrix.to_dense() if hasattr(matrix, "to_dense") else matrix
-        return self.basis.T @ jnp.asarray(dense) @ self.basis
 
 
 def main():

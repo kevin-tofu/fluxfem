@@ -27,7 +27,9 @@ fixture active sets to restrict nonlinear evaluations.
 
 ## Comparison tutorial
 
-`tutorials/compare_geometric_nonlinear_full_vs_rom.py` compares full geometric
-nonlinear FEM against the direct Galerkin ROM. Use `--basis complete` as a
-regression check that the ROM reproduces the full-order solution, and
-`--basis tip-y` as a deliberately tiny basis that exposes projection error.
+`tutorials/nonlinear_rom/compare_geometric_nonlinear_full_vs_rom.py` compares
+full geometric nonlinear FEM against the direct Galerkin ROM. Use
+`--basis complete` as a regression check that the ROM reproduces the full-order
+solution, and `--basis tip-y` as a deliberately tiny basis that exposes
+projection error. By default, JSON/PNG/VTU outputs are written under
+`tutorials/nonlinear_rom/results/compare_geometric_nonlinear_full_vs_rom/`.
