@@ -36,7 +36,16 @@ def parse_args():
     parser.add_argument("--E", type=float, default=250.0)
     parser.add_argument("--nu", type=float, default=0.3)
     parser.add_argument("--force", type=float, default=-0.001)
-    parser.add_argument("--basis", choices=("complete", "tip-y", "all"), default="all")
+    parser.add_argument(
+        "--basis",
+        choices=("identity-full", "free-dofs", "cantilever-bending-y", "all"),
+        default="all",
+        help=(
+            "ROM basis to compare: identity-full is an exact full-coordinate "
+            "regression check, free-dofs removes fixed coordinates, and "
+            "cantilever-bending-y is a one-coordinate bending-shape ROM."
+        ),
+    )
     parser.add_argument("--tol", type=float, default=1.0e-10)
     parser.add_argument("--maxiter", type=int, default=20)
     parser.add_argument(
@@ -63,12 +72,35 @@ def _tool_node(coords: np.ndarray) -> int:
     return int(ids[0])
 
 
-def _make_basis(kind: str, space, tool_node: int) -> DenseBasis:
+def _coordinate_selection_basis(n_full: int, dofs) -> DenseBasis:
+    dofs = jnp.asarray(dofs, dtype=jnp.int32)
+    return DenseBasis(jnp.eye(n_full, dtype=jnp.float64)[:, dofs])
+
+
+def _cantilever_bending_y_shape_basis(space, coords: np.ndarray) -> DenseBasis:
+    x = coords[:, 0]
+    xmin = float(x.min())
+    length = max(float(x.max() - xmin), 1.0e-30)
+    xi = (x - xmin) / length
+    shape = xi * xi * (3.0 - 2.0 * xi)
+    phi = np.zeros(space.n_dofs, dtype=float)
+    phi[1::3] = shape
+    norm = np.linalg.norm(phi)
+    if norm <= 0.0:
+        raise ValueError("failed to build cantilever-bending-y basis: zero shape vector")
+    return DenseBasis(jnp.asarray(phi[:, None] / norm, dtype=jnp.float64))
+
+
+def _make_basis(kind: str, space, coords: np.ndarray, dirichlet) -> DenseBasis:
     eye = jnp.eye(space.n_dofs, dtype=jnp.float64)
-    if kind == "complete":
+    if kind == "identity-full":
         return DenseBasis(eye)
-    if kind == "tip-y":
-        return DenseBasis(eye[:, [tool_node * 3 + 1]])
+    if kind == "free-dofs":
+        fixed = set(np.asarray(dirichlet.dofs, dtype=int).tolist())
+        free = np.asarray([dof for dof in range(space.n_dofs) if dof not in fixed], dtype=np.int32)
+        return _coordinate_selection_basis(space.n_dofs, free)
+    if kind == "cantilever-bending-y":
+        return _cantilever_bending_y_shape_basis(space, coords)
     raise ValueError(f"unknown basis kind: {kind}")
 
 
@@ -205,7 +237,7 @@ def main():
     )
     full_nodes = np.asarray(full_u).reshape(-1, 3)
     full_inf = float(jnp.linalg.norm(full_u, ord=jnp.inf))
-    basis_names = ("complete", "tip-y") if args.basis == "all" else (args.basis,)
+    basis_names = ("identity-full", "free-dofs", "cantilever-bending-y") if args.basis == "all" else (args.basis,)
     cases = []
 
     print("geometric nonlinear full FEM vs ROM")
@@ -217,7 +249,7 @@ def main():
     print(f"full_solve_time_s: {full_solve_time:.6e}")
 
     for basis_name in basis_names:
-        basis = _make_basis(basis_name, space, tool_node)
+        basis = _make_basis(basis_name, space, coords, dirichlet)
         rom_u, rom_info, rom_build_time, rom_solve_time = _solve_rom(
             space,
             ff.neo_hookean_residual_form,

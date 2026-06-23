@@ -16,8 +16,9 @@ hyper-reduction layer.
 ## Scope
 
 This is suitable for small-to-moderate nonlinear deformation studies and for
-checking that a complete basis reproduces the full-order solve. A low-dimensional
-basis can be used immediately, but the full residual assembly cost remains.
+checking that an identity-full basis reproduces the full-order solve. A
+low-dimensional basis can be used immediately, but the full residual assembly
+cost remains.
 
 ## Next step
 
@@ -29,7 +30,9 @@ fixture active sets to restrict nonlinear evaluations.
 
 `tutorials/nonlinear_rom/compare_geometric_nonlinear_full_vs_rom.py` compares
 full geometric nonlinear FEM against the direct Galerkin ROM. Use
-`--basis complete` as a regression check that the ROM reproduces the full-order
-solution, and `--basis tip-y` as a deliberately tiny basis that exposes
-projection error. By default, JSON/PNG/VTU outputs are written under
+`--basis identity-full` as a regression check that the ROM reproduces the
+full-coordinate solve, `--basis free-dofs` to remove prescribed coordinates while
+retaining the full free subspace, and `--basis cantilever-bending-y` as a
+deliberately small bending-shape ROM that exposes projection error. By default,
+JSON/PNG/VTU outputs are written under
 `tutorials/nonlinear_rom/results/compare_geometric_nonlinear_full_vs_rom/`.

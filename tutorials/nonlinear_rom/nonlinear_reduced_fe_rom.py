@@ -74,16 +74,16 @@ def main():
         ff.NewtonLoopConfig(tol=args.tol, atol=args.tol, maxiter=args.maxiter, linear_solver="spsolve"),
     ).run(u0=jnp.zeros(space.n_dofs, dtype=dtype), newton_callback=lambda _cb: None)
 
-    complete_basis = DenseBasis(jnp.eye(space.n_dofs, dtype=dtype))
+    identity_basis = DenseBasis(jnp.eye(space.n_dofs, dtype=dtype))
     rom = ff.NonlinearReducedFEModel(
         space=space,
         residual_form=ff.neo_hookean_residual_form,
         params=params,
-        basis=complete_basis,
+        basis=identity_basis,
         external_vector=force,
     )
     q, info = rom.as_problem("body").solve(
-        jnp.zeros(complete_basis.n_reduced, dtype=dtype),
+        jnp.zeros(identity_basis.n_reduced, dtype=dtype),
         fixed_dofs=dirichlet.dofs,
         fixed_values=jnp.zeros_like(jnp.asarray(dirichlet.dofs, dtype=dtype)),
         tol=args.tol,
