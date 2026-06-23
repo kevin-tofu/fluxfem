@@ -45,6 +45,9 @@ class _ConstrainedSolveControls:
     atol: float
     maxiter: int
     load_factors: tuple[float, ...]
+    linear_solver: str
+    linear_tol: float | None
+    linear_maxiter: int | None
 
 
 def _as_constraint_system(constraints: LinearConstraintSystem | None, n_dofs: int, dtype) -> LinearConstraintSystem:
@@ -101,12 +104,13 @@ def _solve_controls_from_config(
     maxiter: int,
 ) -> _ConstrainedSolveControls:
     if config is None:
-        return _ConstrainedSolveControls(float(tol), float(atol), int(maxiter), (1.0,))
+        return _ConstrainedSolveControls(float(tol), float(atol), int(maxiter), (1.0,), "spsolve", None, None)
 
     unsupported: list[str] = []
     if bool(getattr(config, "line_search", False)):
         unsupported.append("line_search")
-    if getattr(config, "linear_solver", "spsolve") not in (None, "spsolve"):
+    linear_solver = "spsolve" if getattr(config, "linear_solver", "spsolve") is None else str(config.linear_solver)
+    if linear_solver not in ("spsolve", "gmres"):
         unsupported.append("linear_solver")
     if unsupported:
         names = ", ".join(unsupported)
@@ -118,6 +122,9 @@ def _solve_controls_from_config(
         float(config.atol),
         int(config.maxiter),
         _validate_load_factors(load_factors),
+        linear_solver,
+        getattr(config, "linear_tol", None),
+        getattr(config, "linear_maxiter", None),
     )
 
 
@@ -132,6 +139,9 @@ def _summarize_load_step_infos(step_infos: tuple[SolverResult, ...], *, tol: flo
         residual0=step_infos[0].residual0,
         rel_residual=last.rel_residual,
         line_search_steps=sum(int(info.line_search_steps) for info in step_infos),
+        linear_iters=sum(int(info.linear_iters or 0) for info in step_infos),
+        linear_converged=all(info.linear_converged is not False for info in step_infos),
+        linear_residual=last.linear_residual,
         tol=tol,
         atol=atol,
         stopping_criterion=last.stopping_criterion,
@@ -139,6 +149,70 @@ def _summarize_load_step_infos(step_infos: tuple[SolverResult, ...], *, tol: flo
         stop_reason=stop_reason,
         nan_detected=any(bool(info.nan_detected) for info in step_infos),
     )
+
+
+def _solve_kkt_delta(
+    sp,
+    spla,
+    j_ff,
+    c_csr,
+    rhs: np.ndarray,
+    *,
+    linear_solver: str,
+    linear_tol: float | None,
+    linear_maxiter: int | None,
+) -> tuple[np.ndarray, int | None, bool | None, float | None]:
+    n_free = int(j_ff.shape[0])
+    n_constraints = int(c_csr.shape[0])
+    n_total = n_free + n_constraints
+
+    if linear_solver == "spsolve":
+        zero = sp.csr_matrix((n_constraints, n_constraints), dtype=float)
+        lhs = sp.bmat([[j_ff, c_csr.T], [c_csr, zero]], format="csr")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            delta = spla.spsolve(lhs, rhs)
+        if caught or not np.all(np.isfinite(delta)):
+            lhs_dense = lhs.toarray()
+            if np.linalg.matrix_rank(lhs_dense) < lhs_dense.shape[0]:
+                raise np.linalg.LinAlgError("constrained Newton KKT matrix is singular.")
+            delta = np.linalg.solve(lhs_dense, rhs)
+        residual = float(np.linalg.norm(lhs @ delta - rhs, ord=np.inf))
+        return delta, None, True, residual
+
+    if linear_solver != "gmres":
+        raise ValueError(f"Unknown constrained KKT linear solver: {linear_solver}")
+
+    def matvec(x):
+        x_u = x[:n_free]
+        x_lam = x[n_free:]
+        return np.concatenate([j_ff @ x_u + c_csr.T @ x_lam, c_csr @ x_u])
+
+    operator = spla.LinearOperator((n_total, n_total), matvec=matvec, dtype=float)
+    iterations = 0
+    last_pr_norm = None
+
+    def callback(value):
+        nonlocal iterations, last_pr_norm
+        iterations += 1
+        if np.isscalar(value):
+            last_pr_norm = float(value)
+
+    rtol = float(linear_tol) if linear_tol is not None else 1.0e-10
+    kwargs = {"rtol": rtol, "atol": 0.0, "maxiter": linear_maxiter, "callback": callback}
+    try:
+        delta, info = spla.gmres(operator, rhs, callback_type="pr_norm", **kwargs)
+    except TypeError:  # pragma: no cover - compatibility with older SciPy
+        delta, info = spla.gmres(operator, rhs, tol=rtol, maxiter=linear_maxiter, callback=callback)
+    residual = float(np.linalg.norm(matvec(delta) - rhs, ord=np.inf))
+    converged = int(info) == 0 and np.all(np.isfinite(delta))
+    if not converged:
+        raise np.linalg.LinAlgError(
+            f"constrained Newton KKT GMRES did not converge: info={info}, residual={residual:.3e}."
+        )
+    if iterations == 0 and last_pr_norm is None:
+        iterations = 1
+    return delta, iterations, True, residual
 
 
 def solve_nonlinear_constrained_kkt(
@@ -156,12 +230,19 @@ def solve_nonlinear_constrained_kkt(
     maxiter: int = 20,
     jacobian_pattern=None,
     assembly_policy: Any | None = None,
+    linear_solver: str = "spsolve",
+    linear_tol: float | None = None,
+    linear_maxiter: int | None = None,
 ) -> NonlinearConstrainedSolveResult:
     """Solve ``R(u) - f + C.T @ lambda = 0`` and ``C u = rhs`` by Newton-KKT.
 
     The constraints are linear and are enforced exactly at the Newton level.
     Dirichlet DOFs are eliminated from the displacement unknowns.
     """
+    linear_solver = str(linear_solver)
+    if linear_solver not in ("spsolve", "gmres"):
+        raise ValueError("linear_solver must be 'spsolve' or 'gmres'.")
+
     try:
         import scipy.sparse as sp
         import scipy.sparse.linalg as spla
@@ -243,6 +324,9 @@ def solve_nonlinear_constrained_kkt(
         )
 
     final_norm = residual0
+    last_linear_iters = None
+    last_linear_converged = None
+    last_linear_residual = None
     for iteration in range(1, int(maxiter) + 1):
         jac = assemble_jacobian_scatter(
             space,
@@ -255,17 +339,17 @@ def solve_nonlinear_constrained_kkt(
         )
         j_ff = jac.to_csr()[np.ix_(free, free)]
         c_csr = sp.csr_matrix(c_free)
-        zero = sp.csr_matrix((n_constraints, n_constraints), dtype=float)
-        lhs = sp.bmat([[j_ff, c_csr.T], [c_csr, zero]], format="csr")
         rhs = -np.asarray(residual_vec, dtype=float)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            delta = spla.spsolve(lhs, rhs)
-        if caught or not np.all(np.isfinite(delta)):
-            lhs_dense = lhs.toarray()
-            if np.linalg.matrix_rank(lhs_dense) < lhs_dense.shape[0]:
-                raise np.linalg.LinAlgError("constrained Newton KKT matrix is singular.")
-            delta = np.linalg.solve(lhs_dense, rhs)
+        delta, last_linear_iters, last_linear_converged, last_linear_residual = _solve_kkt_delta(
+            sp,
+            spla,
+            j_ff,
+            c_csr,
+            rhs,
+            linear_solver=linear_solver,
+            linear_tol=linear_tol,
+            linear_maxiter=linear_maxiter,
+        )
         du = jnp.asarray(delta[: free.size], dtype=dtype)
         dlambda = jnp.asarray(delta[free.size :], dtype=dtype)
         u_free = u_free + du
@@ -287,6 +371,9 @@ def solve_nonlinear_constrained_kkt(
                     atol=atol,
                     stopping_criterion=threshold,
                     step_norm=float(np.linalg.norm(delta)),
+                    linear_iters=last_linear_iters,
+                    linear_converged=last_linear_converged,
+                    linear_residual=last_linear_residual,
                     stop_reason="converged",
                 ),
             )
@@ -303,6 +390,9 @@ def solve_nonlinear_constrained_kkt(
             tol=tol,
             atol=atol,
             stopping_criterion=threshold,
+            linear_iters=last_linear_iters,
+            linear_converged=last_linear_converged,
+            linear_residual=last_linear_residual,
             stop_reason="maxiter",
         ),
     )
@@ -383,17 +473,18 @@ class NonlinearConstrainedProblem:
             Subsequent load steps warm-start from the previous multipliers.
         config:
             Optional ``NewtonLoopConfig``. Supported fields are ``tol``,
-            ``atol``, ``maxiter``, ``n_steps``, and ``load_sequence``. Load
-            stepping scales only ``external_vector``; linear constraints and
-            Dirichlet values stay exact at every step.
+            ``atol``, ``maxiter``, ``n_steps``, ``load_sequence``,
+            ``linear_solver`` (``"spsolve"`` or ``"gmres"``), ``linear_tol``,
+            and ``linear_maxiter``. Load stepping scales only
+            ``external_vector``; linear constraints and Dirichlet values stay
+            exact at every step.
         tol, atol, maxiter:
             Backward-compatible controls used when ``config`` is not provided.
 
         Notes
         -----
-        ``line_search`` and non-``spsolve`` ``linear_solver`` settings are not
-        implemented for the constrained KKT path yet and raise
-        ``NotImplementedError`` when requested.
+        ``line_search`` is not implemented for the constrained KKT path yet and
+        raises ``NotImplementedError`` when requested.
         """
         controls = _solve_controls_from_config(config, tol=tol, atol=atol, maxiter=maxiter)
         u_init = (
@@ -427,6 +518,9 @@ class NonlinearConstrainedProblem:
                 maxiter=controls.maxiter,
                 jacobian_pattern=self.jacobian_pattern,
                 assembly_policy=self.assembly_policy,
+                linear_solver=controls.linear_solver,
+                linear_tol=controls.linear_tol,
+                linear_maxiter=controls.linear_maxiter,
             )
             step_infos.append(last_result.info)
             u_step = last_result.u
