@@ -13,6 +13,7 @@ import time
 import jax
 import jax.numpy as jnp
 import numpy as np
+import scipy.linalg as la
 
 import fluxfem as ff
 
@@ -28,12 +29,14 @@ from common.basis import DenseBasis
 BASIS_LABELS = {
     "identity-full": "full-coordinate check",
     "free-dofs": "free-DOF exact ROM",
+    "linearized-modes": "linearized modal ROM",
     "cantilever-bending-y": "1-mode bending ROM",
 }
 
 BASIS_ROLES = {
     "identity-full": "Regression check: the ROM basis is the full coordinate basis.",
     "free-dofs": "Exact reduced coordinate check: prescribed coordinates are removed, but all free DOFs are retained.",
+    "linearized-modes": "Low-dimensional ROM: lowest vibration modes of the initial linearized elastic model.",
     "cantilever-bending-y": "Deliberately tiny ROM: one assumed cantilever bending shape in the loading direction.",
 }
 
@@ -51,14 +54,16 @@ def parse_args():
     parser.add_argument("--force", type=float, default=-0.001)
     parser.add_argument(
         "--basis",
-        choices=("identity-full", "free-dofs", "cantilever-bending-y", "all"),
+        choices=("identity-full", "free-dofs", "linearized-modes", "cantilever-bending-y", "all"),
         default="all",
         help=(
             "ROM basis to compare: identity-full is an exact full-coordinate "
             "regression check, free-dofs removes fixed coordinates, and "
-            "cantilever-bending-y is a one-coordinate bending-shape ROM."
+            "linearized-modes uses low vibration modes of the initial linearized "
+            "model. cantilever-bending-y is a one-coordinate bending-shape ROM."
         ),
     )
+    parser.add_argument("--modal-modes", type=int, default=6, help="Number of linearized modes for --basis linearized-modes.")
     parser.add_argument("--tol", type=float, default=1.0e-10)
     parser.add_argument("--maxiter", type=int, default=20)
     parser.add_argument(
@@ -104,7 +109,36 @@ def _cantilever_bending_y_shape_basis(space, coords: np.ndarray) -> DenseBasis:
     return DenseBasis(jnp.asarray(phi[:, None] / norm, dtype=jnp.float64))
 
 
-def _make_basis(kind: str, space, coords: np.ndarray, dirichlet) -> DenseBasis:
+def _linearized_modal_basis(space, dirichlet, *, elastic_modulus: float, poisson_ratio: float, n_modes: int) -> DenseBasis:
+    if n_modes <= 0:
+        raise ValueError("modal-modes must be positive")
+    stiffness = space.assemble(ff.linear_elasticity_form, params=ff.isotropic_3d_D(elastic_modulus, poisson_ratio))
+    mass = space.assemble_mass_matrix()
+    fixed = set(np.asarray(dirichlet.dofs, dtype=int).tolist())
+    free = np.asarray([dof for dof in range(space.n_dofs) if dof not in fixed], dtype=int)
+    if free.size == 0:
+        raise ValueError("cannot build linearized modal basis with no free DOFs")
+    n_keep = min(int(n_modes), int(free.size))
+    k_ff = np.asarray(stiffness.to_dense(), dtype=float)[np.ix_(free, free)]
+    m_ff = np.asarray(mass.to_dense(), dtype=float)[np.ix_(free, free)]
+    eigvals, eigvecs = la.eigh(k_ff, m_ff)
+    order = np.argsort(eigvals)
+    phi_free = eigvecs[:, order[:n_keep]]
+    phi = np.zeros((space.n_dofs, n_keep), dtype=float)
+    phi[free, :] = phi_free
+    return DenseBasis(jnp.asarray(phi, dtype=jnp.float64))
+
+
+def _make_basis(
+    kind: str,
+    space,
+    coords: np.ndarray,
+    dirichlet,
+    *,
+    elastic_modulus: float,
+    poisson_ratio: float,
+    modal_modes: int,
+) -> DenseBasis:
     eye = jnp.eye(space.n_dofs, dtype=jnp.float64)
     if kind == "identity-full":
         return DenseBasis(eye)
@@ -112,6 +146,14 @@ def _make_basis(kind: str, space, coords: np.ndarray, dirichlet) -> DenseBasis:
         fixed = set(np.asarray(dirichlet.dofs, dtype=int).tolist())
         free = np.asarray([dof for dof in range(space.n_dofs) if dof not in fixed], dtype=np.int32)
         return _coordinate_selection_basis(space.n_dofs, free)
+    if kind == "linearized-modes":
+        return _linearized_modal_basis(
+            space,
+            dirichlet,
+            elastic_modulus=elastic_modulus,
+            poisson_ratio=poisson_ratio,
+            n_modes=modal_modes,
+        )
     if kind == "cantilever-bending-y":
         return _cantilever_bending_y_shape_basis(space, coords)
     raise ValueError(f"unknown basis kind: {kind}")
@@ -241,6 +283,7 @@ def _write_summary(path: str, payload: dict):
             "",
             "- If `identity-full` does not match the full FEM, the projection implementation is wrong.",
             "- If `free-dofs` does not match the full FEM, the handling of prescribed coordinates is wrong.",
+            "- `linearized-modes` is the first meaningful low-dimensional basis in this tutorial; its error should drop as `--modal-modes` increases.",
             "- If `cantilever-bending-y` is inaccurate, that is expected: one bending shape cannot represent the full 3D nonlinear displacement field.",
         ]
     )
@@ -330,7 +373,11 @@ def main():
     )
     full_nodes = np.asarray(full_u).reshape(-1, 3)
     full_inf = float(jnp.linalg.norm(full_u, ord=jnp.inf))
-    basis_names = ("identity-full", "free-dofs", "cantilever-bending-y") if args.basis == "all" else (args.basis,)
+    basis_names = (
+        ("identity-full", "free-dofs", "linearized-modes", "cantilever-bending-y")
+        if args.basis == "all"
+        else (args.basis,)
+    )
     cases = []
 
     print("geometric nonlinear full FEM vs ROM")
@@ -342,7 +389,15 @@ def main():
     print(f"full_solve_time_s: {full_solve_time:.6e}")
 
     for basis_name in basis_names:
-        basis = _make_basis(basis_name, space, coords, dirichlet)
+        basis = _make_basis(
+            basis_name,
+            space,
+            coords,
+            dirichlet,
+            elastic_modulus=args.E,
+            poisson_ratio=args.nu,
+            modal_modes=args.modal_modes,
+        )
         rom_u, rom_info, rom_build_time, rom_solve_time = _solve_rom(
             space,
             ff.neo_hookean_residual_form,
@@ -362,6 +417,7 @@ def main():
             "basis": basis_name,
             "basis_label": BASIS_LABELS.get(basis_name, basis_name),
             "basis_role": BASIS_ROLES.get(basis_name, ""),
+            "basis_parameters": {"modal_modes": int(args.modal_modes)} if basis_name == "linearized-modes" else {},
             "n_reduced": basis.n_reduced,
             "rom_converged": bool(rom_info.converged),
             "rom_iters": int(rom_info.iters),
@@ -390,6 +446,7 @@ def main():
             "nz": args.nz,
             "n_full": int(space.n_dofs),
             "force": float(args.force),
+            "modal_modes": int(args.modal_modes),
             "tol": float(args.tol),
             "maxiter": int(args.maxiter),
         },
