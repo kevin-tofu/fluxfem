@@ -48,6 +48,14 @@ class _ConstrainedSolveControls:
     linear_solver: str
     linear_tol: float | None
     linear_maxiter: int | None
+    linear_preconditioner: Any | None
+    petsc_ksp_type: str
+    petsc_pc_type: str
+    petsc_rtol: float | None
+    petsc_atol: float | None
+    petsc_max_it: int | None
+    petsc_options: dict[str, Any] | None
+    petsc_use_pmat: bool
 
 
 def _as_constraint_system(constraints: LinearConstraintSystem | None, n_dofs: int, dtype) -> LinearConstraintSystem:
@@ -104,13 +112,29 @@ def _solve_controls_from_config(
     maxiter: int,
 ) -> _ConstrainedSolveControls:
     if config is None:
-        return _ConstrainedSolveControls(float(tol), float(atol), int(maxiter), (1.0,), "spsolve", None, None)
+        return _ConstrainedSolveControls(
+            float(tol),
+            float(atol),
+            int(maxiter),
+            (1.0,),
+            "spsolve",
+            None,
+            None,
+            None,
+            "gmres",
+            "none",
+            None,
+            None,
+            None,
+            None,
+            False,
+        )
 
     unsupported: list[str] = []
     if bool(getattr(config, "line_search", False)):
         unsupported.append("line_search")
     linear_solver = "spsolve" if getattr(config, "linear_solver", "spsolve") is None else str(config.linear_solver)
-    if linear_solver not in ("spsolve", "gmres"):
+    if linear_solver not in ("spsolve", "gmres", "petsc_shell"):
         unsupported.append("linear_solver")
     if unsupported:
         names = ", ".join(unsupported)
@@ -125,6 +149,14 @@ def _solve_controls_from_config(
         linear_solver,
         getattr(config, "linear_tol", None),
         getattr(config, "linear_maxiter", None),
+        getattr(config, "linear_preconditioner", None),
+        str(getattr(config, "petsc_ksp_type", "gmres")),
+        str(getattr(config, "petsc_pc_type", "none")),
+        getattr(config, "petsc_rtol", None),
+        getattr(config, "petsc_atol", None),
+        getattr(config, "petsc_max_it", None),
+        getattr(config, "petsc_options", None),
+        bool(getattr(config, "petsc_use_pmat", False)),
     )
 
 
@@ -161,6 +193,14 @@ def _solve_kkt_delta(
     linear_solver: str,
     linear_tol: float | None,
     linear_maxiter: int | None,
+    linear_preconditioner: Any | None,
+    petsc_ksp_type: str,
+    petsc_pc_type: str,
+    petsc_rtol: float | None,
+    petsc_atol: float | None,
+    petsc_max_it: int | None,
+    petsc_options: dict[str, Any] | None,
+    petsc_use_pmat: bool,
 ) -> tuple[np.ndarray, int | None, bool | None, float | None]:
     n_free = int(j_ff.shape[0])
     n_constraints = int(c_csr.shape[0])
@@ -180,13 +220,49 @@ def _solve_kkt_delta(
         residual = float(np.linalg.norm(lhs @ delta - rhs, ord=np.inf))
         return delta, None, True, residual
 
-    if linear_solver != "gmres":
-        raise ValueError(f"Unknown constrained KKT linear solver: {linear_solver}")
-
     def matvec(x):
         x_u = x[:n_free]
         x_lam = x[n_free:]
         return np.concatenate([j_ff @ x_u + c_csr.T @ x_lam, c_csr @ x_u])
+
+    if linear_solver == "petsc_shell":
+        from .petsc import petsc_shell_solve
+
+        pmat = None
+        if petsc_use_pmat:
+            zero = sp.csr_matrix((n_constraints, n_constraints), dtype=float)
+            pmat = sp.bmat([[j_ff, c_csr.T], [c_csr, zero]], format="csr")
+        delta, info = petsc_shell_solve(
+            matvec,
+            rhs,
+            n_dofs=n_total,
+            ksp_type=petsc_ksp_type,
+            pc_type=petsc_pc_type,
+            preconditioner=linear_preconditioner,
+            pmat=pmat,
+            rtol=petsc_rtol if petsc_rtol is not None else linear_tol,
+            atol=petsc_atol,
+            max_it=petsc_max_it if petsc_max_it is not None else linear_maxiter,
+            options=petsc_options,
+            return_info=True,
+        )
+        residual = float(np.linalg.norm(matvec(delta) - rhs, ord=np.inf))
+        converged = bool(info.get("converged", True)) and np.all(np.isfinite(delta))
+        if not converged:
+            reason = info.get("reason", "unknown")
+            raise np.linalg.LinAlgError(
+                f"constrained Newton KKT PETSc shell solve did not converge: reason={reason}, residual={residual:.3e}."
+            )
+        linear_residual = info.get("residual_norm", residual)
+        return (
+            np.asarray(delta, dtype=float),
+            info.get("iters", None),
+            converged,
+            float(linear_residual) if linear_residual is not None else residual,
+        )
+
+    if linear_solver != "gmres":
+        raise ValueError(f"Unknown constrained KKT linear solver: {linear_solver}")
 
     operator = spla.LinearOperator((n_total, n_total), matvec=matvec, dtype=float)
     iterations = 0
@@ -233,6 +309,14 @@ def solve_nonlinear_constrained_kkt(
     linear_solver: str = "spsolve",
     linear_tol: float | None = None,
     linear_maxiter: int | None = None,
+    linear_preconditioner: Any | None = None,
+    petsc_ksp_type: str = "gmres",
+    petsc_pc_type: str = "none",
+    petsc_rtol: float | None = None,
+    petsc_atol: float | None = None,
+    petsc_max_it: int | None = None,
+    petsc_options: dict[str, Any] | None = None,
+    petsc_use_pmat: bool = False,
 ) -> NonlinearConstrainedSolveResult:
     """Solve ``R(u) - f + C.T @ lambda = 0`` and ``C u = rhs`` by Newton-KKT.
 
@@ -240,8 +324,8 @@ def solve_nonlinear_constrained_kkt(
     Dirichlet DOFs are eliminated from the displacement unknowns.
     """
     linear_solver = str(linear_solver)
-    if linear_solver not in ("spsolve", "gmres"):
-        raise ValueError("linear_solver must be 'spsolve' or 'gmres'.")
+    if linear_solver not in ("spsolve", "gmres", "petsc_shell"):
+        raise ValueError("linear_solver must be 'spsolve', 'gmres', or 'petsc_shell'.")
 
     try:
         import scipy.sparse as sp
@@ -349,6 +433,14 @@ def solve_nonlinear_constrained_kkt(
             linear_solver=linear_solver,
             linear_tol=linear_tol,
             linear_maxiter=linear_maxiter,
+            linear_preconditioner=linear_preconditioner,
+            petsc_ksp_type=petsc_ksp_type,
+            petsc_pc_type=petsc_pc_type,
+            petsc_rtol=petsc_rtol,
+            petsc_atol=petsc_atol,
+            petsc_max_it=petsc_max_it,
+            petsc_options=petsc_options,
+            petsc_use_pmat=petsc_use_pmat,
         )
         du = jnp.asarray(delta[: free.size], dtype=dtype)
         dlambda = jnp.asarray(delta[free.size :], dtype=dtype)
@@ -474,10 +566,11 @@ class NonlinearConstrainedProblem:
         config:
             Optional ``NewtonLoopConfig``. Supported fields are ``tol``,
             ``atol``, ``maxiter``, ``n_steps``, ``load_sequence``,
-            ``linear_solver`` (``"spsolve"`` or ``"gmres"``), ``linear_tol``,
-            and ``linear_maxiter``. Load stepping scales only
-            ``external_vector``; linear constraints and Dirichlet values stay
-            exact at every step.
+            ``linear_solver`` (``"spsolve"``, ``"gmres"``, or
+            ``"petsc_shell"``), ``linear_tol``, ``linear_maxiter``,
+            ``linear_preconditioner``, and the ``petsc_*`` controls. Load
+            stepping scales only ``external_vector``; linear constraints and
+            Dirichlet values stay exact at every step.
         tol, atol, maxiter:
             Backward-compatible controls used when ``config`` is not provided.
 
@@ -521,6 +614,14 @@ class NonlinearConstrainedProblem:
                 linear_solver=controls.linear_solver,
                 linear_tol=controls.linear_tol,
                 linear_maxiter=controls.linear_maxiter,
+                linear_preconditioner=controls.linear_preconditioner,
+                petsc_ksp_type=controls.petsc_ksp_type,
+                petsc_pc_type=controls.petsc_pc_type,
+                petsc_rtol=controls.petsc_rtol,
+                petsc_atol=controls.petsc_atol,
+                petsc_max_it=controls.petsc_max_it,
+                petsc_options=controls.petsc_options,
+                petsc_use_pmat=controls.petsc_use_pmat,
             )
             step_infos.append(last_result.info)
             u_step = last_result.u

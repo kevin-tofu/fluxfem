@@ -198,3 +198,64 @@ def test_nonlinear_constrained_problem_gmres_matches_direct_kkt_solution():
     np.testing.assert_allclose(np.asarray(gmres.u), np.asarray(direct.u), atol=1.0e-10)
     np.testing.assert_allclose(np.asarray(gmres.multipliers), np.asarray(direct.multipliers), atol=1.0e-10)
     np.testing.assert_allclose(np.asarray(problem.constraint_system().residual(gmres.u)), np.zeros(1), atol=1.0e-10)
+
+
+def test_nonlinear_constrained_problem_petsc_shell_backend_is_selectable(monkeypatch):
+    import scipy.sparse.linalg as spla
+    import fluxfem.solver.petsc as petsc_mod
+
+    calls = []
+
+    def _stub_petsc_shell_solve(A, b, **kwargs):
+        calls.append(kwargs)
+        n = int(kwargs["n_dofs"])
+        operator = spla.LinearOperator((n, n), matvec=A, dtype=float)
+        x, info = spla.gmres(operator, np.asarray(b), rtol=1.0e-12, atol=0.0, maxiter=100)
+        assert info == 0
+        return x, {"converged": True, "iters": 3, "residual_norm": float(np.linalg.norm(A(x) - b, ord=np.inf))}
+
+    monkeypatch.setattr(petsc_mod, "petsc_shell_solve", _stub_petsc_shell_solve)
+
+    mesh = ff.StructuredHexBox(nx=1, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=1, intorder=2)
+    dtype = jnp.float64
+    dir_dofs = mesh.boundary_dofs_where(
+        lambda pts: np.isclose(pts[:, 0], 0.0),
+        components=[0],
+        dof_per_node=1,
+    )
+    matrix = jnp.zeros((1, space.n_dofs), dtype=dtype).at[0, 7].set(1.0)
+    external = jnp.zeros((space.n_dofs,), dtype=dtype).at[5].set(0.015)
+    problem = ff.NonlinearConstrainedProblem(
+        space=space,
+        residual_form=linear_diffusion_residual,
+        params=1.0,
+        dirichlet=(np.asarray(dir_dofs, dtype=int), np.zeros(len(dir_dofs))),
+        external_vector=external,
+        constraints=[ff.LinearConstraintSystem(matrix, jnp.array([0.04], dtype=dtype))],
+        dtype=dtype,
+    )
+
+    direct = problem.solve(config=ff.NewtonLoopConfig(tol=1.0e-10, atol=1.0e-10, maxiter=20))
+    petsc_shell = problem.solve(
+        config=ff.NewtonLoopConfig(
+            tol=1.0e-10,
+            atol=1.0e-10,
+            maxiter=20,
+            linear_solver="petsc_shell",
+            linear_preconditioner=None,
+            petsc_ksp_type="gmres",
+            petsc_pc_type="none",
+            petsc_rtol=1.0e-12,
+            petsc_use_pmat=True,
+        )
+    )
+
+    assert calls
+    assert calls[-1]["ksp_type"] == "gmres"
+    assert calls[-1]["pc_type"] == "none"
+    assert calls[-1]["pmat"] is not None
+    assert petsc_shell.info.converged
+    assert petsc_shell.info.linear_iters == 3
+    np.testing.assert_allclose(np.asarray(petsc_shell.u), np.asarray(direct.u), atol=1.0e-10)
+    np.testing.assert_allclose(np.asarray(petsc_shell.multipliers), np.asarray(direct.multipliers), atol=1.0e-10)

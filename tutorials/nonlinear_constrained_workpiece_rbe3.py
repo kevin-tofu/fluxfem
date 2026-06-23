@@ -31,9 +31,13 @@ def parse_args():
     parser.add_argument("--atol", type=float, default=1.0e-10)
     parser.add_argument("--maxiter", type=int, default=20)
     parser.add_argument("--n-steps", type=int, default=1)
-    parser.add_argument("--linear-solver", choices=("spsolve", "gmres"), default="spsolve")
+    parser.add_argument("--linear-solver", choices=("spsolve", "gmres", "petsc_shell"), default="spsolve")
     parser.add_argument("--linear-tol", type=float, default=None)
     parser.add_argument("--linear-maxiter", type=int, default=None)
+    parser.add_argument("--linear-preconditioner", type=str, default=None)
+    parser.add_argument("--petsc-ksp-type", type=str, default="gmres")
+    parser.add_argument("--petsc-pc-type", type=str, default="none")
+    parser.add_argument("--petsc-use-pmat", action="store_true")
     parser.add_argument("--compare-single-step", action="store_true")
     parser.add_argument("--output-vtu", type=str, default="")
     return parser.parse_args()
@@ -115,6 +119,10 @@ def main():
         linear_solver=args.linear_solver,
         linear_tol=args.linear_tol,
         linear_maxiter=args.linear_maxiter,
+        linear_preconditioner=args.linear_preconditioner,
+        petsc_ksp_type=args.petsc_ksp_type,
+        petsc_pc_type=args.petsc_pc_type,
+        petsc_use_pmat=args.petsc_use_pmat,
     )
     result = problem.solve(config=config)
     u = np.asarray(result.u, dtype=float)
