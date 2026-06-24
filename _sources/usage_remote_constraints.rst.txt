@@ -397,8 +397,8 @@ Reference Script
 
 For a working example, see:
 
-- ``tutorials/remote_rbe3_spring_compliance.py``
-- ``tutorials/remote_rbe3_preload_fixture_plate.py``
+- ``tutorials/remote_constraints/remote_rbe3_spring_compliance.py``
+- ``tutorials/remote_constraints/remote_rbe3_preload_fixture_plate.py``
 
 Current Scope
 -------------

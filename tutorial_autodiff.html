@@ -387,11 +387,11 @@
                   
   <section id="autodiff-tutorial-inverse-diffusion">
 <h1>Autodiff Tutorial: Inverse Diffusion<a class="headerlink" href="#autodiff-tutorial-inverse-diffusion" title="Link to this heading">#</a></h1>
-<p>This tutorial explains <code class="docutils literal notranslate"><span class="pre">tutorials/inverse_diffusion_kappa.py</span></code> and shows how to
+<p>This tutorial explains <code class="docutils literal notranslate"><span class="pre">tutorials/diffusion/inverse_diffusion_kappa.py</span></code> and shows how to
 recover a diffusion coefficient from synthetic observations using JAX autodiff.</p>
 <section id="run-the-example">
 <h2>Run the example<a class="headerlink" href="#run-the-example" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/inverse_diffusion_kappa.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/diffusion/inverse_diffusion_kappa.py
 </pre></div>
 </div>
 </section>
@@ -484,7 +484,7 @@ replace <code class="docutils literal notranslate"><span class="pre">u_obs</span
 <section id="jit-compilation">
 <h2>JIT compilation<a class="headerlink" href="#jit-compilation" title="Link to this heading">#</a></h2>
 <p>You can speed up the forward solve and loss/gradient evaluation with JAX JIT.
-In <code class="docutils literal notranslate"><span class="pre">tutorials/inverse_diffusion_kappa.py</span></code> the functions are JIT-compiled and
+In <code class="docutils literal notranslate"><span class="pre">tutorials/diffusion/inverse_diffusion_kappa.py</span></code> the functions are JIT-compiled and
 then reused in the optimization loop:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">solve_u_jit</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">solve_u</span><span class="p">)</span>
 

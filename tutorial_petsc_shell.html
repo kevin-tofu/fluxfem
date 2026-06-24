@@ -388,8 +388,8 @@
 <h1>PETSc Shell Solvers<a class="headerlink" href="#petsc-shell-solvers" title="Link to this heading">#</a></h1>
 <p>This tutorial summarizes the PETSc shell-matrix demos:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_demo.py</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_pmat_demo.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc/petsc_shell_poisson_demo.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc/petsc_shell_poisson_pmat_demo.py</span></code></p></li>
 </ul>
 <p>They show how to wrap FluxFEM operators in PETSc shells for flexible
 preconditioning and matrix-free solves.</p>
@@ -408,8 +408,8 @@ so <code class="docutils literal notranslate"><span class="pre">petsc4py</span><
 </section>
 <section id="run-the-examples">
 <h2>Run the examples<a class="headerlink" href="#run-the-examples" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/petsc_shell_poisson_demo.py
-python<span class="w"> </span>tutorials/petsc_shell_poisson_pmat_demo.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/petsc/petsc_shell_poisson_demo.py
+python<span class="w"> </span>tutorials/petsc/petsc_shell_poisson_pmat_demo.py
 </pre></div>
 </div>
 </section>
@@ -428,9 +428,9 @@ ILU or Jacobi.</p></li>
 <section id="details-per-script">
 <h2>Details per script<a class="headerlink" href="#details-per-script" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_demo.py</span></code> keeps everything matrix-free and
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc/petsc_shell_poisson_demo.py</span></code> keeps everything matrix-free and
 sets <code class="docutils literal notranslate"><span class="pre">preconditioner=&quot;diag0&quot;</span></code> so PETSc only sees the shell operator.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_pmat_demo.py</span></code> still uses the shell for the
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc/petsc_shell_poisson_pmat_demo.py</span></code> still uses the shell for the
 mat-vec but passes <code class="docutils literal notranslate"><span class="pre">pmat=A</span></code> plus <code class="docutils literal notranslate"><span class="pre">pc_type=&quot;jacobi&quot;</span></code> so PETSc can build an
 explicit preconditioner from the assembled stiffness while the shell retains
 flexibility for the operator action.</p></li>

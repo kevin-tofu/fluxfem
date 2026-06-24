@@ -387,12 +387,12 @@
                   
   <section id="hyper-elasticity-hyperelastic-cantilever">
 <h1>Hyper-Elasticity: Hyperelastic Cantilever<a class="headerlink" href="#hyper-elasticity-hyperelastic-cantilever" title="Link to this heading">#</a></h1>
-<p>This tutorial summarizes <code class="docutils literal notranslate"><span class="pre">tutorials/neo_hookean_cantilever.py</span></code> and
+<p>This tutorial summarizes <code class="docutils literal notranslate"><span class="pre">tutorials/nonlinear/neo_hookean_cantilever.py</span></code> and
 explains the nonlinear formulation, loads, and solver flow used for a 3D
 Neo-Hookean cantilever.</p>
 <section id="run-the-example">
 <h2>Run the example<a class="headerlink" href="#run-the-example" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/neo_hookean_cantilever.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/nonlinear/neo_hookean_cantilever.py
 </pre></div>
 </div>
 </section>
@@ -400,7 +400,7 @@ Neo-Hookean cantilever.</p>
 <h2>Recommended solver settings<a class="headerlink" href="#recommended-solver-settings" title="Link to this heading">#</a></h2>
 <p>For practical 3D runs, the default tutorial settings now prefer PETSc shell
 with a direct preconditioner:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/neo_hookean_cantilever.py<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/nonlinear/neo_hookean_cantilever.py<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--linear-solver<span class="w"> </span>petsc_shell<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--petsc-ksp-type<span class="w"> </span>preonly<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--petsc-pc-type<span class="w"> </span>lu<span class="w"> </span><span class="se">\</span>

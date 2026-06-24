@@ -1,7 +1,7 @@
 Craig-Bampton Two-Subsystem ROM
 ===============================
 
-This tutorial summarizes ``tutorials/craig_bampton_two_bar_subsystems.py``.
+This tutorial summarizes ``tutorials/craig_bampton/craig_bampton_two_bar_subsystems.py``.
 It shows the intended workflow for multiple larger subsystems: each subsystem
 owns its own sparse ``K`` and ``M``, each gets its own Craig-Bampton basis, and
 the reduced subsystems are coupled through retained interface DOFs.
@@ -11,7 +11,7 @@ Run
 
 .. code-block:: bash
 
-   PYTHONPATH=src python tutorials/craig_bampton_two_bar_subsystems.py
+   PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_two_bar_subsystems.py
 
 What It Does
 ------------

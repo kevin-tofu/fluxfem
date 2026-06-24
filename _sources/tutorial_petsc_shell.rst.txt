@@ -3,8 +3,8 @@ PETSc Shell Solvers
 
 This tutorial summarizes the PETSc shell-matrix demos:
 
-- ``tutorials/petsc_shell_poisson_demo.py``
-- ``tutorials/petsc_shell_poisson_pmat_demo.py``
+- ``tutorials/petsc/petsc_shell_poisson_demo.py``
+- ``tutorials/petsc/petsc_shell_poisson_pmat_demo.py``
 
 They show how to wrap FluxFEM operators in PETSc shells for flexible
 preconditioning and matrix-free solves.
@@ -30,8 +30,8 @@ Run the examples
 
 .. code-block:: bash
 
-   python tutorials/petsc_shell_poisson_demo.py
-   python tutorials/petsc_shell_poisson_pmat_demo.py
+   python tutorials/petsc/petsc_shell_poisson_demo.py
+   python tutorials/petsc/petsc_shell_poisson_pmat_demo.py
 
 What the demos do
 ^^^^^^^^^^^^^^^^^^^
@@ -47,9 +47,9 @@ What the demos do
 Details per script
 ^^^^^^^^^^^^^^^^^^
 
-- ``tutorials/petsc_shell_poisson_demo.py`` keeps everything matrix-free and
+- ``tutorials/petsc/petsc_shell_poisson_demo.py`` keeps everything matrix-free and
   sets ``preconditioner="diag0"`` so PETSc only sees the shell operator.
-- ``tutorials/petsc_shell_poisson_pmat_demo.py`` still uses the shell for the
+- ``tutorials/petsc/petsc_shell_poisson_pmat_demo.py`` still uses the shell for the
   mat-vec but passes ``pmat=A`` plus ``pc_type="jacobi"`` so PETSc can build an
   explicit preconditioner from the assembled stiffness while the shell retains
   flexibility for the operator action.

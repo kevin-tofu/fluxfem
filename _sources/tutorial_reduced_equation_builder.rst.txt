@@ -1,8 +1,8 @@
 Reduced Equation Builder
 ========================
 
-This tutorial summarizes ``tutorials/reduced_equation_builder_nonlinear.py``
-and ``tutorials/reduced_equation_contact_constraint.py``.  It shows the
+This tutorial summarizes ``tutorials/craig_bampton/reduced_equation_builder_nonlinear.py``
+and ``tutorials/craig_bampton/reduced_equation_contact_constraint.py``.  It shows the
 residual-first layer for future differentiable reduced formulations.
 
 Run
@@ -10,8 +10,8 @@ Run
 
 .. code-block:: bash
 
-   PYTHONPATH=src python tutorials/reduced_equation_builder_nonlinear.py
-   PYTHONPATH=src python tutorials/reduced_equation_contact_constraint.py
+   PYTHONPATH=src python tutorials/craig_bampton/reduced_equation_builder_nonlinear.py
+   PYTHONPATH=src python tutorials/craig_bampton/reduced_equation_contact_constraint.py
 
 What It Does
 ------------

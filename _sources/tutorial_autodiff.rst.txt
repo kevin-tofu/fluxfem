@@ -1,7 +1,7 @@
 Autodiff Tutorial: Inverse Diffusion 
 =====================================
 
-This tutorial explains ``tutorials/inverse_diffusion_kappa.py`` and shows how to
+This tutorial explains ``tutorials/diffusion/inverse_diffusion_kappa.py`` and shows how to
 recover a diffusion coefficient from synthetic observations using JAX autodiff.
 
 Run the example
@@ -9,7 +9,7 @@ Run the example
 
 .. code-block:: bash
 
-   python tutorials/inverse_diffusion_kappa.py
+   python tutorials/diffusion/inverse_diffusion_kappa.py
 
 Problem setup
 ^^^^^^^^^^^^^
@@ -113,7 +113,7 @@ JIT compilation
 ^^^^^^^^^^^^^^^
 
 You can speed up the forward solve and loss/gradient evaluation with JAX JIT.
-In ``tutorials/inverse_diffusion_kappa.py`` the functions are JIT-compiled and
+In ``tutorials/diffusion/inverse_diffusion_kappa.py`` the functions are JIT-compiled and
 then reused in the optimization loop:
 
 .. code-block:: python
