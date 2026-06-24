@@ -73,11 +73,9 @@ def parse_args():
         default=str(Path(__file__).resolve().parent / "results" / Path(__file__).stem),
     )
     parser.add_argument("--output-json", type=str, default="")
-    parser.add_argument("--output-error-plot", type=str, default="")
+    parser.add_argument("--output-convergence-plot", type=str, default="")
     parser.add_argument("--output-build-plot", type=str, default="")
     parser.add_argument("--output-solve-plot", type=str, default="")
-    parser.add_argument("--output-newton-plot", type=str, default="")
-    parser.add_argument("--output-residual-plot", type=str, default="")
     return parser.parse_args()
 
 
@@ -321,17 +319,29 @@ def _refresh_figure(fig, path: str, *, generated_at: str):
     print(f"PNG refreshed at {out}")
 
 
-def _remove_legacy_plots(output_dir: str):
+def _remove_legacy_outputs(output_dir: str):
     if not output_dir:
         return
-    for name in ("comparison.png", "error.png", "timing.png", "summary_timing.png"):
+    for name in (
+        "comparison.png",
+        "error.png",
+        "timing.png",
+        "summary_timing.png",
+        "summary_error.png",
+        "summary_newton_iters.png",
+        "summary_residual.png",
+        "rom_complete.vtu",
+        "rom_tip-y.vtu",
+        "error_complete.vtu",
+        "error_tip-y.vtu",
+    ):
         legacy = Path(output_dir) / name
         if legacy.exists():
             legacy.unlink()
-            print(f"Removed legacy plot {legacy}")
+            print(f"Removed legacy output {legacy}")
 
 
-def _write_error_plot(path: str, payload: dict):
+def _write_convergence_plot(path: str, payload: dict):
     if not path:
         return
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/fluxfem_matplotlib")
@@ -343,18 +353,39 @@ def _write_error_plot(path: str, payload: dict):
     cases = payload["cases"]
     labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
     error = [case["relative_error_inf"] for case in cases]
+    residuals = [case["rom_residual_norm"] for case in cases]
+    rom_iters = [case["rom_iters"] for case in cases]
     n_reduced = [case["n_reduced"] for case in cases]
     x = np.arange(len(labels))
 
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    fig, ax = plt.subplots(figsize=(8.2, 4.5), constrained_layout=True)
-    ax.bar(x, error, color="#4c78a8")
-    ax.set_xticks(x, labels, rotation=15, ha="right")
-    ax.set_yscale("log")
-    ax.set_ylabel("relative displacement error inf-norm")
-    ax.set_title("Accuracy vs full FEM")
+    fig, axes = plt.subplots(1, 3, figsize=(15.0, 4.6), constrained_layout=True)
+
+    axes[0].bar(x, error, color="#4c78a8")
+    axes[0].set_xticks(x, labels, rotation=20, ha="right")
+    axes[0].set_yscale("log")
+    axes[0].set_ylabel("relative displacement error")
+    axes[0].set_title("Accuracy vs full FEM")
     for i, (err, n) in enumerate(zip(error, n_reduced)):
-        ax.annotate(f"n={n}", xy=(i, err), xytext=(0, 4), textcoords="offset points", ha="center", fontsize=8)
+        axes[0].annotate(f"n={n}", xy=(i, err), xytext=(0, 4), textcoords="offset points", ha="center", fontsize=8)
+
+    axes[1].bar(x, residuals, color="#9d755d")
+    full_residual = payload["full"]["residual_norm"]
+    axes[1].axhline(full_residual, color="#79706e", linestyle="--", linewidth=1.5, label=f"full {full_residual:.1e}")
+    axes[1].set_xticks(x, labels, rotation=20, ha="right")
+    axes[1].set_yscale("log")
+    axes[1].set_ylabel("final residual inf-norm")
+    axes[1].set_title("Newton residual")
+    axes[1].legend(fontsize=8)
+
+    axes[2].bar(x, rom_iters, color="#b279a2")
+    full_iters = payload["full"]["iters"]
+    axes[2].axhline(full_iters, color="#6f4e7c", linestyle="--", linewidth=1.5, label=f"full {full_iters}")
+    axes[2].set_xticks(x, labels, rotation=20, ha="right")
+    axes[2].set_ylabel("iterations")
+    axes[2].set_title("Newton iterations")
+    axes[2].legend(fontsize=8)
+
     fig.suptitle(f"Generated {generated_at}", fontsize=9)
     _refresh_figure(fig, path, generated_at=generated_at)
     plt.close(fig)
@@ -410,63 +441,6 @@ def _write_solve_plot(path: str, payload: dict):
     ax.set_xticks(x, labels, rotation=15, ha="right")
     ax.set_ylabel("seconds")
     ax.set_title("Solve time; full shown once as reference")
-    ax.legend(fontsize=8)
-    fig.suptitle(f"Generated {generated_at}", fontsize=9)
-    _refresh_figure(fig, path, generated_at=generated_at)
-    plt.close(fig)
-
-
-def _write_newton_plot(path: str, payload: dict):
-    if not path:
-        return
-    os.environ.setdefault("MPLCONFIGDIR", "/tmp/fluxfem_matplotlib")
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    cases = payload["cases"]
-    labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
-    rom_iters = [case["rom_iters"] for case in cases]
-    x = np.arange(len(labels))
-
-    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    fig, ax = plt.subplots(figsize=(8.2, 4.5), constrained_layout=True)
-    ax.bar(x, rom_iters, label="ROM Newton iterations", color="#b279a2")
-    full_iters = payload["full"]["iters"]
-    ax.axhline(full_iters, color="#6f4e7c", linestyle="--", linewidth=1.5, label=f"full Newton iters {full_iters}")
-    ax.set_xticks(x, labels, rotation=15, ha="right")
-    ax.set_ylabel("iterations")
-    ax.set_title("Nonlinear Newton iterations")
-    ax.legend(fontsize=8)
-    fig.suptitle(f"Generated {generated_at}", fontsize=9)
-    _refresh_figure(fig, path, generated_at=generated_at)
-    plt.close(fig)
-
-
-def _write_residual_plot(path: str, payload: dict):
-    if not path:
-        return
-    os.environ.setdefault("MPLCONFIGDIR", "/tmp/fluxfem_matplotlib")
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    cases = payload["cases"]
-    labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
-    residuals = [case["rom_residual_norm"] for case in cases]
-    x = np.arange(len(labels))
-
-    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    fig, ax = plt.subplots(figsize=(8.2, 4.5), constrained_layout=True)
-    ax.bar(x, residuals, label="ROM final residual", color="#9d755d")
-    full_residual = payload["full"]["residual_norm"]
-    ax.axhline(full_residual, color="#79706e", linestyle="--", linewidth=1.5, label=f"full final residual {full_residual:.1e}")
-    ax.set_xticks(x, labels, rotation=15, ha="right")
-    ax.set_yscale("log")
-    ax.set_ylabel("final residual inf-norm")
-    ax.set_title("Nonlinear solve residual")
     ax.legend(fontsize=8)
     fig.suptitle(f"Generated {generated_at}", fontsize=9)
     _refresh_figure(fig, path, generated_at=generated_at)
@@ -600,20 +574,18 @@ def main():
         "cases": cases,
     }
     output_json = args.output_json or (str(Path(args.output_dir) / "metrics.json") if args.output_dir else "")
-    output_error_plot = args.output_error_plot or (str(Path(args.output_dir) / "summary_error.png") if args.output_dir else "")
+    output_convergence_plot = args.output_convergence_plot or (
+        str(Path(args.output_dir) / "summary_convergence.png") if args.output_dir else ""
+    )
     output_build_plot = args.output_build_plot or (str(Path(args.output_dir) / "summary_build_time.png") if args.output_dir else "")
     output_solve_plot = args.output_solve_plot or (str(Path(args.output_dir) / "summary_solve_time.png") if args.output_dir else "")
-    output_newton_plot = args.output_newton_plot or (str(Path(args.output_dir) / "summary_newton_iters.png") if args.output_dir else "")
-    output_residual_plot = args.output_residual_plot or (str(Path(args.output_dir) / "summary_residual.png") if args.output_dir else "")
     output_summary = str(Path(args.output_dir) / "summary.md") if args.output_dir else ""
     _print_case_summary(payload)
     _write_json(output_json, payload)
-    _write_error_plot(output_error_plot, payload)
+    _write_convergence_plot(output_convergence_plot, payload)
     _write_build_plot(output_build_plot, payload)
     _write_solve_plot(output_solve_plot, payload)
-    _write_newton_plot(output_newton_plot, payload)
-    _write_residual_plot(output_residual_plot, payload)
-    _remove_legacy_plots(args.output_dir)
+    _remove_legacy_outputs(args.output_dir)
     _write_summary(output_summary, payload)
 
     if not full_info.converged or any(not case["rom_converged"] for case in cases):
