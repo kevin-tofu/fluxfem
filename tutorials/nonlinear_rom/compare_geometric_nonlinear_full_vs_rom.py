@@ -73,7 +73,8 @@ def parse_args():
         default=str(Path(__file__).resolve().parent / "results" / Path(__file__).stem),
     )
     parser.add_argument("--output-json", type=str, default="")
-    parser.add_argument("--output-plot", type=str, default="")
+    parser.add_argument("--output-error-plot", type=str, default="")
+    parser.add_argument("--output-timing-plot", type=str, default="")
     return parser.parse_args()
 
 
@@ -303,7 +304,25 @@ def _print_case_summary(payload: dict):
         )
 
 
-def _write_plot(path: str, payload: dict):
+def _refresh_figure(fig, path: str, *, generated_at: str):
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        out.unlink()
+    fig.savefig(out, dpi=180, metadata={"Creation Time": generated_at})
+    print(f"PNG refreshed at {out}")
+
+
+def _remove_legacy_combined_plot(output_dir: str):
+    if not output_dir:
+        return
+    legacy = Path(output_dir) / "comparison.png"
+    if legacy.exists():
+        legacy.unlink()
+        print(f"Removed legacy combined plot {legacy}")
+
+
+def _write_error_plot(path: str, payload: dict):
     if not path:
         return
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/fluxfem_matplotlib")
@@ -315,38 +334,54 @@ def _write_plot(path: str, payload: dict):
     cases = payload["cases"]
     labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
     error = [case["relative_error_inf"] for case in cases]
-    full_build = [payload["full"]["build_time_s"] for _case in cases]
-    full_solve = [payload["full"]["solve_time_s"] for _case in cases]
+    n_reduced = [case["n_reduced"] for case in cases]
+    x = np.arange(len(labels))
+
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    fig, ax = plt.subplots(figsize=(8.2, 4.5), constrained_layout=True)
+    ax.bar(x, error, color="#4c78a8")
+    ax.set_xticks(x, labels, rotation=15, ha="right")
+    ax.set_yscale("log")
+    ax.set_ylabel("relative displacement error inf-norm")
+    ax.set_title("Accuracy vs full FEM")
+    for i, (err, n) in enumerate(zip(error, n_reduced)):
+        ax.annotate(f"n={n}", xy=(i, err), xytext=(0, 4), textcoords="offset points", ha="center", fontsize=8)
+    fig.suptitle(f"Generated {generated_at}", fontsize=9)
+    _refresh_figure(fig, path, generated_at=generated_at)
+    plt.close(fig)
+
+
+def _write_timing_plot(path: str, payload: dict):
+    if not path:
+        return
+    os.environ.setdefault("MPLCONFIGDIR", "/tmp/fluxfem_matplotlib")
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cases = payload["cases"]
+    labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
     rom_build = [case["rom_build_time_s"] for case in cases]
     rom_solve = [case["rom_solve_time_s"] for case in cases]
     x = np.arange(len(labels))
 
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0), constrained_layout=True)
-    axes[0].bar(x, error, color="#4c78a8")
-    axes[0].set_xticks(x, labels, rotation=15, ha="right")
-    axes[0].set_yscale("log")
-    axes[0].set_ylabel("relative displacement error inf-norm")
-    axes[0].set_title("ROM displacement error")
-
-    width = 0.2
-    axes[1].bar(x - 1.5 * width, full_build, width, label="full build", color="#72b7b2")
-    axes[1].bar(x - 0.5 * width, full_solve, width, label="full solve", color="#54a24b")
-    axes[1].bar(x + 0.5 * width, rom_build, width, label="rom build", color="#f58518")
-    axes[1].bar(x + 1.5 * width, rom_solve, width, label="rom solve", color="#e45756")
-    axes[1].set_xticks(x, labels, rotation=15, ha="right")
-    axes[1].set_ylabel("seconds")
-    axes[1].set_title("Build / solve time")
-    axes[1].legend(fontsize=8)
+    fig, ax = plt.subplots(figsize=(8.2, 4.5), constrained_layout=True)
+    width = 0.32
+    ax.bar(x - 0.5 * width, rom_build, width, label="ROM build", color="#f58518")
+    ax.bar(x + 0.5 * width, rom_solve, width, label="ROM solve", color="#e45756")
+    full_build = payload["full"]["build_time_s"]
+    full_solve = payload["full"]["solve_time_s"]
+    ax.axhline(full_build, color="#72b7b2", linestyle="--", linewidth=1.5, label=f"full build {full_build:.2f}s")
+    ax.axhline(full_solve, color="#54a24b", linestyle=":", linewidth=1.8, label=f"full solve {full_solve:.2f}s")
+    ax.set_xticks(x, labels, rotation=15, ha="right")
+    ax.set_ylabel("seconds")
+    ax.set_title("ROM cost; full shown once as reference")
+    ax.legend(fontsize=8)
     fig.suptitle(f"Generated {generated_at}", fontsize=9)
-
-    out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    if out.exists():
-        out.unlink()
-    fig.savefig(out, dpi=180, metadata={"Creation Time": generated_at})
+    _refresh_figure(fig, path, generated_at=generated_at)
     plt.close(fig)
-    print(f"PNG refreshed at {out}")
 
 
 def main():
@@ -465,11 +500,14 @@ def main():
         "cases": cases,
     }
     output_json = args.output_json or (str(Path(args.output_dir) / "metrics.json") if args.output_dir else "")
-    output_plot = args.output_plot or (str(Path(args.output_dir) / "comparison.png") if args.output_dir else "")
+    output_error_plot = args.output_error_plot or (str(Path(args.output_dir) / "error.png") if args.output_dir else "")
+    output_timing_plot = args.output_timing_plot or (str(Path(args.output_dir) / "timing.png") if args.output_dir else "")
     output_summary = str(Path(args.output_dir) / "summary.md") if args.output_dir else ""
     _print_case_summary(payload)
     _write_json(output_json, payload)
-    _write_plot(output_plot, payload)
+    _write_error_plot(output_error_plot, payload)
+    _write_timing_plot(output_timing_plot, payload)
+    _remove_legacy_combined_plot(args.output_dir)
     _write_summary(output_summary, payload)
 
     if not full_info.converged or any(not case["rom_converged"] for case in cases):
