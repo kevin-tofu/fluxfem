@@ -14,7 +14,7 @@ where variational forms are treated as first-class, differentiable programs.
 <table>
   <tr>
     <td align="center"><b>Example 1: Diffusion</b></td>
-    <td align="center"><b>Example 2: Neo Neohookean Hyper Elasticity</b></td>
+    <td align="center"><b>Example 2: Neo-Hookean Hyper Elasticity</b></td>
   </tr>
   <tr>
     <td align="center">
