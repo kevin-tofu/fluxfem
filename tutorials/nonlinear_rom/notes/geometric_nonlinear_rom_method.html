@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Geometric Nonlinear Full FEM vs ROM Method</title>
+  <style>
+    body {
+      color: #1f2933;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      margin: 0;
+      background: #f7f8fa;
+    }
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 40px 24px 64px;
+      background: #ffffff;
+      min-height: 100vh;
+    }
+    h1, h2 {
+      color: #102a43;
+      line-height: 1.2;
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 2rem;
+    }
+    h2 {
+      margin-top: 2rem;
+      border-bottom: 1px solid #d9e2ec;
+      padding-bottom: 0.25rem;
+      font-size: 1.35rem;
+    }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    pre {
+      background: #f0f4f8;
+      border: 1px solid #d9e2ec;
+      overflow-x: auto;
+      padding: 12px 14px;
+    }
+    dt {
+      font-weight: 700;
+      margin-top: 0.75rem;
+    }
+    dd {
+      margin-left: 1.25rem;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Geometric Nonlinear Full FEM vs ROM Method</h1>
+  <p>This note documents the calculation used by <code>tutorials/nonlinear_rom/compare_geometric_nonlinear_full_vs_rom.py</code>.</p>
+
+  <h2>Problem</h2>
+  <p>The tutorial solves a small 3D cantilever-like solid with a geometric nonlinear Neo-Hookean residual. The left face is fixed by Dirichlet constraints and a small vertical load is applied to the upper free corner node.</p>
+  <p>The full-order unknown is the displacement vector</p>
+  <pre>u in R^n.</pre>
+  <p>The full nonlinear equilibrium equation is</p>
+  <pre>R(u) = f_int(u) - f_ext = 0.</pre>
+  <p>The full solve uses the existing FluxFEM nonlinear load-step/Newton path. At each Newton iteration, the tangent is assembled and the linearized correction is solved on the free DOFs.</p>
+
+  <h2>Direct Galerkin ROM</h2>
+  <p>The ROM uses a dense basis</p>
+  <pre>Phi in R^(n x r),  q in R^r,  u = Phi q.</pre>
+  <p>The reduced nonlinear residual is formed by direct Galerkin projection:</p>
+  <pre>R_r(q) = Phi^T R(Phi q).</pre>
+  <p>The reduced tangent used by Newton is</p>
+  <pre>K_r(q) = Phi^T K(Phi q) Phi,</pre>
+  <p>where <code>K(u) = dR/du</code>. The full residual and tangent are still evaluated through the normal nonlinear FE assembly path. This means the tutorial is a correctness and API demonstration, not a hyper-reduced large-scale nonlinear ROM benchmark.</p>
+
+  <h2>Compared Bases</h2>
+  <dl>
+    <dt><code>identity-full</code></dt>
+    <dd>Uses the full coordinate basis. This is a regression check: it should reproduce the full FEM solution up to numerical tolerance.</dd>
+    <dt><code>free-dofs</code></dt>
+    <dd>Uses only unconstrained coordinates. This checks that fixed coordinates are handled correctly while keeping the full free subspace.</dd>
+    <dt><code>linearized-modes</code></dt>
+    <dd>Assembles the initial linear elastic stiffness and mass matrices, removes fixed DOFs, and solves <code>K_ff phi_i = lambda_i M_ff phi_i</code>. The lowest modes are lifted back to the full coordinate vector and used as a low-dimensional nonlinear ROM basis.</dd>
+    <dt><code>cantilever-bending-y</code></dt>
+    <dd>Uses one assumed bending shape in the loading direction. It is intentionally too small and is included to show visible projection error.</dd>
+  </dl>
+
+  <h2>Error Metrics</h2>
+  <p>For each ROM solution <code>u_rom</code>, the tutorial compares against the full solution <code>u_full</code>.</p>
+  <pre>e = u_full - u_rom</pre>
+  <p>The JSON output stores:</p>
+  <pre>error_mean_abs     = mean(abs(e))
+error_inf          = max(abs(e))
+error_l2           = ||e||_2
+relative_error_inf = max(abs(e)) / max(abs(u_full))</pre>
+  <p><code>summary_convergence.png</code> shows relative displacement error, absolute displacement error mean and max, final Newton residual infinity norm, and Newton iteration count.</p>
+  <p><code>summary_build_time.png</code> and <code>summary_solve_time.png</code> are kept separate so that setup cost and nonlinear solve cost are not visually mixed with accuracy.</p>
+
+  <h2>Interpretation</h2>
+  <p>A small reduced residual only means that the projected equation is solved in the chosen subspace. It does not prove that the subspace is accurate. The displacement error plots are therefore the primary check for whether the ROM matches the full FEM solution.</p>
+  <p>For this tutorial, <code>identity-full</code> and <code>free-dofs</code> should match the full-order solution. <code>linearized-modes</code> is expected to be a reasonable low-dimensional approximation for the small deformation case. <code>cantilever-bending-y</code> is expected to converge in its one-dimensional subspace but remain inaccurate in full-space displacement error.</p>
+</main>
+</body>
+</html>

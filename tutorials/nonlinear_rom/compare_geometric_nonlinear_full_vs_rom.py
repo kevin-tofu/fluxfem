@@ -269,8 +269,8 @@ def _write_summary(path: str, payload: dict):
             "",
             "## ROM Cases",
             "",
-            "| basis | role | reduced DOFs | Newton iters | relative error | final residual | residual drop | tool y displacement | verdict |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---|",
+            "| basis | role | reduced DOFs | Newton iters | relative error | abs error mean | abs error max | final residual | residual drop | tool y displacement | verdict |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
         ]
     )
     for case in payload["cases"]:
@@ -280,6 +280,7 @@ def _write_summary(path: str, payload: dict):
         lines.append(
             f"| {name} | {role} | {case['n_reduced']} | "
             f"{case['rom_iters']} | {case['relative_error_inf']:.6e} | "
+            f"{case['error_mean_abs']:.6e} | {case['error_inf']:.6e} | "
             f"{case['rom_residual_norm']:.6e} | {case['rom_rel_residual']:.6e} | "
             f"{case['rom_tool_uy']:.6e} | {verdict} |"
         )
@@ -352,39 +353,51 @@ def _write_convergence_plot(path: str, payload: dict):
 
     cases = payload["cases"]
     labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
-    error = [case["relative_error_inf"] for case in cases]
+    rel_error = [case["relative_error_inf"] for case in cases]
+    abs_error_mean = [case["error_mean_abs"] for case in cases]
+    abs_error_max = [case["error_inf"] for case in cases]
     residuals = [case["rom_residual_norm"] for case in cases]
     rom_iters = [case["rom_iters"] for case in cases]
     n_reduced = [case["n_reduced"] for case in cases]
     x = np.arange(len(labels))
 
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    fig, axes = plt.subplots(1, 3, figsize=(15.0, 4.6), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=(12.5, 8.0), constrained_layout=True)
+    axes = axes.ravel()
 
-    axes[0].bar(x, error, color="#4c78a8")
+    axes[0].bar(x, rel_error, color="#4c78a8")
     axes[0].set_xticks(x, labels, rotation=20, ha="right")
     axes[0].set_yscale("log")
     axes[0].set_ylabel("relative displacement error")
-    axes[0].set_title("Accuracy vs full FEM")
-    for i, (err, n) in enumerate(zip(error, n_reduced)):
+    axes[0].set_title("Relative displacement error")
+    for i, (err, n) in enumerate(zip(rel_error, n_reduced)):
         axes[0].annotate(f"n={n}", xy=(i, err), xytext=(0, 4), textcoords="offset points", ha="center", fontsize=8)
 
-    axes[1].bar(x, residuals, color="#9d755d")
-    full_residual = payload["full"]["residual_norm"]
-    axes[1].axhline(full_residual, color="#79706e", linestyle="--", linewidth=1.5, label=f"full {full_residual:.1e}")
+    width = 0.38
+    axes[1].bar(x - width / 2.0, abs_error_mean, width=width, color="#54a24b", label="mean")
+    axes[1].bar(x + width / 2.0, abs_error_max, width=width, color="#e45756", label="max")
     axes[1].set_xticks(x, labels, rotation=20, ha="right")
     axes[1].set_yscale("log")
-    axes[1].set_ylabel("final residual inf-norm")
-    axes[1].set_title("Newton residual")
+    axes[1].set_ylabel("absolute displacement error")
+    axes[1].set_title("Absolute displacement error")
     axes[1].legend(fontsize=8)
 
-    axes[2].bar(x, rom_iters, color="#b279a2")
-    full_iters = payload["full"]["iters"]
-    axes[2].axhline(full_iters, color="#6f4e7c", linestyle="--", linewidth=1.5, label=f"full {full_iters}")
+    axes[2].bar(x, residuals, color="#9d755d")
+    full_residual = payload["full"]["residual_norm"]
+    axes[2].axhline(full_residual, color="#79706e", linestyle="--", linewidth=1.5, label=f"full {full_residual:.1e}")
     axes[2].set_xticks(x, labels, rotation=20, ha="right")
-    axes[2].set_ylabel("iterations")
-    axes[2].set_title("Newton iterations")
+    axes[2].set_yscale("log")
+    axes[2].set_ylabel("final residual inf-norm")
+    axes[2].set_title("Newton residual")
     axes[2].legend(fontsize=8)
+
+    axes[3].bar(x, rom_iters, color="#b279a2")
+    full_iters = payload["full"]["iters"]
+    axes[3].axhline(full_iters, color="#6f4e7c", linestyle="--", linewidth=1.5, label=f"full {full_iters}")
+    axes[3].set_xticks(x, labels, rotation=20, ha="right")
+    axes[3].set_ylabel("iterations")
+    axes[3].set_title("Newton iterations")
+    axes[3].legend(fontsize=8)
 
     fig.suptitle(f"Generated {generated_at}", fontsize=9)
     _refresh_figure(fig, path, generated_at=generated_at)
@@ -402,17 +415,27 @@ def _write_build_plot(path: str, payload: dict):
 
     cases = payload["cases"]
     labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
-    rom_build = [case["rom_build_time_s"] for case in cases]
+    rom_build = [max(case["rom_build_time_s"], 1.0e-12) for case in cases]
     x = np.arange(len(labels))
 
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    fig, ax = plt.subplots(figsize=(8.2, 4.5), constrained_layout=True)
-    ax.bar(x, rom_build, label="ROM build", color="#f58518")
+    fig, ax = plt.subplots(figsize=(9.2, 4.8), constrained_layout=True)
+    bars = ax.bar(x, rom_build, label="ROM model build", color="#f58518")
     full_build = payload["full"]["build_time_s"]
     ax.axhline(full_build, color="#72b7b2", linestyle="--", linewidth=1.5, label=f"full build {full_build:.2f}s")
-    ax.set_xticks(x, labels, rotation=15, ha="right")
-    ax.set_ylabel("seconds")
-    ax.set_title("Build time; full shown once as reference")
+    ax.set_xticks(x, labels, rotation=20, ha="right")
+    ax.set_yscale("log")
+    ax.set_ylabel("seconds, log scale")
+    ax.set_title("Build time: ROM model setup vs full FE setup")
+    for bar, value in zip(bars, rom_build):
+        ax.annotate(
+            f"{value:.2e}s",
+            xy=(bar.get_x() + bar.get_width() / 2.0, value),
+            xytext=(0, 4),
+            textcoords="offset points",
+            ha="center",
+            fontsize=8,
+        )
     ax.legend(fontsize=8)
     fig.suptitle(f"Generated {generated_at}", fontsize=9)
     _refresh_figure(fig, path, generated_at=generated_at)
@@ -515,6 +538,7 @@ def main():
         error = full_u - rom_u
         error_inf = float(jnp.linalg.norm(error, ord=jnp.inf))
         error_l2 = float(jnp.linalg.norm(error))
+        error_mean_abs = float(jnp.mean(jnp.abs(error)))
         rel_inf = error_inf / max(full_inf, 1.0e-30)
         case = {
             "basis": basis_name,
@@ -531,6 +555,7 @@ def main():
             "rom_tool_uy": float(rom_nodes[tool_node, 1]),
             "error_inf": error_inf,
             "error_l2": error_l2,
+            "error_mean_abs": error_mean_abs,
             "relative_error_inf": rel_inf,
             "rom_build_time_s": rom_build_time,
             "rom_solve_time_s": rom_solve_time,
@@ -543,6 +568,7 @@ def main():
         print(f"[{basis_name}] rom_residual_norm: {rom_info.residual_norm:.6e}")
         print(f"[{basis_name}] rom_rel_residual: {rom_info.rel_residual:.6e}")
         print(f"[{basis_name}] rom_tool_uy: {rom_nodes[tool_node, 1]:.6e}")
+        print(f"[{basis_name}] error_mean_abs: {error_mean_abs:.6e}")
         print(f"[{basis_name}] error_inf: {error_inf:.6e}")
         print(f"[{basis_name}] relative_error_inf: {rel_inf:.6e}")
         print(f"[{basis_name}] rom_build_time_s: {rom_build_time:.6e}")
