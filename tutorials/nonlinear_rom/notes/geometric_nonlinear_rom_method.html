@@ -96,6 +96,17 @@ relative_error_inf = max(abs(e)) / max(abs(u_full))</pre>
   <p><code>summary_convergence.png</code> shows relative displacement error, absolute displacement error mean and max, final Newton residual infinity norm, and Newton iteration count.</p>
   <p><code>summary_build_time.png</code> and <code>summary_solve_time.png</code> are kept separate so that setup cost and nonlinear solve cost are not visually mixed with accuracy.</p>
 
+  <h2>Timing Metrics</h2>
+  <p>The ROM build time is reported as the sum of two measured costs:</p>
+  <pre>rom_build_time_s = basis_build_time_s + rom_model_build_time_s</pre>
+  <dl>
+    <dt><code>basis_build_time_s</code></dt>
+    <dd>Time to construct <code>Phi</code>. For <code>linearized-modes</code>, this includes assembling the initial linear elastic stiffness and mass matrices, removing fixed DOFs, and solving the generalized eigenproblem.</dd>
+    <dt><code>rom_model_build_time_s</code></dt>
+    <dd>Time to create the reduced nonlinear model object once <code>Phi</code> is already available.</dd>
+  </dl>
+  <p>The build plot stacks these two components. This distinction matters because the model wrapper setup can be very small while a physically meaningful basis can be much more expensive to construct.</p>
+
   <h2>Interpretation</h2>
   <p>A small reduced residual only means that the projected equation is solved in the chosen subspace. It does not prove that the subspace is accurate. The displacement error plots are therefore the primary check for whether the ROM matches the full FEM solution.</p>
   <p>For this tutorial, <code>identity-full</code> and <code>free-dofs</code> should match the full-order solution. <code>linearized-modes</code> is expected to be a reasonable low-dimensional approximation for the small deformation case. <code>cantilever-bending-y</code> is expected to converge in its one-dimensional subspace but remain inaccurate in full-space displacement error.</p>

@@ -142,9 +142,8 @@ def _make_basis(
     poisson_ratio: float,
     modal_modes: int,
 ) -> DenseBasis:
-    eye = jnp.eye(space.n_dofs, dtype=jnp.float64)
     if kind == "identity-full":
-        return DenseBasis(eye)
+        return DenseBasis(jnp.eye(space.n_dofs, dtype=jnp.float64))
     if kind == "free-dofs":
         fixed = set(np.asarray(dirichlet.dofs, dtype=int).tolist())
         free = np.asarray([dof for dof in range(space.n_dofs) if dof not in fixed], dtype=np.int32)
@@ -269,8 +268,8 @@ def _write_summary(path: str, payload: dict):
             "",
             "## ROM Cases",
             "",
-            "| basis | role | reduced DOFs | Newton iters | relative error | abs error mean | abs error max | final residual | residual drop | tool y displacement | verdict |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+            "| basis | role | reduced DOFs | Newton iters | relative error | abs error mean | abs error max | ROM build | final residual | residual drop | tool y displacement | verdict |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
         ]
     )
     for case in payload["cases"]:
@@ -281,6 +280,7 @@ def _write_summary(path: str, payload: dict):
             f"| {name} | {role} | {case['n_reduced']} | "
             f"{case['rom_iters']} | {case['relative_error_inf']:.6e} | "
             f"{case['error_mean_abs']:.6e} | {case['error_inf']:.6e} | "
+            f"{case['rom_total_build_time_s']:.6e} | "
             f"{case['rom_residual_norm']:.6e} | {case['rom_rel_residual']:.6e} | "
             f"{case['rom_tool_uy']:.6e} | {verdict} |"
         )
@@ -415,22 +415,25 @@ def _write_build_plot(path: str, payload: dict):
 
     cases = payload["cases"]
     labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
-    rom_build = [max(case["rom_build_time_s"], 1.0e-12) for case in cases]
+    basis_build = [max(case["basis_build_time_s"], 1.0e-12) for case in cases]
+    model_build = [max(case["rom_model_build_time_s"], 1.0e-12) for case in cases]
+    total_build = [case["rom_total_build_time_s"] for case in cases]
     x = np.arange(len(labels))
 
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     fig, ax = plt.subplots(figsize=(9.2, 4.8), constrained_layout=True)
-    bars = ax.bar(x, rom_build, label="ROM model build", color="#f58518")
+    basis_bars = ax.bar(x, basis_build, label="basis build", color="#f58518")
+    ax.bar(x, model_build, bottom=basis_build, label="reduced model build", color="#4c78a8")
     full_build = payload["full"]["build_time_s"]
     ax.axhline(full_build, color="#72b7b2", linestyle="--", linewidth=1.5, label=f"full build {full_build:.2f}s")
     ax.set_xticks(x, labels, rotation=20, ha="right")
     ax.set_yscale("log")
     ax.set_ylabel("seconds, log scale")
-    ax.set_title("Build time: ROM model setup vs full FE setup")
-    for bar, value in zip(bars, rom_build):
+    ax.set_title("Build time: ROM basis plus model setup vs full FE setup")
+    for bar, value in zip(basis_bars, total_build):
         ax.annotate(
             f"{value:.2e}s",
-            xy=(bar.get_x() + bar.get_width() / 2.0, value),
+            xy=(bar.get_x() + bar.get_width() / 2.0, max(value, 1.0e-12)),
             xytext=(0, 4),
             textcoords="offset points",
             ha="center",
@@ -515,6 +518,7 @@ def main():
     print(f"full_solve_time_s: {full_solve_time:.6e}")
 
     for basis_name in basis_names:
+        t_basis = time.perf_counter()
         basis = _make_basis(
             basis_name,
             space,
@@ -524,7 +528,8 @@ def main():
             poisson_ratio=args.nu,
             modal_modes=args.modal_modes,
         )
-        rom_u, rom_info, rom_build_time, rom_solve_time = _solve_rom(
+        basis_build_time = time.perf_counter() - t_basis
+        rom_u, rom_info, rom_model_build_time, rom_solve_time = _solve_rom(
             space,
             ff.neo_hookean_residual_form,
             params,
@@ -534,6 +539,7 @@ def main():
             args.tol,
             args.maxiter,
         )
+        rom_total_build_time = basis_build_time + rom_model_build_time
         rom_nodes = np.asarray(rom_u).reshape(-1, 3)
         error = full_u - rom_u
         error_inf = float(jnp.linalg.norm(error, ord=jnp.inf))
@@ -557,7 +563,10 @@ def main():
             "error_l2": error_l2,
             "error_mean_abs": error_mean_abs,
             "relative_error_inf": rel_inf,
-            "rom_build_time_s": rom_build_time,
+            "basis_build_time_s": basis_build_time,
+            "rom_model_build_time_s": rom_model_build_time,
+            "rom_build_time_s": rom_total_build_time,
+            "rom_total_build_time_s": rom_total_build_time,
             "rom_solve_time_s": rom_solve_time,
         }
         cases.append(case)
@@ -571,7 +580,9 @@ def main():
         print(f"[{basis_name}] error_mean_abs: {error_mean_abs:.6e}")
         print(f"[{basis_name}] error_inf: {error_inf:.6e}")
         print(f"[{basis_name}] relative_error_inf: {rel_inf:.6e}")
-        print(f"[{basis_name}] rom_build_time_s: {rom_build_time:.6e}")
+        print(f"[{basis_name}] basis_build_time_s: {basis_build_time:.6e}")
+        print(f"[{basis_name}] rom_model_build_time_s: {rom_model_build_time:.6e}")
+        print(f"[{basis_name}] rom_build_time_s: {rom_total_build_time:.6e}")
         print(f"[{basis_name}] rom_solve_time_s: {rom_solve_time:.6e}")
         _write_outputs(args.output_dir, basis_name, mesh, space, full_u, rom_u)
 

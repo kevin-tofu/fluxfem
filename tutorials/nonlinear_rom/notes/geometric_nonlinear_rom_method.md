@@ -103,6 +103,27 @@ quality:
 `summary_build_time.png` and `summary_solve_time.png` are kept separate so that
 setup cost and nonlinear solve cost are not visually mixed with accuracy.
 
+## Timing Metrics
+
+The ROM build time is reported as the sum of two measured costs:
+
+```text
+rom_build_time_s = basis_build_time_s + rom_model_build_time_s
+```
+
+`basis_build_time_s`
+: Time to construct `Phi`. For `linearized-modes`, this includes assembling the
+  initial linear elastic stiffness and mass matrices, removing fixed DOFs, and
+  solving the generalized eigenproblem.
+
+`rom_model_build_time_s`
+: Time to create the reduced nonlinear model object once `Phi` is already
+  available.
+
+The build plot stacks these two components. This distinction matters because
+the model wrapper setup can be very small while a physically meaningful basis
+can be much more expensive to construct.
+
 ## Interpretation
 
 A small reduced residual only means that the projected equation is solved in the
