@@ -76,6 +76,8 @@ def parse_args():
     parser.add_argument("--output-error-plot", type=str, default="")
     parser.add_argument("--output-build-plot", type=str, default="")
     parser.add_argument("--output-solve-plot", type=str, default="")
+    parser.add_argument("--output-newton-plot", type=str, default="")
+    parser.add_argument("--output-residual-plot", type=str, default="")
     return parser.parse_args()
 
 
@@ -264,11 +266,13 @@ def _write_summary(path: str, payload: dict):
             f"- tool y displacement: {payload['full']['tool_uy']:.6e}",
             f"- build time: {payload['full']['build_time_s']:.6e} s",
             f"- solve time: {payload['full']['solve_time_s']:.6e} s",
+            f"- final residual inf-norm: {payload['full']['residual_norm']:.6e}",
+            f"- relative residual: {payload['full']['rel_residual']:.6e}",
             "",
             "## ROM Cases",
             "",
-            "| basis | role | reduced DOFs | relative error | tool y displacement | verdict |",
-            "|---|---|---:|---:|---:|---|",
+            "| basis | role | reduced DOFs | Newton iters | relative error | final residual | residual drop | tool y displacement | verdict |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---|",
         ]
     )
     for case in payload["cases"]:
@@ -277,7 +281,9 @@ def _write_summary(path: str, payload: dict):
         verdict = _accuracy_verdict(case["relative_error_inf"])
         lines.append(
             f"| {name} | {role} | {case['n_reduced']} | "
-            f"{case['relative_error_inf']:.6e} | {case['rom_tool_uy']:.6e} | {verdict} |"
+            f"{case['rom_iters']} | {case['relative_error_inf']:.6e} | "
+            f"{case['rom_residual_norm']:.6e} | {case['rom_rel_residual']:.6e} | "
+            f"{case['rom_tool_uy']:.6e} | {verdict} |"
         )
     lines.extend(
         [
@@ -301,7 +307,8 @@ def _print_case_summary(payload: dict):
         verdict = _accuracy_verdict(case["relative_error_inf"])
         print(
             f"- {label}: n={case['n_reduced']}, "
-            f"rel_error={case['relative_error_inf']:.3e}, verdict={verdict}"
+            f"iters={case['rom_iters']}, rel_error={case['relative_error_inf']:.3e}, "
+            f"residual={case['rom_residual_norm']:.3e}, verdict={verdict}"
         )
 
 
@@ -409,6 +416,63 @@ def _write_solve_plot(path: str, payload: dict):
     plt.close(fig)
 
 
+def _write_newton_plot(path: str, payload: dict):
+    if not path:
+        return
+    os.environ.setdefault("MPLCONFIGDIR", "/tmp/fluxfem_matplotlib")
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cases = payload["cases"]
+    labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
+    rom_iters = [case["rom_iters"] for case in cases]
+    x = np.arange(len(labels))
+
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    fig, ax = plt.subplots(figsize=(8.2, 4.5), constrained_layout=True)
+    ax.bar(x, rom_iters, label="ROM Newton iterations", color="#b279a2")
+    full_iters = payload["full"]["iters"]
+    ax.axhline(full_iters, color="#6f4e7c", linestyle="--", linewidth=1.5, label=f"full Newton iters {full_iters}")
+    ax.set_xticks(x, labels, rotation=15, ha="right")
+    ax.set_ylabel("iterations")
+    ax.set_title("Nonlinear Newton iterations")
+    ax.legend(fontsize=8)
+    fig.suptitle(f"Generated {generated_at}", fontsize=9)
+    _refresh_figure(fig, path, generated_at=generated_at)
+    plt.close(fig)
+
+
+def _write_residual_plot(path: str, payload: dict):
+    if not path:
+        return
+    os.environ.setdefault("MPLCONFIGDIR", "/tmp/fluxfem_matplotlib")
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cases = payload["cases"]
+    labels = [BASIS_LABELS.get(case["basis"], case["basis"]) for case in cases]
+    residuals = [case["rom_residual_norm"] for case in cases]
+    x = np.arange(len(labels))
+
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    fig, ax = plt.subplots(figsize=(8.2, 4.5), constrained_layout=True)
+    ax.bar(x, residuals, label="ROM final residual", color="#9d755d")
+    full_residual = payload["full"]["residual_norm"]
+    ax.axhline(full_residual, color="#79706e", linestyle="--", linewidth=1.5, label=f"full final residual {full_residual:.1e}")
+    ax.set_xticks(x, labels, rotation=15, ha="right")
+    ax.set_yscale("log")
+    ax.set_ylabel("final residual inf-norm")
+    ax.set_title("Nonlinear solve residual")
+    ax.legend(fontsize=8)
+    fig.suptitle(f"Generated {generated_at}", fontsize=9)
+    _refresh_figure(fig, path, generated_at=generated_at)
+    plt.close(fig)
+
+
 def main():
     args = parse_args()
     t_build = time.perf_counter()
@@ -486,6 +550,10 @@ def main():
             "n_reduced": basis.n_reduced,
             "rom_converged": bool(rom_info.converged),
             "rom_iters": int(rom_info.iters),
+            "rom_residual0": float(rom_info.residual0),
+            "rom_residual_norm": float(rom_info.residual_norm),
+            "rom_rel_residual": float(rom_info.rel_residual),
+            "rom_stop_reason": str(rom_info.stop_reason),
             "rom_tool_uy": float(rom_nodes[tool_node, 1]),
             "error_inf": error_inf,
             "error_l2": error_l2,
@@ -497,6 +565,9 @@ def main():
         print(f"[{basis_name}] n_reduced: {basis.n_reduced}")
         print(f"[{basis_name}] rom_converged: {rom_info.converged}")
         print(f"[{basis_name}] rom_iters: {rom_info.iters}")
+        print(f"[{basis_name}] rom_residual0: {rom_info.residual0:.6e}")
+        print(f"[{basis_name}] rom_residual_norm: {rom_info.residual_norm:.6e}")
+        print(f"[{basis_name}] rom_rel_residual: {rom_info.rel_residual:.6e}")
         print(f"[{basis_name}] rom_tool_uy: {rom_nodes[tool_node, 1]:.6e}")
         print(f"[{basis_name}] error_inf: {error_inf:.6e}")
         print(f"[{basis_name}] relative_error_inf: {rel_inf:.6e}")
@@ -521,6 +592,10 @@ def main():
             "tool_uy": float(full_nodes[tool_node, 1]),
             "build_time_s": full_build_time,
             "solve_time_s": full_solve_time,
+            "residual0": float(full_info.residual0 or 0.0),
+            "residual_norm": float(full_info.residual_norm or 0.0),
+            "rel_residual": float(full_info.rel_residual or 0.0),
+            "stop_reason": str(full_info.stop_reason),
         },
         "cases": cases,
     }
@@ -528,12 +603,16 @@ def main():
     output_error_plot = args.output_error_plot or (str(Path(args.output_dir) / "summary_error.png") if args.output_dir else "")
     output_build_plot = args.output_build_plot or (str(Path(args.output_dir) / "summary_build_time.png") if args.output_dir else "")
     output_solve_plot = args.output_solve_plot or (str(Path(args.output_dir) / "summary_solve_time.png") if args.output_dir else "")
+    output_newton_plot = args.output_newton_plot or (str(Path(args.output_dir) / "summary_newton_iters.png") if args.output_dir else "")
+    output_residual_plot = args.output_residual_plot or (str(Path(args.output_dir) / "summary_residual.png") if args.output_dir else "")
     output_summary = str(Path(args.output_dir) / "summary.md") if args.output_dir else ""
     _print_case_summary(payload)
     _write_json(output_json, payload)
     _write_error_plot(output_error_plot, payload)
     _write_build_plot(output_build_plot, payload)
     _write_solve_plot(output_solve_plot, payload)
+    _write_newton_plot(output_newton_plot, payload)
+    _write_residual_plot(output_residual_plot, payload)
     _remove_legacy_plots(args.output_dir)
     _write_summary(output_summary, payload)
 
