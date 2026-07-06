@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import scipy.sparse as sp
 
 os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
@@ -26,6 +27,20 @@ def test_dof_spring_to_ground_accepts_scalar_vector_and_matrix():
 def test_assemble_nodal_load_accumulates_duplicate_dofs():
     f = ff.assemble_nodal_load(4, [1, 3, 1], [2.0, -1.0, 5.0])
     np.testing.assert_allclose(f, np.array([0.0, 7.0, 0.0, -1.0]))
+
+
+def test_lumped_helpers_support_explicit_backends():
+    K_scipy = ff.assemble_dof_spring(4, [1, 3], [2.0, 7.0], backend="scipy")
+    assert sp.isspmatrix_csr(K_scipy)
+    np.testing.assert_allclose(K_scipy.toarray()[np.ix_([1, 3], [1, 3])], np.diag([2.0, 7.0]))
+
+    K_numpy = ff.assemble_dof_spring(4, [1, 3], [2.0, 7.0], backend="numpy")
+    assert isinstance(K_numpy, np.ndarray)
+    np.testing.assert_allclose(K_numpy, K_scipy.toarray())
+
+    f_jax = ff.assemble_nodal_load(4, [1, 3, 1], [2.0, -1.0, 5.0], backend="jax")
+    assert isinstance(f_jax, jax.Array)
+    np.testing.assert_allclose(np.asarray(f_jax), np.array([0.0, 7.0, 0.0, -1.0]))
 
 
 def test_dof_spring_between_dofs_uses_relative_displacement():
@@ -66,6 +81,15 @@ def test_rayleigh_damping_matrix_matches_linear_combination():
     C = ff.assemble_rayleigh_damping(M, K, alpha=0.1, beta=0.02)
 
     np.testing.assert_allclose(C, 0.1 * M + 0.02 * K)
+
+
+def test_rayleigh_damping_supports_jax_backend():
+    M = np.diag([2.0, 3.0])
+    K = np.array([[10.0, -2.0], [-2.0, 5.0]])
+    C = ff.assemble_rayleigh_damping(M, K, alpha=0.1, beta=0.02, backend="jax")
+
+    assert isinstance(C, jax.Array)
+    np.testing.assert_allclose(np.asarray(C), 0.1 * M + 0.02 * K)
 
 
 def test_rayleigh_coefficients_match_target_modal_damping():

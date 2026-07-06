@@ -1,11 +1,50 @@
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Literal, Sequence
 
 import numpy as np
 import jax.numpy as jnp
 
 from ..solver.sparse import FluxSparseMatrix
+
+MatrixBackend = Literal["jax", "scipy", "numpy"]
+ArrayBackend = Literal["numpy", "jax"]
+
+
+def _as_array_backend(array: np.ndarray, backend: ArrayBackend):
+    if backend == "numpy":
+        return array
+    if backend == "jax":
+        return jnp.asarray(array)
+    raise ValueError("backend must be 'numpy' or 'jax'.")
+
+
+def _sparse_from_coo(
+    rows: Sequence[int],
+    cols: Sequence[int],
+    data: Sequence[float],
+    n_dofs: int,
+    *,
+    backend: MatrixBackend,
+):
+    if backend == "jax":
+        return FluxSparseMatrix(
+            jnp.asarray(rows, dtype=jnp.int32),
+            jnp.asarray(cols, dtype=jnp.int32),
+            jnp.asarray(data, dtype=jnp.float64),
+            int(n_dofs),
+        ).coalesce()
+    if backend == "scipy":
+        try:
+            import scipy.sparse as sp
+        except Exception as exc:  # pragma: no cover
+            raise ImportError("scipy is required for backend='scipy'.") from exc
+        return sp.csr_matrix((np.asarray(data, dtype=float), (np.asarray(rows), np.asarray(cols))), shape=(int(n_dofs), int(n_dofs)))
+    if backend == "numpy":
+        out = np.zeros((int(n_dofs), int(n_dofs)), dtype=float)
+        np.add.at(out, (np.asarray(rows, dtype=int), np.asarray(cols, dtype=int)), np.asarray(data, dtype=float))
+        return out
+    raise ValueError("backend must be 'jax', 'scipy', or 'numpy'.")
 
 
 def _as_dense_matrix(matrix, name: str) -> np.ndarray:
@@ -47,7 +86,8 @@ def _connector_matrix(
     value,
     other_dofs: Sequence[int] | np.ndarray | None,
     value_name: str,
-) -> FluxSparseMatrix:
+    backend: MatrixBackend,
+):
     if n_dofs <= 0:
         raise ValueError("n_dofs must be positive.")
     a = _as_dofs(dofs, "dofs")
@@ -78,12 +118,7 @@ def _connector_matrix(
         add_block(b, a, -k)
         add_block(b, b, k)
 
-    return FluxSparseMatrix(
-        jnp.asarray(rows, dtype=jnp.int32),
-        jnp.asarray(cols, dtype=jnp.int32),
-        jnp.asarray(data, dtype=jnp.float64),
-        int(n_dofs),
-    ).coalesce()
+    return _sparse_from_coo(rows, cols, data, int(n_dofs), backend=backend)
 
 
 def assemble_dof_spring(
@@ -92,7 +127,8 @@ def assemble_dof_spring(
     stiffness,
     *,
     other_dofs: Sequence[int] | np.ndarray | None = None,
-) -> FluxSparseMatrix:
+    backend: MatrixBackend = "jax",
+):
     """
     Assemble a linear spring matrix on selected DOFs.
 
@@ -107,6 +143,7 @@ def assemble_dof_spring(
         value=stiffness,
         other_dofs=other_dofs,
         value_name="stiffness",
+        backend=backend,
     )
 
 
@@ -116,7 +153,8 @@ def assemble_dof_dashpot(
     damping,
     *,
     other_dofs: Sequence[int] | np.ndarray | None = None,
-) -> FluxSparseMatrix:
+    backend: MatrixBackend = "jax",
+):
     """
     Assemble a viscous dashpot matrix on selected DOFs.
 
@@ -129,6 +167,7 @@ def assemble_dof_dashpot(
         value=damping,
         other_dofs=other_dofs,
         value_name="damping",
+        backend=backend,
     )
 
 
@@ -136,7 +175,9 @@ def assemble_nodal_load(
     n_dofs: int,
     dofs: Sequence[int] | np.ndarray,
     values,
-) -> np.ndarray:
+    *,
+    backend: ArrayBackend = "numpy",
+):
     """
     Assemble a dense nodal load vector on selected DOFs.
 
@@ -159,7 +200,7 @@ def assemble_nodal_load(
 
     out = np.zeros(int(n_dofs), dtype=float)
     np.add.at(out, selected, vals)
-    return out
+    return _as_array_backend(out, backend)
 
 
 def assemble_rayleigh_damping(
@@ -168,13 +209,14 @@ def assemble_rayleigh_damping(
     *,
     alpha: float = 0.0,
     beta: float = 0.0,
-) -> np.ndarray:
+    backend: ArrayBackend = "numpy",
+):
     """Return Rayleigh damping matrix ``C = alpha * M + beta * K``."""
     M = _as_dense_matrix(mass, "mass")
     K = _as_dense_matrix(stiffness, "stiffness")
     if M.shape != K.shape:
         raise ValueError("mass and stiffness must have the same shape.")
-    return float(alpha) * M + float(beta) * K
+    return _as_array_backend(float(alpha) * M + float(beta) * K, backend)
 
 
 def rayleigh_damping_ratio(omega, *, alpha: float, beta: float):

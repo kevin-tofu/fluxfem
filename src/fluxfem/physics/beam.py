@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from typing import Literal, Sequence
 
 import numpy as np
-import jax.numpy as jnp
 
-from ..solver.sparse import FluxSparseMatrix
+from .lumped import ArrayBackend, MatrixBackend, _as_array_backend, _sparse_from_coo
 
 
 BEAM_DOF_PER_NODE = 6
@@ -307,8 +306,8 @@ def _assemble_beam_matrix(
     conn: np.ndarray,
     element_matrix,
     *,
-    dtype=jnp.float64,
-) -> FluxSparseMatrix:
+    backend: MatrixBackend = "jax",
+):
     coords_arr = np.asarray(coords, dtype=float)
     conn_arr = np.asarray(conn, dtype=int)
     if coords_arr.ndim != 2 or coords_arr.shape[1] != 3:
@@ -329,12 +328,7 @@ def _assemble_beam_matrix(
         data.extend(ke.reshape(-1).tolist())
 
     n_dofs = BEAM_DOF_PER_NODE * coords_arr.shape[0]
-    return FluxSparseMatrix(
-        jnp.asarray(rows, dtype=jnp.int32),
-        jnp.asarray(cols, dtype=jnp.int32),
-        jnp.asarray(data, dtype=dtype),
-        n_dofs,
-    ).coalesce()
+    return _sparse_from_coo(rows, cols, data, n_dofs, backend=backend)
 
 
 def assemble_beam_stiffness(
@@ -343,12 +337,14 @@ def assemble_beam_stiffness(
     section: BeamSection,
     *,
     reference: Sequence[float] | None = None,
-) -> FluxSparseMatrix:
+    backend: MatrixBackend = "jax",
+):
     """Assemble a sparse global stiffness matrix for 3D Euler-Bernoulli beam elements."""
     return _assemble_beam_matrix(
         coords,
         conn,
         lambda xi, xj: beam_element_stiffness_global(xi, xj, section, reference=reference),
+        backend=backend,
     )
 
 
@@ -359,12 +355,14 @@ def assemble_beam_mass(
     *,
     reference: Sequence[float] | None = None,
     kind: Literal["consistent", "lumped"] = "consistent",
-) -> FluxSparseMatrix:
+    backend: MatrixBackend = "jax",
+):
     """Assemble a sparse global mass matrix for 3D Euler-Bernoulli beam elements."""
     return _assemble_beam_matrix(
         coords,
         conn,
         lambda xi, xj: beam_element_mass_global(xi, xj, section, reference=reference, kind=kind),
+        backend=backend,
     )
 
 
@@ -375,7 +373,8 @@ def assemble_beam_uniform_load(
     *,
     reference: Sequence[float] | None = None,
     frame: Literal["global", "local"] = "global",
-) -> np.ndarray:
+    backend: ArrayBackend = "numpy",
+):
     """Assemble equivalent nodal loads for a uniform distributed beam force."""
     coords_arr = np.asarray(coords, dtype=float)
     conn_arr = np.asarray(conn, dtype=int)
@@ -395,7 +394,7 @@ def assemble_beam_uniform_load(
             frame=frame,
         )
         np.add.at(out, elem_dofs[e], fe)
-    return out
+    return _as_array_backend(out, backend)
 
 
 def assemble_beam_point_load(
@@ -404,9 +403,10 @@ def assemble_beam_point_load(
     *,
     force: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
     moment: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
-) -> np.ndarray:
+    backend: ArrayBackend = "numpy",
+):
     """Assemble a dense nodal load vector for one beam node."""
-    return assemble_beam_point_loads(n_nodes, [node], forces=[force], moments=[moment])
+    return assemble_beam_point_loads(n_nodes, [node], forces=[force], moments=[moment], backend=backend)
 
 
 def assemble_beam_point_loads(
@@ -415,7 +415,8 @@ def assemble_beam_point_loads(
     *,
     forces: Sequence[Sequence[float]] | np.ndarray | None = None,
     moments: Sequence[Sequence[float]] | np.ndarray | None = None,
-) -> np.ndarray:
+    backend: ArrayBackend = "numpy",
+):
     """Assemble dense nodal force/moment loads for beam nodes."""
     if n_nodes <= 0:
         raise ValueError("n_nodes must be positive.")
@@ -444,7 +445,7 @@ def assemble_beam_point_loads(
         dofs = BEAM_DOF_PER_NODE * int(node) + np.arange(6)
         values = np.concatenate([force_vec, moment_vec])
         np.add.at(out, dofs, values)
-    return out
+    return _as_array_backend(out, backend)
 
 
 __all__ = [

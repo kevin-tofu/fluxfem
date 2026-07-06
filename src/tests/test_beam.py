@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import scipy.linalg as la
+import scipy.sparse as sp
 
 os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
@@ -63,6 +64,48 @@ def test_beam_cantilever_tip_load_matches_euler_bernoulli_solution():
 
     np.testing.assert_allclose(uz_tip, uz_exact, rtol=2.0e-12, atol=1.0e-14)
     np.testing.assert_allclose(ry_tip, ry_exact, rtol=2.0e-12, atol=1.0e-14)
+
+
+def test_beam_stiffness_backend_choice_matches_between_scipy_and_jax():
+    length = 2.0
+    force = -1000.0
+    section = ff.BeamSection(
+        E=210.0e9,
+        G=80.0e9,
+        A=2.0e-3,
+        Iy=8.0e-6,
+        Iz=5.0e-6,
+        J=1.0e-5,
+    )
+    coords, conn = ff.structured_beam_chain(n_elems=4, length=length)
+    K_scipy = ff.assemble_beam_stiffness(coords, conn, section, backend="scipy")
+    K_jax = ff.assemble_beam_stiffness(coords, conn, section, backend="jax")
+    K_numpy = ff.assemble_beam_stiffness(coords, conn, section, backend="numpy")
+    tip = coords.shape[0] - 1
+    F_numpy = ff.assemble_beam_point_load(coords.shape[0], tip, force=(0.0, 0.0, force))
+    F_jax = ff.assemble_beam_point_load(coords.shape[0], tip, force=(0.0, 0.0, force), backend="jax")
+
+    assert sp.isspmatrix_csr(K_scipy)
+    assert isinstance(K_numpy, np.ndarray)
+    assert isinstance(F_jax, jax.Array)
+    np.testing.assert_allclose(K_numpy, K_scipy.toarray())
+
+    fixed = ff.beam_node_dofs([0])
+    bc = ff.DirichletBC(fixed, 0.0)
+    u_scipy, _info_scipy = ff.LinearSolver(method="spsolve").solve(
+        K_scipy,
+        F_numpy,
+        dirichlet=bc,
+        dirichlet_mode="condense",
+    )
+    u_jax, _info_jax = ff.LinearSolver(method="spsolve_jax").solve(
+        K_jax,
+        F_jax,
+        dirichlet=bc,
+        dirichlet_mode="condense",
+    )
+
+    np.testing.assert_allclose(np.asarray(u_jax), u_scipy, rtol=1.0e-11, atol=1.0e-14)
 
 
 def test_beam_cantilever_tip_moment_matches_euler_bernoulli_solution():
@@ -140,6 +183,17 @@ def test_beam_cantilever_uniform_load_matches_euler_bernoulli_solution():
 
     np.testing.assert_allclose(uz_tip, uz_exact, rtol=2.0e-12, atol=1.0e-14)
     np.testing.assert_allclose(ry_tip, ry_exact, rtol=2.0e-12, atol=1.0e-14)
+
+
+def test_beam_load_helpers_support_jax_backend():
+    coords, conn = ff.structured_beam_chain(n_elems=2, length=2.0)
+    F = ff.assemble_beam_uniform_load(coords, conn, [0.0, 0.0, -5.0], backend="jax")
+
+    assert isinstance(F, jax.Array)
+    np.testing.assert_allclose(
+        np.asarray(F[ff.beam_node_dofs(np.arange(coords.shape[0]), "uz")]).sum(),
+        -10.0,
+    )
 
 
 def test_beam_cantilever_first_bending_frequency_matches_reference():

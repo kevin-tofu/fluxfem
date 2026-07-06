@@ -29,6 +29,8 @@ import fluxfem as ff
 
 def parse_args():
     p = argparse.ArgumentParser(description="Cantilever beam with 3D frame elements.")
+    p.add_argument("--backend", choices=("jax", "scipy", "numpy"), default="jax", help="Matrix assembly backend.")
+    p.add_argument("--solver", choices=("auto", "spsolve", "spsolve_jax"), default="auto", help="Linear solver backend.")
     p.add_argument("--n-elems", type=int, default=8, help="Number of beam elements.")
     p.add_argument("--length", type=float, default=2.0, help="Beam length.")
     p.add_argument("--E", type=float, default=210.0e9, help="Young's modulus.")
@@ -42,21 +44,38 @@ def parse_args():
     return p.parse_args()
 
 
+def _auto_solver(backend: str, solver: str) -> str:
+    if solver != "auto":
+        return solver
+    return "spsolve_jax" if backend == "jax" else "spsolve"
+
+
+def _matrix_nnz(matrix) -> int:
+    if hasattr(matrix, "nnz"):
+        return int(matrix.nnz)
+    return int(np.count_nonzero(np.asarray(matrix)))
+
+
 def main():
     args = parse_args()
 
     coords, conn = ff.structured_beam_chain(n_elems=args.n_elems, length=args.length)
     section = ff.BeamSection(E=args.E, G=args.G, A=args.A, Iy=args.Iy, Iz=args.Iz, J=args.J, rho=args.rho)
-    K = ff.assemble_beam_stiffness(coords, conn, section)
-    M = ff.assemble_beam_mass(coords, conn, section)
+    K = ff.assemble_beam_stiffness(coords, conn, section, backend=args.backend)
+    M = ff.assemble_beam_mass(coords, conn, section, backend=args.backend)
 
     n_dofs = ff.BEAM_DOF_PER_NODE * coords.shape[0]
-    F = np.zeros(n_dofs, dtype=float)
     tip_node = coords.shape[0] - 1
-    F[ff.beam_node_dofs([tip_node], "uz")] = args.tip_load_z
+    F = ff.assemble_beam_point_load(
+        coords.shape[0],
+        tip_node,
+        force=(0.0, 0.0, args.tip_load_z),
+        backend="jax" if args.backend == "jax" else "numpy",
+    )
 
     fixed = ff.beam_node_dofs([0])
-    u, _info = ff.LinearSolver(method="spsolve").solve(
+    solver = _auto_solver(args.backend, args.solver)
+    u, _info = ff.LinearSolver(method=solver).solve(
         K,
         F,
         dirichlet=ff.DirichletBC(fixed, 0.0),
@@ -69,10 +88,10 @@ def main():
     ry_exact = -args.tip_load_z * args.length**2 / (2.0 * args.E * args.Iy)
     rel_err = abs(uz_tip - uz_exact) / abs(uz_exact) if uz_exact != 0.0 else 0.0
 
-    print(f"beam solved: nodes={coords.shape[0]}, elems={conn.shape[0]}, dofs={n_dofs}")
+    print(f"beam solved: backend={args.backend}, solver={solver}, nodes={coords.shape[0]}, elems={conn.shape[0]}, dofs={n_dofs}")
     print(f"tip uz={uz_tip:.6e}, EB exact={uz_exact:.6e}, rel.err={rel_err:.3e}")
     print(f"tip ry={ry_tip:.6e}, EB exact={ry_exact:.6e}")
-    print(f"stiffness nnz={K.nnz}, mass nnz={M.nnz}")
+    print(f"stiffness nnz={_matrix_nnz(K)}, mass nnz={_matrix_nnz(M)}")
 
 
 if __name__ == "__main__":

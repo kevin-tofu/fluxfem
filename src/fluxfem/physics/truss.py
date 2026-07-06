@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from typing import Literal, Sequence
 
 import numpy as np
-import jax.numpy as jnp
 
-from ..solver.sparse import FluxSparseMatrix
+from .lumped import ArrayBackend, MatrixBackend, _as_array_backend, _sparse_from_coo
 
 
 TRUSS_DOF_PER_NODE = 3
@@ -109,11 +108,37 @@ def truss_element_mass_global(
     raise ValueError("kind must be 'consistent' or 'lumped'.")
 
 
+def truss_element_uniform_load_global(
+    xi: Sequence[float],
+    xj: Sequence[float],
+    load: Sequence[float] | np.ndarray,
+    *,
+    frame: Literal["global", "local"] = "global",
+) -> np.ndarray:
+    """6-vector of equivalent nodal loads for a uniform truss/bar load."""
+    axis, length = _axis_and_length(xi, xj)
+    q = np.asarray(load, dtype=float).reshape(-1)
+    if frame == "local":
+        if q.size != 1:
+            raise ValueError("local truss load must have one axial component.")
+        q_global = axis * float(q[0])
+    elif frame == "global":
+        if q.size != 3:
+            raise ValueError("global truss load must have three components.")
+        q_global = q
+    else:
+        raise ValueError("frame must be 'global' or 'local'.")
+    nodal = q_global * length / 2.0
+    return np.concatenate([nodal, nodal])
+
+
 def _assemble_truss_matrix(
     coords: np.ndarray,
     conn: np.ndarray,
     element_matrix,
-) -> FluxSparseMatrix:
+    *,
+    backend: MatrixBackend = "jax",
+):
     coords_arr = np.asarray(coords, dtype=float)
     conn_arr = np.asarray(conn, dtype=int)
     if coords_arr.ndim != 2 or coords_arr.shape[1] != 3:
@@ -134,21 +159,23 @@ def _assemble_truss_matrix(
         data.extend(me.reshape(-1).tolist())
 
     n_dofs = TRUSS_DOF_PER_NODE * coords_arr.shape[0]
-    return FluxSparseMatrix(
-        jnp.asarray(rows, dtype=jnp.int32),
-        jnp.asarray(cols, dtype=jnp.int32),
-        jnp.asarray(data, dtype=jnp.float64),
-        n_dofs,
-    ).coalesce()
+    return _sparse_from_coo(rows, cols, data, n_dofs, backend=backend)
 
 
 def assemble_truss_stiffness(
     coords: np.ndarray,
     conn: np.ndarray,
     section: TrussSection,
-) -> FluxSparseMatrix:
+    *,
+    backend: MatrixBackend = "jax",
+):
     """Assemble global stiffness for 3D two-node truss/bar elements."""
-    return _assemble_truss_matrix(coords, conn, lambda xi, xj: truss_element_stiffness_global(xi, xj, section))
+    return _assemble_truss_matrix(
+        coords,
+        conn,
+        lambda xi, xj: truss_element_stiffness_global(xi, xj, section),
+        backend=backend,
+    )
 
 
 def assemble_truss_mass(
@@ -157,19 +184,98 @@ def assemble_truss_mass(
     section: TrussSection,
     *,
     kind: Literal["consistent", "lumped"] = "consistent",
-) -> FluxSparseMatrix:
+    backend: MatrixBackend = "jax",
+):
     """Assemble global translational mass for 3D two-node truss/bar elements."""
-    return _assemble_truss_matrix(coords, conn, lambda xi, xj: truss_element_mass_global(xi, xj, section, kind=kind))
+    return _assemble_truss_matrix(
+        coords,
+        conn,
+        lambda xi, xj: truss_element_mass_global(xi, xj, section, kind=kind),
+        backend=backend,
+    )
+
+
+def assemble_truss_uniform_load(
+    coords: np.ndarray,
+    conn: np.ndarray,
+    load: Sequence[float] | np.ndarray,
+    *,
+    frame: Literal["global", "local"] = "global",
+    backend: ArrayBackend = "numpy",
+):
+    """Assemble equivalent nodal loads for a uniform truss/bar distributed force."""
+    coords_arr = np.asarray(coords, dtype=float)
+    conn_arr = np.asarray(conn, dtype=int)
+    if coords_arr.ndim != 2 or coords_arr.shape[1] != 3:
+        raise ValueError("coords must have shape (n_nodes, 3).")
+    if conn_arr.ndim != 2 or conn_arr.shape[1] != 2:
+        raise ValueError("conn must have shape (n_elems, 2).")
+
+    out = np.zeros(TRUSS_DOF_PER_NODE * coords_arr.shape[0], dtype=float)
+    elem_dofs = truss_element_dofs(conn_arr)
+    for e, (n0, n1) in enumerate(conn_arr):
+        fe = truss_element_uniform_load_global(coords_arr[n0], coords_arr[n1], load, frame=frame)
+        np.add.at(out, elem_dofs[e], fe)
+    return _as_array_backend(out, backend)
+
+
+def assemble_truss_point_load(
+    n_nodes: int,
+    node: int,
+    *,
+    force: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
+    backend: ArrayBackend = "numpy",
+):
+    """Assemble a dense nodal load vector for one truss/bar node."""
+    return assemble_truss_point_loads(n_nodes, [node], forces=[force], backend=backend)
+
+
+def assemble_truss_point_loads(
+    n_nodes: int,
+    nodes: Sequence[int] | np.ndarray,
+    *,
+    forces: Sequence[Sequence[float]] | np.ndarray | None = None,
+    backend: ArrayBackend = "numpy",
+):
+    """Assemble dense nodal force loads for truss/bar nodes."""
+    if n_nodes <= 0:
+        raise ValueError("n_nodes must be positive.")
+    nodes_arr = np.asarray(nodes, dtype=int).reshape(-1)
+    if nodes_arr.size == 0:
+        raise ValueError("nodes must contain at least one node.")
+    if np.any(nodes_arr < 0) or np.any(nodes_arr >= int(n_nodes)):
+        raise ValueError("nodes contains an index outside n_nodes.")
+
+    if forces is None:
+        force_arr = np.zeros((nodes_arr.size, 3), dtype=float)
+    else:
+        force_arr = np.asarray(forces, dtype=float)
+        if force_arr.shape == (3,):
+            if nodes_arr.size != 1:
+                raise ValueError("forces with shape (3,) is only valid for one node.")
+            force_arr = force_arr.reshape(1, 3)
+        if force_arr.shape != (nodes_arr.size, 3):
+            raise ValueError(f"forces must have shape ({nodes_arr.size}, 3).")
+
+    out = np.zeros(TRUSS_DOF_PER_NODE * int(n_nodes), dtype=float)
+    for node, force_vec in zip(nodes_arr, force_arr):
+        dofs = TRUSS_DOF_PER_NODE * int(node) + np.arange(3)
+        np.add.at(out, dofs, force_vec)
+    return _as_array_backend(out, backend)
 
 
 __all__ = [
     "TRUSS_DOF_PER_NODE",
     "TrussSection",
     "assemble_truss_mass",
+    "assemble_truss_point_load",
+    "assemble_truss_point_loads",
     "assemble_truss_stiffness",
+    "assemble_truss_uniform_load",
     "structured_truss_chain",
     "truss_element_dofs",
     "truss_element_mass_global",
     "truss_element_stiffness_global",
+    "truss_element_uniform_load_global",
     "truss_node_dofs",
 ]

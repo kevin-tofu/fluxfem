@@ -26,6 +26,8 @@ import fluxfem as ff
 
 def parse_args():
     p = argparse.ArgumentParser(description="Cantilever beam with tip force and moment.")
+    p.add_argument("--backend", choices=("jax", "scipy", "numpy"), default="jax", help="Matrix assembly backend.")
+    p.add_argument("--solver", choices=("auto", "spsolve", "spsolve_jax"), default="auto", help="Linear solver backend.")
     p.add_argument("--n-elems", type=int, default=8, help="Number of beam elements.")
     p.add_argument("--length", type=float, default=2.0, help="Beam length.")
     p.add_argument("--E", type=float, default=210.0e9, help="Young's modulus.")
@@ -39,12 +41,18 @@ def parse_args():
     return p.parse_args()
 
 
+def _auto_solver(backend: str, solver: str) -> str:
+    if solver != "auto":
+        return solver
+    return "spsolve_jax" if backend == "jax" else "spsolve"
+
+
 def main():
     args = parse_args()
 
     coords, conn = ff.structured_beam_chain(n_elems=args.n_elems, length=args.length)
     section = ff.BeamSection(E=args.E, G=args.G, A=args.A, Iy=args.Iy, Iz=args.Iz, J=args.J)
-    K = ff.assemble_beam_stiffness(coords, conn, section)
+    K = ff.assemble_beam_stiffness(coords, conn, section, backend=args.backend)
 
     tip = coords.shape[0] - 1
     F = ff.assemble_beam_point_load(
@@ -52,10 +60,12 @@ def main():
         tip,
         force=(0.0, 0.0, args.tip_force_z),
         moment=(0.0, args.tip_moment_y, 0.0),
+        backend="jax" if args.backend == "jax" else "numpy",
     )
 
     fixed = ff.beam_node_dofs([0])
-    u, _info = ff.LinearSolver(method="spsolve").solve(
+    solver = _auto_solver(args.backend, args.solver)
+    u, _info = ff.LinearSolver(method=solver).solve(
         K,
         F,
         dirichlet=ff.DirichletBC(fixed, 0.0),
@@ -74,7 +84,7 @@ def main():
     )
     rel_err = abs(uz_tip - uz_exact) / abs(uz_exact) if uz_exact != 0.0 else 0.0
 
-    print(f"beam point load solved: nodes={coords.shape[0]}, elems={conn.shape[0]}")
+    print(f"beam point load solved: backend={args.backend}, solver={solver}, nodes={coords.shape[0]}, elems={conn.shape[0]}")
     print(f"tip uz={uz_tip:.6e}, EB exact={uz_exact:.6e}, rel.err={rel_err:.3e}")
     print(f"tip ry={ry_tip:.6e}, EB exact={ry_exact:.6e}")
 
