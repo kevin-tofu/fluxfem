@@ -146,6 +146,53 @@ def test_solve_contact_kkt_auto_backend_prefers_jax_for_mixed_inputs():
     assert isinstance(u, jax.Array)
 
 
+def test_unilateral_contact_active_set_kkt_enforces_complementarity():
+    stiffness = np.diag([10.0, 8.0])
+    force = np.array([-5.0, -1.0])
+    gap_matrix = np.eye(2)
+    gap0 = np.array([0.1, 0.5])
+
+    result = ff.solve_unilateral_contact_active_set_kkt(
+        stiffness,
+        force,
+        gap_matrix,
+        gap0,
+        gap_tol=1e-12,
+        lambda_tol=1e-12,
+    )
+
+    assert result.converged
+    np.testing.assert_allclose(result.displacement, np.array([-0.1, -0.125]), atol=1e-12)
+    np.testing.assert_allclose(result.gap, np.array([0.0, 0.375]), atol=1e-12)
+    np.testing.assert_allclose(result.lambda_n, np.array([4.0, 0.0]), atol=1e-12)
+    assert result.active_mask.tolist() == [True, False]
+    assert np.all(result.gap >= -1e-12)
+    assert np.all(result.lambda_n >= -1e-12)
+    np.testing.assert_allclose(result.gap * result.lambda_n, np.zeros(2), atol=1e-12)
+
+
+def test_unilateral_contact_active_set_kkt_removes_negative_multiplier():
+    stiffness = np.diag([10.0, 8.0])
+    force = np.array([-5.0, -1.0])
+    gap_matrix = np.eye(2)
+    gap0 = np.array([0.1, 0.5])
+
+    result = ff.solve_unilateral_contact_active_set_kkt(
+        stiffness,
+        force,
+        gap_matrix,
+        gap0,
+        initial_active=np.array([True, True]),
+        gap_tol=1e-12,
+        lambda_tol=1e-12,
+    )
+
+    assert result.converged
+    assert result.iters >= 2
+    assert result.active_mask.tolist() == [True, False]
+    assert any(record.changed for record in result.records)
+
+
 def test_contact_constraint_operators_match_kkt_blocks():
     coords, conn, facets = _tet4_fixture()
     contact = ff.ContactSurfaceSpace.from_facets(
