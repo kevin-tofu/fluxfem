@@ -66,6 +66,39 @@ def test_beam_cantilever_tip_load_matches_euler_bernoulli_solution():
     np.testing.assert_allclose(ry_tip, ry_exact, rtol=2.0e-12, atol=1.0e-14)
 
 
+def test_beam_cantilever_uniform_load_matches_euler_bernoulli_solution():
+    length = 2.0
+    qz = -1000.0
+    section = ff.BeamSection(
+        E=210.0e9,
+        G=80.0e9,
+        A=2.0e-3,
+        Iy=8.0e-6,
+        Iz=5.0e-6,
+        J=1.0e-5,
+    )
+    coords, conn = ff.structured_beam_chain(n_elems=4, length=length)
+    K = ff.assemble_beam_stiffness(coords, conn, section)
+    F = ff.assemble_beam_uniform_load(coords, conn, [0.0, 0.0, qz], frame="global")
+
+    fixed = ff.beam_node_dofs([0])
+    u, _info = ff.LinearSolver(method="spsolve").solve(
+        K,
+        F,
+        dirichlet=ff.DirichletBC(fixed, 0.0),
+        dirichlet_mode="condense",
+    )
+
+    tip = coords.shape[0] - 1
+    uz_tip = float(u[ff.beam_node_dofs([tip], "uz")][0])
+    ry_tip = float(u[ff.beam_node_dofs([tip], "ry")][0])
+    uz_exact = qz * length**4 / (8.0 * section.E * section.Iy)
+    ry_exact = -qz * length**3 / (6.0 * section.E * section.Iy)
+
+    np.testing.assert_allclose(uz_tip, uz_exact, rtol=2.0e-12, atol=1.0e-14)
+    np.testing.assert_allclose(ry_tip, ry_exact, rtol=2.0e-12, atol=1.0e-14)
+
+
 def test_beam_cantilever_first_bending_frequency_matches_reference():
     length = 2.0
     section = ff.BeamSection(

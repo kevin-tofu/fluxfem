@@ -247,6 +247,61 @@ def beam_element_mass_global(
     return transform.T @ m_local @ transform
 
 
+def beam_element_uniform_load_local(
+    length: float,
+    load: Sequence[float] | np.ndarray,
+) -> np.ndarray:
+    """
+    12-vector of equivalent nodal loads for a uniform local distributed force.
+
+    ``load`` is ``[qx, qy, qz]`` in force per length in the element local frame.
+    Positive qz follows the local z axis; for a beam along global x with default
+    orientation this is global z.
+    """
+    L = float(length)
+    if L <= 0.0:
+        raise ValueError("length must be positive.")
+    q = np.asarray(load, dtype=float).reshape(-1)
+    if q.size != 3:
+        raise ValueError("load must have three components [qx, qy, qz].")
+    qx, qy, qz = (float(q[0]), float(q[1]), float(q[2]))
+
+    f = np.zeros(12, dtype=float)
+    f[[0, 6]] += qx * L / 2.0
+    f[[1, 7]] += qy * L / 2.0
+    f[[5, 11]] += np.array([qy * L * L / 12.0, -qy * L * L / 12.0])
+    f[[2, 8]] += qz * L / 2.0
+    f[[4, 10]] += np.array([-qz * L * L / 12.0, qz * L * L / 12.0])
+    return f
+
+
+def beam_element_uniform_load_global(
+    xi: Sequence[float],
+    xj: Sequence[float],
+    load: Sequence[float] | np.ndarray,
+    *,
+    reference: Sequence[float] | None = None,
+    frame: Literal["global", "local"] = "global",
+) -> np.ndarray:
+    """12-vector of equivalent nodal loads for a uniform beam load."""
+    R, length = _beam_rotation_matrix(np.asarray(xi, dtype=float), np.asarray(xj, dtype=float), reference)
+    q = np.asarray(load, dtype=float).reshape(-1)
+    if q.size != 3:
+        raise ValueError("load must have three components.")
+    if frame == "global":
+        q_local = R @ q
+    elif frame == "local":
+        q_local = q
+    else:
+        raise ValueError("frame must be 'global' or 'local'.")
+
+    transform = np.zeros((12, 12), dtype=float)
+    for start in (0, 3, 6, 9):
+        transform[start : start + 3, start : start + 3] = R
+    f_local = beam_element_uniform_load_local(length, q_local)
+    return transform.T @ f_local
+
+
 def _assemble_beam_matrix(
     coords: np.ndarray,
     conn: np.ndarray,
@@ -313,16 +368,49 @@ def assemble_beam_mass(
     )
 
 
+def assemble_beam_uniform_load(
+    coords: np.ndarray,
+    conn: np.ndarray,
+    load: Sequence[float] | np.ndarray,
+    *,
+    reference: Sequence[float] | None = None,
+    frame: Literal["global", "local"] = "global",
+) -> np.ndarray:
+    """Assemble equivalent nodal loads for a uniform distributed beam force."""
+    coords_arr = np.asarray(coords, dtype=float)
+    conn_arr = np.asarray(conn, dtype=int)
+    if coords_arr.ndim != 2 or coords_arr.shape[1] != 3:
+        raise ValueError("coords must have shape (n_nodes, 3).")
+    if conn_arr.ndim != 2 or conn_arr.shape[1] != 2:
+        raise ValueError("conn must have shape (n_elems, 2).")
+
+    out = np.zeros(BEAM_DOF_PER_NODE * coords_arr.shape[0], dtype=float)
+    elem_dofs = beam_element_dofs(conn_arr)
+    for e, (n0, n1) in enumerate(conn_arr):
+        fe = beam_element_uniform_load_global(
+            coords_arr[n0],
+            coords_arr[n1],
+            load,
+            reference=reference,
+            frame=frame,
+        )
+        np.add.at(out, elem_dofs[e], fe)
+    return out
+
+
 __all__ = [
     "BEAM_DOF_PER_NODE",
     "BeamSection",
     "assemble_beam_mass",
     "assemble_beam_stiffness",
+    "assemble_beam_uniform_load",
     "beam_element_dofs",
     "beam_element_mass_global",
     "beam_element_mass_local",
     "beam_element_stiffness_global",
     "beam_element_stiffness_local",
+    "beam_element_uniform_load_global",
+    "beam_element_uniform_load_local",
     "beam_node_dofs",
     "structured_beam_chain",
 ]

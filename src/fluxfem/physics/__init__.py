@@ -25,11 +25,14 @@ from .beam import (
     BeamSection,
     assemble_beam_mass,
     assemble_beam_stiffness,
+    assemble_beam_uniform_load,
     beam_element_dofs,
     beam_element_mass_global,
     beam_element_mass_local,
     beam_element_stiffness_global,
     beam_element_stiffness_local,
+    beam_element_uniform_load_global,
+    beam_element_uniform_load_local,
     beam_node_dofs,
     structured_beam_chain,
 )
@@ -44,7 +47,14 @@ from .truss import (
     truss_element_stiffness_global,
     truss_node_dofs,
 )
-from .lumped import assemble_dof_dashpot, assemble_dof_spring
+from .lumped import (
+    assemble_dof_dashpot,
+    assemble_dof_spring,
+    assemble_nodal_load,
+    assemble_rayleigh_damping,
+    rayleigh_coefficients_from_modal_damping,
+    rayleigh_damping_ratio,
+)
 from .operators import dot, ddot, transpose_last2, sym_grad, sym_grad_u
 from .postprocess import make_point_data_displacement, write_point_data_vtu, interpolate_at_points
 
@@ -60,11 +70,14 @@ __all__ = [
     "BeamSection",
     "assemble_beam_mass",
     "assemble_beam_stiffness",
+    "assemble_beam_uniform_load",
     "beam_element_dofs",
     "beam_element_mass_global",
     "beam_element_mass_local",
     "beam_element_stiffness_global",
     "beam_element_stiffness_local",
+    "beam_element_uniform_load_global",
+    "beam_element_uniform_load_local",
     "beam_node_dofs",
     "structured_beam_chain",
     "TRUSS_DOF_PER_NODE",
@@ -78,6 +91,10 @@ __all__ = [
     "truss_node_dofs",
     "assemble_dof_dashpot",
     "assemble_dof_spring",
+    "assemble_nodal_load",
+    "assemble_rayleigh_damping",
+    "rayleigh_coefficients_from_modal_damping",
+    "rayleigh_damping_ratio",
     "dot",
     "ddot",
     "transpose_last2",
