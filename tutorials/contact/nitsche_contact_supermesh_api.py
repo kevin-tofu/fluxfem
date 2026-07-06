@@ -283,6 +283,13 @@ def _export_skfem_combined_vtu(mesh_top, mesh_bot, u: np.ndarray, file_path: str
 
     n_nodes_total = n_top_nodes + n_bot_nodes
     u_top_bot = u[: n_nodes_total * 3].reshape(n_nodes_total, 3)
+    displacement_magnitude = np.linalg.norm(u_top_bot, axis=1)
+    body_id = np.concatenate(
+        [
+            np.zeros(n_top_nodes, dtype=int),
+            np.ones(n_bot_nodes, dtype=int),
+        ]
+    )
 
     node_tag = np.zeros(n_top_nodes + n_bot_nodes, dtype=int)
     top_nodes_contact = np.unique(mesh_top.facets[:, mesh_top.boundaries["contact"]])
@@ -300,7 +307,10 @@ def _export_skfem_combined_vtu(mesh_top, mesh_bot, u: np.ndarray, file_path: str
         points=points,
         cells=cells,
         point_data={
+            "displacement": u_top_bot,
+            "displacement_magnitude": displacement_magnitude,
             "u": u_top_bot,
+            "body_id": body_id,
             "node_tag": node_tag,
         },
     ).write(file_path)
@@ -337,6 +347,13 @@ def _export_fluxfem_combined_vtu(
 
     n_nodes_total = n_top_nodes + n_bot_nodes
     u_nodes = u[: n_nodes_total * 3].reshape(n_nodes_total, 3)
+    displacement_magnitude = np.linalg.norm(u_nodes, axis=1)
+    body_id = np.concatenate(
+        [
+            np.zeros(n_top_nodes, dtype=int),
+            np.ones(n_bot_nodes, dtype=int),
+        ]
+    )
     node_tag = np.zeros(n_nodes_total, dtype=int)
 
     top_contact = np.unique(np.asarray(contact_facets_top, dtype=int))
@@ -353,7 +370,10 @@ def _export_fluxfem_combined_vtu(
         points=points,
         cells=cells,
         point_data={
+            "displacement": u_nodes,
+            "displacement_magnitude": displacement_magnitude,
             "u": u_nodes,
+            "body_id": body_id,
             "node_tag": node_tag,
         },
     ).write(file_path)

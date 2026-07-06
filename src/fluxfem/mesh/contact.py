@@ -854,6 +854,30 @@ class ContactKKTSolveConfig:
 
 
 @dataclass(frozen=True)
+class UnilateralContactActiveSetRecord:
+    """One active-set iteration for a linearized unilateral contact KKT solve."""
+
+    iteration: int
+    active_count: int
+    min_gap: float
+    min_lambda: float
+    changed: bool
+
+
+@dataclass(frozen=True)
+class UnilateralContactActiveSetResult:
+    """Result of a linearized unilateral contact active-set KKT solve."""
+
+    displacement: np.ndarray
+    lambda_n: np.ndarray
+    gap: np.ndarray
+    active_mask: np.ndarray
+    converged: bool
+    iters: int
+    records: tuple[UnilateralContactActiveSetRecord, ...]
+
+
+@dataclass(frozen=True)
 class EmbeddingMap:
     """Sparse mapping ``u_slave = W * u_master``."""
 
@@ -3411,6 +3435,135 @@ def solve_contact_kkt(
     return _solve_kkt_jax(kkt_matrix, rhs, cfg)
 
 
+def solve_unilateral_contact_active_set_kkt(
+    stiffness: npt.ArrayLike,
+    force: npt.ArrayLike,
+    gap_matrix: npt.ArrayLike,
+    gap0: npt.ArrayLike,
+    *,
+    fixed_dofs: npt.ArrayLike | None = None,
+    initial_active: npt.ArrayLike | None = None,
+    maxiter: int = 30,
+    gap_tol: float = 1e-10,
+    lambda_tol: float = 1e-10,
+    config: ContactKKTSolveConfig | None = None,
+) -> UnilateralContactActiveSetResult:
+    """
+    Solve a linearized unilateral contact problem with an active-set KKT loop.
+
+    The problem is
+
+    ``K u = f + G.T lambda``, ``g = gap0 + G u >= 0``,
+    ``lambda >= 0``, and ``g * lambda = 0``.
+
+    Active constraints are solved as equalities ``G_active u = -gap0_active``.
+    The active set is then updated by removing negative multipliers and adding
+    violated gaps.
+    """
+    if int(maxiter) <= 0:
+        raise ValueError("maxiter must be positive.")
+
+    K = np.asarray(stiffness, dtype=float)
+    f = np.asarray(force, dtype=float).reshape(-1)
+    G = np.asarray(gap_matrix, dtype=float)
+    g0 = np.asarray(gap0, dtype=float).reshape(-1)
+    if K.ndim != 2 or K.shape[0] != K.shape[1]:
+        raise ValueError("stiffness must be a square matrix.")
+    n_dofs = int(K.shape[0])
+    if f.shape != (n_dofs,):
+        raise ValueError("force must have shape (n_dofs,).")
+    if G.ndim != 2 or G.shape[1] != n_dofs:
+        raise ValueError("gap_matrix must have shape (n_contacts, n_dofs).")
+    n_contacts = int(G.shape[0])
+    if g0.shape != (n_contacts,):
+        raise ValueError("gap0 must have shape (n_contacts,).")
+
+    fixed = np.asarray([], dtype=np.int32) if fixed_dofs is None else np.asarray(fixed_dofs, dtype=np.int32).reshape(-1)
+    if fixed.size:
+        if fixed.min() < 0 or fixed.max() >= n_dofs:
+            raise ValueError("fixed_dofs contains an index outside the unknown range.")
+        if np.unique(fixed).size != fixed.size:
+            raise ValueError("fixed_dofs must not contain duplicates.")
+    free_mask = np.ones((n_dofs,), dtype=bool)
+    free_mask[fixed] = False
+    free = np.flatnonzero(free_mask)
+
+    if initial_active is None:
+        try:
+            u_trial = np.zeros((n_dofs,), dtype=float)
+            if free.size:
+                u_trial[free] = np.linalg.solve(K[np.ix_(free, free)], f[free])
+            active = (g0 + G @ u_trial) < -float(gap_tol)
+        except np.linalg.LinAlgError:
+            active = g0 < -float(gap_tol)
+    else:
+        active = np.asarray(initial_active, dtype=bool).reshape(-1)
+        if active.shape != (n_contacts,):
+            raise ValueError("initial_active must have shape (n_contacts,).")
+
+    cfg = ContactKKTSolveConfig(backend="numpy") if config is None else config.validate()
+    records: list[UnilateralContactActiveSetRecord] = []
+    u = np.zeros((n_dofs,), dtype=float)
+    lambda_full = np.zeros((n_contacts,), dtype=float)
+    gap = g0.copy()
+    converged = False
+
+    for iteration in range(1, int(maxiter) + 1):
+        active_ids = np.flatnonzero(active)
+        n_active = int(active_ids.size)
+        K_ff = K[np.ix_(free, free)]
+        f_f = f[free]
+        if n_active:
+            G_af = G[np.ix_(active_ids, free)]
+            lhs = np.block(
+                [
+                    [K_ff, -G_af.T],
+                    [G_af, np.zeros((n_active, n_active), dtype=K.dtype)],
+                ]
+            )
+            rhs = np.concatenate([f_f, -g0[active_ids]])
+            sol = np.asarray(solve_contact_kkt(lhs, rhs, config=cfg), dtype=float)
+            u = np.zeros((n_dofs,), dtype=float)
+            u[free] = sol[: free.size]
+            lambda_full = np.zeros((n_contacts,), dtype=float)
+            lambda_full[active_ids] = sol[free.size :]
+        else:
+            u = np.zeros((n_dofs,), dtype=float)
+            if free.size:
+                u[free] = np.asarray(solve_contact_kkt(K_ff, f_f, config=cfg), dtype=float)
+            lambda_full = np.zeros((n_contacts,), dtype=float)
+
+        gap = g0 + G @ u
+        remove = active & (lambda_full < -float(lambda_tol))
+        add = (~active) & (gap < -float(gap_tol))
+        next_active = (active & ~remove) | add
+        changed = not np.array_equal(next_active, active)
+        min_lambda = float(np.min(lambda_full[active])) if np.any(active) else 0.0
+        records.append(
+            UnilateralContactActiveSetRecord(
+                iteration=iteration,
+                active_count=int(np.count_nonzero(active)),
+                min_gap=float(np.min(gap)) if gap.size else 0.0,
+                min_lambda=min_lambda,
+                changed=changed,
+            )
+        )
+        active = next_active
+        if not changed:
+            converged = bool(np.all(gap >= -float(gap_tol)) and np.all(lambda_full[active] >= -float(lambda_tol)))
+            break
+
+    return UnilateralContactActiveSetResult(
+        displacement=u,
+        lambda_n=lambda_full,
+        gap=gap,
+        active_mask=active,
+        converged=converged,
+        iters=len(records),
+        records=tuple(records),
+    )
+
+
 @dataclass(frozen=True)
 class ContactSide:
     surface: SurfaceMesh
@@ -5582,6 +5735,8 @@ __all__ = [
     "ContactGroupSpec",
     "OneSidedContactSpec",
     "ContactKKTSolveConfig",
+    "UnilateralContactActiveSetRecord",
+    "UnilateralContactActiveSetResult",
     "EmbeddingMap",
     "build_nodal_embedding_map",
     "build_barycentric_embedding_map",
@@ -5602,6 +5757,7 @@ __all__ = [
     "assemble_contact_coupling_matrices",
     "assemble_contact_kkt",
     "solve_contact_kkt",
+    "solve_unilateral_contact_active_set_kkt",
     "solve_augmented_lagrangian_outer_loop",
     "facet_gap_values",
     "active_contact_facets",

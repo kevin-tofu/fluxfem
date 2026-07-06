@@ -160,6 +160,24 @@ class DirichletBC:
 
 def enforce_dirichlet_dense(K, F, dofs, vals):
     """Apply Dirichlet conditions directly to stiffness/load (dense)."""
+    if sp is not None and sp.issparse(K):
+        Kc = K.tolil(copy=True)
+        Fc = np.asarray(F, dtype=float).copy()
+        dofs, vals = _normalize_dirichlet(dofs, vals)
+        if Fc.ndim == 2:
+            Fc = Fc - (Kc[:, dofs] @ vals)[:, None]
+        else:
+            Fc = Fc - Kc[:, dofs] @ vals
+        for d, v in zip(dofs, vals):
+            Kc[d, :] = 0.0
+            Kc[:, d] = 0.0
+            Kc[d, d] = 1.0
+            if Fc.ndim == 2:
+                Fc[d, :] = v
+            else:
+                Fc[d] = v
+        return Kc.tocsr(), Fc
+
     Kc = np.asarray(K, dtype=float).copy()
     Fc = np.asarray(F, dtype=float).copy()
     dofs, vals = _normalize_dirichlet(dofs, vals)
@@ -518,8 +536,27 @@ def condense_dirichlet_dense(K, F, dofs, vals):
     Eliminate Dirichlet dofs for dense/CSR matrices and return condensed system.
     Returns: (K_cc, F_c, free_dofs, dir_dofs, dir_vals)
     """
-    K_np = np.asarray(K, dtype=float)
     F_np = np.asarray(F, dtype=float)
+    if sp is not None and sp.issparse(K):
+        K_csr = K.tocsr()
+        n = K_csr.shape[0]
+
+        dir_set, dir_vals = _normalize_dirichlet(dofs, vals)
+        mask = np.ones(n, dtype=bool)
+        mask[dir_set] = False
+        free_dofs = np.nonzero(mask)[0]
+
+        K_ff = K_csr[free_dofs][:, free_dofs]
+        K_fd = K_csr[free_dofs][:, dir_set]
+        F_f = F_np[free_dofs]
+        if F_f.ndim == 2:
+            F_f = F_f - (K_fd @ dir_vals)[:, None]
+        else:
+            F_f = F_f - K_fd @ dir_vals
+
+        return K_ff, F_f, free_dofs, dir_set, dir_vals
+
+    K_np = np.asarray(K, dtype=float)
     n = K_np.shape[0]
 
     dir_set, dir_vals = _normalize_dirichlet(dofs, vals)
