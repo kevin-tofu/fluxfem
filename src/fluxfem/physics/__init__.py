@@ -20,6 +20,31 @@ from .elasticity import (
     von_mises_stress,
 )
 from .diffusion import diffusion_form
+from .beam import (
+    BEAM_DOF_PER_NODE,
+    BeamSection,
+    assemble_beam_mass,
+    assemble_beam_stiffness,
+    beam_element_dofs,
+    beam_element_mass_global,
+    beam_element_mass_local,
+    beam_element_stiffness_global,
+    beam_element_stiffness_local,
+    beam_node_dofs,
+    structured_beam_chain,
+)
+from .truss import (
+    TRUSS_DOF_PER_NODE,
+    TrussSection,
+    assemble_truss_mass,
+    assemble_truss_stiffness,
+    structured_truss_chain,
+    truss_element_dofs,
+    truss_element_mass_global,
+    truss_element_stiffness_global,
+    truss_node_dofs,
+)
+from .lumped import assemble_dof_dashpot, assemble_dof_spring
 from .operators import dot, ddot, transpose_last2, sym_grad, sym_grad_u
 from .postprocess import make_point_data_displacement, write_point_data_vtu, interpolate_at_points
 
@@ -31,6 +56,28 @@ __all__ = [
     "constant_body_force_vector_form",
     "assemble_constant_body_force",
     "diffusion_form",
+    "BEAM_DOF_PER_NODE",
+    "BeamSection",
+    "assemble_beam_mass",
+    "assemble_beam_stiffness",
+    "beam_element_dofs",
+    "beam_element_mass_global",
+    "beam_element_mass_local",
+    "beam_element_stiffness_global",
+    "beam_element_stiffness_local",
+    "beam_node_dofs",
+    "structured_beam_chain",
+    "TRUSS_DOF_PER_NODE",
+    "TrussSection",
+    "assemble_truss_mass",
+    "assemble_truss_stiffness",
+    "structured_truss_chain",
+    "truss_element_dofs",
+    "truss_element_mass_global",
+    "truss_element_stiffness_global",
+    "truss_node_dofs",
+    "assemble_dof_dashpot",
+    "assemble_dof_spring",
     "dot",
     "ddot",
     "transpose_last2",
