@@ -359,6 +359,12 @@
 <h2 id="A">A</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/physics.html#fluxfem.physics.BeamSection.A">A (fluxfem.physics.BeamSection attribute)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.TrussSection.A">(fluxfem.physics.TrussSection attribute)</a>
+</li>
+      </ul></li>
       <li><a href="api/helpers.html#fluxfem.helpers_wf.action">action() (in module fluxfem.helpers_wf)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.active_contact_facets">active_contact_facets() (in module fluxfem.mesh)</a>
@@ -373,6 +379,16 @@
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.add">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_beam_mass">assemble_beam_mass() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_beam_point_load">assemble_beam_point_load() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_beam_point_loads">assemble_beam_point_loads() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_beam_stiffness">assemble_beam_stiffness() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_beam_uniform_load">assemble_beam_uniform_load() (in module fluxfem.physics)</a>
+</li>
       <li><a href="api/role_spaces.html#fluxfem.assemble_bilinear_form">assemble_bilinear_form() (in module fluxfem)</a>
 </li>
       <li><a href="api/physics.html#fluxfem.physics.assemble_constant_body_force">assemble_constant_body_force() (in module fluxfem.physics)</a>
@@ -383,17 +399,25 @@
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_interface_jacobian">assemble_contact_interface_jacobian() (in module fluxfem.mesh)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_interface_residual">assemble_contact_interface_residual() (in module fluxfem.mesh)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_kkt">assemble_contact_kkt() (in module fluxfem.mesh)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_contact_penalty_operators">assemble_contact_penalty_operators() (in module fluxfem.mesh)</a>
 </li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_dof_dashpot">assemble_dof_dashpot() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_dof_spring">assemble_dof_spring() (in module fluxfem.physics)</a>
+</li>
       <li><a href="api/role_spaces.html#fluxfem.assemble_jacobian">assemble_jacobian() (in module fluxfem)</a>
 </li>
       <li><a href="api/role_spaces.html#fluxfem.assemble_linear_form">assemble_linear_form() (in module fluxfem)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_nodal_load">assemble_nodal_load() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_rayleigh_damping">assemble_rayleigh_damping() (in module fluxfem.physics)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.assemble_rbe2_constraint_matrix">assemble_rbe2_constraint_matrix() (in module fluxfem.mesh)</a>
 </li>
@@ -402,6 +426,16 @@
       <li><a href="api/solver.html#fluxfem.solver.assemble_reference_fixture_preload">assemble_reference_fixture_preload() (in module fluxfem.solver)</a>
 </li>
       <li><a href="api/role_spaces.html#fluxfem.assemble_residual">assemble_residual() (in module fluxfem)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_truss_mass">assemble_truss_mass() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_truss_point_load">assemble_truss_point_load() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_truss_point_loads">assemble_truss_point_loads() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_truss_stiffness">assemble_truss_stiffness() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.assemble_truss_uniform_load">assemble_truss_uniform_load() (in module fluxfem.physics)</a>
 </li>
       <li><a href="api/tools.html#fluxfem.tools.timer.SectionStats.avg">avg (fluxfem.tools.timer.SectionStats attribute)</a>
 </li>
@@ -421,10 +455,28 @@
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.bbox_predicate">bbox_predicate() (in module fluxfem.mesh)</a>
 </li>
-      <li><a href="api/core.html#fluxfem.core.BilinearForm">BilinearForm (class in fluxfem.core)</a>
+      <li><a href="api/physics.html#fluxfem.physics.beam_element_dofs">beam_element_dofs() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.beam_element_mass_global">beam_element_mass_global() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.beam_element_mass_local">beam_element_mass_local() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.beam_element_stiffness_global">beam_element_stiffness_global() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.beam_element_stiffness_local">beam_element_stiffness_local() (in module fluxfem.physics)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/physics.html#fluxfem.physics.beam_element_uniform_load_global">beam_element_uniform_load_global() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.beam_element_uniform_load_local">beam_element_uniform_load_local() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.beam_node_dofs">beam_node_dofs() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.BeamSection">BeamSection (class in fluxfem.physics)</a>
+</li>
+      <li><a href="api/core.html#fluxfem.core.BilinearForm">BilinearForm (class in fluxfem.core)</a>
+</li>
       <li><a href="api/role_spaces.html#fluxfem.BilinearSpaces">BilinearSpaces (class in fluxfem)</a>
 </li>
       <li><a href="api/core.html#fluxfem.core.bind_mixed_residual">bind_mixed_residual() (in module fluxfem.core)</a>
@@ -525,10 +577,16 @@
 <h2 id="E">E</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/solver.html#fluxfem.solver.enforce_dirichlet_dense">enforce_dirichlet_dense() (in module fluxfem.solver)</a>
+      <li><a href="api/physics.html#fluxfem.physics.BeamSection.E">E (fluxfem.physics.BeamSection attribute)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.TrussSection.E">(fluxfem.physics.TrussSection attribute)</a>
 </li>
+      </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/solver.html#fluxfem.solver.enforce_dirichlet_dense">enforce_dirichlet_dense() (in module fluxfem.solver)</a>
+</li>
       <li><a href="api/solver.html#fluxfem.solver.enforce_dirichlet_sparse">enforce_dirichlet_sparse() (in module fluxfem.solver)</a>
 </li>
       <li><a href="api/solver.html#fluxfem.solver.expand_dirichlet_solution">expand_dirichlet_solution() (in module fluxfem.solver)</a>
@@ -641,6 +699,8 @@
 <h2 id="G">G</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/physics.html#fluxfem.physics.BeamSection.G">G (fluxfem.physics.BeamSection attribute)</a>
+</li>
       <li><a href="api/helpers.html#fluxfem.helpers_wf.gaction">gaction() (in module fluxfem.helpers_wf)</a>
 </li>
   </ul></td>
@@ -689,11 +749,19 @@
         <li><a href="api/physics.html#fluxfem.physics.isotropic_3d_D">(in module fluxfem.physics)</a>
 </li>
       </ul></li>
+      <li><a href="api/physics.html#fluxfem.physics.BeamSection.Iy">Iy (fluxfem.physics.BeamSection attribute)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.BeamSection.Iz">Iz (fluxfem.physics.BeamSection attribute)</a>
+</li>
   </ul></td>
 </tr></table>
 
 <h2 id="J">J</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/physics.html#fluxfem.physics.BeamSection.J">J (fluxfem.physics.BeamSection attribute)</a>
+</li>
+  </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/role_spaces.html#fluxfem.JacobianSpaces">JacobianSpaces (class in fluxfem)</a>
 </li>
@@ -956,6 +1024,10 @@
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/physics.html#fluxfem.physics.rayleigh_coefficients_from_modal_damping">rayleigh_coefficients_from_modal_damping() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.rayleigh_damping_ratio">rayleigh_damping_ratio() (in module fluxfem.physics)</a>
+</li>
       <li><a href="api/solver.html#fluxfem.solver.rbe3_remote_reference_rank">rbe3_remote_reference_rank() (in module fluxfem.solver)</a>
 </li>
       <li><a href="api/solver.html#fluxfem.solver.RBE3Patch">RBE3Patch (class in fluxfem.solver)</a>
@@ -1010,6 +1082,12 @@
 </li>
       <li><a href="api/solver.html#fluxfem.solver.retained_dofs_from_node_sets">retained_dofs_from_node_sets() (in module fluxfem.solver)</a>
 </li>
+      <li><a href="api/physics.html#fluxfem.physics.BeamSection.rho">rho (fluxfem.physics.BeamSection attribute)</a>
+
+      <ul>
+        <li><a href="api/physics.html#fluxfem.physics.TrussSection.rho">(fluxfem.physics.TrussSection attribute)</a>
+</li>
+      </ul></li>
       <li><a href="api/physics.html#fluxfem.physics.right_cauchy_green">right_cauchy_green() (in module fluxfem.physics)</a>
 </li>
   </ul></td>
@@ -1060,16 +1138,20 @@
 </li>
       <li><a href="api/solver.html#fluxfem.solver.solve_reduced_equation_active">solve_reduced_equation_active() (in module fluxfem.solver)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/solver.html#fluxfem.solver.SparsityPattern">SparsityPattern (class in fluxfem.solver)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/tools.html#fluxfem.tools.SectionTimer.stats">stats() (fluxfem.tools.SectionTimer method)</a>
 
       <ul>
         <li><a href="api/tools.html#fluxfem.tools.timer.SectionTimer.stats">(fluxfem.tools.timer.SectionTimer method)</a>
 </li>
       </ul></li>
+      <li><a href="api/physics.html#fluxfem.physics.structured_beam_chain">structured_beam_chain() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.structured_truss_chain">structured_truss_chain() (in module fluxfem.physics)</a>
+</li>
       <li><a href="api/mesh.html#fluxfem.mesh.StructuredHexBox">StructuredHexBox (class in fluxfem.mesh)</a>
 </li>
       <li><a href="api/mesh.html#fluxfem.mesh.StructuredTetBox">StructuredTetBox (class in fluxfem.mesh)</a>
@@ -1126,8 +1208,6 @@
 </li>
       <li><a href="api/helpers.html#fluxfem.helpers_wf.traction">traction() (in module fluxfem.helpers_wf)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/helpers.html#fluxfem.helpers_wf.transpose">transpose() (in module fluxfem.helpers_wf)</a>
 </li>
       <li><a href="api/helpers.html#fluxfem.helpers_ts.transpose_last2">transpose_last2() (in module fluxfem.helpers_ts)</a>
@@ -1140,6 +1220,20 @@
         <li><a href="api/physics.html#fluxfem.physics.operators.transpose_last2">(in module fluxfem.physics.operators)</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/physics.html#fluxfem.physics.truss_element_dofs">truss_element_dofs() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.truss_element_mass_global">truss_element_mass_global() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.truss_element_stiffness_global">truss_element_stiffness_global() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.truss_element_uniform_load_global">truss_element_uniform_load_global() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.truss_node_dofs">truss_node_dofs() (in module fluxfem.physics)</a>
+</li>
+      <li><a href="api/physics.html#fluxfem.physics.TrussSection">TrussSection (class in fluxfem.physics)</a>
+</li>
   </ul></td>
 </tr></table>
 
