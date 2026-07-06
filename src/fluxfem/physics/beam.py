@@ -398,10 +398,61 @@ def assemble_beam_uniform_load(
     return out
 
 
+def assemble_beam_point_load(
+    n_nodes: int,
+    node: int,
+    *,
+    force: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
+    moment: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
+) -> np.ndarray:
+    """Assemble a dense nodal load vector for one beam node."""
+    return assemble_beam_point_loads(n_nodes, [node], forces=[force], moments=[moment])
+
+
+def assemble_beam_point_loads(
+    n_nodes: int,
+    nodes: Sequence[int] | np.ndarray,
+    *,
+    forces: Sequence[Sequence[float]] | np.ndarray | None = None,
+    moments: Sequence[Sequence[float]] | np.ndarray | None = None,
+) -> np.ndarray:
+    """Assemble dense nodal force/moment loads for beam nodes."""
+    if n_nodes <= 0:
+        raise ValueError("n_nodes must be positive.")
+    nodes_arr = np.asarray(nodes, dtype=int).reshape(-1)
+    if nodes_arr.size == 0:
+        raise ValueError("nodes must contain at least one node.")
+    if np.any(nodes_arr < 0) or np.any(nodes_arr >= int(n_nodes)):
+        raise ValueError("nodes contains an index outside n_nodes.")
+
+    def normalize(values, name: str) -> np.ndarray:
+        if values is None:
+            return np.zeros((nodes_arr.size, 3), dtype=float)
+        arr = np.asarray(values, dtype=float)
+        if arr.shape == (3,):
+            if nodes_arr.size != 1:
+                raise ValueError(f"{name} with shape (3,) is only valid for one node.")
+            return arr.reshape(1, 3)
+        if arr.shape != (nodes_arr.size, 3):
+            raise ValueError(f"{name} must have shape ({nodes_arr.size}, 3).")
+        return arr
+
+    force_arr = normalize(forces, "forces")
+    moment_arr = normalize(moments, "moments")
+    out = np.zeros(BEAM_DOF_PER_NODE * int(n_nodes), dtype=float)
+    for node, force_vec, moment_vec in zip(nodes_arr, force_arr, moment_arr):
+        dofs = BEAM_DOF_PER_NODE * int(node) + np.arange(6)
+        values = np.concatenate([force_vec, moment_vec])
+        np.add.at(out, dofs, values)
+    return out
+
+
 __all__ = [
     "BEAM_DOF_PER_NODE",
     "BeamSection",
     "assemble_beam_mass",
+    "assemble_beam_point_load",
+    "assemble_beam_point_loads",
     "assemble_beam_stiffness",
     "assemble_beam_uniform_load",
     "beam_element_dofs",

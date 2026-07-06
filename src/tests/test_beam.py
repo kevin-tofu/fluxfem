@@ -45,9 +45,8 @@ def test_beam_cantilever_tip_load_matches_euler_bernoulli_solution():
     )
     coords, conn = ff.structured_beam_chain(n_elems=4, length=length)
     K = ff.assemble_beam_stiffness(coords, conn, section).to_dense()
-    F = np.zeros(ff.BEAM_DOF_PER_NODE * coords.shape[0], dtype=float)
     tip = coords.shape[0] - 1
-    F[ff.beam_node_dofs([tip], "uz")] = force
+    F = ff.assemble_beam_point_load(coords.shape[0], tip, force=(0.0, 0.0, force))
 
     fixed = ff.beam_node_dofs([0])
     u, _info = ff.LinearSolver(method="spsolve").solve(
@@ -64,6 +63,50 @@ def test_beam_cantilever_tip_load_matches_euler_bernoulli_solution():
 
     np.testing.assert_allclose(uz_tip, uz_exact, rtol=2.0e-12, atol=1.0e-14)
     np.testing.assert_allclose(ry_tip, ry_exact, rtol=2.0e-12, atol=1.0e-14)
+
+
+def test_beam_cantilever_tip_moment_matches_euler_bernoulli_solution():
+    length = 2.0
+    moment_y = 500.0
+    section = ff.BeamSection(
+        E=210.0e9,
+        G=80.0e9,
+        A=2.0e-3,
+        Iy=8.0e-6,
+        Iz=5.0e-6,
+        J=1.0e-5,
+    )
+    coords, conn = ff.structured_beam_chain(n_elems=4, length=length)
+    K = ff.assemble_beam_stiffness(coords, conn, section)
+    tip = coords.shape[0] - 1
+    F = ff.assemble_beam_point_load(coords.shape[0], tip, moment=(0.0, moment_y, 0.0))
+
+    fixed = ff.beam_node_dofs([0])
+    u, _info = ff.LinearSolver(method="spsolve").solve(
+        K,
+        F,
+        dirichlet=ff.DirichletBC(fixed, 0.0),
+        dirichlet_mode="condense",
+    )
+
+    uz_tip = float(u[ff.beam_node_dofs([tip], "uz")][0])
+    ry_tip = float(u[ff.beam_node_dofs([tip], "ry")][0])
+    uz_exact = -moment_y * length**2 / (2.0 * section.E * section.Iy)
+    ry_exact = moment_y * length / (section.E * section.Iy)
+
+    np.testing.assert_allclose(uz_tip, uz_exact, rtol=2.0e-12, atol=1.0e-14)
+    np.testing.assert_allclose(ry_tip, ry_exact, rtol=2.0e-12, atol=1.0e-14)
+
+
+def test_beam_point_loads_accumulate_multiple_nodes():
+    F = ff.assemble_beam_point_loads(
+        4,
+        [1, 3, 1],
+        forces=[(1.0, 2.0, 3.0), (0.0, -1.0, 0.0), (4.0, 5.0, 6.0)],
+        moments=[(0.1, 0.2, 0.3), (0.0, 0.0, 1.0), (0.4, 0.5, 0.6)],
+    )
+    np.testing.assert_allclose(F[ff.beam_node_dofs([1])], np.array([5.0, 7.0, 9.0, 0.5, 0.7, 0.9]))
+    np.testing.assert_allclose(F[ff.beam_node_dofs([3])], np.array([0.0, -1.0, 0.0, 0.0, 0.0, 1.0]))
 
 
 def test_beam_cantilever_uniform_load_matches_euler_bernoulli_solution():
