@@ -6,6 +6,8 @@ a pair of faceted spherical-cap hex bodies with fields that make the
 contact/ROM ingredients visible in ParaView:
 
 - displacement: warp-by-vector field
+- displacement_magnitude: scalar field for coloring both bodies
+- body_id: 0 for the lower body, 1 for the upper body
 - gap: signed local separation, negative where contact is active
 - contact_pressure: penalty-style visual contact pressure
 - active_contact: 1 on active interface nodes
@@ -24,10 +26,12 @@ Open the generated .pvd file in ParaView and apply Warp By Vector using
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 from pathlib import Path
 
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-fluxfem")
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -184,6 +188,7 @@ def _point_fields(
     displacement[:, 0] = np.where(is_top, 0.25 * lateral, -0.08 * lateral)
     displacement[:, 1] = np.where(is_top, -0.10 * lateral, 0.04 * lateral)
     displacement[:, 2] = bottom_w + top_w
+    displacement_magnitude = np.linalg.norm(displacement, axis=1)
 
     curvature_gap = 0.018 * (x / length - 0.5) - 0.14 * surface_curvature
     nominal_gap = clearance + curvature_gap
@@ -195,6 +200,8 @@ def _point_fields(
 
     return {
         "displacement": displacement,
+        "displacement_magnitude": displacement_magnitude.astype(np.float32),
+        "body_id": node_body.astype(np.float32),
         "gap": gap.astype(np.float32),
         "contact_pressure": pressure_vis.astype(np.float32),
         "active_contact": active_contact.astype(np.float32),
@@ -216,6 +223,51 @@ def _write_pvd(path: Path, files: list[Path], times: list[float]) -> None:
         io.write("</VTKFile>\n")
 
 
+def _write_pyvista_section_jpg(
+    vtu_path: Path,
+    out_path: Path,
+    *,
+    field: str = "contact_pressure",
+    title: str = "",
+) -> bool:
+    try:
+        import pyvista as pv
+    except Exception as exc:
+        print(f"PyVista is not available; skipping section JPG: {exc}")
+        return False
+
+    pv.OFF_SCREEN = True
+    mesh = pv.read(str(vtu_path))
+    section = mesh.slice(normal=(0.0, 1.0, 0.0), origin=(0.0, 0.0, 0.0))
+    if section.n_points == 0:
+        print(f"Empty section for {vtu_path}; skipping JPG.")
+        return False
+
+    scalars = field if field in section.point_data else None
+    if scalars is None and "displacement_magnitude" in section.point_data:
+        scalars = "displacement_magnitude"
+
+    pl = pv.Plotter(off_screen=True, window_size=(1600, 900))
+    pl.set_background("white")
+    if title:
+        pl.add_text(title, position="upper_left", font_size=11, color="black")
+    pl.add_mesh(
+        section,
+        scalars=scalars,
+        cmap="viridis" if scalars != "contact_pressure" else "magma",
+        show_edges=True,
+        edge_color="#475569",
+        line_width=0.5,
+        scalar_bar_args={"title": scalars or "field", "color": "black"},
+    )
+    pl.view_xz()
+    pl.camera.zoom(1.35)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    pl.show(screenshot=str(out_path))
+    pl.close()
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -227,6 +279,8 @@ def main() -> None:
     parser.add_argument("--nx", type=int, default=40)
     parser.add_argument("--ny", type=int, default=24)
     parser.add_argument("--nz", type=int, default=2)
+    parser.add_argument("--section-jpg", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--section-field", default="contact_pressure")
     args = parser.parse_args()
 
     length = 4.0
@@ -247,12 +301,21 @@ def main() -> None:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     for old in args.out_dir.glob("curved_contact_*.vtu"):
         old.unlink()
+    for old in args.out_dir.glob("curved_contact_deformed_*.vtu"):
+        old.unlink()
     old_pvd = args.out_dir / "curved_contact_series.pvd"
     if old_pvd.exists():
         old_pvd.unlink()
+    old_deformed_pvd = args.out_dir / "curved_contact_deformed_series.pvd"
+    if old_deformed_pvd.exists():
+        old_deformed_pvd.unlink()
 
     vtus: list[Path] = []
+    deformed_vtus: list[Path] = []
     times: list[float] = []
+    final_summary: dict[str, object] = {}
+    reference_coords = np.asarray(mesh.coords, dtype=float)
+    conn = np.asarray(mesh.conn, dtype=np.int32)
     for step in range(args.nsteps):
         fields = _point_fields(
             mesh,
@@ -273,13 +336,69 @@ def main() -> None:
             point_data=fields,
             cell_data={"body_id": body_id},
         )
+        deformed_coords = reference_coords + np.asarray(fields["displacement"], dtype=float)
+        deformed_mesh = ff.HexMesh(coords=jnp.asarray(deformed_coords), conn=jnp.asarray(conn))
+        deformed_vtu = args.out_dir / f"curved_contact_deformed_{step:04d}.vtu"
+        ff.write_vtu(
+            deformed_mesh,
+            str(deformed_vtu),
+            point_data=fields,
+            cell_data={"body_id": body_id},
+        )
         vtus.append(vtu)
+        deformed_vtus.append(deformed_vtu)
         times.append(0.0 if args.nsteps <= 1 else step / float(args.nsteps - 1))
+        if step == args.nsteps - 1:
+            final_summary = {
+                "final_vtu": str(vtu),
+                "final_deformed_vtu": str(deformed_vtu),
+                "pvd": str(args.out_dir / "curved_contact_series.pvd"),
+                "deformed_pvd": str(args.out_dir / "curved_contact_deformed_series.pvd"),
+                "n_points": int(np.asarray(mesh.coords).shape[0]),
+                "n_cells": int(np.asarray(mesh.conn).shape[0]),
+                "fields": sorted(fields.keys()),
+                "max_displacement": float(np.max(fields["displacement_magnitude"])),
+                "max_contact_pressure": float(np.max(fields["contact_pressure"])),
+                "active_contact_nodes": int(np.count_nonzero(fields["active_contact"])),
+                "paraview": "Open curved_contact_deformed_series.pvd for contact-in-place geometry; color by displacement_magnitude or contact_pressure. Use curved_contact_series.pvd only when you want to apply Warp By Vector manually.",
+                "note": "Visualization-oriented curved-surface contact field, not a nonlinear contact solve.",
+            }
 
     pvd = args.out_dir / "curved_contact_series.pvd"
     _write_pvd(pvd, vtus, times)
+    deformed_pvd = args.out_dir / "curved_contact_deformed_series.pvd"
+    _write_pvd(deformed_pvd, deformed_vtus, times)
+
+    section_jpgs: list[str] = []
+    if args.section_jpg:
+        jpg_dir = args.out_dir / "section_jpg"
+        for old in jpg_dir.glob("curved_contact_deformed_section_*.jpg"):
+            old.unlink()
+        for step, (time, vtu) in enumerate(zip(times, deformed_vtus)):
+            jpg = jpg_dir / f"curved_contact_deformed_section_{step:04d}.jpg"
+            ok = _write_pyvista_section_jpg(
+                vtu,
+                jpg,
+                field=args.section_field,
+                title=f"curved contact section  t={time:.3f}",
+            )
+            if ok:
+                section_jpgs.append(str(jpg))
+        if section_jpgs:
+            final_summary["section_jpg_dir"] = str(jpg_dir)
+            final_summary["final_section_jpg"] = section_jpgs[-1]
+            final_summary["section_jpg_count"] = len(section_jpgs)
+
+    summary_path = args.out_dir / "curved_contact_summary.json"
+    summary_path.write_text(json.dumps(final_summary, indent=2) + "\n", encoding="utf-8")
     print(f"VTU series written: {pvd}")
-    print("ParaView: open the .pvd, color by contact_pressure or active_contact, then Warp By Vector(displacement).")
+    print(f"Deformed VTU series written: {deformed_pvd}")
+    print(f"Final VTU: {vtus[-1]}")
+    print(f"Final deformed VTU: {deformed_vtus[-1]}")
+    if section_jpgs:
+        print(f"Section JPG series written: {section_jpgs[0]} ... {section_jpgs[-1]}")
+    print(f"Summary written: {summary_path}")
+    print("ParaView: open the deformed .pvd for contact-in-place geometry, or open the reference .pvd and Warp By Vector(displacement).")
 
 
 if __name__ == "__main__":
