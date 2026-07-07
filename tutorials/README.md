@@ -22,10 +22,12 @@ has persistent outputs such as JSON metrics, plots, or VTU files.
 Elasticity and structural helpers:
 
 - `elasticity/linearelastic_tensile_bar.py`: linear elasticity weak-form assembly.
+- `elasticity/frame2d_cantilever.py`: 2D x-z frame cantilever with selectable matrix format.
 - `elasticity/beam_cantilever.py`: 3D Euler-Bernoulli cantilever beam with selectable matrix format.
 - `elasticity/beam_point_load.py`: beam tip force and moment loading.
 - `elasticity/beam_uniform_load.py`: equivalent nodal loads for uniform beam loading.
 - `elasticity/beam_cantilever_modes.py`: first bending frequency check for a beam cantilever.
+- `elasticity/truss2d_bar_cantilever.py`: 2D x-z truss/bar cantilever with selectable matrix format.
 - `elasticity/truss_bar_cantilever.py`: 3D truss/bar cantilever with selectable matrix format.
 - `elasticity/truss_uniform_load.py`: equivalent nodal loads for uniform truss/bar loading.
 

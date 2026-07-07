@@ -235,7 +235,9 @@ FluxFEM also includes dedicated structural-element helpers for quick beam,
 bar/truss, and lumped spring-mass-dashpot models. These are separate from the
 continuum `FESpace` mesh assembly path:
 
+- frame2d: x-z planar Euler-Bernoulli frame elements, 3 DOF per node (`ux, uz, ry`)
 - beam: 3D Euler-Bernoulli frame elements, 6 DOF per node
+- truss2d/bar: x-z planar axial elements, 2 translational DOF per node
 - truss/bar: 3D axial elements, 3 translational DOF per node
 - lumped: DOF-level springs, dashpots, nodal loads, and Rayleigh damping
 
@@ -275,7 +277,9 @@ u, info = ff.LinearSolver(method="spsolve_jax").solve(K, F, dirichlet=bc)
 See:
 
 - [`tutorials/elasticity/beam_cantilever.py`](tutorials/elasticity/beam_cantilever.py)
+- [`tutorials/elasticity/frame2d_cantilever.py`](tutorials/elasticity/frame2d_cantilever.py)
 - [`tutorials/elasticity/beam_uniform_load.py`](tutorials/elasticity/beam_uniform_load.py)
+- [`tutorials/elasticity/truss2d_bar_cantilever.py`](tutorials/elasticity/truss2d_bar_cantilever.py)
 - [`tutorials/elasticity/truss_bar_cantilever.py`](tutorials/elasticity/truss_bar_cantilever.py)
 - [`tutorials/dynamics/beam_tip_spring_dashpot.py`](tutorials/dynamics/beam_tip_spring_dashpot.py)
 
@@ -673,8 +677,8 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 ## Tutorials
 
 - `tutorials/elasticity/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
-- `tutorials/elasticity/beam_cantilever.py` and `tutorials/elasticity/beam_uniform_load.py` (3D Euler-Bernoulli beam helpers)
-- `tutorials/elasticity/truss_bar_cantilever.py` and `tutorials/elasticity/truss_uniform_load.py` (3D truss/bar helpers)
+- `tutorials/elasticity/frame2d_cantilever.py`, `tutorials/elasticity/beam_cantilever.py`, and `tutorials/elasticity/beam_uniform_load.py` (2D/3D Euler-Bernoulli frame helpers)
+- `tutorials/elasticity/truss2d_bar_cantilever.py`, `tutorials/elasticity/truss_bar_cantilever.py`, and `tutorials/elasticity/truss_uniform_load.py` (2D/3D truss/bar helpers)
 - `tutorials/dynamics/spring_mass_dashpot.py` and `tutorials/dynamics/beam_tip_spring_dashpot.py` (lumped and beam dynamics)
 - `tutorials/nonlinear/neo_hookean_cantilever.py` (nonlinear hyperelasticity)
 - `tutorials/thermoelastic/thermoelastic_bar_1d.py` / `tutorials/thermoelastic/thermoelastic_bar_1d_mixed.py` (thermoelastic coupling)

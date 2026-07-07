@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""
+2D Euler-Bernoulli frame cantilever in the x-z plane.
+
+Each node has planar frame DOFs [ux, uz, ry]. The example fixes the left end
+and applies a transverse tip load in z, then compares the tip response with
+
+  w(L) = P L^3 / (3 E Iy).
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+
+import numpy as np
+
+os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+import jax
+
+jax.config.update("jax_enable_x64", True)
+
+import fluxfem as ff
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Cantilever beam with 2D frame elements.")
+    p.add_argument("--format", choices=("csr", "fluxsparse", "dense"), default="csr", help="Matrix assembly format.")
+    p.add_argument("--solver", choices=("auto", "spsolve", "spsolve_jax"), default="auto", help="Linear solver backend.")
+    p.add_argument("--n-elems", type=int, default=8, help="Number of frame elements.")
+    p.add_argument("--length", type=float, default=2.0, help="Beam length.")
+    p.add_argument("--E", type=float, default=210.0e9, help="Young's modulus.")
+    p.add_argument("--G", type=float, default=80.0e9, help="Shear modulus for torsion.")
+    p.add_argument("--A", type=float, default=2.0e-3, help="Cross-sectional area.")
+    p.add_argument("--Iy", type=float, default=8.0e-6, help="Second moment for x-z bending.")
+    p.add_argument("--Iz", type=float, default=5.0e-6, help="Out-of-plane second moment retained in the 3D section.")
+    p.add_argument("--J", type=float, default=1.0e-5, help="Torsion constant retained in the 3D section.")
+    p.add_argument("--rho", type=float, default=7800.0, help="Density for optional mass assembly.")
+    p.add_argument("--tip-load-z", type=float, default=-1000.0, help="Tip load in global z.")
+    return p.parse_args()
+
+
+def _auto_solver(format: str, solver: str) -> str:
+    if solver != "auto":
+        return solver
+    return "spsolve_jax" if format == "fluxsparse" else "spsolve"
+
+
+def _matrix_nnz(matrix) -> int:
+    if hasattr(matrix, "nnz"):
+        return int(matrix.nnz)
+    return int(np.count_nonzero(np.asarray(matrix)))
+
+
+def main():
+    args = parse_args()
+
+    coords, conn = ff.structured_frame2d_chain(n_elems=args.n_elems, length=args.length)
+    section = ff.BeamSection(E=args.E, G=args.G, A=args.A, Iy=args.Iy, Iz=args.Iz, J=args.J, rho=args.rho)
+    K = ff.assemble_frame2d_stiffness(coords, conn, section, format=args.format)
+    M = ff.assemble_frame2d_mass(coords, conn, section, format=args.format)
+
+    n_dofs = ff.FRAME2D_DOF_PER_NODE * coords.shape[0]
+    tip_node = coords.shape[0] - 1
+    F = ff.assemble_frame2d_point_load(
+        coords.shape[0],
+        tip_node,
+        force=(0.0, args.tip_load_z),
+        array_backend="jax" if args.format == "fluxsparse" else "numpy",
+    )
+
+    fixed = ff.frame2d_node_dofs([0])
+    solver = _auto_solver(args.format, args.solver)
+    u, _info = ff.LinearSolver(method=solver).solve(
+        K,
+        F,
+        dirichlet=ff.DirichletBC(fixed, 0.0),
+        dirichlet_mode="condense",
+    )
+
+    uz_tip = float(u[ff.frame2d_node_dofs([tip_node], "uz")][0])
+    ry_tip = float(u[ff.frame2d_node_dofs([tip_node], "ry")][0])
+    uz_exact = args.tip_load_z * args.length**3 / (3.0 * args.E * args.Iy)
+    ry_exact = -args.tip_load_z * args.length**2 / (2.0 * args.E * args.Iy)
+    rel_err = abs(uz_tip - uz_exact) / abs(uz_exact) if uz_exact != 0.0 else 0.0
+
+    print(f"frame2d solved: format={args.format}, solver={solver}, nodes={coords.shape[0]}, elems={conn.shape[0]}, dofs={n_dofs}")
+    print(f"tip uz={uz_tip:.6e}, EB exact={uz_exact:.6e}, rel.err={rel_err:.3e}")
+    print(f"tip ry={ry_tip:.6e}, EB exact={ry_exact:.6e}")
+    print(f"stiffness nnz={_matrix_nnz(K)}, mass nnz={_matrix_nnz(M)}")
+
+
+if __name__ == "__main__":
+    main()

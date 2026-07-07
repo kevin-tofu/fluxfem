@@ -10,6 +10,7 @@ from .lumped import (
     MatrixBackend,
     MatrixFormat,
     _as_array_backend,
+    _restrict_csr_to_format,
     _resolve_array_backend,
     _resolve_matrix_format,
     _sparse_from_coo,
@@ -17,6 +18,7 @@ from .lumped import (
 
 
 BEAM_DOF_PER_NODE = 6
+FRAME2D_DOF_PER_NODE = 3
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,59 @@ def structured_beam_chain(
         raise ValueError("n_elems must be positive.")
     origin_arr = np.asarray(origin, dtype=float)
     direction_arr = np.asarray(direction, dtype=float)
+    norm = float(np.linalg.norm(direction_arr))
+    if norm == 0.0:
+        raise ValueError("direction must be nonzero.")
+    axis = direction_arr / norm
+    s = np.linspace(0.0, float(length), int(n_elems) + 1)
+    coords = origin_arr[None, :] + s[:, None] * axis[None, :]
+    conn = np.column_stack([np.arange(n_elems), np.arange(1, n_elems + 1)]).astype(int)
+    return coords, conn
+
+
+def frame2d_node_dofs(
+    nodes: Sequence[int] | np.ndarray,
+    components: Sequence[int] | str = "uxuzry",
+) -> np.ndarray:
+    """
+    Return flattened 3-DOF planar frame indices for nodes.
+
+    The planar frame convention is the global x-z plane with DOFs
+    ``ux, uz, ry`` per node.
+    """
+    nodes_arr = np.asarray(nodes, dtype=int).reshape(-1)
+    comp_map = {"ux": 0, "uz": 1, "ry": 2, "x": 0, "z": 1, "r": 2}
+    if isinstance(components, str):
+        text = components.lower().replace(",", " ").replace("_", " ")
+        if " " in text:
+            tokens = [tok for tok in text.split() if tok]
+        else:
+            if all(ch in comp_map for ch in text):
+                tokens = list(text)
+            elif len(text) % 2 == 0:
+                tokens = [text[i : i + 2] for i in range(0, len(text), 2)]
+            else:
+                raise ValueError("Frame2D component string must use ux, uz, ry or compact xzr.")
+        comps = np.asarray([comp_map[tok] for tok in tokens], dtype=int)
+    else:
+        comps = np.asarray(list(components), dtype=int)
+    return np.asarray([FRAME2D_DOF_PER_NODE * int(n) + int(c) for n in nodes_arr for c in comps], dtype=int)
+
+
+def structured_frame2d_chain(
+    *,
+    n_elems: int,
+    length: float,
+    origin: Sequence[float] = (0.0, 0.0),
+    direction: Sequence[float] = (1.0, 0.0),
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build x-z coordinates and 2-node connectivity for a straight planar frame chain."""
+    if n_elems <= 0:
+        raise ValueError("n_elems must be positive.")
+    origin_arr = np.asarray(origin, dtype=float)
+    direction_arr = np.asarray(direction, dtype=float)
+    if origin_arr.shape != (2,) or direction_arr.shape != (2,):
+        raise ValueError("origin and direction must have two components [x, z].")
     norm = float(np.linalg.norm(direction_arr))
     if norm == 0.0:
         raise ValueError("direction must be nonzero.")
@@ -467,14 +522,163 @@ def assemble_beam_point_loads(
     return _as_array_backend(out, _resolve_array_backend(array_backend, backend))
 
 
+def _frame2d_to_beam_coords(coords: np.ndarray) -> np.ndarray:
+    coords_arr = np.asarray(coords, dtype=float)
+    if coords_arr.ndim != 2 or coords_arr.shape[1] not in (2, 3):
+        raise ValueError("coords must have shape (n_nodes, 2) or (n_nodes, 3).")
+    if coords_arr.shape[1] == 3:
+        return coords_arr
+    out = np.zeros((coords_arr.shape[0], 3), dtype=float)
+    out[:, 0] = coords_arr[:, 0]
+    out[:, 2] = coords_arr[:, 1]
+    return out
+
+
+def _frame2d_beam_dofs(n_nodes: int) -> np.ndarray:
+    return beam_node_dofs(np.arange(int(n_nodes)), "ux uz ry")
+
+
+def _frame2d_load_to_beam(load: Sequence[float] | np.ndarray) -> np.ndarray:
+    arr = np.asarray(load, dtype=float).reshape(-1)
+    if arr.size != 2:
+        raise ValueError("2D frame load must have two components [qx, qz].")
+    return np.array([arr[0], 0.0, arr[1]], dtype=float)
+
+
+def assemble_frame2d_stiffness(
+    coords: np.ndarray,
+    conn: np.ndarray,
+    section: BeamSection,
+    *,
+    reference: Sequence[float] | None = None,
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
+):
+    """Assemble stiffness for x-z planar frame elements with DOFs ux, uz, ry."""
+    resolved = _resolve_matrix_format(format, backend)
+    coords3 = _frame2d_to_beam_coords(coords)
+    matrix3 = assemble_beam_stiffness(coords3, conn, section, reference=reference, format="csr")
+    return _restrict_csr_to_format(matrix3, _frame2d_beam_dofs(coords3.shape[0]), format=resolved)
+
+
+def assemble_frame2d_mass(
+    coords: np.ndarray,
+    conn: np.ndarray,
+    section: BeamSection,
+    *,
+    reference: Sequence[float] | None = None,
+    kind: Literal["consistent", "lumped"] = "consistent",
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
+):
+    """Assemble mass for x-z planar frame elements with DOFs ux, uz, ry."""
+    resolved = _resolve_matrix_format(format, backend)
+    coords3 = _frame2d_to_beam_coords(coords)
+    matrix3 = assemble_beam_mass(coords3, conn, section, reference=reference, kind=kind, format="csr")
+    return _restrict_csr_to_format(matrix3, _frame2d_beam_dofs(coords3.shape[0]), format=resolved)
+
+
+def assemble_frame2d_uniform_load(
+    coords: np.ndarray,
+    conn: np.ndarray,
+    load: Sequence[float] | np.ndarray,
+    *,
+    reference: Sequence[float] | None = None,
+    frame: Literal["global", "local"] = "global",
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
+):
+    """Assemble equivalent nodal loads for a uniform x-z planar frame load."""
+    coords3 = _frame2d_to_beam_coords(coords)
+    force3 = assemble_beam_uniform_load(
+        coords3,
+        conn,
+        _frame2d_load_to_beam(load),
+        reference=reference,
+        frame=frame,
+        array_backend="numpy",
+    )
+    out = np.asarray(force3)[_frame2d_beam_dofs(coords3.shape[0])]
+    return _as_array_backend(out, _resolve_array_backend(array_backend, backend))
+
+
+def assemble_frame2d_point_load(
+    n_nodes: int,
+    node: int,
+    *,
+    force: Sequence[float] | np.ndarray = (0.0, 0.0),
+    moment: float = 0.0,
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
+):
+    """Assemble a dense nodal load vector for one planar frame node."""
+    return assemble_frame2d_point_loads(
+        n_nodes,
+        [node],
+        forces=[force],
+        moments=[moment],
+        array_backend=_resolve_array_backend(array_backend, backend),
+    )
+
+
+def assemble_frame2d_point_loads(
+    n_nodes: int,
+    nodes: Sequence[int] | np.ndarray,
+    *,
+    forces: Sequence[Sequence[float]] | np.ndarray | None = None,
+    moments: Sequence[float] | np.ndarray | None = None,
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
+):
+    """Assemble dense nodal force/moment loads for planar frame nodes."""
+    if n_nodes <= 0:
+        raise ValueError("n_nodes must be positive.")
+    nodes_arr = np.asarray(nodes, dtype=int).reshape(-1)
+    if nodes_arr.size == 0:
+        raise ValueError("nodes must contain at least one node.")
+    if np.any(nodes_arr < 0) or np.any(nodes_arr >= int(n_nodes)):
+        raise ValueError("nodes contains an index outside n_nodes.")
+
+    if forces is None:
+        force_arr = np.zeros((nodes_arr.size, 2), dtype=float)
+    else:
+        force_arr = np.asarray(forces, dtype=float)
+        if force_arr.shape == (2,):
+            if nodes_arr.size != 1:
+                raise ValueError("forces with shape (2,) is only valid for one node.")
+            force_arr = force_arr.reshape(1, 2)
+        if force_arr.shape != (nodes_arr.size, 2):
+            raise ValueError(f"forces must have shape ({nodes_arr.size}, 2).")
+
+    if moments is None:
+        moment_arr = np.zeros(nodes_arr.size, dtype=float)
+    else:
+        moment_arr = np.asarray(moments, dtype=float).reshape(-1)
+        if moment_arr.size != nodes_arr.size:
+            raise ValueError(f"moments must have shape ({nodes_arr.size},).")
+
+    out = np.zeros(FRAME2D_DOF_PER_NODE * int(n_nodes), dtype=float)
+    for node, force_vec, moment in zip(nodes_arr, force_arr, moment_arr):
+        dofs = FRAME2D_DOF_PER_NODE * int(node) + np.arange(3)
+        values = np.array([force_vec[0], force_vec[1], moment], dtype=float)
+        np.add.at(out, dofs, values)
+    return _as_array_backend(out, _resolve_array_backend(array_backend, backend))
+
+
 __all__ = [
     "BEAM_DOF_PER_NODE",
+    "FRAME2D_DOF_PER_NODE",
     "BeamSection",
     "assemble_beam_mass",
     "assemble_beam_point_load",
     "assemble_beam_point_loads",
     "assemble_beam_stiffness",
     "assemble_beam_uniform_load",
+    "assemble_frame2d_mass",
+    "assemble_frame2d_point_load",
+    "assemble_frame2d_point_loads",
+    "assemble_frame2d_stiffness",
+    "assemble_frame2d_uniform_load",
     "beam_element_dofs",
     "beam_element_mass_global",
     "beam_element_mass_local",
@@ -483,5 +687,7 @@ __all__ = [
     "beam_element_uniform_load_global",
     "beam_element_uniform_load_local",
     "beam_node_dofs",
+    "frame2d_node_dofs",
     "structured_beam_chain",
+    "structured_frame2d_chain",
 ]

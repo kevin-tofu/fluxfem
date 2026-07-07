@@ -15,9 +15,12 @@ compatibility alias, but the preferred API is `format=...` because these
 helpers are selecting a matrix representation, not an element-evaluation
 backend.
 
-The implemented structural helpers are 3D dedicated elements:
+The implemented structural helpers are dedicated line elements and lumped
+connectors:
 
+- frame2d: x-z planar Euler-Bernoulli frame, 3 DOF per node (`ux, uz, ry`)
 - beam: 3D Euler-Bernoulli frame, 6 DOF per node
+- truss2d/bar: x-z planar axial element, 2 translational DOF per node
 - truss/bar: 3D axial element, 3 translational DOF per node
 - lumped: DOF-level springs, dashpots, nodal loads, Rayleigh damping helpers
 
@@ -35,16 +38,30 @@ Top-level exports are available through `fluxfem as ff`:
 - `ff.assemble_beam_point_load`
 - `ff.assemble_beam_point_loads`
 - `ff.assemble_beam_uniform_load`
+- `ff.assemble_frame2d_stiffness`
+- `ff.assemble_frame2d_mass`
+- `ff.assemble_frame2d_point_load`
+- `ff.assemble_frame2d_point_loads`
+- `ff.assemble_frame2d_uniform_load`
 - `ff.beam_node_dofs`
+- `ff.frame2d_node_dofs`
 - `ff.structured_beam_chain`
+- `ff.structured_frame2d_chain`
 - `ff.TrussSection`
 - `ff.assemble_truss_stiffness`
 - `ff.assemble_truss_mass`
 - `ff.assemble_truss_point_load`
 - `ff.assemble_truss_point_loads`
 - `ff.assemble_truss_uniform_load`
+- `ff.assemble_truss2d_stiffness`
+- `ff.assemble_truss2d_mass`
+- `ff.assemble_truss2d_point_load`
+- `ff.assemble_truss2d_point_loads`
+- `ff.assemble_truss2d_uniform_load`
 - `ff.truss_node_dofs`
+- `ff.truss2d_node_dofs`
 - `ff.structured_truss_chain`
+- `ff.structured_truss2d_chain`
 
 Typical matrix format usage:
 
@@ -78,8 +95,10 @@ The following tutorials accept `--format {csr,fluxsparse,dense}` and
 `--solver auto`:
 
 - `tutorials/elasticity/beam_cantilever.py`
+- `tutorials/elasticity/frame2d_cantilever.py`
 - `tutorials/elasticity/beam_point_load.py`
 - `tutorials/elasticity/beam_uniform_load.py`
+- `tutorials/elasticity/truss2d_bar_cantilever.py`
 - `tutorials/elasticity/truss_bar_cantilever.py`
 - `tutorials/elasticity/truss_uniform_load.py`
 
@@ -97,16 +116,17 @@ PYTHONPATH=src python tutorials/elasticity/beam_cantilever.py --format dense
 PYTHONPATH=src python tutorials/elasticity/truss_bar_cantilever.py --format fluxsparse
 PYTHONPATH=src python tutorials/elasticity/truss_bar_cantilever.py --format csr
 PYTHONPATH=src python tutorials/elasticity/truss_bar_cantilever.py --format dense
+PYTHONPATH=src python tutorials/elasticity/frame2d_cantilever.py
+PYTHONPATH=src python tutorials/elasticity/truss2d_bar_cantilever.py
 PYTHONPATH=src pytest -q src/tests/test_beam.py src/tests/test_truss.py src/tests/test_lumped.py
+PYTHONPATH=src pytest -q src/tests/test_structural_2d.py src/tests/test_beam.py src/tests/test_truss.py src/tests/test_lumped.py
 ```
 
-The structural helper test result was `31 passed`.
+The current targeted structural helper test result is `36 passed`.
 
 ## Remaining Work
 
 Useful next steps:
 
-- document the matrix format choice in user-facing docs,
 - decide whether to add a coupled structural/continuum assembly path,
-- add 2D convenience wrappers if many examples are planar,
 - consider Timoshenko beam elements if shear deformation is needed.

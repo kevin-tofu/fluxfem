@@ -79,6 +79,26 @@ def _sparse_from_coo(
     raise ValueError("format must be 'csr', 'fluxsparse', or 'dense'.")
 
 
+def _matrix_from_csr(matrix, *, format: MatrixFormat):
+    if format == "csr":
+        return matrix.tocsr()
+    if format == "dense":
+        return matrix.toarray()
+    if format == "fluxsparse":
+        coo = matrix.tocoo()
+        return _sparse_from_coo(coo.row, coo.col, coo.data, matrix.shape[0], format="fluxsparse")
+    raise ValueError("format must be 'csr', 'fluxsparse', or 'dense'.")
+
+
+def _restrict_csr_to_format(matrix, dofs: Sequence[int] | np.ndarray, *, format: MatrixFormat):
+    dofs_arr = np.asarray(dofs, dtype=int).reshape(-1)
+    if dofs_arr.size == 0:
+        raise ValueError("dofs must contain at least one DOF.")
+    if np.any(dofs_arr < 0) or np.any(dofs_arr >= matrix.shape[0]):
+        raise ValueError("dofs contains an index outside matrix shape.")
+    return _matrix_from_csr(matrix[dofs_arr, :][:, dofs_arr], format=format)
+
+
 def _as_dense_matrix(matrix, name: str) -> np.ndarray:
     if isinstance(matrix, FluxSparseMatrix):
         arr = np.asarray(matrix.to_dense(), dtype=float)
