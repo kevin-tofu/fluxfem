@@ -49,7 +49,10 @@ rhs=0.0)`, which builds the DOF-level MPC rows for
 They also expose:
 
 - `add_distributed_coupling(...)`: appends an auxiliary patch copy, appends a
-  6-DOF remote point, and connects the patch to the remote point with RBE3.
+  6-DOF remote point, and connects the patch to the remote point with weighted
+  least-squares distributed coupling. This is RBE3-style, not a full Nastran
+  RBE3 card implementation; it validates 6-DOF remote patch rank by default so
+  one-point or collinear patches fail early.
 - `add_bolt_preload(...)`: adds a normalized directional preload spring
   contribution `k d d^T` with target displacement on selected field DOFs.
 

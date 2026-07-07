@@ -1208,16 +1208,16 @@ def test_jax_coupled_system_add_dof_tie_constraint_matches_numpy_builder():
 
 def test_jax_coupled_system_distributed_coupling_matches_numpy_builder():
     x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
-    x_slave = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=float)
-    weights = np.array([0.25, 0.75], dtype=float)
-    K_u = np.eye(6, dtype=float)
-    F_u = np.zeros((6,), dtype=float)
+    x_slave = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=float)
+    weights = np.array([0.25, 0.35, 0.40], dtype=float)
+    K_u = np.eye(9, dtype=float)
+    F_u = np.zeros((9,), dtype=float)
 
     np_builder = ff.NumpyCoupledSystemBuilder.from_structural(K_u, F_u)
-    np_builder.register_field("workpiece", n_dofs=6, value_dim=1, offset=0)
+    np_builder.register_field("workpiece", n_dofs=9, value_dim=1, offset=0)
     np_builder.add_distributed_coupling(
         source="workpiece",
-        source_dofs=np.arange(6, dtype=int),
+        source_dofs=np.arange(9, dtype=int),
         remote="remote",
         point=x_ref,
         slave_coords=x_slave,
@@ -1227,10 +1227,10 @@ def test_jax_coupled_system_distributed_coupling_matches_numpy_builder():
     K_np, F_np = np_builder.build().assemble(format="dense")
 
     jax_builder = ff.JAXCoupledSystemBuilder.from_structural(jnp.asarray(K_u), jnp.asarray(F_u))
-    jax_builder.register_field("workpiece", n_dofs=6, value_dim=1, offset=0)
+    jax_builder.register_field("workpiece", n_dofs=9, value_dim=1, offset=0)
     copy_name = jax_builder.add_distributed_coupling(
         source="workpiece",
-        source_dofs=jnp.arange(6, dtype=jnp.int32),
+        source_dofs=jnp.arange(9, dtype=jnp.int32),
         remote="remote",
         point=jnp.asarray(x_ref),
         slave_coords=jnp.asarray(x_slave),
@@ -1241,6 +1241,20 @@ def test_jax_coupled_system_distributed_coupling_matches_numpy_builder():
     assert copy_name == "remote_distributed_patch"
     assert np.asarray(system_jax.K_u.to_dense()).shape == np.asarray(K_np).shape
     assert np.asarray(system_jax.F_u).shape == np.asarray(F_np).shape
+
+
+def test_jax_coupled_system_distributed_coupling_rejects_degenerate_remote_patch():
+    builder = ff.JAXCoupledSystemBuilder.from_structural(jnp.eye(3), jnp.zeros((3,)))
+    builder.register_field("workpiece", n_dofs=3, value_dim=1, offset=0)
+
+    with pytest.raises(ValueError, match="rank"):
+        builder.add_distributed_coupling(
+            source="workpiece",
+            source_dofs=jnp.arange(3, dtype=jnp.int32),
+            remote="remote",
+            point=jnp.zeros((3,)),
+            slave_coords=jnp.array([[1.0, 0.0, 0.0]]),
+        )
 
 
 def test_jax_coupled_system_bolt_preload_matches_numpy_builder():

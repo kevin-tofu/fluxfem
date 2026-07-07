@@ -227,29 +227,44 @@ def test_builder_add_dof_tie_constraint_adds_selected_dof_rows_with_rhs():
 
 def test_builder_add_distributed_coupling_builds_remote_rbe3_rows():
     x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
-    x_slave = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=float)
-    builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(6, format="csr"), np.zeros((6,), dtype=float))
-    builder.register_field("workpiece", n_dofs=6, value_dim=1, offset=0)
+    x_slave = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=float)
+    builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(9, format="csr"), np.zeros((9,), dtype=float))
+    builder.register_field("workpiece", n_dofs=9, value_dim=1, offset=0)
     copy_name = builder.add_distributed_coupling(
         source="workpiece",
-        source_dofs=np.arange(6, dtype=int),
+        source_dofs=np.arange(9, dtype=int),
         remote="remote",
         point=x_ref,
         slave_coords=x_slave,
-        weights=np.array([0.25, 0.75], dtype=float),
+        weights=np.array([0.25, 0.35, 0.40], dtype=float),
         backend="numpy",
     )
 
     assert copy_name == "remote_distributed_patch"
     K, _ = builder.build().assemble(format="csr")
-    C = K.toarray()[18:, :18]
+    C = K.toarray()[24:, :24]
     u_ref = np.array([0.2, -0.1, 0.05], dtype=float)
     w_ref = np.array([0.0, 0.0, 0.4], dtype=float)
     u_slave = np.asarray([u_ref + np.cross(w_ref, p - x_ref) for p in x_slave], dtype=float).reshape(-1)
     q = np.concatenate([u_slave, u_slave, u_ref, w_ref], axis=0)
 
-    assert C.shape == (12, 18)
-    np.testing.assert_allclose(C @ q, np.zeros((12,), dtype=float), atol=1.0e-12)
+    assert C.shape == (15, 24)
+    np.testing.assert_allclose(C @ q, np.zeros((15,), dtype=float), atol=1.0e-12)
+
+
+def test_builder_add_distributed_coupling_rejects_degenerate_remote_patch():
+    builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(3, format="csr"), np.zeros((3,), dtype=float))
+    builder.register_field("workpiece", n_dofs=3, value_dim=1, offset=0)
+
+    with pytest.raises(ValueError, match="rank"):
+        builder.add_distributed_coupling(
+            source="workpiece",
+            source_dofs=np.arange(3, dtype=int),
+            remote="remote",
+            point=np.zeros((3,), dtype=float),
+            slave_coords=np.array([[1.0, 0.0, 0.0]], dtype=float),
+            backend="numpy",
+        )
 
 
 def test_builder_add_bolt_preload_adds_directional_spring_load():

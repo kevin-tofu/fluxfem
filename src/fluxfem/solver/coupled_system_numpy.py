@@ -869,6 +869,8 @@ class NumpyCoupledSystemBuilder:
         normalize_weights: bool = True,
         rho: float = 0.0,
         backend: str | None = None,
+        validate_rank: bool = True,
+        min_rank: int | None = None,
     ) -> str:
         """
         Couple selected source DOFs to a 6-DOF remote point through RBE3 averaging.
@@ -877,6 +879,23 @@ class NumpyCoupledSystemBuilder:
         ``append_remote_point``, and ``add_rbe3_constraint``. It returns the
         generated auxiliary copy-field name.
         """
+        if validate_rank:
+            from ..mesh.contact import assemble_rbe3_constraint_matrix
+
+            local = assemble_rbe3_constraint_matrix(
+                np.asarray(point, dtype=float),
+                np.asarray(slave_coords, dtype=float),
+                weights=None if weights is None else np.asarray(weights, dtype=float),
+                normalize_weights=normalize_weights,
+                backend="numpy",
+            )
+            rank = int(np.linalg.matrix_rank(np.asarray(local)[:, :6]))
+            required = 6 if min_rank is None else int(min_rank)
+            if rank < required:
+                raise ValueError(
+                    f"distributed coupling remote reference block has rank {rank}/{required}; "
+                    "use a larger/non-degenerate patch or a translational-only tie."
+                )
         copy_name = f"{remote}_distributed_patch" if copy_field is None else str(copy_field)
         self.append_dof_copy_field(copy_name, source=source, source_dofs=source_dofs, rho=rho)
         self.append_remote_point(remote, point=point, include_rotation=True)

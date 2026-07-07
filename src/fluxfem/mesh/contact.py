@@ -1389,7 +1389,7 @@ def assemble_rbe3_constraint_matrix(
     backend: str | None = None,
 ):
     """
-    Assemble a weighted 3D RBE3-style interpolation constraint.
+    Assemble a weighted 3D RBE3-style distributed-coupling constraint.
 
     Unknown ordering:
       q = [u_ref(3), omega_ref(3), u_slave_0(3), ..., u_slave_{n-1}(3)]
@@ -1401,8 +1401,10 @@ def assemble_rbe3_constraint_matrix(
 
     where ``B_i = [I, -[r_i]_x]`` and ``r_i = x_i - x_ref``.
 
-    This yields a 6 x (6 + 3*n_slave) matrix. Repeated use of this helper allows
-    multiple user-defined RBE3 couplings to be added to one system.
+    This is a weighted least-squares remote reconstruction, not a full Nastran
+    RBE3 card implementation. It yields a 6 x (6 + 3*n_slave) matrix. Repeated
+    use of this helper allows multiple user-defined distributed couplings to be
+    added to one system.
     """
     backend = "numpy" if backend is None else str(backend).lower()
     if backend != "numpy":
