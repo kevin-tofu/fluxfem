@@ -283,9 +283,9 @@ preload springs. The distributed coupling is RBE3-style weighted least-squares
 remote reconstruction, validates 6-DOF patch rank by default, and is not a full
 Nastran RBE3 card-compatible implementation. It supports dependent reference
 component selection through `dependent_components`, so translational-only
-couplings can be represented without requiring a full 6-DOF patch rank. RBE2
-helpers also support slave translation component selection through
-`slave_components`.
+couplings are assembled without remote-rotation columns and do not require a
+full 6-DOF patch rank. RBE2 helpers also support slave translation component
+selection through `slave_components`.
 
 See:
 

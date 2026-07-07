@@ -54,7 +54,8 @@ They also expose:
   RBE3 card implementation; it validates 6-DOF remote patch rank by default so
   one-point or collinear patches fail early. Pass
   `dependent_components=(0, 1, 2)` for translational-only distributed coupling
-  when the patch should not reconstruct remote rotations.
+  when the patch should not reconstruct remote rotations; the reduced component
+  system is assembled without remote-rotation columns.
 - RBE2 helpers expose `slave_components` for component-subset rigid MPC rows;
   the default remains all translational slave components.
 - `add_bolt_preload(...)`: adds a normalized directional preload spring

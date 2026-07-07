@@ -1481,23 +1481,24 @@ def assemble_rbe3_constraint_matrix(
             dtype=float,
         )
 
-    M = np.zeros((6, 6), dtype=float)
+    M = np.zeros((dep.size, dep.size), dtype=float)
     slave_blocks = []
     for wi, xi in zip(w.tolist(), x_s):
         Bi = _bmat(xi)
         Bic = Bi[comps, :]
-        M += float(wi) * (Bic.T @ Bic)
-        slave_block = np.zeros((6, 3), dtype=float)
-        slave_block[:, comps] = -float(wi) * Bic.T
+        Bid = Bic[:, dep]
+        M += float(wi) * (Bid.T @ Bid)
+        slave_block = np.zeros((dep.size, 3), dtype=float)
+        slave_block[:, comps] = -float(wi) * Bid.T
         slave_blocks.append(slave_block)
 
     n_cols = 6 + 3 * n_s
-    C = np.zeros((6, n_cols), dtype=float)
-    C[:, :6] = M
+    C = np.zeros((dep.size, n_cols), dtype=float)
+    C[:, dep] = M
     for i, blk in enumerate(slave_blocks):
         c0 = 6 + 3 * i
         C[:, c0 : c0 + 3] = blk
-    return C[dep, :]
+    return C
 
 
 def build_rbe3_weights(

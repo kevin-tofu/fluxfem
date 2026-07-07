@@ -150,6 +150,48 @@ def test_rbe3_constraint_matrix_supports_component_selection():
     np.testing.assert_allclose(C[:, 6:9], -np.eye(3), atol=1.0e-12)
 
 
+def test_rbe3_constraint_matrix_distributes_full_remote_resultant_by_virtual_work():
+    x_ref = np.array([0.25, -0.1, 0.2], dtype=float)
+    x_slave = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.2, 0.1],
+            [-0.2, 0.1, 1.4],
+            [0.8, 0.6, 0.7],
+        ],
+        dtype=float,
+    )
+    weights = np.array([0.2, 0.3, 0.1, 0.4], dtype=float)
+    C = ff.assemble_rbe3_constraint_matrix(x_ref, x_slave, weights=weights, backend="numpy")
+    lam = np.array([2.0, -1.0, 0.5, 0.3, -0.4, 0.7], dtype=float)
+    generalized_force = C.T @ lam
+    remote_force = generalized_force[:6]
+    slave_forces = generalized_force[6:].reshape(-1, 3)
+
+    slave_resultant = np.zeros((6,), dtype=float)
+    slave_resultant[:3] = np.sum(slave_forces, axis=0)
+    for point, force in zip(x_slave, slave_forces, strict=True):
+        slave_resultant[3:] += np.cross(point - x_ref, force)
+
+    np.testing.assert_allclose(remote_force + slave_resultant, np.zeros((6,), dtype=float), atol=1.0e-12)
+
+
+def test_rbe3_translational_only_load_distribution_balances_selected_force_components():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    x_slave = np.array([[1.0, 0.0, 0.0]], dtype=float)
+    C = ff.assemble_rbe3_constraint_matrix(
+        x_ref,
+        x_slave,
+        dependent_components=(0, 1, 2),
+        backend="numpy",
+    )
+    lam = np.array([3.0, -2.0, 0.5], dtype=float)
+    generalized_force = C.T @ lam
+
+    np.testing.assert_allclose(generalized_force[:3] + generalized_force[6:9], np.zeros((3,)), atol=1.0e-12)
+    np.testing.assert_allclose(generalized_force[3:6], np.zeros((3,)), atol=1.0e-12)
+
+
 def test_rbe_constraint_matrix_jax_backend_is_rejected():
     x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
     x_slave = np.array([[1.0, 0.0, 0.0]], dtype=float)
