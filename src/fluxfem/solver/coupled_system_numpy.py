@@ -1811,6 +1811,50 @@ class NumpyCoupledSystemBuilder:
             value_dim=1,
         )
 
+    def add_dof_tie_constraint(
+        self,
+        *,
+        master: str,
+        slave: str,
+        master_dofs,
+        slave_dofs,
+        rhs=0.0,
+        rho: float = 0.0,
+    ) -> None:
+        """Constrain selected field-local DOFs by ``u_master - u_slave = rhs``."""
+        m = self._get_block(master)
+        s = self._get_block(slave)
+        master_arr = np.asarray(master_dofs, dtype=int).reshape(-1)
+        slave_arr = np.asarray(slave_dofs, dtype=int).reshape(-1)
+        if master_arr.shape != slave_arr.shape:
+            raise ValueError("master_dofs and slave_dofs must have the same shape.")
+        if master_arr.size == 0:
+            raise ValueError("At least one tied DOF is required.")
+        if np.any(master_arr < 0) or np.any(master_arr >= m.n_dofs):
+            raise ValueError("master_dofs contains an index outside the master field.")
+        if np.any(slave_arr < 0) or np.any(slave_arr >= s.n_dofs):
+            raise ValueError("slave_dofs contains an index outside the slave field.")
+
+        rhs_arr = np.asarray(rhs, dtype=float).reshape(-1)
+        if rhs_arr.size == 1:
+            rhs_arr = np.full((master_arr.size,), float(rhs_arr[0]), dtype=float)
+        if rhs_arr.shape != master_arr.shape:
+            raise ValueError("rhs must be scalar or match the tied DOF count.")
+
+        rows = np.arange(master_arr.size, dtype=int)
+        cols = np.concatenate([master_arr, m.n_dofs + slave_arr])
+        data = np.concatenate([np.ones(master_arr.size, dtype=float), -np.ones(master_arr.size, dtype=float)])
+        C = sp.coo_matrix(
+            (data, (np.concatenate([rows, rows]), cols)),
+            shape=(master_arr.size, m.n_dofs + s.n_dofs),
+        ).tocsr()
+
+        F_contact = None
+        if np.any(rhs_arr != 0.0):
+            F_contact = np.zeros((self.system.n_u + master_arr.size,), dtype=float)
+            F_contact[self.system.n_u :] = rhs_arr
+        self.add_constraint_matrix_dof(C, master=master, slave=slave, rho=rho, F_contact=F_contact)
+
     def add_embedding_constraint(
         self,
         embedding,

@@ -23,6 +23,9 @@ os.environ.setdefault("JAX_ENABLE_X64", "1")
 
 import numpy as np
 import scipy.sparse as sp
+import jax
+
+jax.config.update("jax_enable_x64", True)
 
 import fluxfem as ff
 
@@ -35,17 +38,6 @@ def _as_csr(matrix):
     if hasattr(matrix, "toarray"):
         return sp.csr_matrix(matrix.toarray())
     return sp.csr_matrix(np.asarray(matrix, dtype=float))
-
-
-def _remote_to_beam_root_constraint(n_beam_dofs: int) -> sp.csr_matrix:
-    rows = np.arange(6, dtype=int)
-    cols_remote = np.arange(6, dtype=int)
-    cols_beam = 6 + np.arange(6, dtype=int)
-    data = np.concatenate([np.ones(6, dtype=float), -np.ones(6, dtype=float)])
-    return sp.coo_matrix(
-        (data, (np.concatenate([rows, rows]), np.concatenate([cols_remote, cols_beam]))),
-        shape=(6, 6 + int(n_beam_dofs)),
-    ).tocsr()
 
 
 def build_solid_beam_coupling(
@@ -110,10 +102,11 @@ def build_solid_beam_coupling(
         weights=weights,
         backend="numpy",
     )
-    builder.add_constraint_matrix_dof(
-        _remote_to_beam_root_constraint(beam_K.shape[0]),
+    builder.add_dof_tie_constraint(
         master="interface_remote",
         slave="beam",
+        master_dofs=np.arange(6),
+        slave_dofs=ff.beam_node_dofs([0]),
     )
 
     fixed_solid = solid_mesh.boundary_dofs_where(
@@ -157,7 +150,6 @@ def main():
             format="csr",
             dirichlet_dofs=fixed,
             dirichlet_vals=np.zeros((fixed.size,), dtype=float),
-            diagonal_shift=1.0e-10,
         ),
         dtype=float,
     )

@@ -34,7 +34,12 @@ There is now a first continuum-to-beam coupling example:
   solid block, assembles a 3D Euler-Bernoulli beam, block-diagonalizes the two
   structural matrices, copies the solid interface face into an auxiliary field,
   reduces that face to a 6-DOF RBE3 remote point, and ties the beam root 6 DOFs
-  to that remote point with a DOF-level MPC.
+  to that remote point with `add_dof_tie_constraint(...)`.
+
+`NumpyCoupledSystemBuilder` and `JAXCoupledSystemBuilder` now expose
+`add_dof_tie_constraint(master=..., slave=..., master_dofs=..., slave_dofs=...,
+rhs=0.0)`, which builds the DOF-level MPC rows for
+`u_master[master_dofs] - u_slave[slave_dofs] = rhs`.
 
 ## Public API
 
@@ -131,9 +136,10 @@ PYTHONPATH=src python tutorials/elasticity/solid_beam_rbe3_coupling.py
 PYTHONPATH=src pytest -q src/tests/test_beam.py src/tests/test_truss.py src/tests/test_lumped.py
 PYTHONPATH=src pytest -q src/tests/test_structural_2d.py src/tests/test_beam.py src/tests/test_truss.py src/tests/test_lumped.py
 PYTHONPATH=src pytest -q src/tests/test_solid_beam_coupling.py src/tests/test_rbe_constraints.py src/tests/test_structural_2d.py
+PYTHONPATH=src pytest -q src/tests/test_rbe_constraints.py src/tests/test_solid_beam_coupling.py src/tests/test_jax_coupled_system.py -k "dof_tie_constraint or rbe_constraints or solid_beam"
 ```
 
-The latest targeted coupling check was `18 passed` with one existing JAX
+The latest targeted DOF-tie/coupling check was `14 passed` with one existing JAX
 deprecation warning from `core/space.py`.
 
 ## Remaining Work

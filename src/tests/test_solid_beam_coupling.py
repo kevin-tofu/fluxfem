@@ -27,7 +27,6 @@ def test_solid_beam_rbe3_coupling_ties_remote_to_beam_root():
             format="csr",
             dirichlet_dofs=fixed,
             dirichlet_vals=np.zeros((fixed.size,), dtype=float),
-            diagonal_shift=1.0e-10,
         ),
         dtype=float,
     )

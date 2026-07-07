@@ -1079,6 +1079,47 @@ class CoupledSystemBuilder:
             raise ValueError("C shape mismatch for provided master/slave node counts and value_dim.")
         self.add_constraint_matrix_dof(C_arr, master=master, slave=slave, rho=rho, F_contact=F_contact)
 
+    def add_dof_tie_constraint(
+        self,
+        *,
+        master: str,
+        slave: str,
+        master_dofs,
+        slave_dofs,
+        rhs=0.0,
+        rho: float = 0.0,
+    ) -> None:
+        """Constrain selected field-local DOFs by ``u_master - u_slave = rhs``."""
+        m = self._get_block(master)
+        s = self._get_block(slave)
+        master_arr = np.asarray(master_dofs, dtype=int).reshape(-1)
+        slave_arr = np.asarray(slave_dofs, dtype=int).reshape(-1)
+        if master_arr.shape != slave_arr.shape:
+            raise ValueError("master_dofs and slave_dofs must have the same shape.")
+        if master_arr.size == 0:
+            raise ValueError("At least one tied DOF is required.")
+        if np.any(master_arr < 0) or np.any(master_arr >= m.n_dofs):
+            raise ValueError("master_dofs contains an index outside the master field.")
+        if np.any(slave_arr < 0) or np.any(slave_arr >= s.n_dofs):
+            raise ValueError("slave_dofs contains an index outside the slave field.")
+
+        rhs_arr = np.asarray(rhs, dtype=float).reshape(-1)
+        if rhs_arr.size == 1:
+            rhs_arr = np.full((master_arr.size,), float(rhs_arr[0]), dtype=float)
+        if rhs_arr.shape != master_arr.shape:
+            raise ValueError("rhs must be scalar or match the tied DOF count.")
+
+        C = jnp.zeros((master_arr.size, m.n_dofs + s.n_dofs), dtype=self.system.dtype)
+        for row, (m_dof, s_dof) in enumerate(zip(master_arr, slave_arr)):
+            C = C.at[row, int(m_dof)].set(1.0)
+            C = C.at[row, m.n_dofs + int(s_dof)].set(-1.0)
+
+        F_contact = None
+        if np.any(rhs_arr != 0.0):
+            F_contact = jnp.zeros((self.system.n_u + master_arr.size,), dtype=self.system.F_u.dtype)
+            F_contact = F_contact.at[self.system.n_u :].set(jnp.asarray(rhs_arr, dtype=self.system.F_u.dtype))
+        self.add_constraint_matrix_dof(C, master=master, slave=slave, rho=rho, F_contact=F_contact)
+
     def add_rbe2_constraint(
         self,
         *,

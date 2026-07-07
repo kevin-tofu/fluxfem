@@ -274,6 +274,10 @@ F = ff.assemble_truss_point_load(n_nodes, tip_node, force=(1200.0, 0.0, 0.0), ar
 u, info = ff.LinearSolver(method="spsolve_jax").solve(K, F, dirichlet=bc)
 ```
 
+For coupled structural models, `NumpyCoupledSystemBuilder` and
+`JAXCoupledSystemBuilder` provide `add_dof_tie_constraint(...)` to tie selected
+field-local DOFs, for example a 6-DOF beam root to a 6-DOF RBE3 remote point.
+
 See:
 
 - [`tutorials/elasticity/beam_cantilever.py`](tutorials/elasticity/beam_cantilever.py)

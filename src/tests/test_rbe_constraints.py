@@ -204,6 +204,27 @@ def test_builder_append_dof_copy_field_adds_expected_tie_constraint():
     assert np.allclose(C @ q, np.zeros((2,), dtype=float), atol=1e-12)
 
 
+def test_builder_add_dof_tie_constraint_adds_selected_dof_rows_with_rhs():
+    builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(5, format="csr"), np.zeros((5,), dtype=float))
+    builder.register_field("master", n_dofs=3, value_dim=1, offset=0)
+    builder.register_field("slave", n_dofs=2, value_dim=1, offset=3)
+    builder.add_dof_tie_constraint(
+        master="master",
+        slave="slave",
+        master_dofs=np.array([0, 2], dtype=int),
+        slave_dofs=np.array([1, 0], dtype=int),
+        rhs=np.array([0.25, -0.5], dtype=float),
+    )
+
+    K, F = builder.build().assemble(format="csr")
+    C = K.toarray()[5:, :5]
+    q = np.array([0.75, 0.0, -0.2, 0.3, 0.5], dtype=float)
+
+    assert C.shape == (2, 5)
+    np.testing.assert_allclose(C @ q, np.array([0.25, -0.5]))
+    np.testing.assert_allclose(F[5:], np.array([0.25, -0.5]))
+
+
 def test_builder_rbe2_rejects_slave_size_mismatch():
     builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(6, format="csr"), np.zeros((6,), dtype=float))
     builder.register_field("remote", n_dofs=6, value_dim=1, offset=0)

@@ -1174,6 +1174,38 @@ def test_jax_coupled_system_rbe3_matches_numpy_builder():
     assert np.allclose(np.asarray(system_jax.F_u), np.asarray(F_np), atol=1e-12)
 
 
+def test_jax_coupled_system_add_dof_tie_constraint_matches_numpy_builder():
+    K_u = np.eye(5, dtype=float)
+    F_u = np.zeros((5,), dtype=float)
+
+    np_builder = ff.NumpyCoupledSystemBuilder.from_structural(K_u, F_u)
+    np_builder.register_field("master", n_dofs=3, value_dim=1, offset=0)
+    np_builder.register_field("slave", n_dofs=2, value_dim=1, offset=3)
+    np_builder.add_dof_tie_constraint(
+        master="master",
+        slave="slave",
+        master_dofs=np.array([0, 2], dtype=int),
+        slave_dofs=np.array([1, 0], dtype=int),
+        rhs=np.array([0.25, -0.5], dtype=float),
+    )
+    K_np, F_np = np_builder.build().assemble(format="dense")
+
+    jax_builder = ff.JAXCoupledSystemBuilder.from_structural(jnp.asarray(K_u), jnp.asarray(F_u))
+    jax_builder.register_field("master", n_dofs=3, value_dim=1, offset=0)
+    jax_builder.register_field("slave", n_dofs=2, value_dim=1, offset=3)
+    jax_builder.add_dof_tie_constraint(
+        master="master",
+        slave="slave",
+        master_dofs=jnp.array([0, 2], dtype=jnp.int32),
+        slave_dofs=jnp.array([1, 0], dtype=jnp.int32),
+        rhs=jnp.array([0.25, -0.5]),
+    )
+    system_jax = jax_builder.build()
+
+    assert np.allclose(np.asarray(system_jax.K_u.to_dense()), np.asarray(K_np), atol=1e-12)
+    assert np.allclose(np.asarray(system_jax.F_u), np.asarray(F_np), atol=1e-12)
+
+
 def test_jax_coupled_system_remote_spring_with_rbe3_is_differentiable():
     x_ref = jnp.array([0.0, 0.0, 0.0])
     x_slave = jnp.array(
