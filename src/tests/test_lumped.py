@@ -13,14 +13,14 @@ import fluxfem as ff
 
 
 def test_dof_spring_to_ground_accepts_scalar_vector_and_matrix():
-    K_scalar = np.asarray(ff.assemble_dof_spring(4, [1, 3], 5.0).to_dense())
+    K_scalar = ff.assemble_dof_spring(4, [1, 3], 5.0).toarray()
     np.testing.assert_allclose(K_scalar[np.ix_([1, 3], [1, 3])], 5.0 * np.eye(2))
 
-    K_vector = np.asarray(ff.assemble_dof_spring(4, [1, 3], [2.0, 7.0]).to_dense())
+    K_vector = ff.assemble_dof_spring(4, [1, 3], [2.0, 7.0]).toarray()
     np.testing.assert_allclose(K_vector[np.ix_([1, 3], [1, 3])], np.diag([2.0, 7.0]))
 
     block = np.array([[3.0, 1.0], [1.0, 4.0]])
-    K_matrix = np.asarray(ff.assemble_dof_spring(4, [1, 3], block).to_dense())
+    K_matrix = ff.assemble_dof_spring(4, [1, 3], block).toarray()
     np.testing.assert_allclose(K_matrix[np.ix_([1, 3], [1, 3])], block)
 
 
@@ -29,22 +29,25 @@ def test_assemble_nodal_load_accumulates_duplicate_dofs():
     np.testing.assert_allclose(f, np.array([0.0, 7.0, 0.0, -1.0]))
 
 
-def test_lumped_helpers_support_explicit_backends():
-    K_scipy = ff.assemble_dof_spring(4, [1, 3], [2.0, 7.0], backend="scipy")
-    assert sp.isspmatrix_csr(K_scipy)
-    np.testing.assert_allclose(K_scipy.toarray()[np.ix_([1, 3], [1, 3])], np.diag([2.0, 7.0]))
+def test_lumped_helpers_support_explicit_formats_and_compat_backends():
+    K_csr = ff.assemble_dof_spring(4, [1, 3], [2.0, 7.0], format="csr")
+    assert sp.isspmatrix_csr(K_csr)
+    np.testing.assert_allclose(K_csr.toarray()[np.ix_([1, 3], [1, 3])], np.diag([2.0, 7.0]))
 
-    K_numpy = ff.assemble_dof_spring(4, [1, 3], [2.0, 7.0], backend="numpy")
-    assert isinstance(K_numpy, np.ndarray)
-    np.testing.assert_allclose(K_numpy, K_scipy.toarray())
+    K_dense = ff.assemble_dof_spring(4, [1, 3], [2.0, 7.0], format="dense")
+    assert isinstance(K_dense, np.ndarray)
+    np.testing.assert_allclose(K_dense, K_csr.toarray())
 
-    f_jax = ff.assemble_nodal_load(4, [1, 3, 1], [2.0, -1.0, 5.0], backend="jax")
+    K_flux = ff.assemble_dof_spring(4, [1, 3], [2.0, 7.0], backend="jax")
+    np.testing.assert_allclose(np.asarray(K_flux.to_dense()), K_csr.toarray())
+
+    f_jax = ff.assemble_nodal_load(4, [1, 3, 1], [2.0, -1.0, 5.0], array_backend="jax")
     assert isinstance(f_jax, jax.Array)
     np.testing.assert_allclose(np.asarray(f_jax), np.array([0.0, 7.0, 0.0, -1.0]))
 
 
 def test_dof_spring_between_dofs_uses_relative_displacement():
-    K = np.asarray(ff.assemble_dof_spring(3, [0], 10.0, other_dofs=[2]).to_dense())
+    K = ff.assemble_dof_spring(3, [0], 10.0, other_dofs=[2]).toarray()
     expected = np.array(
         [
             [10.0, 0.0, -10.0],
@@ -58,8 +61,8 @@ def test_dof_spring_between_dofs_uses_relative_displacement():
 
 def test_dof_dashpot_builds_damping_matrix_for_newmark_decay():
     M = np.array([[1.0]], dtype=float)
-    K = np.asarray(ff.assemble_dof_spring(1, [0], 4.0).to_dense())
-    C = np.asarray(ff.assemble_dof_dashpot(1, [0], 0.4).to_dense())
+    K = ff.assemble_dof_spring(1, [0], 4.0).toarray()
+    C = ff.assemble_dof_dashpot(1, [0], 0.4).toarray()
 
     out = ff.newmark_solve_linear(
         M,
@@ -86,7 +89,7 @@ def test_rayleigh_damping_matrix_matches_linear_combination():
 def test_rayleigh_damping_supports_jax_backend():
     M = np.diag([2.0, 3.0])
     K = np.array([[10.0, -2.0], [-2.0, 5.0]])
-    C = ff.assemble_rayleigh_damping(M, K, alpha=0.1, beta=0.02, backend="jax")
+    C = ff.assemble_rayleigh_damping(M, K, alpha=0.1, beta=0.02, array_backend="jax")
 
     assert isinstance(C, jax.Array)
     np.testing.assert_allclose(np.asarray(C), 0.1 * M + 0.02 * K)
@@ -105,8 +108,8 @@ def test_rayleigh_coefficients_match_target_modal_damping():
 
 
 def test_rayleigh_damping_accepts_flux_sparse_matrices():
-    M = ff.assemble_dof_spring(2, [0, 1], [2.0, 3.0])
-    K = ff.assemble_dof_spring(2, [0, 1], [10.0, 20.0])
+    M = ff.assemble_dof_spring(2, [0, 1], [2.0, 3.0], format="fluxsparse")
+    K = ff.assemble_dof_spring(2, [0, 1], [10.0, 20.0], format="fluxsparse")
     C = ff.assemble_rayleigh_damping(M, K, alpha=0.5, beta=0.1)
 
     np.testing.assert_allclose(C, np.diag([2.0, 3.5]))

@@ -45,7 +45,7 @@ def test_beam_cantilever_tip_load_matches_euler_bernoulli_solution():
         J=1.0e-5,
     )
     coords, conn = ff.structured_beam_chain(n_elems=4, length=length)
-    K = ff.assemble_beam_stiffness(coords, conn, section).to_dense()
+    K = ff.assemble_beam_stiffness(coords, conn, section)
     tip = coords.shape[0] - 1
     F = ff.assemble_beam_point_load(coords.shape[0], tip, force=(0.0, 0.0, force))
 
@@ -66,7 +66,7 @@ def test_beam_cantilever_tip_load_matches_euler_bernoulli_solution():
     np.testing.assert_allclose(ry_tip, ry_exact, rtol=2.0e-12, atol=1.0e-14)
 
 
-def test_beam_stiffness_backend_choice_matches_between_scipy_and_jax():
+def test_beam_stiffness_format_choice_matches_between_csr_and_fluxsparse():
     length = 2.0
     force = -1000.0
     section = ff.BeamSection(
@@ -78,28 +78,28 @@ def test_beam_stiffness_backend_choice_matches_between_scipy_and_jax():
         J=1.0e-5,
     )
     coords, conn = ff.structured_beam_chain(n_elems=4, length=length)
-    K_scipy = ff.assemble_beam_stiffness(coords, conn, section, backend="scipy")
-    K_jax = ff.assemble_beam_stiffness(coords, conn, section, backend="jax")
-    K_numpy = ff.assemble_beam_stiffness(coords, conn, section, backend="numpy")
+    K_csr = ff.assemble_beam_stiffness(coords, conn, section, format="csr")
+    K_flux = ff.assemble_beam_stiffness(coords, conn, section, format="fluxsparse")
+    K_dense = ff.assemble_beam_stiffness(coords, conn, section, format="dense")
     tip = coords.shape[0] - 1
     F_numpy = ff.assemble_beam_point_load(coords.shape[0], tip, force=(0.0, 0.0, force))
-    F_jax = ff.assemble_beam_point_load(coords.shape[0], tip, force=(0.0, 0.0, force), backend="jax")
+    F_jax = ff.assemble_beam_point_load(coords.shape[0], tip, force=(0.0, 0.0, force), array_backend="jax")
 
-    assert sp.isspmatrix_csr(K_scipy)
-    assert isinstance(K_numpy, np.ndarray)
+    assert sp.isspmatrix_csr(K_csr)
+    assert isinstance(K_dense, np.ndarray)
     assert isinstance(F_jax, jax.Array)
-    np.testing.assert_allclose(K_numpy, K_scipy.toarray())
+    np.testing.assert_allclose(K_dense, K_csr.toarray())
 
     fixed = ff.beam_node_dofs([0])
     bc = ff.DirichletBC(fixed, 0.0)
     u_scipy, _info_scipy = ff.LinearSolver(method="spsolve").solve(
-        K_scipy,
+        K_csr,
         F_numpy,
         dirichlet=bc,
         dirichlet_mode="condense",
     )
     u_jax, _info_jax = ff.LinearSolver(method="spsolve_jax").solve(
-        K_jax,
+        K_flux,
         F_jax,
         dirichlet=bc,
         dirichlet_mode="condense",
@@ -187,7 +187,7 @@ def test_beam_cantilever_uniform_load_matches_euler_bernoulli_solution():
 
 def test_beam_load_helpers_support_jax_backend():
     coords, conn = ff.structured_beam_chain(n_elems=2, length=2.0)
-    F = ff.assemble_beam_uniform_load(coords, conn, [0.0, 0.0, -5.0], backend="jax")
+    F = ff.assemble_beam_uniform_load(coords, conn, [0.0, 0.0, -5.0], array_backend="jax")
 
     assert isinstance(F, jax.Array)
     np.testing.assert_allclose(
@@ -208,8 +208,8 @@ def test_beam_cantilever_first_bending_frequency_matches_reference():
         rho=7800.0,
     )
     coords, conn = ff.structured_beam_chain(n_elems=12, length=length)
-    K = np.asarray(ff.assemble_beam_stiffness(coords, conn, section).to_dense())
-    M = np.asarray(ff.assemble_beam_mass(coords, conn, section).to_dense())
+    K = ff.assemble_beam_stiffness(coords, conn, section).toarray()
+    M = ff.assemble_beam_mass(coords, conn, section).toarray()
 
     fixed = ff.beam_node_dofs([0])
     free = ff.free_dofs(K.shape[0], fixed)

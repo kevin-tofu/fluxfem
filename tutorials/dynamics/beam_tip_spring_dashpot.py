@@ -58,14 +58,14 @@ def main():
         rho=args.rho,
     )
 
-    K_beam = np.asarray(ff.assemble_beam_stiffness(coords, conn, section).to_dense())
-    M = np.asarray(ff.assemble_beam_mass(coords, conn, section).to_dense())
+    K_beam = ff.assemble_beam_stiffness(coords, conn, section).toarray()
+    M = ff.assemble_beam_mass(coords, conn, section).toarray()
 
     n_dofs = ff.BEAM_DOF_PER_NODE * coords.shape[0]
     tip_node = coords.shape[0] - 1
     tip_uz = ff.beam_node_dofs([tip_node], "uz")
-    K = K_beam + np.asarray(ff.assemble_dof_spring(n_dofs, tip_uz, args.tip_spring).to_dense())
-    C = np.asarray(ff.assemble_dof_dashpot(n_dofs, tip_uz, args.tip_dashpot).to_dense())
+    K = K_beam + ff.assemble_dof_spring(n_dofs, tip_uz, args.tip_spring).toarray()
+    C = ff.assemble_dof_dashpot(n_dofs, tip_uz, args.tip_dashpot).toarray()
 
     force = np.zeros(n_dofs, dtype=float)
     force[tip_uz] = args.tip_load_z

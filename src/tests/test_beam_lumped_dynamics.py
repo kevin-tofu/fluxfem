@@ -27,11 +27,13 @@ def test_beam_with_tip_spring_dashpot_newmark_moves_toward_static_solution():
     tip = coords.shape[0] - 1
     tip_uz = ff.beam_node_dofs([tip], "uz")
 
-    K = np.asarray(ff.assemble_beam_stiffness(coords, conn, section).to_dense()) + np.asarray(
-        ff.assemble_dof_spring(n_dofs, tip_uz, 2.0e6).to_dense()
-    )
-    M = np.asarray(ff.assemble_beam_mass(coords, conn, section).to_dense())
-    C = np.asarray(ff.assemble_dof_dashpot(n_dofs, tip_uz, 1.0e4).to_dense())
+    K = ff.assemble_beam_stiffness(coords, conn, section).toarray() + ff.assemble_dof_spring(
+        n_dofs,
+        tip_uz,
+        2.0e6,
+    ).toarray()
+    M = ff.assemble_beam_mass(coords, conn, section).toarray()
+    C = ff.assemble_dof_dashpot(n_dofs, tip_uz, 1.0e4).toarray()
 
     force = np.zeros(n_dofs, dtype=float)
     force[tip_uz] = -500.0

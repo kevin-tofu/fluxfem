@@ -37,35 +37,35 @@ def test_truss_cantilever_axial_load_matches_bar_solution():
     np.testing.assert_allclose(ux_tip, ux_exact, rtol=2.0e-12, atol=1.0e-14)
 
 
-def test_truss_stiffness_backend_choice_matches_between_scipy_and_jax():
+def test_truss_stiffness_format_choice_matches_between_csr_and_fluxsparse():
     length = 3.0
     force = 1200.0
     section = ff.TrussSection(E=70.0e9, A=1.5e-3)
     coords, conn = ff.structured_truss_chain(n_elems=5, length=length)
-    K_scipy = ff.assemble_truss_stiffness(coords, conn, section, backend="scipy")
-    K_jax = ff.assemble_truss_stiffness(coords, conn, section, backend="jax")
-    K_numpy = ff.assemble_truss_stiffness(coords, conn, section, backend="numpy")
+    K_csr = ff.assemble_truss_stiffness(coords, conn, section, format="csr")
+    K_flux = ff.assemble_truss_stiffness(coords, conn, section, format="fluxsparse")
+    K_dense = ff.assemble_truss_stiffness(coords, conn, section, format="dense")
     tip = coords.shape[0] - 1
     F_numpy = ff.assemble_truss_point_load(coords.shape[0], tip, force=(force, 0.0, 0.0))
-    F_jax = ff.assemble_truss_point_load(coords.shape[0], tip, force=(force, 0.0, 0.0), backend="jax")
+    F_jax = ff.assemble_truss_point_load(coords.shape[0], tip, force=(force, 0.0, 0.0), array_backend="jax")
 
-    assert sp.isspmatrix_csr(K_scipy)
-    assert isinstance(K_numpy, np.ndarray)
+    assert sp.isspmatrix_csr(K_csr)
+    assert isinstance(K_dense, np.ndarray)
     assert isinstance(F_jax, jax.Array)
-    np.testing.assert_allclose(K_numpy, K_scipy.toarray())
+    np.testing.assert_allclose(K_dense, K_csr.toarray())
 
     fixed = ff.truss_node_dofs([0], "xyz")
     lateral = ff.truss_node_dofs(np.arange(1, coords.shape[0]), "yz")
     dirichlet = np.unique(np.concatenate([fixed, lateral]))
     bc = ff.DirichletBC(dirichlet, 0.0)
     u_scipy, _info_scipy = ff.LinearSolver(method="spsolve").solve(
-        K_scipy,
+        K_csr,
         F_numpy,
         dirichlet=bc,
         dirichlet_mode="condense",
     )
     u_jax, _info_jax = ff.LinearSolver(method="spsolve_jax").solve(
-        K_jax,
+        K_flux,
         F_jax,
         dirichlet=bc,
         dirichlet_mode="condense",
@@ -121,7 +121,7 @@ def test_truss_uniform_global_load_preserves_total_force():
 def test_truss_load_helpers_support_jax_backend():
     coords, conn = ff.structured_truss_chain(n_elems=3, length=2.0, direction=(1.0, 1.0, 0.0))
     load = np.array([3.0, -2.0, 5.0])
-    F = ff.assemble_truss_uniform_load(coords, conn, load, frame="global", backend="jax")
+    F = ff.assemble_truss_uniform_load(coords, conn, load, frame="global", array_backend="jax")
 
     assert isinstance(F, jax.Array)
     for comp in range(3):
@@ -141,7 +141,7 @@ def test_truss_element_stiffness_rotates_to_global_direction():
 def test_truss_mass_matrix_preserves_total_mass_per_direction():
     section = ff.TrussSection(E=1.0, A=0.25, rho=8.0)
     coords, conn = ff.structured_truss_chain(n_elems=2, length=3.0)
-    M = np.asarray(ff.assemble_truss_mass(coords, conn, section).to_dense())
+    M = ff.assemble_truss_mass(coords, conn, section).toarray()
 
     total_mass = section.rho * section.A * 3.0
     for comp in range(3):

@@ -5,7 +5,15 @@ from typing import Literal, Sequence
 
 import numpy as np
 
-from .lumped import ArrayBackend, MatrixBackend, _as_array_backend, _sparse_from_coo
+from .lumped import (
+    ArrayBackend,
+    MatrixBackend,
+    MatrixFormat,
+    _as_array_backend,
+    _resolve_array_backend,
+    _resolve_matrix_format,
+    _sparse_from_coo,
+)
 
 
 BEAM_DOF_PER_NODE = 6
@@ -306,7 +314,7 @@ def _assemble_beam_matrix(
     conn: np.ndarray,
     element_matrix,
     *,
-    backend: MatrixBackend = "jax",
+    format: MatrixFormat,
 ):
     coords_arr = np.asarray(coords, dtype=float)
     conn_arr = np.asarray(conn, dtype=int)
@@ -328,7 +336,7 @@ def _assemble_beam_matrix(
         data.extend(ke.reshape(-1).tolist())
 
     n_dofs = BEAM_DOF_PER_NODE * coords_arr.shape[0]
-    return _sparse_from_coo(rows, cols, data, n_dofs, backend=backend)
+    return _sparse_from_coo(rows, cols, data, n_dofs, format=format)
 
 
 def assemble_beam_stiffness(
@@ -337,14 +345,15 @@ def assemble_beam_stiffness(
     section: BeamSection,
     *,
     reference: Sequence[float] | None = None,
-    backend: MatrixBackend = "jax",
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
 ):
     """Assemble a sparse global stiffness matrix for 3D Euler-Bernoulli beam elements."""
     return _assemble_beam_matrix(
         coords,
         conn,
         lambda xi, xj: beam_element_stiffness_global(xi, xj, section, reference=reference),
-        backend=backend,
+        format=_resolve_matrix_format(format, backend),
     )
 
 
@@ -355,14 +364,15 @@ def assemble_beam_mass(
     *,
     reference: Sequence[float] | None = None,
     kind: Literal["consistent", "lumped"] = "consistent",
-    backend: MatrixBackend = "jax",
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
 ):
     """Assemble a sparse global mass matrix for 3D Euler-Bernoulli beam elements."""
     return _assemble_beam_matrix(
         coords,
         conn,
         lambda xi, xj: beam_element_mass_global(xi, xj, section, reference=reference, kind=kind),
-        backend=backend,
+        format=_resolve_matrix_format(format, backend),
     )
 
 
@@ -373,7 +383,8 @@ def assemble_beam_uniform_load(
     *,
     reference: Sequence[float] | None = None,
     frame: Literal["global", "local"] = "global",
-    backend: ArrayBackend = "numpy",
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
 ):
     """Assemble equivalent nodal loads for a uniform distributed beam force."""
     coords_arr = np.asarray(coords, dtype=float)
@@ -394,7 +405,7 @@ def assemble_beam_uniform_load(
             frame=frame,
         )
         np.add.at(out, elem_dofs[e], fe)
-    return _as_array_backend(out, backend)
+    return _as_array_backend(out, _resolve_array_backend(array_backend, backend))
 
 
 def assemble_beam_point_load(
@@ -403,10 +414,17 @@ def assemble_beam_point_load(
     *,
     force: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
     moment: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
-    backend: ArrayBackend = "numpy",
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
 ):
     """Assemble a dense nodal load vector for one beam node."""
-    return assemble_beam_point_loads(n_nodes, [node], forces=[force], moments=[moment], backend=backend)
+    return assemble_beam_point_loads(
+        n_nodes,
+        [node],
+        forces=[force],
+        moments=[moment],
+        array_backend=_resolve_array_backend(array_backend, backend),
+    )
 
 
 def assemble_beam_point_loads(
@@ -415,7 +433,8 @@ def assemble_beam_point_loads(
     *,
     forces: Sequence[Sequence[float]] | np.ndarray | None = None,
     moments: Sequence[Sequence[float]] | np.ndarray | None = None,
-    backend: ArrayBackend = "numpy",
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
 ):
     """Assemble dense nodal force/moment loads for beam nodes."""
     if n_nodes <= 0:
@@ -445,7 +464,7 @@ def assemble_beam_point_loads(
         dofs = BEAM_DOF_PER_NODE * int(node) + np.arange(6)
         values = np.concatenate([force_vec, moment_vec])
         np.add.at(out, dofs, values)
-    return _as_array_backend(out, backend)
+    return _as_array_backend(out, _resolve_array_backend(array_backend, backend))
 
 
 __all__ = [

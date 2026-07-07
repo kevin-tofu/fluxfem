@@ -27,7 +27,7 @@ import fluxfem as ff
 
 def parse_args():
     p = argparse.ArgumentParser(description="Cantilever bar with 3D truss elements.")
-    p.add_argument("--backend", choices=("jax", "scipy", "numpy"), default="jax", help="Matrix assembly backend.")
+    p.add_argument("--format", choices=("csr", "fluxsparse", "dense"), default="csr", help="Matrix assembly format.")
     p.add_argument("--solver", choices=("auto", "spsolve", "spsolve_jax"), default="auto", help="Linear solver backend.")
     p.add_argument("--n-elems", type=int, default=8, help="Number of truss/bar elements.")
     p.add_argument("--length", type=float, default=3.0, help="Bar length.")
@@ -38,10 +38,10 @@ def parse_args():
     return p.parse_args()
 
 
-def _auto_solver(backend: str, solver: str) -> str:
+def _auto_solver(format: str, solver: str) -> str:
     if solver != "auto":
         return solver
-    return "spsolve_jax" if backend == "jax" else "spsolve"
+    return "spsolve_jax" if format == "fluxsparse" else "spsolve"
 
 
 def _matrix_nnz(matrix) -> int:
@@ -55,8 +55,8 @@ def main():
 
     coords, conn = ff.structured_truss_chain(n_elems=args.n_elems, length=args.length)
     section = ff.TrussSection(E=args.E, A=args.A, rho=args.rho)
-    K = ff.assemble_truss_stiffness(coords, conn, section, backend=args.backend)
-    M = ff.assemble_truss_mass(coords, conn, section, backend=args.backend)
+    K = ff.assemble_truss_stiffness(coords, conn, section, format=args.format)
+    M = ff.assemble_truss_mass(coords, conn, section, format=args.format)
 
     n_dofs = ff.TRUSS_DOF_PER_NODE * coords.shape[0]
     tip_node = coords.shape[0] - 1
@@ -64,14 +64,14 @@ def main():
         coords.shape[0],
         tip_node,
         force=(args.tip_load_x, 0.0, 0.0),
-        backend="jax" if args.backend == "jax" else "numpy",
+        array_backend="jax" if args.format == "fluxsparse" else "numpy",
     )
 
     fixed = ff.truss_node_dofs([0], "xyz")
     lateral = ff.truss_node_dofs(np.arange(1, coords.shape[0]), "yz")
     dirichlet = np.unique(np.concatenate([fixed, lateral]))
 
-    solver = _auto_solver(args.backend, args.solver)
+    solver = _auto_solver(args.format, args.solver)
     u, _info = ff.LinearSolver(method=solver).solve(
         K,
         F,
@@ -83,7 +83,7 @@ def main():
     ux_exact = args.tip_load_x * args.length / (args.E * args.A)
     rel_err = abs(ux_tip - ux_exact) / abs(ux_exact) if ux_exact != 0.0 else 0.0
 
-    print(f"truss/bar solved: backend={args.backend}, solver={solver}, nodes={coords.shape[0]}, elems={conn.shape[0]}, dofs={n_dofs}")
+    print(f"truss/bar solved: format={args.format}, solver={solver}, nodes={coords.shape[0]}, elems={conn.shape[0]}, dofs={n_dofs}")
     print(f"tip ux={ux_tip:.6e}, bar exact={ux_exact:.6e}, rel.err={rel_err:.3e}")
     print(f"stiffness nnz={_matrix_nnz(K)}, mass nnz={_matrix_nnz(M)}")
 

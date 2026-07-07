@@ -5,7 +5,15 @@ from typing import Literal, Sequence
 
 import numpy as np
 
-from .lumped import ArrayBackend, MatrixBackend, _as_array_backend, _sparse_from_coo
+from .lumped import (
+    ArrayBackend,
+    MatrixBackend,
+    MatrixFormat,
+    _as_array_backend,
+    _resolve_array_backend,
+    _resolve_matrix_format,
+    _sparse_from_coo,
+)
 
 
 TRUSS_DOF_PER_NODE = 3
@@ -137,7 +145,7 @@ def _assemble_truss_matrix(
     conn: np.ndarray,
     element_matrix,
     *,
-    backend: MatrixBackend = "jax",
+    format: MatrixFormat,
 ):
     coords_arr = np.asarray(coords, dtype=float)
     conn_arr = np.asarray(conn, dtype=int)
@@ -159,7 +167,7 @@ def _assemble_truss_matrix(
         data.extend(me.reshape(-1).tolist())
 
     n_dofs = TRUSS_DOF_PER_NODE * coords_arr.shape[0]
-    return _sparse_from_coo(rows, cols, data, n_dofs, backend=backend)
+    return _sparse_from_coo(rows, cols, data, n_dofs, format=format)
 
 
 def assemble_truss_stiffness(
@@ -167,14 +175,15 @@ def assemble_truss_stiffness(
     conn: np.ndarray,
     section: TrussSection,
     *,
-    backend: MatrixBackend = "jax",
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
 ):
     """Assemble global stiffness for 3D two-node truss/bar elements."""
     return _assemble_truss_matrix(
         coords,
         conn,
         lambda xi, xj: truss_element_stiffness_global(xi, xj, section),
-        backend=backend,
+        format=_resolve_matrix_format(format, backend),
     )
 
 
@@ -184,14 +193,15 @@ def assemble_truss_mass(
     section: TrussSection,
     *,
     kind: Literal["consistent", "lumped"] = "consistent",
-    backend: MatrixBackend = "jax",
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
 ):
     """Assemble global translational mass for 3D two-node truss/bar elements."""
     return _assemble_truss_matrix(
         coords,
         conn,
         lambda xi, xj: truss_element_mass_global(xi, xj, section, kind=kind),
-        backend=backend,
+        format=_resolve_matrix_format(format, backend),
     )
 
 
@@ -201,7 +211,8 @@ def assemble_truss_uniform_load(
     load: Sequence[float] | np.ndarray,
     *,
     frame: Literal["global", "local"] = "global",
-    backend: ArrayBackend = "numpy",
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
 ):
     """Assemble equivalent nodal loads for a uniform truss/bar distributed force."""
     coords_arr = np.asarray(coords, dtype=float)
@@ -216,7 +227,7 @@ def assemble_truss_uniform_load(
     for e, (n0, n1) in enumerate(conn_arr):
         fe = truss_element_uniform_load_global(coords_arr[n0], coords_arr[n1], load, frame=frame)
         np.add.at(out, elem_dofs[e], fe)
-    return _as_array_backend(out, backend)
+    return _as_array_backend(out, _resolve_array_backend(array_backend, backend))
 
 
 def assemble_truss_point_load(
@@ -224,10 +235,16 @@ def assemble_truss_point_load(
     node: int,
     *,
     force: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
-    backend: ArrayBackend = "numpy",
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
 ):
     """Assemble a dense nodal load vector for one truss/bar node."""
-    return assemble_truss_point_loads(n_nodes, [node], forces=[force], backend=backend)
+    return assemble_truss_point_loads(
+        n_nodes,
+        [node],
+        forces=[force],
+        array_backend=_resolve_array_backend(array_backend, backend),
+    )
 
 
 def assemble_truss_point_loads(
@@ -235,7 +252,8 @@ def assemble_truss_point_loads(
     nodes: Sequence[int] | np.ndarray,
     *,
     forces: Sequence[Sequence[float]] | np.ndarray | None = None,
-    backend: ArrayBackend = "numpy",
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
 ):
     """Assemble dense nodal force loads for truss/bar nodes."""
     if n_nodes <= 0:
@@ -261,7 +279,7 @@ def assemble_truss_point_loads(
     for node, force_vec in zip(nodes_arr, force_arr):
         dofs = TRUSS_DOF_PER_NODE * int(node) + np.arange(3)
         np.add.at(out, dofs, force_vec)
-    return _as_array_backend(out, backend)
+    return _as_array_backend(out, _resolve_array_backend(array_backend, backend))
 
 
 __all__ = [

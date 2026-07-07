@@ -7,16 +7,48 @@ import jax.numpy as jnp
 
 from ..solver.sparse import FluxSparseMatrix
 
+MatrixFormat = Literal["csr", "fluxsparse", "dense"]
 MatrixBackend = Literal["jax", "scipy", "numpy"]
 ArrayBackend = Literal["numpy", "jax"]
 
 
-def _as_array_backend(array: np.ndarray, backend: ArrayBackend):
-    if backend == "numpy":
+def _as_array_backend(array: np.ndarray, array_backend: ArrayBackend):
+    if array_backend == "numpy":
         return array
-    if backend == "jax":
+    if array_backend == "jax":
         return jnp.asarray(array)
-    raise ValueError("backend must be 'numpy' or 'jax'.")
+    raise ValueError("array_backend must be 'numpy' or 'jax'.")
+
+
+def _resolve_array_backend(array_backend: ArrayBackend | None, backend: ArrayBackend | None) -> ArrayBackend:
+    if array_backend is not None and backend is not None and array_backend != backend:
+        raise ValueError("Specify only one of array_backend or backend.")
+    resolved = "numpy" if array_backend is None and backend is None else (array_backend or backend)
+    if resolved in ("numpy", "jax"):
+        return resolved
+    raise ValueError("array_backend must be 'numpy' or 'jax'.")
+
+
+def _resolve_matrix_format(
+    format: MatrixFormat | None,
+    backend: MatrixBackend | None,
+) -> MatrixFormat:
+    if format is None and backend is None:
+        return "csr"
+    backend_map = {"jax": "fluxsparse", "scipy": "csr", "numpy": "dense"}
+    if format is not None and backend is not None:
+        if backend not in backend_map:
+            raise ValueError("backend must be 'jax', 'scipy', or 'numpy'.")
+        mapped = backend_map[backend]
+        if format != mapped:
+            raise ValueError("Specify only one of format or backend.")
+    if format is not None:
+        if format in ("csr", "fluxsparse", "dense"):
+            return format
+        raise ValueError("format must be 'csr', 'fluxsparse', or 'dense'.")
+    if backend in backend_map:
+        return backend_map[backend]  # type: ignore[return-value]
+    raise ValueError("backend must be 'jax', 'scipy', or 'numpy'.")
 
 
 def _sparse_from_coo(
@@ -25,31 +57,33 @@ def _sparse_from_coo(
     data: Sequence[float],
     n_dofs: int,
     *,
-    backend: MatrixBackend,
+    format: MatrixFormat,
 ):
-    if backend == "jax":
+    if format == "fluxsparse":
         return FluxSparseMatrix(
             jnp.asarray(rows, dtype=jnp.int32),
             jnp.asarray(cols, dtype=jnp.int32),
             jnp.asarray(data, dtype=jnp.float64),
             int(n_dofs),
         ).coalesce()
-    if backend == "scipy":
+    if format == "csr":
         try:
             import scipy.sparse as sp
         except Exception as exc:  # pragma: no cover
-            raise ImportError("scipy is required for backend='scipy'.") from exc
+            raise ImportError("scipy is required for format='csr'.") from exc
         return sp.csr_matrix((np.asarray(data, dtype=float), (np.asarray(rows), np.asarray(cols))), shape=(int(n_dofs), int(n_dofs)))
-    if backend == "numpy":
+    if format == "dense":
         out = np.zeros((int(n_dofs), int(n_dofs)), dtype=float)
         np.add.at(out, (np.asarray(rows, dtype=int), np.asarray(cols, dtype=int)), np.asarray(data, dtype=float))
         return out
-    raise ValueError("backend must be 'jax', 'scipy', or 'numpy'.")
+    raise ValueError("format must be 'csr', 'fluxsparse', or 'dense'.")
 
 
 def _as_dense_matrix(matrix, name: str) -> np.ndarray:
     if isinstance(matrix, FluxSparseMatrix):
         arr = np.asarray(matrix.to_dense(), dtype=float)
+    elif hasattr(matrix, "toarray"):
+        arr = np.asarray(matrix.toarray(), dtype=float)
     else:
         arr = np.asarray(matrix, dtype=float)
     if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
@@ -86,7 +120,7 @@ def _connector_matrix(
     value,
     other_dofs: Sequence[int] | np.ndarray | None,
     value_name: str,
-    backend: MatrixBackend,
+    format: MatrixFormat,
 ):
     if n_dofs <= 0:
         raise ValueError("n_dofs must be positive.")
@@ -118,7 +152,7 @@ def _connector_matrix(
         add_block(b, a, -k)
         add_block(b, b, k)
 
-    return _sparse_from_coo(rows, cols, data, int(n_dofs), backend=backend)
+    return _sparse_from_coo(rows, cols, data, int(n_dofs), format=format)
 
 
 def assemble_dof_spring(
@@ -127,7 +161,8 @@ def assemble_dof_spring(
     stiffness,
     *,
     other_dofs: Sequence[int] | np.ndarray | None = None,
-    backend: MatrixBackend = "jax",
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
 ):
     """
     Assemble a linear spring matrix on selected DOFs.
@@ -143,7 +178,7 @@ def assemble_dof_spring(
         value=stiffness,
         other_dofs=other_dofs,
         value_name="stiffness",
-        backend=backend,
+        format=_resolve_matrix_format(format, backend),
     )
 
 
@@ -153,7 +188,8 @@ def assemble_dof_dashpot(
     damping,
     *,
     other_dofs: Sequence[int] | np.ndarray | None = None,
-    backend: MatrixBackend = "jax",
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
 ):
     """
     Assemble a viscous dashpot matrix on selected DOFs.
@@ -167,7 +203,7 @@ def assemble_dof_dashpot(
         value=damping,
         other_dofs=other_dofs,
         value_name="damping",
-        backend=backend,
+        format=_resolve_matrix_format(format, backend),
     )
 
 
@@ -176,7 +212,8 @@ def assemble_nodal_load(
     dofs: Sequence[int] | np.ndarray,
     values,
     *,
-    backend: ArrayBackend = "numpy",
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
 ):
     """
     Assemble a dense nodal load vector on selected DOFs.
@@ -200,7 +237,7 @@ def assemble_nodal_load(
 
     out = np.zeros(int(n_dofs), dtype=float)
     np.add.at(out, selected, vals)
-    return _as_array_backend(out, backend)
+    return _as_array_backend(out, _resolve_array_backend(array_backend, backend))
 
 
 def assemble_rayleigh_damping(
@@ -209,14 +246,15 @@ def assemble_rayleigh_damping(
     *,
     alpha: float = 0.0,
     beta: float = 0.0,
-    backend: ArrayBackend = "numpy",
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
 ):
     """Return Rayleigh damping matrix ``C = alpha * M + beta * K``."""
     M = _as_dense_matrix(mass, "mass")
     K = _as_dense_matrix(stiffness, "stiffness")
     if M.shape != K.shape:
         raise ValueError("mass and stiffness must have the same shape.")
-    return _as_array_backend(float(alpha) * M + float(beta) * K, backend)
+    return _as_array_backend(float(alpha) * M + float(beta) * K, _resolve_array_backend(array_backend, backend))
 
 
 def rayleigh_damping_ratio(omega, *, alpha: float, beta: float):

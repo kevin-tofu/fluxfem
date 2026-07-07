@@ -53,8 +53,8 @@ def main():
         J=args.J,
         rho=args.rho,
     )
-    K = np.asarray(ff.assemble_beam_stiffness(coords, conn, section).to_dense())
-    M = np.asarray(ff.assemble_beam_mass(coords, conn, section).to_dense())
+    K = ff.assemble_beam_stiffness(coords, conn, section).toarray()
+    M = ff.assemble_beam_mass(coords, conn, section).toarray()
 
     fixed = ff.beam_node_dofs([0])
     free = ff.free_dofs(K.shape[0], fixed)
