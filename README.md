@@ -696,6 +696,7 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 - `tutorials/elasticity/mindlin_plate_cantilever.py` (Q4 Reissner-Mindlin/Mindlin plate helper)
 - `tutorials/elasticity/flat_shell_cantilever.py` (Q4 Reissner-Mindlin shell helper, 2D/tilted 3D coordinates and optional VTU output)
 - `tutorials/elasticity/solid_shell_translational_tie.py` (solid surface tied to a shell skin by translational DOFs)
+- `tutorials/elasticity/solid_shell_rbe3_patch_coupling.py` (solid face patch coupled to a shell root edge through a 6-DOF RBE3 remote point)
 - `tutorials/elasticity/solid_beam_rbe3_coupling.py` (3D continuum face coupled to a 3D beam root through RBE3)
 - `tutorials/elasticity/truss2d_bar_cantilever.py`, `tutorials/elasticity/truss_bar_cantilever.py`, and `tutorials/elasticity/truss_uniform_load.py` (2D/3D truss/bar helpers)
 - `tutorials/elasticity/solid_truss_rbe3_coupling.py` (3D continuum face coupled to a 3D truss/bar root through RBE3)
