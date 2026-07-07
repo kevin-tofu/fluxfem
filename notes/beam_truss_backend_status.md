@@ -28,6 +28,14 @@ This does not yet mean beam/truss elements are mixed into the continuum
 `FESpace` mesh assembly path. They are separate structural-element assemblers
 that can be solved through the shared solver API.
 
+There is now a first continuum-to-beam coupling example:
+
+- `tutorials/elasticity/solid_beam_rbe3_coupling.py` assembles a 3D continuum
+  solid block, assembles a 3D Euler-Bernoulli beam, block-diagonalizes the two
+  structural matrices, copies the solid interface face into an auxiliary field,
+  reduces that face to a 6-DOF RBE3 remote point, and ties the beam root 6 DOFs
+  to that remote point with a DOF-level MPC.
+
 ## Public API
 
 Top-level exports are available through `fluxfem as ff`:
@@ -98,6 +106,7 @@ The following tutorials accept `--format {csr,fluxsparse,dense}` and
 - `tutorials/elasticity/frame2d_cantilever.py`
 - `tutorials/elasticity/beam_point_load.py`
 - `tutorials/elasticity/beam_uniform_load.py`
+- `tutorials/elasticity/solid_beam_rbe3_coupling.py`
 - `tutorials/elasticity/truss2d_bar_cantilever.py`
 - `tutorials/elasticity/truss_bar_cantilever.py`
 - `tutorials/elasticity/truss_uniform_load.py`
@@ -118,11 +127,14 @@ PYTHONPATH=src python tutorials/elasticity/truss_bar_cantilever.py --format csr
 PYTHONPATH=src python tutorials/elasticity/truss_bar_cantilever.py --format dense
 PYTHONPATH=src python tutorials/elasticity/frame2d_cantilever.py
 PYTHONPATH=src python tutorials/elasticity/truss2d_bar_cantilever.py
+PYTHONPATH=src python tutorials/elasticity/solid_beam_rbe3_coupling.py
 PYTHONPATH=src pytest -q src/tests/test_beam.py src/tests/test_truss.py src/tests/test_lumped.py
 PYTHONPATH=src pytest -q src/tests/test_structural_2d.py src/tests/test_beam.py src/tests/test_truss.py src/tests/test_lumped.py
+PYTHONPATH=src pytest -q src/tests/test_solid_beam_coupling.py src/tests/test_rbe_constraints.py src/tests/test_structural_2d.py
 ```
 
-The current targeted structural helper test result is `36 passed`.
+The latest targeted coupling check was `18 passed` with one existing JAX
+deprecation warning from `core/space.py`.
 
 ## Remaining Work
 

@@ -27,6 +27,7 @@ Elasticity and structural helpers:
 - `elasticity/beam_point_load.py`: beam tip force and moment loading.
 - `elasticity/beam_uniform_load.py`: equivalent nodal loads for uniform beam loading.
 - `elasticity/beam_cantilever_modes.py`: first bending frequency check for a beam cantilever.
+- `elasticity/solid_beam_rbe3_coupling.py`: 3D continuum face coupled to a 3D beam root through an RBE3 remote point.
 - `elasticity/truss2d_bar_cantilever.py`: 2D x-z truss/bar cantilever with selectable matrix format.
 - `elasticity/truss_bar_cantilever.py`: 3D truss/bar cantilever with selectable matrix format.
 - `elasticity/truss_uniform_load.py`: equivalent nodal loads for uniform truss/bar loading.

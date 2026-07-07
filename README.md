@@ -279,6 +279,7 @@ See:
 - [`tutorials/elasticity/beam_cantilever.py`](tutorials/elasticity/beam_cantilever.py)
 - [`tutorials/elasticity/frame2d_cantilever.py`](tutorials/elasticity/frame2d_cantilever.py)
 - [`tutorials/elasticity/beam_uniform_load.py`](tutorials/elasticity/beam_uniform_load.py)
+- [`tutorials/elasticity/solid_beam_rbe3_coupling.py`](tutorials/elasticity/solid_beam_rbe3_coupling.py)
 - [`tutorials/elasticity/truss2d_bar_cantilever.py`](tutorials/elasticity/truss2d_bar_cantilever.py)
 - [`tutorials/elasticity/truss_bar_cantilever.py`](tutorials/elasticity/truss_bar_cantilever.py)
 - [`tutorials/dynamics/beam_tip_spring_dashpot.py`](tutorials/dynamics/beam_tip_spring_dashpot.py)
@@ -678,6 +679,7 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 
 - `tutorials/elasticity/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
 - `tutorials/elasticity/frame2d_cantilever.py`, `tutorials/elasticity/beam_cantilever.py`, and `tutorials/elasticity/beam_uniform_load.py` (2D/3D Euler-Bernoulli frame helpers)
+- `tutorials/elasticity/solid_beam_rbe3_coupling.py` (3D continuum face coupled to a 3D beam root through RBE3)
 - `tutorials/elasticity/truss2d_bar_cantilever.py`, `tutorials/elasticity/truss_bar_cantilever.py`, and `tutorials/elasticity/truss_uniform_load.py` (2D/3D truss/bar helpers)
 - `tutorials/dynamics/spring_mass_dashpot.py` and `tutorials/dynamics/beam_tip_spring_dashpot.py` (lumped and beam dynamics)
 - `tutorials/nonlinear/neo_hookean_cantilever.py` (nonlinear hyperelasticity)
