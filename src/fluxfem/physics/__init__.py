@@ -72,6 +72,8 @@ from .truss import (
 from .plate import (
     PLATE_DOF_PER_NODE,
     PlateSection,
+    assemble_mindlin_plate_point_load,
+    assemble_mindlin_plate_point_loads,
     assemble_mindlin_plate_stiffness,
     assemble_mindlin_plate_uniform_load,
     mindlin_plate_element_stiffness,
@@ -146,6 +148,8 @@ __all__ = [
     "truss_node_dofs",
     "PLATE_DOF_PER_NODE",
     "PlateSection",
+    "assemble_mindlin_plate_point_load",
+    "assemble_mindlin_plate_point_loads",
     "assemble_mindlin_plate_stiffness",
     "assemble_mindlin_plate_uniform_load",
     "mindlin_plate_element_stiffness",

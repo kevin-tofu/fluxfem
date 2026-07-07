@@ -281,9 +281,74 @@ def assemble_mindlin_plate_uniform_load(
     return _as_array_backend(out, _resolve_array_backend(array_backend, backend))
 
 
+def assemble_mindlin_plate_point_load(
+    n_nodes: int,
+    node: int,
+    *,
+    force: float = 0.0,
+    moments: Sequence[float] | np.ndarray = (0.0, 0.0),
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
+):
+    """Assemble a dense nodal load vector for one plate node."""
+    return assemble_mindlin_plate_point_loads(
+        n_nodes,
+        [node],
+        forces=[force],
+        moments=[moments],
+        array_backend=_resolve_array_backend(array_backend, backend),
+    )
+
+
+def assemble_mindlin_plate_point_loads(
+    n_nodes: int,
+    nodes: Sequence[int] | np.ndarray,
+    *,
+    forces: Sequence[float] | np.ndarray | None = None,
+    moments: Sequence[Sequence[float]] | np.ndarray | None = None,
+    array_backend: ArrayBackend | None = None,
+    backend: ArrayBackend | None = None,
+):
+    """Assemble dense nodal transverse force and rotation-moment loads."""
+    if n_nodes <= 0:
+        raise ValueError("n_nodes must be positive.")
+    nodes_arr = np.asarray(nodes, dtype=int).reshape(-1)
+    if nodes_arr.size == 0:
+        raise ValueError("nodes must contain at least one node.")
+    if np.any(nodes_arr < 0) or np.any(nodes_arr >= int(n_nodes)):
+        raise ValueError("nodes contains an index outside n_nodes.")
+
+    if forces is None:
+        force_arr = np.zeros(nodes_arr.size, dtype=float)
+    else:
+        force_arr = np.asarray(forces, dtype=float).reshape(-1)
+        if force_arr.size != nodes_arr.size:
+            raise ValueError(f"forces must have shape ({nodes_arr.size},).")
+
+    if moments is None:
+        moment_arr = np.zeros((nodes_arr.size, 2), dtype=float)
+    else:
+        moment_arr = np.asarray(moments, dtype=float)
+        if moment_arr.shape == (2,):
+            if nodes_arr.size != 1:
+                raise ValueError("moments with shape (2,) is only valid for one node.")
+            moment_arr = moment_arr.reshape(1, 2)
+        if moment_arr.shape != (nodes_arr.size, 2):
+            raise ValueError(f"moments must have shape ({nodes_arr.size}, 2).")
+
+    out = np.zeros(PLATE_DOF_PER_NODE * int(n_nodes), dtype=float)
+    for node, force, moment_vec in zip(nodes_arr, force_arr, moment_arr, strict=True):
+        dofs = PLATE_DOF_PER_NODE * int(node) + np.arange(3)
+        values = np.array([force, moment_vec[0], moment_vec[1]], dtype=float)
+        np.add.at(out, dofs, values)
+    return _as_array_backend(out, _resolve_array_backend(array_backend, backend))
+
+
 __all__ = [
     "PLATE_DOF_PER_NODE",
     "PlateSection",
+    "assemble_mindlin_plate_point_load",
+    "assemble_mindlin_plate_point_loads",
     "assemble_mindlin_plate_stiffness",
     "assemble_mindlin_plate_uniform_load",
     "mindlin_plate_element_stiffness",

@@ -57,3 +57,17 @@ def test_assemble_mindlin_plate_stiffness_backends_and_load_vector():
     np.testing.assert_allclose(K_csr.toarray(), K_dense)
     np.testing.assert_allclose(np.asarray(K_jax.to_dense()), K_dense)
     np.testing.assert_allclose(f[0::3].sum(), 14.0, atol=1.0e-12)
+
+
+def test_assemble_mindlin_plate_point_loads():
+    f = ff.assemble_mindlin_plate_point_loads(
+        4,
+        [1, 3],
+        forces=[-2.0, -3.0],
+        moments=[[0.5, 0.0], [0.0, -0.25]],
+    )
+
+    expected = np.zeros((12,), dtype=float)
+    expected[3:6] = [-2.0, 0.5, 0.0]
+    expected[9:12] = [-3.0, 0.0, -0.25]
+    np.testing.assert_allclose(f, expected)
