@@ -229,6 +229,56 @@ For contact interfaces, prefer `contact.assemble_*` methods over top-level
 `ff.assemble_contact_*` helpers. The top-level `assemble_*` helpers remain
 available as compatibility entrypoints.
 
+### Structural beam/truss helpers
+
+FluxFEM also includes dedicated structural-element helpers for quick beam,
+bar/truss, and lumped spring-mass-dashpot models. These are separate from the
+continuum `FESpace` mesh assembly path:
+
+- beam: 3D Euler-Bernoulli frame elements, 6 DOF per node
+- truss/bar: 3D axial elements, 3 translational DOF per node
+- lumped: DOF-level springs, dashpots, nodal loads, and Rayleigh damping
+
+Matrix assembly uses an explicit return format:
+
+- `format="csr"`: SciPy CSR matrix, the default
+- `format="fluxsparse"`: `FluxSparseMatrix`, useful with JAX-oriented sparse solves
+- `format="dense"`: NumPy dense matrix for small checks
+
+Load vectors are dense and can choose `array_backend="numpy"` or
+`array_backend="jax"` when needed.
+
+```Python
+coords, conn = ff.structured_beam_chain(n_elems=8, length=2.0)
+section = ff.BeamSection(E=210e9, G=80e9, A=2e-3, Iy=8e-6, Iz=5e-6, J=1e-5)
+
+K = ff.assemble_beam_stiffness(coords, conn, section, format="csr")
+F = ff.assemble_beam_point_load(coords.shape[0], coords.shape[0] - 1, force=(0.0, 0.0, -1000.0))
+fixed = ff.beam_node_dofs([0])
+
+u, info = ff.LinearSolver(method="spsolve").solve(
+    K,
+    F,
+    dirichlet=ff.DirichletBC(fixed, 0.0),
+    dirichlet_mode="condense",
+)
+```
+
+For a JAX sparse-style path, request `format="fluxsparse"` and a JAX RHS:
+
+```Python
+K = ff.assemble_truss_stiffness(coords, conn, truss_section, format="fluxsparse")
+F = ff.assemble_truss_point_load(n_nodes, tip_node, force=(1200.0, 0.0, 0.0), array_backend="jax")
+u, info = ff.LinearSolver(method="spsolve_jax").solve(K, F, dirichlet=bc)
+```
+
+See:
+
+- [`tutorials/elasticity/beam_cantilever.py`](tutorials/elasticity/beam_cantilever.py)
+- [`tutorials/elasticity/beam_uniform_load.py`](tutorials/elasticity/beam_uniform_load.py)
+- [`tutorials/elasticity/truss_bar_cantilever.py`](tutorials/elasticity/truss_bar_cantilever.py)
+- [`tutorials/dynamics/beam_tip_spring_dashpot.py`](tutorials/dynamics/beam_tip_spring_dashpot.py)
+
 ### Mixed systems
 
 Mixed systems use two kinds of names:
@@ -623,9 +673,13 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 ## Tutorials
 
 - `tutorials/elasticity/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
+- `tutorials/elasticity/beam_cantilever.py` and `tutorials/elasticity/beam_uniform_load.py` (3D Euler-Bernoulli beam helpers)
+- `tutorials/elasticity/truss_bar_cantilever.py` and `tutorials/elasticity/truss_uniform_load.py` (3D truss/bar helpers)
+- `tutorials/dynamics/spring_mass_dashpot.py` and `tutorials/dynamics/beam_tip_spring_dashpot.py` (lumped and beam dynamics)
 - `tutorials/nonlinear/neo_hookean_cantilever.py` (nonlinear hyperelasticity)
 - `tutorials/thermoelastic/thermoelastic_bar_1d.py` / `tutorials/thermoelastic/thermoelastic_bar_1d_mixed.py` (thermoelastic coupling)
 - `tutorials/contact/contact_supported_box_by_pillars.py` (large box supported by multiple small boxes via penalty contact + Dirichlet supports)
+- `tutorials/contact/two_body_contact_displacement_vtu.py` (two-body contact solve exported as a combined VTU)
 - `tutorials/contact/contact_mortar_builder_methods.py` (dual/coarse mortar multiplier selection through explicit operators and builder-managed raw contacts)
 - `tutorials/contact/mortar_fixture_workpiece_comparison.py` (matching/nonmatching fixture-workpiece mortar solves, centered on coarse P1 mortar versus the dual reference)
 - `tutorials/petsc/petsc_shell_poisson_demo.py` (PETSc shell solver integration; see also `tutorials/petsc/petsc_shell_poisson_pmat_demo.py`)
