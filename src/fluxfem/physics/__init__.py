@@ -69,6 +69,17 @@ from .truss import (
     truss_element_uniform_load_global,
     truss_node_dofs,
 )
+from .plate import (
+    PLATE_DOF_PER_NODE,
+    PlateSection,
+    assemble_mindlin_plate_stiffness,
+    assemble_mindlin_plate_uniform_load,
+    mindlin_plate_element_stiffness,
+    mindlin_plate_element_uniform_load,
+    plate_element_dofs,
+    plate_node_dofs,
+    structured_plate_grid,
+)
 from .lumped import (
     assemble_dof_dashpot,
     assemble_dof_spring,
@@ -133,6 +144,15 @@ __all__ = [
     "truss_element_stiffness_global",
     "truss_element_uniform_load_global",
     "truss_node_dofs",
+    "PLATE_DOF_PER_NODE",
+    "PlateSection",
+    "assemble_mindlin_plate_stiffness",
+    "assemble_mindlin_plate_uniform_load",
+    "mindlin_plate_element_stiffness",
+    "mindlin_plate_element_uniform_load",
+    "plate_element_dofs",
+    "plate_node_dofs",
+    "structured_plate_grid",
     "assemble_dof_dashpot",
     "assemble_dof_spring",
     "assemble_nodal_load",
