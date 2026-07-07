@@ -277,6 +277,8 @@ u, info = ff.LinearSolver(method="spsolve_jax").solve(K, F, dirichlet=bc)
 For coupled structural models, `NumpyCoupledSystemBuilder` and
 `JAXCoupledSystemBuilder` provide `add_dof_tie_constraint(...)` to tie selected
 field-local DOFs, for example a 6-DOF beam root to a 6-DOF RBE3 remote point.
+They also provide `add_distributed_coupling(...)` for face/patch-to-remote RBE3
+coupling and `add_bolt_preload(...)` for directional remote preload springs.
 
 See:
 

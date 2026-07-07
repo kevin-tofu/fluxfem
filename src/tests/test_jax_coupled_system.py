@@ -1206,6 +1206,71 @@ def test_jax_coupled_system_add_dof_tie_constraint_matches_numpy_builder():
     assert np.allclose(np.asarray(system_jax.F_u), np.asarray(F_np), atol=1e-12)
 
 
+def test_jax_coupled_system_distributed_coupling_matches_numpy_builder():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    x_slave = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=float)
+    weights = np.array([0.25, 0.75], dtype=float)
+    K_u = np.eye(6, dtype=float)
+    F_u = np.zeros((6,), dtype=float)
+
+    np_builder = ff.NumpyCoupledSystemBuilder.from_structural(K_u, F_u)
+    np_builder.register_field("workpiece", n_dofs=6, value_dim=1, offset=0)
+    np_builder.add_distributed_coupling(
+        source="workpiece",
+        source_dofs=np.arange(6, dtype=int),
+        remote="remote",
+        point=x_ref,
+        slave_coords=x_slave,
+        weights=weights,
+        backend="numpy",
+    )
+    K_np, F_np = np_builder.build().assemble(format="dense")
+
+    jax_builder = ff.JAXCoupledSystemBuilder.from_structural(jnp.asarray(K_u), jnp.asarray(F_u))
+    jax_builder.register_field("workpiece", n_dofs=6, value_dim=1, offset=0)
+    copy_name = jax_builder.add_distributed_coupling(
+        source="workpiece",
+        source_dofs=jnp.arange(6, dtype=jnp.int32),
+        remote="remote",
+        point=jnp.asarray(x_ref),
+        slave_coords=jnp.asarray(x_slave),
+        weights=jnp.asarray(weights),
+    )
+    system_jax = jax_builder.build()
+
+    assert copy_name == "remote_distributed_patch"
+    assert np.asarray(system_jax.K_u.to_dense()).shape == np.asarray(K_np).shape
+    assert np.asarray(system_jax.F_u).shape == np.asarray(F_np).shape
+
+
+def test_jax_coupled_system_bolt_preload_matches_numpy_builder():
+    K_u = np.zeros((6, 6), dtype=float)
+    F_u = np.zeros((6,), dtype=float)
+
+    np_builder = ff.NumpyCoupledSystemBuilder.from_structural(K_u, F_u)
+    np_builder.register_field("bolt", n_dofs=6, value_dim=1, offset=0)
+    np_builder.add_bolt_preload(
+        "bolt",
+        stiffness=12.0,
+        direction=np.array([2.0, 0.0, 0.0], dtype=float),
+        target_displacement=0.25,
+    )
+    K_np, F_np = np_builder.build().assemble(format="dense")
+
+    jax_builder = ff.JAXCoupledSystemBuilder.from_structural(jnp.zeros((6, 6), dtype=jnp.float64), jnp.zeros((6,), dtype=jnp.float64))
+    jax_builder.register_field("bolt", n_dofs=6, value_dim=1, offset=0)
+    jax_builder.add_bolt_preload(
+        "bolt",
+        stiffness=12.0,
+        direction=jnp.array([2.0, 0.0, 0.0]),
+        target_displacement=0.25,
+    )
+    system_jax = jax_builder.build()
+
+    assert np.allclose(np.asarray(system_jax.K_u.to_dense()), np.asarray(K_np), atol=1e-12)
+    assert np.allclose(np.asarray(system_jax.F_u), np.asarray(F_np), atol=1e-12)
+
+
 def test_jax_coupled_system_remote_spring_with_rbe3_is_differentiable():
     x_ref = jnp.array([0.0, 0.0, 0.0])
     x_slave = jnp.array(

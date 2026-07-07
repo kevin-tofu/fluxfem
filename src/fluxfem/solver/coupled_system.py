@@ -532,6 +532,43 @@ class CoupledSystemBuilder:
         if block.point.shape != (3,):
             raise ValueError("remote point must be a 3D coordinate.")
 
+    def add_distributed_coupling(
+        self,
+        *,
+        source: str,
+        source_dofs,
+        remote: str,
+        point,
+        slave_coords,
+        weights=None,
+        copy_field: str | None = None,
+        normalize_weights: bool = True,
+        rho: float = 0.0,
+        backend: str | None = None,
+    ) -> str:
+        """
+        Couple selected source DOFs to a 6-DOF remote point through RBE3 averaging.
+
+        This is a named convenience wrapper around ``append_dof_copy_field``,
+        ``append_remote_point``, and ``add_rbe3_constraint``. It returns the
+        generated auxiliary copy-field name.
+        """
+        if backend not in (None, "jax"):
+            raise ValueError("JAX distributed coupling expects backend=None or backend='jax'.")
+        copy_name = f"{remote}_distributed_patch" if copy_field is None else str(copy_field)
+        self.append_dof_copy_field(copy_name, source=source, source_dofs=source_dofs, rho=rho)
+        self.append_remote_point(remote, point=point, include_rotation=True)
+        self.add_rbe3_constraint(
+            master=remote,
+            slave=copy_name,
+            ref_point=point,
+            slave_coords=slave_coords,
+            weights=weights,
+            normalize_weights=normalize_weights,
+            rho=rho,
+        )
+        return copy_name
+
     def add_constraint(self, spec: ConstraintSpec) -> None:
         """
         Add a supported constraint through the shared ConstraintSpec descriptor.
@@ -1355,6 +1392,48 @@ class CoupledSystemBuilder:
                 stiffness=rotational_stiffness,
                 reference_value=rotational_target,
             )
+
+    def add_bolt_preload(
+        self,
+        field: str,
+        *,
+        stiffness: float,
+        direction,
+        target_displacement: float = 0.0,
+        local_dofs=None,
+    ) -> np.ndarray:
+        """
+        Add a directional preload spring on a remote or structural field.
+
+        The contribution is ``k d d^T`` with target displacement
+        ``target_displacement * d`` on the selected DOFs. ``direction`` is
+        normalized internally.
+        """
+        b = self._get_block(field)
+        if local_dofs is None:
+            direction_arr = np.asarray(direction, dtype=float).reshape(-1)
+            if direction_arr.size == 3:
+                dofs = np.arange(3, dtype=int)
+            elif direction_arr.size == b.n_dofs:
+                dofs = np.arange(b.n_dofs, dtype=int)
+            else:
+                raise ValueError("direction must have length 3 or match the field DOF count.")
+        else:
+            dofs = np.asarray(local_dofs, dtype=int).reshape(-1)
+            direction_arr = np.asarray(direction, dtype=float).reshape(-1)
+            if direction_arr.size != dofs.size:
+                raise ValueError("direction length must match local_dofs.")
+        if dofs.size == 0:
+            raise ValueError("At least one preload DOF is required.")
+        if np.any(dofs < 0) or np.any(dofs >= b.n_dofs):
+            raise ValueError("local_dofs contains an index outside the field.")
+        norm = float(np.linalg.norm(direction_arr))
+        if norm <= 0.0:
+            raise ValueError("direction must be nonzero.")
+        unit = direction_arr / norm
+        k_dir = float(stiffness) * np.outer(unit, unit)
+        ref = float(target_displacement) * unit
+        return self.add_dof_spring(field, local_dofs=dofs, stiffness=k_dir, reference_value=ref)
 
     def build(self) -> CoupledSystem:
         return self.system

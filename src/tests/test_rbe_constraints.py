@@ -225,6 +225,49 @@ def test_builder_add_dof_tie_constraint_adds_selected_dof_rows_with_rhs():
     np.testing.assert_allclose(F[5:], np.array([0.25, -0.5]))
 
 
+def test_builder_add_distributed_coupling_builds_remote_rbe3_rows():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    x_slave = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=float)
+    builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(6, format="csr"), np.zeros((6,), dtype=float))
+    builder.register_field("workpiece", n_dofs=6, value_dim=1, offset=0)
+    copy_name = builder.add_distributed_coupling(
+        source="workpiece",
+        source_dofs=np.arange(6, dtype=int),
+        remote="remote",
+        point=x_ref,
+        slave_coords=x_slave,
+        weights=np.array([0.25, 0.75], dtype=float),
+        backend="numpy",
+    )
+
+    assert copy_name == "remote_distributed_patch"
+    K, _ = builder.build().assemble(format="csr")
+    C = K.toarray()[18:, :18]
+    u_ref = np.array([0.2, -0.1, 0.05], dtype=float)
+    w_ref = np.array([0.0, 0.0, 0.4], dtype=float)
+    u_slave = np.asarray([u_ref + np.cross(w_ref, p - x_ref) for p in x_slave], dtype=float).reshape(-1)
+    q = np.concatenate([u_slave, u_slave, u_ref, w_ref], axis=0)
+
+    assert C.shape == (12, 18)
+    np.testing.assert_allclose(C @ q, np.zeros((12,), dtype=float), atol=1.0e-12)
+
+
+def test_builder_add_bolt_preload_adds_directional_spring_load():
+    builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.csr_matrix((6, 6)), np.zeros((6,), dtype=float))
+    builder.register_field("bolt", n_dofs=6, value_dim=1, offset=0)
+    dofs = builder.add_bolt_preload(
+        "bolt",
+        stiffness=12.0,
+        direction=np.array([2.0, 0.0, 0.0], dtype=float),
+        target_displacement=0.25,
+    )
+
+    K, F = builder.build().assemble(format="csr")
+    np.testing.assert_array_equal(dofs, np.array([0, 1, 2]))
+    np.testing.assert_allclose(K.toarray()[:3, :3], np.diag([12.0, 0.0, 0.0]))
+    np.testing.assert_allclose(F[:3], np.array([3.0, 0.0, 0.0]))
+
+
 def test_builder_rbe2_rejects_slave_size_mismatch():
     builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(6, format="csr"), np.zeros((6,), dtype=float))
     builder.register_field("remote", n_dofs=6, value_dim=1, offset=0)

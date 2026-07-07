@@ -46,6 +46,12 @@ There is now a first continuum-to-beam coupling example:
 `add_dof_tie_constraint(master=..., slave=..., master_dofs=..., slave_dofs=...,
 rhs=0.0)`, which builds the DOF-level MPC rows for
 `u_master[master_dofs] - u_slave[slave_dofs] = rhs`.
+They also expose:
+
+- `add_distributed_coupling(...)`: appends an auxiliary patch copy, appends a
+  6-DOF remote point, and connects the patch to the remote point with RBE3.
+- `add_bolt_preload(...)`: adds a normalized directional preload spring
+  contribution `k d d^T` with target displacement on selected field DOFs.
 
 ## Public API
 
@@ -149,6 +155,7 @@ PYTHONPATH=src pytest -q src/tests/test_solid_beam_coupling.py src/tests/test_rb
 PYTHONPATH=src pytest -q src/tests/test_rbe_constraints.py src/tests/test_solid_beam_coupling.py src/tests/test_jax_coupled_system.py -k "dof_tie_constraint or rbe_constraints or solid_beam"
 PYTHONPATH=src pytest -q src/tests/test_solid_truss_coupling.py src/tests/test_solid_beam_coupling.py
 PYTHONPATH=src pytest -q src/tests/test_contact_truss_support.py src/tests/test_contact_box_solve_integration.py
+PYTHONPATH=src pytest -q src/tests/test_solid_beam_coupling.py src/tests/test_solid_truss_coupling.py src/tests/test_rbe_constraints.py src/tests/test_jax_coupled_system.py -k "solid_beam or solid_truss or distributed_coupling or bolt_preload or dof_tie_constraint or rbe3_constraint"
 ```
 
 The latest targeted DOF-tie/coupling check was `14 passed` with one existing JAX

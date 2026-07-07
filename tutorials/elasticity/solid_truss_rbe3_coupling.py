@@ -89,14 +89,13 @@ def build_solid_truss_coupling(
     builder = ff.NumpyCoupledSystemBuilder.from_structural(structural_K, structural_F)
     builder.register_field("solid", n_dofs=solid_space.n_dofs, value_dim=1, offset=0)
     builder.register_field("truss", n_dofs=truss_K.shape[0], value_dim=1, offset=truss_offset)
-    builder.append_dof_copy_field("solid_face", source="solid", source_dofs=face_dofs)
-    builder.append_remote_point("interface_remote", point=x_ref)
 
     weights = ff.build_rbe3_weights(x_ref, face_coords, method="equal")
-    builder.add_rbe3_constraint(
-        master="interface_remote",
-        slave="solid_face",
-        ref_point=x_ref,
+    builder.add_distributed_coupling(
+        source="solid",
+        source_dofs=face_dofs,
+        remote="interface_remote",
+        point=x_ref,
         slave_coords=face_coords,
         weights=weights,
         backend="numpy",
