@@ -38,6 +38,9 @@ There is now a first continuum-to-beam coupling example:
 - `tutorials/elasticity/solid_truss_rbe3_coupling.py` follows the same pattern
   for a 3D truss/bar, tying only the remote translational DOFs to the truss root
   translations.
+- `tutorials/contact/contact_supported_box_by_truss_springs.py` combines the
+  surface penalty contact path with truss/bar support stiffness by grounding
+  support-pad bottom z DOFs with `E A / L` springs from `TrussSection`.
 
 `NumpyCoupledSystemBuilder` and `JAXCoupledSystemBuilder` now expose
 `add_dof_tie_constraint(master=..., slave=..., master_dofs=..., slave_dofs=...,
@@ -119,6 +122,7 @@ The following tutorials accept `--format {csr,fluxsparse,dense}` and
 - `tutorials/elasticity/truss_bar_cantilever.py`
 - `tutorials/elasticity/solid_truss_rbe3_coupling.py`
 - `tutorials/elasticity/truss_uniform_load.py`
+- `tutorials/contact/contact_supported_box_by_truss_springs.py`
 
 `--solver auto` selects `spsolve_jax` for `format="fluxsparse"` and `spsolve`
 for `format="csr"` / `format="dense"`.
@@ -138,11 +142,13 @@ PYTHONPATH=src python tutorials/elasticity/frame2d_cantilever.py
 PYTHONPATH=src python tutorials/elasticity/truss2d_bar_cantilever.py
 PYTHONPATH=src python tutorials/elasticity/solid_beam_rbe3_coupling.py
 PYTHONPATH=src python tutorials/elasticity/solid_truss_rbe3_coupling.py
+PYTHONPATH=src python tutorials/contact/contact_supported_box_by_truss_springs.py
 PYTHONPATH=src pytest -q src/tests/test_beam.py src/tests/test_truss.py src/tests/test_lumped.py
 PYTHONPATH=src pytest -q src/tests/test_structural_2d.py src/tests/test_beam.py src/tests/test_truss.py src/tests/test_lumped.py
 PYTHONPATH=src pytest -q src/tests/test_solid_beam_coupling.py src/tests/test_rbe_constraints.py src/tests/test_structural_2d.py
 PYTHONPATH=src pytest -q src/tests/test_rbe_constraints.py src/tests/test_solid_beam_coupling.py src/tests/test_jax_coupled_system.py -k "dof_tie_constraint or rbe_constraints or solid_beam"
 PYTHONPATH=src pytest -q src/tests/test_solid_truss_coupling.py src/tests/test_solid_beam_coupling.py
+PYTHONPATH=src pytest -q src/tests/test_contact_truss_support.py src/tests/test_contact_box_solve_integration.py
 ```
 
 The latest targeted DOF-tie/coupling check was `14 passed` with one existing JAX

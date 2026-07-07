@@ -11,9 +11,18 @@ Large box supported by multiple small boxes (pillars) via penalty contact.
 
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+os.environ.setdefault("JAX_ENABLE_X64", "1")
+
 import numpy as np
+import jax
 import jax.numpy as jnp
 import scipy.sparse as sp
+
+jax.config.update("jax_enable_x64", True)
 
 import fluxfem as ff
 import fluxfem.helpers_wf as h_wf
@@ -152,7 +161,7 @@ def main():
     # Build structural block and coupled solve
     K_u = sp.block_diag((K_top.to_csr(), K_support.to_csr()), format="csr")
     F_u = np.concatenate([F_top, F_support], axis=0)
-    builder = ff.LegacyCoupledSystemBuilder.from_structural(K_u, F_u)
+    builder = ff.NumpyCoupledSystemBuilder.from_structural(K_u, F_u)
     builder.register_space("top", top_space, value_dim=1)
     builder.register_space("support", support_space, value_dim=1)
     builder.add_contact(

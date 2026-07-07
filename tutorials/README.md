@@ -41,6 +41,7 @@ Dynamics:
 
 Contact and constraints:
 
+- `contact/contact_supported_box_by_truss_springs.py`: 3D contact pad backed by truss-equivalent support springs.
 - `contact/two_body_contact_displacement_vtu.py`: two-body contact solve exported as a combined VTU.
 - `contact/curved_surface_contact_vtu_demo.py`: visualization-oriented curved contact VTU sequence.
 - `contact/contact_mortar_builder_methods.py`: mortar multiplier choices through explicit and builder APIs.

@@ -690,6 +690,7 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 - `tutorials/dynamics/spring_mass_dashpot.py` and `tutorials/dynamics/beam_tip_spring_dashpot.py` (lumped and beam dynamics)
 - `tutorials/nonlinear/neo_hookean_cantilever.py` (nonlinear hyperelasticity)
 - `tutorials/thermoelastic/thermoelastic_bar_1d.py` / `tutorials/thermoelastic/thermoelastic_bar_1d_mixed.py` (thermoelastic coupling)
+- `tutorials/contact/contact_supported_box_by_truss_springs.py` (3D contact pad backed by truss-equivalent support springs)
 - `tutorials/contact/contact_supported_box_by_pillars.py` (large box supported by multiple small boxes via penalty contact + Dirichlet supports)
 - `tutorials/contact/two_body_contact_displacement_vtu.py` (two-body contact solve exported as a combined VTU)
 - `tutorials/contact/contact_mortar_builder_methods.py` (dual/coarse mortar multiplier selection through explicit operators and builder-managed raw contacts)
