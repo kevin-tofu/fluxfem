@@ -158,6 +158,59 @@ def shell_element_dofs(conn: np.ndarray) -> np.ndarray:
     return elem_dofs
 
 
+def shell_solid_translational_tie_dofs(
+    shell_coords: np.ndarray,
+    solid_coords: np.ndarray,
+    *,
+    shell_nodes: Sequence[int] | np.ndarray | None = None,
+    solid_nodes: Sequence[int] | np.ndarray | None = None,
+    tol: float = 1.0e-10,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Match coincident shell and solid nodes and return translational tie DOFs.
+
+    The returned tuple is ``(matched_shell_nodes, matched_solid_nodes,
+    shell_dofs, solid_dofs)``. Shell translational components ``ux,uy,uz`` are
+    tied to solid vector DOFs ``x,y,z`` with the same physical coordinates.
+    """
+    xs = _surface_coords3(shell_coords)
+    xg = _surface_coords3(solid_coords)
+    if tol <= 0.0:
+        raise ValueError("tol must be positive.")
+    s_nodes = np.arange(xs.shape[0], dtype=int) if shell_nodes is None else np.asarray(shell_nodes, dtype=int).reshape(-1)
+    g_nodes = np.arange(xg.shape[0], dtype=int) if solid_nodes is None else np.asarray(solid_nodes, dtype=int).reshape(-1)
+    if s_nodes.size == 0 or g_nodes.size == 0:
+        raise ValueError("shell_nodes and solid_nodes must contain at least one node.")
+    if np.any(s_nodes < 0) or np.any(s_nodes >= xs.shape[0]):
+        raise ValueError("shell_nodes contains an index outside shell_coords.")
+    if np.any(g_nodes < 0) or np.any(g_nodes >= xg.shape[0]):
+        raise ValueError("solid_nodes contains an index outside solid_coords.")
+
+    matched_shell: list[int] = []
+    matched_solid: list[int] = []
+    used: set[int] = set()
+    for sn in s_nodes.tolist():
+        distances = np.linalg.norm(xg[g_nodes] - xs[int(sn)], axis=1)
+        local = int(np.argmin(distances))
+        if float(distances[local]) > float(tol):
+            raise ValueError(f"no coincident solid node found for shell node {sn}.")
+        gn = int(g_nodes[local])
+        if gn in used:
+            raise ValueError("multiple shell nodes matched the same solid node.")
+        used.add(gn)
+        matched_shell.append(int(sn))
+        matched_solid.append(gn)
+
+    shell_match = np.asarray(matched_shell, dtype=int)
+    solid_match = np.asarray(matched_solid, dtype=int)
+    return (
+        shell_match,
+        solid_match,
+        shell_node_dofs(shell_match, "uxuyuz"),
+        np.asarray([3 * int(n) + c for n in solid_match for c in range(3)], dtype=int),
+    )
+
+
 def _q4_shape(xi: float, eta: float) -> tuple[np.ndarray, np.ndarray]:
     N = 0.25 * np.array(
         [
@@ -862,6 +915,7 @@ __all__ = [
     "shell_element_stiffness_global",
     "shell_element_uniform_load_global",
     "shell_node_dofs",
+    "shell_solid_translational_tie_dofs",
     "structured_plate_grid",
     "write_q4_surface_vtu",
 ]

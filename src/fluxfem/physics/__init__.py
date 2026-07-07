@@ -95,6 +95,7 @@ from .plate import (
     shell_element_stiffness_global,
     shell_element_uniform_load_global,
     shell_node_dofs,
+    shell_solid_translational_tie_dofs,
     structured_plate_grid,
     write_q4_surface_vtu,
 )
@@ -187,6 +188,7 @@ __all__ = [
     "shell_element_stiffness_global",
     "shell_element_uniform_load_global",
     "shell_node_dofs",
+    "shell_solid_translational_tie_dofs",
     "structured_plate_grid",
     "write_q4_surface_vtu",
     "assemble_dof_dashpot",
