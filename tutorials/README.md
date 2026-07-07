@@ -30,6 +30,7 @@ Elasticity and structural helpers:
 - `elasticity/solid_beam_rbe3_coupling.py`: 3D continuum face coupled to a 3D beam root through an RBE3 remote point.
 - `elasticity/truss2d_bar_cantilever.py`: 2D x-z truss/bar cantilever with selectable matrix format.
 - `elasticity/truss_bar_cantilever.py`: 3D truss/bar cantilever with selectable matrix format.
+- `elasticity/solid_truss_rbe3_coupling.py`: 3D continuum face coupled to a 3D truss/bar root through an RBE3 remote point.
 - `elasticity/truss_uniform_load.py`: equivalent nodal loads for uniform truss/bar loading.
 
 Dynamics:
