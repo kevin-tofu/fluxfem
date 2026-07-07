@@ -694,6 +694,7 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 - `tutorials/elasticity/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
 - `tutorials/elasticity/frame2d_cantilever.py`, `tutorials/elasticity/beam_cantilever.py`, and `tutorials/elasticity/beam_uniform_load.py` (2D/3D Euler-Bernoulli frame helpers)
 - `tutorials/elasticity/mindlin_plate_cantilever.py` (Q4 Reissner-Mindlin/Mindlin plate helper)
+- `tutorials/elasticity/flat_shell_cantilever.py` (Q4 Reissner-Mindlin shell helper, 2D/tilted 3D coordinates and optional VTU output)
 - `tutorials/elasticity/solid_beam_rbe3_coupling.py` (3D continuum face coupled to a 3D beam root through RBE3)
 - `tutorials/elasticity/truss2d_bar_cantilever.py`, `tutorials/elasticity/truss_bar_cantilever.py`, and `tutorials/elasticity/truss_uniform_load.py` (2D/3D truss/bar helpers)
 - `tutorials/elasticity/solid_truss_rbe3_coupling.py` (3D continuum face coupled to a 3D truss/bar root through RBE3)
