@@ -1257,6 +1257,22 @@ def test_jax_coupled_system_distributed_coupling_rejects_degenerate_remote_patch
         )
 
 
+def test_jax_coupled_system_distributed_coupling_allows_translational_only_single_node_patch():
+    builder = ff.JAXCoupledSystemBuilder.from_structural(jnp.eye(3), jnp.zeros((3,)))
+    builder.register_field("workpiece", n_dofs=3, value_dim=1, offset=0)
+
+    copy_name = builder.add_distributed_coupling(
+        source="workpiece",
+        source_dofs=jnp.arange(3, dtype=jnp.int32),
+        remote="remote",
+        point=jnp.zeros((3,)),
+        slave_coords=jnp.array([[1.0, 0.0, 0.0]]),
+        dependent_components=(0, 1, 2),
+    )
+
+    assert copy_name == "remote_distributed_patch"
+
+
 def test_jax_coupled_system_bolt_preload_matches_numpy_builder():
     K_u = np.zeros((6, 6), dtype=float)
     F_u = np.zeros((6,), dtype=float)

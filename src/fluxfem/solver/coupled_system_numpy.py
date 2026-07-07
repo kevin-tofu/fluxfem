@@ -871,14 +871,18 @@ class NumpyCoupledSystemBuilder:
         backend: str | None = None,
         validate_rank: bool = True,
         min_rank: int | None = None,
+        dependent_components=None,
+        slave_components=None,
     ) -> str:
         """
-        Couple selected source DOFs to a 6-DOF remote point through RBE3 averaging.
+        Couple selected source DOFs to a 6-DOF remote point through RBE3-style averaging.
 
         This is a named convenience wrapper around ``append_dof_copy_field``,
         ``append_remote_point``, and ``add_rbe3_constraint``. It returns the
-        generated auxiliary copy-field name.
+        generated auxiliary copy-field name. ``dependent_components`` selects
+        remote components from ``[Tx, Ty, Tz, Rx, Ry, Rz]``.
         """
+        dep = tuple(range(6)) if dependent_components is None else tuple(dependent_components)
         if validate_rank:
             from ..mesh.contact import assemble_rbe3_constraint_matrix
 
@@ -887,14 +891,16 @@ class NumpyCoupledSystemBuilder:
                 np.asarray(slave_coords, dtype=float),
                 weights=None if weights is None else np.asarray(weights, dtype=float),
                 normalize_weights=normalize_weights,
+                dependent_components=dep,
+                slave_components=slave_components,
                 backend="numpy",
             )
             rank = int(np.linalg.matrix_rank(np.asarray(local)[:, :6]))
-            required = 6 if min_rank is None else int(min_rank)
+            required = len(dep) if min_rank is None else int(min_rank)
             if rank < required:
                 raise ValueError(
                     f"distributed coupling remote reference block has rank {rank}/{required}; "
-                    "use a larger/non-degenerate patch or a translational-only tie."
+                    "use a larger/non-degenerate patch or fewer dependent components."
                 )
         copy_name = f"{remote}_distributed_patch" if copy_field is None else str(copy_field)
         self.append_dof_copy_field(copy_name, source=source, source_dofs=source_dofs, rho=rho)
@@ -906,6 +912,8 @@ class NumpyCoupledSystemBuilder:
             slave_coords=slave_coords,
             weights=weights,
             normalize_weights=normalize_weights,
+            dependent_components=dep,
+            slave_components=slave_components,
             rho=rho,
             backend=backend,
         )
@@ -1999,6 +2007,7 @@ class NumpyCoupledSystemBuilder:
         slave: str,
         ref_point: np.ndarray,
         slave_coords: np.ndarray,
+        slave_components=None,
         rho: float = 0.0,
         backend: str | None = None,
         F_contact: np.ndarray | None = None,
@@ -2014,7 +2023,7 @@ class NumpyCoupledSystemBuilder:
 
         m = self._get_block(master)
         s = self._get_block(slave)
-        C = assemble_rbe2_constraint_matrix(ref_point, slave_coords, backend=backend)
+        C = assemble_rbe2_constraint_matrix(ref_point, slave_coords, slave_components=slave_components, backend=backend)
         if m.n_dofs != 6:
             raise ValueError("RBE2 master field must have exactly 6 DOFs.")
         if s.n_dofs != 3 * int(np.asarray(slave_coords).shape[0]):
@@ -2036,6 +2045,8 @@ class NumpyCoupledSystemBuilder:
         slave_coords: np.ndarray,
         weights: np.ndarray | None = None,
         normalize_weights: bool = True,
+        dependent_components=None,
+        slave_components=None,
         rho: float = 0.0,
         backend: str | None = None,
         F_contact: np.ndarray | None = None,
@@ -2056,6 +2067,8 @@ class NumpyCoupledSystemBuilder:
             slave_coords,
             weights=weights,
             normalize_weights=normalize_weights,
+            dependent_components=dependent_components,
+            slave_components=slave_components,
             backend=backend,
         )
         if m.n_dofs != 6:

@@ -547,6 +547,8 @@ class CoupledSystemBuilder:
         backend: str | None = None,
         validate_rank: bool = True,
         min_rank: int | None = None,
+        dependent_components=None,
+        slave_components=None,
     ) -> str:
         """
         Couple selected source DOFs to a 6-DOF remote point through RBE3-style averaging.
@@ -558,6 +560,7 @@ class CoupledSystemBuilder:
         """
         if backend not in (None, "jax"):
             raise ValueError("JAX distributed coupling expects backend=None or backend='jax'.")
+        dep = tuple(range(6)) if dependent_components is None else tuple(dependent_components)
         if validate_rank:
             from ..mesh.contact import assemble_rbe3_constraint_matrix
 
@@ -566,14 +569,16 @@ class CoupledSystemBuilder:
                 np.asarray(slave_coords, dtype=float),
                 weights=None if weights is None else np.asarray(weights, dtype=float),
                 normalize_weights=normalize_weights,
+                dependent_components=dep,
+                slave_components=slave_components,
                 backend="numpy",
             )
             rank = int(np.linalg.matrix_rank(np.asarray(local)[:, :6]))
-            required = 6 if min_rank is None else int(min_rank)
+            required = len(dep) if min_rank is None else int(min_rank)
             if rank < required:
                 raise ValueError(
                     f"distributed coupling remote reference block has rank {rank}/{required}; "
-                    "use a larger/non-degenerate patch or a translational-only tie."
+                    "use a larger/non-degenerate patch or fewer dependent components."
                 )
         copy_name = f"{remote}_distributed_patch" if copy_field is None else str(copy_field)
         self.append_dof_copy_field(copy_name, source=source, source_dofs=source_dofs, rho=rho)
@@ -585,6 +590,8 @@ class CoupledSystemBuilder:
             slave_coords=slave_coords,
             weights=weights,
             normalize_weights=normalize_weights,
+            dependent_components=dep,
+            slave_components=slave_components,
             rho=rho,
         )
         return copy_name
@@ -1184,6 +1191,7 @@ class CoupledSystemBuilder:
         slave: str,
         ref_point,
         slave_coords,
+        slave_components=None,
         rho: float = 0.0,
         F_contact=None,
     ) -> None:
@@ -1194,6 +1202,8 @@ class CoupledSystemBuilder:
         - ``master``: 6 DOFs ordered as ``[u_ref(3), omega_ref(3)]``
         - ``slave``: 3 DOFs per node ordered as nodal translations
         """
+        from ..mesh.contact import assemble_rbe2_constraint_matrix
+
         m = self._get_block(master)
         s = self._get_block(slave)
         x_ref = jnp.asarray(ref_point, dtype=self.system.dtype).reshape(-1)
@@ -1207,26 +1217,13 @@ class CoupledSystemBuilder:
         if s.n_dofs != 3 * int(x_s.shape[0]):
             raise ValueError("RBE2 slave field size must match 3 * n_slave_nodes.")
 
-        n_s = int(x_s.shape[0])
-        n_rows = 3 * n_s
-        n_cols = 6 + 3 * n_s
-        C = jnp.zeros((n_rows, n_cols), dtype=self.system.dtype)
-        for i in range(n_s):
-            rx, ry, rz = x_s[i] - x_ref
-            r0 = 3 * i
-            c_slave = 6 + 3 * i
-            C = C.at[r0 + 0, 0].set(-1.0)
-            C = C.at[r0 + 1, 1].set(-1.0)
-            C = C.at[r0 + 2, 2].set(-1.0)
-            C = C.at[r0 + 0, 4].set(-rz)
-            C = C.at[r0 + 0, 5].set(+ry)
-            C = C.at[r0 + 1, 3].set(+rz)
-            C = C.at[r0 + 1, 5].set(-rx)
-            C = C.at[r0 + 2, 3].set(-ry)
-            C = C.at[r0 + 2, 4].set(+rx)
-            C = C.at[r0 + 0, c_slave + 0].set(+1.0)
-            C = C.at[r0 + 1, c_slave + 1].set(+1.0)
-            C = C.at[r0 + 2, c_slave + 2].set(+1.0)
+        C_np = assemble_rbe2_constraint_matrix(
+            np.asarray(ref_point, dtype=float),
+            np.asarray(slave_coords, dtype=float),
+            slave_components=slave_components,
+            backend="numpy",
+        )
+        C = jnp.asarray(C_np, dtype=self.system.dtype)
         self.add_constraint_matrix_dof(C, master=master, slave=slave, rho=rho, F_contact=F_contact)
 
     def add_embedding_constraint(
@@ -1277,6 +1274,8 @@ class CoupledSystemBuilder:
         slave_coords,
         weights=None,
         normalize_weights: bool = True,
+        dependent_components=None,
+        slave_components=None,
         rho: float = 0.0,
         F_contact=None,
     ) -> None:
@@ -1287,6 +1286,8 @@ class CoupledSystemBuilder:
         - ``master``: 6 DOFs ordered as ``[u_ref(3), omega_ref(3)]``
         - ``slave``: 3 DOFs per node ordered as nodal translations
         """
+        from ..mesh.contact import assemble_rbe3_constraint_matrix
+
         m = self._get_block(master)
         s = self._get_block(slave)
         x_ref = jnp.asarray(ref_point, dtype=self.system.dtype).reshape(-1)
@@ -1303,38 +1304,16 @@ class CoupledSystemBuilder:
         if s.n_dofs != 3 * n_s:
             raise ValueError("RBE3 slave field size must match 3 * n_slave_nodes.")
 
-        if weights is None:
-            w = jnp.ones((n_s,), dtype=self.system.dtype)
-        else:
-            w = jnp.asarray(weights, dtype=self.system.dtype).reshape(-1)
-            if w.shape != (n_s,):
-                raise ValueError("weights must have shape (n_slave,).")
-        if normalize_weights:
-            w_sum = jnp.sum(w)
-            if float(jnp.abs(w_sum)) <= 1e-15:
-                raise ValueError("weights sum must be non-zero when normalize_weights=True.")
-            w = w / w_sum
-
-        def _bmat(point):
-            rx, ry, rz = point - x_ref
-            return jnp.array(
-                [
-                    [1.0, 0.0, 0.0, 0.0, rz, -ry],
-                    [0.0, 1.0, 0.0, -rz, 0.0, rx],
-                    [0.0, 0.0, 1.0, ry, -rx, 0.0],
-                ],
-                dtype=self.system.dtype,
-            )
-
-        M = jnp.zeros((6, 6), dtype=self.system.dtype)
-        C = jnp.zeros((6, 6 + 3 * n_s), dtype=self.system.dtype)
-        for i in range(n_s):
-            Bi = _bmat(x_s[i])
-            wi = w[i]
-            M = M + wi * (Bi.T @ Bi)
-            c0 = 6 + 3 * i
-            C = C.at[:, c0 : c0 + 3].set(-wi * Bi.T)
-        C = C.at[:, :6].set(M)
+        C_np = assemble_rbe3_constraint_matrix(
+            np.asarray(ref_point, dtype=float),
+            np.asarray(slave_coords, dtype=float),
+            weights=None if weights is None else np.asarray(weights, dtype=float),
+            normalize_weights=normalize_weights,
+            dependent_components=dependent_components,
+            slave_components=slave_components,
+            backend="numpy",
+        )
+        C = jnp.asarray(C_np, dtype=self.system.dtype)
         self.add_constraint_matrix_dof(C, master=master, slave=slave, rho=rho, F_contact=F_contact)
 
     def _coerce_spring_matrix_and_reference(self, stiffness, reference_value, *, n: int) -> tuple[jnp.ndarray, jnp.ndarray]:

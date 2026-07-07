@@ -1209,6 +1209,7 @@ def assemble_rbe2_constraint_matrix(
     ref_point: np.ndarray,
     slave_coords: np.ndarray,
     *,
+    slave_components: Sequence[int] | None = None,
     backend: str | None = None,
 ):
     """
@@ -1219,6 +1220,10 @@ def assemble_rbe2_constraint_matrix(
 
     Constraint for each slave node i:
       u_slave_i - u_ref - (omega_ref x (x_i - x_ref)) = 0
+
+    ``slave_components`` selects constrained dependent slave translation
+    components from ``[Tx, Ty, Tz]``. The default constrains all three
+    components at every slave node.
     """
     backend = "numpy" if backend is None else str(backend).lower()
     if backend != "numpy":
@@ -1233,6 +1238,14 @@ def assemble_rbe2_constraint_matrix(
     n_s = int(x_s.shape[0])
     n_rows = 3 * n_s
     n_cols = 6 + 3 * n_s
+    if slave_components is None:
+        comps = np.arange(3, dtype=np.int64)
+    else:
+        comps = np.asarray(tuple(slave_components), dtype=np.int64).reshape(-1)
+    if comps.size == 0:
+        raise ValueError("slave_components must contain at least one component.")
+    if np.any(comps < 0) or np.any(comps >= 3) or np.unique(comps).size != comps.size:
+        raise ValueError("slave_components must be unique integers in [0, 2].")
 
     C = np.zeros((n_rows, n_cols), dtype=float)
     for i in range(n_s):
@@ -1251,7 +1264,8 @@ def assemble_rbe2_constraint_matrix(
         C[r0 + 0, c_slave + 0] = +1.0
         C[r0 + 1, c_slave + 1] = +1.0
         C[r0 + 2, c_slave + 2] = +1.0
-    return C
+    rows = np.asarray([3 * i + int(c) for i in range(n_s) for c in comps], dtype=np.int64)
+    return C[rows, :]
 
 
 def assemble_fixed_rigid_hub_constraint_matrix(
@@ -1386,6 +1400,8 @@ def assemble_rbe3_constraint_matrix(
     *,
     weights: np.ndarray | None = None,
     normalize_weights: bool = True,
+    dependent_components: Sequence[int] | None = None,
+    slave_components: Sequence[int] | None = None,
     backend: str | None = None,
 ):
     """
@@ -1401,10 +1417,13 @@ def assemble_rbe3_constraint_matrix(
 
     where ``B_i = [I, -[r_i]_x]`` and ``r_i = x_i - x_ref``.
 
-    This is a weighted least-squares remote reconstruction, not a full Nastran
-    RBE3 card implementation. It yields a 6 x (6 + 3*n_slave) matrix. Repeated
-    use of this helper allows multiple user-defined distributed couplings to be
-    added to one system.
+    ``dependent_components`` selects the reference-point components to constrain
+    from ``[Tx, Ty, Tz, Rx, Ry, Rz]``. ``slave_components`` selects the
+    independent nodal translation components from ``[Tx, Ty, Tz]`` that
+    contribute to the weighted fit. This is closer to Nastran-style RBE3
+    component selection, but remains a weighted least-squares remote
+    reconstruction rather than a full RBE3 card parser. It yields
+    ``len(dependent_components) x (6 + 3*n_slave)`` rows.
     """
     backend = "numpy" if backend is None else str(backend).lower()
     if backend != "numpy":
@@ -1434,6 +1453,23 @@ def assemble_rbe3_constraint_matrix(
             raise ValueError("weights sum must be non-zero when normalize_weights=True.")
         w = w / w_sum
 
+    if dependent_components is None:
+        dep = np.arange(6, dtype=np.int64)
+    else:
+        dep = np.asarray(tuple(dependent_components), dtype=np.int64).reshape(-1)
+    if slave_components is None:
+        comps = np.arange(3, dtype=np.int64)
+    else:
+        comps = np.asarray(tuple(slave_components), dtype=np.int64).reshape(-1)
+    if dep.size == 0:
+        raise ValueError("dependent_components must contain at least one component.")
+    if comps.size == 0:
+        raise ValueError("slave_components must contain at least one component.")
+    if np.any(dep < 0) or np.any(dep >= 6) or np.unique(dep).size != dep.size:
+        raise ValueError("dependent_components must be unique integers in [0, 5].")
+    if np.any(comps < 0) or np.any(comps >= 3) or np.unique(comps).size != comps.size:
+        raise ValueError("slave_components must be unique integers in [0, 2].")
+
     def _bmat(point: np.ndarray) -> np.ndarray:
         rx, ry, rz = (point - x_ref).tolist()
         return np.array(
@@ -1449,8 +1485,11 @@ def assemble_rbe3_constraint_matrix(
     slave_blocks = []
     for wi, xi in zip(w.tolist(), x_s):
         Bi = _bmat(xi)
-        M += float(wi) * (Bi.T @ Bi)
-        slave_blocks.append(-float(wi) * Bi.T)
+        Bic = Bi[comps, :]
+        M += float(wi) * (Bic.T @ Bic)
+        slave_block = np.zeros((6, 3), dtype=float)
+        slave_block[:, comps] = -float(wi) * Bic.T
+        slave_blocks.append(slave_block)
 
     n_cols = 6 + 3 * n_s
     C = np.zeros((6, n_cols), dtype=float)
@@ -1458,7 +1497,7 @@ def assemble_rbe3_constraint_matrix(
     for i, blk in enumerate(slave_blocks):
         c0 = 6 + 3 * i
         C[:, c0 : c0 + 3] = blk
-    return C
+    return C[dep, :]
 
 
 def build_rbe3_weights(

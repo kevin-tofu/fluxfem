@@ -28,6 +28,20 @@ def test_rbe2_constraint_matrix_reproduces_rigid_kinematics():
     assert np.allclose(C_np @ q, np.zeros((6,), dtype=float), atol=1e-12)
 
 
+def test_rbe2_constraint_matrix_supports_slave_component_selection():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    x_slave = np.array([[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]], dtype=float)
+    C = ff.assemble_rbe2_constraint_matrix(x_ref, x_slave, slave_components=(0, 2), backend="numpy")
+
+    u_ref = np.array([0.3, -0.2, 0.1], dtype=float)
+    w_ref = np.array([0.0, 0.0, 0.5], dtype=float)
+    u_slave = np.asarray([u_ref + np.cross(w_ref, p - x_ref) for p in x_slave], dtype=float).reshape(-1)
+    q = np.concatenate([u_ref, w_ref, u_slave], axis=0)
+
+    assert C.shape == (4, 12)
+    np.testing.assert_allclose(C @ q, np.zeros((4,), dtype=float), atol=1.0e-12)
+
+
 def test_fixed_rigid_hub_constraint_matches_rbe2_with_fixed_reference():
     x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
     x_hub = np.array(
@@ -118,6 +132,22 @@ def test_rbe3_constraint_matrix_preserves_rigid_motion():
     q = np.concatenate([u_ref, w_ref, u_slave], axis=0)
 
     assert np.allclose(C_np @ q, np.zeros((6,), dtype=float), atol=1e-12)
+
+
+def test_rbe3_constraint_matrix_supports_component_selection():
+    x_ref = np.array([0.0, 0.0, 0.0], dtype=float)
+    x_slave = np.array([[1.0, 0.0, 0.0]], dtype=float)
+    C = ff.assemble_rbe3_constraint_matrix(
+        x_ref,
+        x_slave,
+        dependent_components=(0, 1, 2),
+        slave_components=(0, 1, 2),
+        backend="numpy",
+    )
+
+    assert C.shape == (3, 9)
+    np.testing.assert_allclose(C[:, :3], np.eye(3), atol=1.0e-12)
+    np.testing.assert_allclose(C[:, 6:9], -np.eye(3), atol=1.0e-12)
 
 
 def test_rbe_constraint_matrix_jax_backend_is_rejected():
@@ -265,6 +295,23 @@ def test_builder_add_distributed_coupling_rejects_degenerate_remote_patch():
             slave_coords=np.array([[1.0, 0.0, 0.0]], dtype=float),
             backend="numpy",
         )
+
+
+def test_builder_add_distributed_coupling_allows_translational_only_single_node_patch():
+    builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(3, format="csr"), np.zeros((3,), dtype=float))
+    builder.register_field("workpiece", n_dofs=3, value_dim=1, offset=0)
+
+    copy_name = builder.add_distributed_coupling(
+        source="workpiece",
+        source_dofs=np.arange(3, dtype=int),
+        remote="remote",
+        point=np.zeros((3,), dtype=float),
+        slave_coords=np.array([[1.0, 0.0, 0.0]], dtype=float),
+        dependent_components=(0, 1, 2),
+        backend="numpy",
+    )
+
+    assert copy_name == "remote_distributed_patch"
 
 
 def test_builder_add_bolt_preload_adds_directional_spring_load():
