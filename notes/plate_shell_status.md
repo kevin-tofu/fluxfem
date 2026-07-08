@@ -17,6 +17,8 @@ Implemented:
 - Q4 surface VTU output for plate/shell visualization.
 - Shell-to-beam style coupling through existing 6-DOF DOF ties.
 - Shell-solid translational tie for coincident shell/solid surface nodes.
+- Static full-KKT vs CB-projected-KKT regression for coincident shell-solid
+  translational tie with retained interface DOFs.
 - Nonmatching shell-solid translational tie matrix for shell nodes projected to
   planar solid tri/quad surface facets with displacement interpolation.
 - Solid patch to shell edge coupling through a 6-DOF RBE3-style remote point.
