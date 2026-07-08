@@ -31,9 +31,9 @@ Implemented:
   RBE3 coupling with explicit source-copy and remote-point extra DOFs.
 - Constrained modal full-vs-CB regression for solid-patch-to-shell-edge RBE3
   coupling with massless extra DOFs eliminated by the constraint nullspace.
-- Static and constrained modal full-vs-CB regressions for a combined solid +
-  shell + beam model with a shell-skin translational tie and a beam RBE3
-  interface on the same solid.
+- Static, constrained modal, and constrained Newmark full-vs-CB regressions for
+  a combined solid + shell + beam model with a shell-skin translational tie and
+  a beam RBE3 interface on the same solid.
 - Shell/solid cantilever benchmark against an Euler-Bernoulli beam estimate.
 - Shell-solid tutorials and benchmarks accept the shell `shear_mode` setting.
 

@@ -7,11 +7,13 @@ os.environ.setdefault("JAX_PLATFORMS", "cpu")
 os.environ.setdefault("JAX_ENABLE_X64", "1")
 
 import numpy as np
+import scipy.linalg as la
 import scipy.sparse as sp
 
 import fluxfem as ff
 from tests.cb_test_utils import (
     assert_static_cb_projection_with_extra_matches_full,
+    constrained_free_matrices,
     constrained_omegas,
     csr,
     projected_cb_system,
@@ -192,3 +194,92 @@ def test_solid_shell_beam_mixed_model_cb_matches_constrained_frequencies():
     rom = constrained_omegas(K_rom, M_rom, C_rom, np.array([], dtype=int), n_modes=6)
 
     np.testing.assert_allclose(rom, full, rtol=1.0e-6, atol=1.0e-5)
+
+
+def test_solid_shell_beam_mixed_model_cb_matches_constrained_newmark_history():
+    model = _build_solid_shell_beam_model()
+    fixed = np.asarray(model["fixed_dofs"], dtype=int)
+    K_lifted, _F_lifted = model["system"].assemble(format="csr")
+
+    n_structural = model["solid_space"].n_dofs + model["shell_n_dofs"] + model["beam_coords"].shape[0] * 6
+    remote_dofs = np.asarray(model["remote_dofs"], dtype=int)
+    n_primary = int(remote_dofs.max()) + 1
+    n_extra = n_primary - n_structural
+    K = K_lifted[:n_primary, :n_primary].tocsr()
+    C = K_lifted[n_primary:, :n_primary].tocsr()
+
+    M_solid = csr(model["solid_space"].assemble_mass_matrix(backend="numpy"))
+    shell_section = ff.ShellSection(E=2.0e5, nu=0.30, thickness=0.02, rho=1.0, shear_mode="mitc4")
+    M_shell = ff.assemble_shell_mass(model["shell_coords"], model["shell_conn"], shell_section, format="csr")
+    beam_section = ff.BeamSection(E=2.0e5, G=7.7e4, A=1.0e-2, Iy=1.5e-5, Iz=1.5e-5, J=3.0e-5, rho=1.0)
+    M_beam = ff.assemble_beam_mass(model["beam_coords"], model["beam_conn"], beam_section, format="csr")
+    M = sp.block_diag((M_solid, M_shell, M_beam, sp.csr_matrix((n_extra, n_extra), dtype=float)), format="csr")
+
+    free, Z, Kz, Mz = constrained_free_matrices(K, M, C, fixed)
+    w2, modes = la.eigh(Kz, Mz)
+    positive = np.flatnonzero(np.asarray(w2, dtype=float) > 1.0e-8)
+    assert positive.size > 0
+    mode = modes[:, positive[0]]
+    u_free0 = Z @ mode
+    u_free0 *= 1.0e-4 / np.max(np.abs(u_free0))
+    q0 = la.lstsq(Z, u_free0)[0]
+    period = 2.0 * np.pi / np.sqrt(float(w2[positive[0]]))
+
+    out_full = ff.newmark_solve_linear(
+        Mz,
+        np.zeros_like(Kz),
+        Kz,
+        u0=q0,
+        v0=np.zeros_like(q0),
+        dt=period / 80.0,
+        n_steps=24,
+    )
+    full_free_hist = out_full.u @ Z.T
+
+    retained_structural = np.unique(
+        np.concatenate(
+            [
+                model["solid_tie_dofs"],
+                model["shell_tie_dofs"],
+                model["face_dofs"],
+                model["beam_root_dofs"],
+                model["beam_tip_dofs"],
+            ]
+        )
+    )
+    structural_free, cb, K_rom, M_rom, C_rom = projected_cb_system(K, M, C, fixed, retained_structural, n_structural, n_extra)
+    assert np.array_equal(free[: structural_free.size], structural_free)
+    Z_rom = la.null_space(C_rom.toarray())
+    Kzr = Z_rom.T @ K_rom.toarray() @ Z_rom
+    Mzr = Z_rom.T @ M_rom.toarray() @ Z_rom
+    basis = np.asarray(cb.basis, dtype=float)
+    q_cb0 = la.lstsq(basis, u_free0[: structural_free.size])[0]
+    q_aug0 = np.concatenate([q_cb0, u_free0[structural_free.size : structural_free.size + n_extra]])
+    ar0 = la.lstsq(Z_rom, q_aug0)[0]
+
+    out_rom = ff.newmark_solve_linear(
+        Mzr,
+        np.zeros_like(Kzr),
+        Kzr,
+        u0=ar0,
+        v0=np.zeros_like(ar0),
+        dt=period / 80.0,
+        n_steps=24,
+    )
+    q_rom_hist = out_rom.u @ Z_rom.T
+    rom_free_hist = np.zeros_like(full_free_hist)
+    rom_free_hist[:, : structural_free.size] = q_rom_hist[:, : cb.n_reduced] @ basis.T
+    rom_free_hist[:, structural_free.size : structural_free.size + n_extra] = q_rom_hist[:, cb.n_reduced :]
+
+    beam_tip_free = np.flatnonzero(np.isin(free, model["beam_tip_dofs"]))
+    shell_tip = model["shell_offset"] + ff.shell_node_dofs(
+        np.flatnonzero(np.isclose(model["shell_coords"][:, 0], model["shell_coords"][:, 0].max())),
+        "uz",
+    )
+    shell_tip_free = np.flatnonzero(np.isin(free, shell_tip))
+    assert beam_tip_free.size > 0
+    assert shell_tip_free.size > 0
+
+    np.testing.assert_allclose(rom_free_hist[:, beam_tip_free], full_free_hist[:, beam_tip_free], rtol=1.0e-7, atol=1.0e-9)
+    np.testing.assert_allclose(rom_free_hist[:, shell_tip_free], full_free_hist[:, shell_tip_free], rtol=1.0e-7, atol=1.0e-9)
+    np.testing.assert_allclose(rom_free_hist[:, : structural_free.size], full_free_hist[:, : structural_free.size], rtol=1.0e-7, atol=1.0e-9)
