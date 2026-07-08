@@ -754,6 +754,7 @@ Craig-Bampton ROM tutorials:
 - `tutorials/craig_bampton/craig_bampton_rbe3_preload_component.py` is the experiment-2 style validation tutorial. It compares full explicit-reference RBE3 KKT solves against the CB-projected ROM for preload and Dirichlet fixture boundaries, with optional rotational RBE3 reference DOFs.
 - `tutorials/craig_bampton/craig_bampton_sparse_fe_basis.py` demonstrates CB basis construction from current sparse FE matrices, sparse-preserving projection, and matrix-free reduced operator actions with `project_operator(...)`.
 - `tutorials/craig_bampton/craig_bampton_vibration_rom.py` projects both stiffness and mass matrices and compares full-order and CB-ROM free-vibration frequencies.
+- `tutorials/craig_bampton/craig_bampton_plate_shell_modes.py` compares full-order and CB-ROM free-vibration frequencies for Mindlin plate and Reissner-Mindlin shell mass/stiffness matrices.
 - `tutorials/craig_bampton/craig_bampton_contact_rom.py`, `tutorials/craig_bampton/craig_bampton_active_contact_newmark.py`, and the node/surface-quadrature contact variants demonstrate retained contact/interface DOFs with explicit active-contact updates outside the differentiated residual.
 - `tutorials/craig_bampton/craig_bampton_rbe3_preload_mpc.py` and `tutorials/craig_bampton/craig_bampton_fluxfem_rbe3_preload_experiment2.py` are lower-level compatibility/reference examples using `RBE3Patch`, `ReferencePointFixture`, and manual projection APIs.
 

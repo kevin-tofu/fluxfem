@@ -51,9 +51,11 @@ Important limits:
 Main checks:
 
 - `PYTHONPATH=src pytest -q src/tests/test_plate.py src/tests/test_solid_shell_coupling.py src/tests/test_shell_solid_benchmark.py`
+- `PYTHONPATH=src pytest -q src/tests/test_cb_structural_elements.py`
 - `PYTHONPATH=src pytest -q src/tests/test_jax_coupled_system.py -k "constraint_matrix or dof_tie or rbe3 or distributed_coupling or nonmatching_shell_solid_tie"`
 - `PYTHONPATH=src pytest -q src/tests/test_plate_shear_locking_benchmark.py`
 - `PYTHONPATH=src pytest -q src/tests/test_shell_shear_locking_benchmark.py`
+- `PYTHONPATH=src python tutorials/craig_bampton/craig_bampton_plate_shell_modes.py`
 - `PYTHONPATH=src python tutorials/elasticity/mindlin_plate_shear_locking_benchmark.py`
 - `PYTHONPATH=src python tutorials/elasticity/flat_shell_shear_locking_benchmark.py --tilt-z 0.25`
 - `PYTHONPATH=src python tutorials/elasticity/flat_shell_cantilever.py --format fluxsparse --tilt-z 0.2`

@@ -39,6 +39,10 @@ Dynamics:
 - `dynamics/beam_tip_spring_dashpot.py`: beam plus lumped tip spring/dashpot.
 - `dynamics/beam_rayleigh_damping.py`: Rayleigh damping from modal damping targets.
 
+Craig-Bampton ROM:
+
+- `craig_bampton/craig_bampton_plate_shell_modes.py`: plate/shell full-order vs CB-ROM modal comparison using assembled stiffness and mass matrices.
+
 Contact and constraints:
 
 - `contact/contact_supported_box_by_truss_springs.py`: 3D contact pad backed by truss-equivalent support springs.

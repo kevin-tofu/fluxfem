@@ -9,7 +9,16 @@ import jax
 
 jax.config.update("jax_enable_x64", True)
 
+import scipy.linalg as la
+
 import fluxfem as ff
+
+
+def _generalized_omegas(k, m, n_modes):
+    w2 = la.eigh(np.asarray(k, dtype=float), np.asarray(m, dtype=float), eigvals_only=True)
+    w2 = np.asarray(w2, dtype=float)
+    w2 = w2[w2 > 1.0e-7]
+    return np.sqrt(w2[:n_modes])
 
 
 def _assert_cb_backend_projection_matches(k, m, retained, n_modes):
@@ -115,6 +124,36 @@ def test_craig_bampton_accepts_assembled_mindlin_plate_matrices():
     _assert_cb_backend_projection_matches(k, m, retained, n_modes=1)
 
 
+def test_craig_bampton_all_internal_plate_modes_reproduce_full_frequencies():
+    coords, conn = ff.structured_plate_grid(nx=3, ny=2, length_x=2.0, length_y=0.8)
+    section = ff.PlateSection(E=70.0e9, nu=0.33, thickness=0.04, rho=2700.0, shear_mode="mitc4")
+    k_full = ff.assemble_mindlin_plate_stiffness(coords, conn, section, format="csr")
+    m_full = ff.assemble_mindlin_plate_mass(coords, conn, section, format="csr")
+
+    fixed_nodes = np.flatnonzero(np.isclose(coords[:, 0], coords[:, 0].min()))
+    retained_nodes = np.flatnonzero(np.isclose(coords[:, 0], coords[:, 0].max()))
+    fixed = ff.plate_node_dofs(fixed_nodes)
+    free = np.asarray(ff.free_dofs(k_full.shape[0], fixed), dtype=int)
+    retained = np.flatnonzero(np.isin(free, ff.plate_node_dofs(retained_nodes))).astype(np.int32)
+
+    k = k_full[free, :][:, free]
+    m = m_full[free, :][:, free]
+    n_internal = free.size - retained.size
+    cb = ff.make_craig_bampton_basis(
+        k,
+        m,
+        retained_dofs=retained,
+        n_modes=n_internal,
+        backend="scipy",
+        constraint_solver="spsolve",
+        modal_solver="dense",
+    )
+
+    full = _generalized_omegas(k.toarray(), m.toarray(), n_modes=8)
+    rom = _generalized_omegas(cb.project_matrix(k), cb.project_matrix(m), n_modes=8)
+    np.testing.assert_allclose(rom, full, rtol=1.0e-8, atol=1.0e-6)
+
+
 def test_craig_bampton_accepts_assembled_flat_shell_matrices():
     coords, conn = ff.structured_plate_grid(nx=2, ny=2, length_x=2.0, length_y=1.0)
     section = ff.ShellSection(E=70.0e9, nu=0.33, thickness=0.05, rho=2700.0, shear_mode="mitc4")
@@ -129,3 +168,34 @@ def test_craig_bampton_accepts_assembled_flat_shell_matrices():
     retained = ff.shell_node_dofs(boundary_nodes).astype(np.int32)
 
     _assert_cb_backend_projection_matches(k, m, retained, n_modes=2)
+
+
+def test_craig_bampton_all_internal_shell_modes_reproduce_full_frequencies():
+    coords2, conn = ff.structured_plate_grid(nx=3, ny=1, length_x=2.0, length_y=0.4)
+    coords = np.column_stack([coords2[:, 0], coords2[:, 1], 0.15 * coords2[:, 0]])
+    section = ff.ShellSection(E=70.0e9, nu=0.33, thickness=0.04, rho=2700.0, shear_mode="mitc4")
+    k_full = ff.assemble_shell_stiffness(coords, conn, section, format="csr")
+    m_full = ff.assemble_shell_mass(coords, conn, section, format="csr")
+
+    fixed_nodes = np.flatnonzero(np.isclose(coords[:, 0], coords[:, 0].min()))
+    retained_nodes = np.flatnonzero(np.isclose(coords[:, 0], coords[:, 0].max()))
+    fixed = ff.shell_node_dofs(fixed_nodes)
+    free = np.asarray(ff.free_dofs(k_full.shape[0], fixed), dtype=int)
+    retained = np.flatnonzero(np.isin(free, ff.shell_node_dofs(retained_nodes))).astype(np.int32)
+
+    k = k_full[free, :][:, free]
+    m = m_full[free, :][:, free]
+    n_internal = free.size - retained.size
+    cb = ff.make_craig_bampton_basis(
+        k,
+        m,
+        retained_dofs=retained,
+        n_modes=n_internal,
+        backend="scipy",
+        constraint_solver="spsolve",
+        modal_solver="dense",
+    )
+
+    full = _generalized_omegas(k.toarray(), m.toarray(), n_modes=8)
+    rom = _generalized_omegas(cb.project_matrix(k), cb.project_matrix(m), n_modes=8)
+    np.testing.assert_allclose(rom, full, rtol=1.0e-8, atol=1.0e-6)
