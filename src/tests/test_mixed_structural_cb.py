@@ -10,7 +10,12 @@ import numpy as np
 import scipy.sparse as sp
 
 import fluxfem as ff
-from tests.cb_test_utils import assert_static_cb_projection_with_extra_matches_full, csr
+from tests.cb_test_utils import (
+    assert_static_cb_projection_with_extra_matches_full,
+    constrained_omegas,
+    csr,
+    projected_cb_system,
+)
 
 
 def _build_solid_shell_beam_model():
@@ -101,7 +106,9 @@ def _build_solid_shell_beam_model():
         "shell_offset": shell_offset,
         "shell_n_dofs": shell_K.shape[0],
         "shell_coords": shell_coords,
+        "shell_conn": shell_conn,
         "beam_coords": beam_coords,
+        "beam_conn": beam_conn,
         "face_dofs": face_dofs,
         "solid_tie_dofs": solid_tie_dofs,
         "shell_tie_dofs": shell_offset + shell_local_dofs,
@@ -147,3 +154,41 @@ def test_solid_shell_beam_mixed_model_projects_through_cb_rom():
     np.testing.assert_allclose(solid_tie_u, shell_tie_u, rtol=1.0e-9, atol=1.0e-9)
     np.testing.assert_allclose(u_all[model["remote_dofs"]], u_all[model["beam_root_dofs"]], rtol=1.0e-9, atol=1.0e-9)
     assert float(u_all[model["beam_tip_dofs"]][2]) < float(u_all[model["beam_root_dofs"]][2])
+
+
+def test_solid_shell_beam_mixed_model_cb_matches_constrained_frequencies():
+    model = _build_solid_shell_beam_model()
+    fixed = np.asarray(model["fixed_dofs"], dtype=int)
+    K_lifted, _F_lifted = model["system"].assemble(format="csr")
+
+    n_structural = model["solid_space"].n_dofs + model["shell_n_dofs"] + model["beam_coords"].shape[0] * 6
+    remote_dofs = np.asarray(model["remote_dofs"], dtype=int)
+    n_primary = int(remote_dofs.max()) + 1
+    n_extra = n_primary - n_structural
+    K = K_lifted[:n_primary, :n_primary].tocsr()
+    C = K_lifted[n_primary:, :n_primary].tocsr()
+
+    M_solid = csr(model["solid_space"].assemble_mass_matrix(backend="numpy"))
+    shell_section = ff.ShellSection(E=2.0e5, nu=0.30, thickness=0.02, rho=1.0, shear_mode="mitc4")
+    M_shell = ff.assemble_shell_mass(model["shell_coords"], model["shell_conn"], shell_section, format="csr")
+    beam_section = ff.BeamSection(E=2.0e5, G=7.7e4, A=1.0e-2, Iy=1.5e-5, Iz=1.5e-5, J=3.0e-5, rho=1.0)
+    M_beam = ff.assemble_beam_mass(model["beam_coords"], model["beam_conn"], beam_section, format="csr")
+    M = sp.block_diag((M_solid, M_shell, M_beam, sp.csr_matrix((n_extra, n_extra), dtype=float)), format="csr")
+
+    retained_structural = np.unique(
+        np.concatenate(
+            [
+                model["solid_tie_dofs"],
+                model["shell_tie_dofs"],
+                model["face_dofs"],
+                model["beam_root_dofs"],
+                model["beam_tip_dofs"],
+            ]
+        )
+    )
+    _structural_free, _cb, K_rom, M_rom, C_rom = projected_cb_system(K, M, C, fixed, retained_structural, n_structural, n_extra)
+
+    full = constrained_omegas(K, M, C, fixed, n_modes=6)
+    rom = constrained_omegas(K_rom, M_rom, C_rom, np.array([], dtype=int), n_modes=6)
+
+    np.testing.assert_allclose(rom, full, rtol=1.0e-6, atol=1.0e-5)
