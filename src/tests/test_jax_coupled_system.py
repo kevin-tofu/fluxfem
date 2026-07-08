@@ -334,6 +334,46 @@ def test_jax_coupled_system_constraint_matrix_matches_numpy_builder():
     assert np.allclose(u_jax, u_np, atol=1e-8)
 
 
+def test_jax_coupled_system_nonmatching_shell_solid_tie_matches_numpy_builder():
+    solid_coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    shell_coords = np.array([[0.25, 0.25, 0.0], [0.75, 0.75, 0.0]], dtype=float)
+    C, _facets, _nodes, _weights = ff.shell_solid_nonmatching_translational_tie_matrix(
+        shell_coords,
+        solid_coords,
+        np.array([[0, 1, 2, 3]], dtype=int),
+    )
+
+    n_solid = 3 * solid_coords.shape[0]
+    n_shell = 6 * shell_coords.shape[0]
+    n_total = n_solid + n_shell
+    K_u = np.eye(n_total, dtype=float)
+    F_u = np.zeros((n_total,), dtype=float)
+    F_u[n_solid + 2 :: 6] = -1.0
+
+    np_builder = ff.NumpyCoupledSystemBuilder.from_structural(K_u, F_u)
+    np_builder.register_field("solid", n_dofs=n_solid, value_dim=1, offset=0)
+    np_builder.register_field("shell", n_dofs=n_shell, value_dim=1, offset=n_solid)
+    np_builder.add_constraint_matrix_dof(C, master="solid", slave="shell")
+    u_np = np.asarray(np_builder.build().solve(format="csr"), dtype=float)
+
+    jax_builder = ff.JAXCoupledSystemBuilder.from_structural(jnp.asarray(K_u), jnp.asarray(F_u))
+    jax_builder.register_field("solid", n_dofs=n_solid, value_dim=1, offset=0)
+    jax_builder.register_field("shell", n_dofs=n_shell, value_dim=1, offset=n_solid)
+    jax_builder.add_constraint_matrix_dof(jnp.asarray(C.toarray()), master="solid", slave="shell")
+    u_jax = np.asarray(jax_builder.build().solve(), dtype=float)
+
+    np.testing.assert_allclose(u_jax, u_np, rtol=1.0e-10, atol=1.0e-10)
+    np.testing.assert_allclose(C @ u_jax[:n_total], np.zeros((C.shape[0],)), atol=1.0e-10)
+
+
 def test_jax_coupled_system_embedding_constraint_matches_numpy_builder():
     emb = ff.EmbeddingMap(
         rows=np.array([0], dtype=int),
