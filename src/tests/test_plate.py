@@ -224,6 +224,97 @@ def test_shell_solid_nonmatching_translational_tie_matrix_interpolates_quad_face
     np.testing.assert_allclose(C @ q, np.zeros((12,)), atol=1.0e-12)
 
 
+def test_shell_solid_nonmatching_translational_tie_matrix_interpolates_tri_face():
+    shell_coords = np.array([[0.25, 0.25, 0.0], [0.50, 0.25, 0.0]], dtype=float)
+    solid_coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    C, matched_facets, matched_nodes, weights = ff.shell_solid_nonmatching_translational_tie_matrix(
+        shell_coords,
+        solid_coords,
+        np.array([[0, 1, 2]], dtype=int),
+    )
+
+    assert C.shape == (6, 21)
+    np.testing.assert_array_equal(matched_facets, np.zeros((2,), dtype=int))
+    np.testing.assert_array_equal(matched_nodes, np.tile(np.array([[0, 1, 2]], dtype=int), (2, 1)))
+    np.testing.assert_allclose(weights, np.array([[0.50, 0.25, 0.25], [0.25, 0.50, 0.25]]), atol=1.0e-12)
+
+    solid_u = solid_coords.reshape(-1)
+    shell_u = shell_coords.reshape(-1)
+    q = np.zeros((21,), dtype=float)
+    q[:9] = solid_u
+    for node in range(2):
+        q[9 + 6 * node : 9 + 6 * node + 3] = shell_u[3 * node : 3 * node + 3]
+    np.testing.assert_allclose(C @ q, np.zeros((6,)), atol=1.0e-12)
+
+
+def test_shell_solid_nonmatching_translational_tie_matrix_errors_for_point_outside_facets():
+    shell_coords = np.array([[1.25, 0.25, 0.0]], dtype=float)
+    solid_coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+
+    with np.testing.assert_raises(ValueError):
+        ff.shell_solid_nonmatching_translational_tie_matrix(
+            shell_coords,
+            solid_coords,
+            np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+
+def test_shell_solid_nonmatching_translational_tie_matrix_errors_for_point_off_plane():
+    shell_coords = np.array([[0.25, 0.25, 0.1]], dtype=float)
+    solid_coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+
+    with np.testing.assert_raises(ValueError):
+        ff.shell_solid_nonmatching_translational_tie_matrix(
+            shell_coords,
+            solid_coords,
+            np.array([[0, 1, 2, 3]], dtype=int),
+            tol=1.0e-6,
+        )
+
+
+def test_shell_solid_nonmatching_translational_tie_matrix_errors_for_degenerate_facet():
+    shell_coords = np.array([[0.25, 0.25, 0.0]], dtype=float)
+    solid_coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+
+    with np.testing.assert_raises(ValueError):
+        ff.shell_solid_nonmatching_translational_tie_matrix(
+            shell_coords,
+            solid_coords,
+            np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+
 def test_assemble_flat_shell_point_loads():
     f = ff.assemble_flat_shell_point_loads(
         4,
