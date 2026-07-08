@@ -324,6 +324,66 @@ def test_builder_add_distributed_coupling_builds_remote_rbe3_rows():
     np.testing.assert_allclose(C @ q, np.zeros((15,), dtype=float), atol=1.0e-12)
 
 
+@pytest.mark.parametrize(
+    "weights",
+    [
+        None,
+        np.array([0.2, 0.3, 0.1, 0.4], dtype=float),
+    ],
+)
+def test_builder_add_distributed_coupling_rbe3_rows_balance_force_and_moment(weights):
+    x_ref = np.array([0.25, -0.1, 0.2], dtype=float)
+    x_slave = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.2, 0.1],
+            [-0.2, 0.1, 1.4],
+            [0.8, 0.6, 0.7],
+        ],
+        dtype=float,
+    )
+    n_source = 3 * x_slave.shape[0]
+    builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(n_source, format="csr"), np.zeros((n_source,), dtype=float))
+    builder.register_field("workpiece", n_dofs=n_source, value_dim=1, offset=0)
+    builder.add_distributed_coupling(
+        source="workpiece",
+        source_dofs=np.arange(n_source, dtype=int),
+        remote="remote",
+        point=x_ref,
+        slave_coords=x_slave,
+        weights=weights,
+        backend="numpy",
+    )
+
+    K, _ = builder.build().assemble(format="csr")
+    K_dense = K.toarray()
+    copy_offset = n_source
+    remote_offset = n_source + n_source
+    n_structural = remote_offset + 6
+    n_copy_rows = n_source
+    rbe3_rows = K_dense[n_structural + n_copy_rows : n_structural + n_copy_rows + 6, :n_structural]
+    local_C = np.hstack(
+        [
+            rbe3_rows[:, remote_offset : remote_offset + 6],
+            rbe3_rows[:, copy_offset : copy_offset + n_source],
+        ]
+    )
+    expected = ff.assemble_rbe3_constraint_matrix(x_ref, x_slave, weights=weights, backend="numpy")
+    np.testing.assert_allclose(local_C, expected, atol=1.0e-12)
+
+    lam = np.array([2.0, -1.0, 0.5, 0.3, -0.4, 0.7], dtype=float)
+    generalized_force = local_C.T @ lam
+    remote_force = generalized_force[:6]
+    slave_forces = generalized_force[6:].reshape(-1, 3)
+
+    slave_resultant = np.zeros((6,), dtype=float)
+    slave_resultant[:3] = np.sum(slave_forces, axis=0)
+    for point, force in zip(x_slave, slave_forces, strict=True):
+        slave_resultant[3:] += np.cross(point - x_ref, force)
+
+    np.testing.assert_allclose(remote_force + slave_resultant, np.zeros((6,), dtype=float), atol=1.0e-12)
+
+
 def test_builder_add_distributed_coupling_rejects_degenerate_remote_patch():
     builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(3, format="csr"), np.zeros((3,), dtype=float))
     builder.register_field("workpiece", n_dofs=3, value_dim=1, offset=0)

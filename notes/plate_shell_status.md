@@ -28,7 +28,7 @@ Backend support:
 | Shell stiffness/load assembly | `format="csr"` / `"dense"`, NumPy load vectors | `format="fluxsparse"`, JAX load vectors | 3D shell coordinates are local planar frames transformed to global DOFs. |
 | Coincident shell-solid tie | `NumpyCoupledSystemBuilder.add_dof_tie_constraint` | Same DOF rows are compatible with `JAXCoupledSystemBuilder` | Translations only. |
 | Nonmatching shell-solid tie | CSR matrix from `shell_solid_nonmatching_translational_tie_matrix` | Use the same matrix as a dense/JAX array with `add_constraint_matrix_dof` | Node-to-surface interpolation; not mortar. |
-| Solid patch to shell edge RBE3 coupling | `NumpyCoupledSystemBuilder.add_distributed_coupling` tutorials | JAX builder has matching distributed-coupling tests | RBE3-style weighted least-squares remote reconstruction. |
+| Solid patch to shell edge RBE3 coupling | `NumpyCoupledSystemBuilder.add_distributed_coupling` tutorials | JAX builder has matching distributed-coupling tests | RBE3-style weighted least-squares remote reconstruction; generated rows are checked for force/moment balance. |
 
 Important limits:
 

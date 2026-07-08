@@ -281,7 +281,8 @@ They also provide `add_distributed_coupling(...)` for weighted face/patch-to-
 remote distributed coupling and `add_bolt_preload(...)` for directional remote
 preload springs. The distributed coupling is RBE3-style weighted least-squares
 remote reconstruction, validates 6-DOF patch rank by default, and is not a full
-Nastran RBE3 card-compatible implementation. It supports dependent reference
+Nastran RBE3 card-compatible implementation. Its generated RBE3 rows are tested
+for force and moment balance by virtual work. It supports dependent reference
 component selection through `dependent_components`, so translational-only
 couplings are assembled without remote-rotation columns and do not require a
 full 6-DOF patch rank. RBE2 helpers also support slave translation component
