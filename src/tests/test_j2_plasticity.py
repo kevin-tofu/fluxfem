@@ -15,6 +15,15 @@ jax.config.update("jax_enable_x64", True)
 import fluxfem as ff
 
 
+def test_j2_defaults_follow_current_jax_x64_config():
+    state = ff.make_j2_plasticity_state()
+    D = ff.isotropic_3d_D(210_000.0, 0.30)
+
+    assert D.dtype == jnp.float64
+    assert state.plastic_strain.dtype == jnp.float64
+    assert state.equivalent_plastic_strain.dtype == jnp.float64
+
+
 def test_j2_return_mapping_is_elastic_below_yield():
     material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=250.0, hardening_modulus=1_000.0)
     state = ff.make_j2_plasticity_state()

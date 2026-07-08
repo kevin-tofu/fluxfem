@@ -6,7 +6,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-DTYPE = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
+def _default_dtype():
+    return jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
+
+
+DTYPE = _default_dtype()
 
 
 _VOIGT_INNER_WEIGHTS = jnp.array([1.0, 1.0, 1.0, 2.0, 2.0, 2.0], dtype=DTYPE)
@@ -32,7 +36,7 @@ def isotropic_3d_D(E: float, nu: float) -> jnp.ndarray:
             [0.0, 0.0, 0.0, 0.0, mu, 0.0],
             [0.0, 0.0, 0.0, 0.0, 0.0, mu],
         ],
-        dtype=DTYPE,
+        dtype=_default_dtype(),
     )
     return D
 
@@ -116,8 +120,9 @@ class J2LoadStepResult:
     exception: str | None = None
 
 
-def make_j2_plasticity_state(*, dtype=DTYPE) -> J2PlasticityState:
+def make_j2_plasticity_state(*, dtype=None) -> J2PlasticityState:
     """Return a zero-history J2 material-point state."""
+    dtype = _default_dtype() if dtype is None else dtype
     return J2PlasticityState(
         plastic_strain=jnp.zeros((6,), dtype=dtype),
         equivalent_plastic_strain=jnp.asarray(0.0, dtype=dtype),
@@ -128,13 +133,14 @@ def make_j2_quadrature_state(
     space_or_n_elems,
     n_q: int | None = None,
     *,
-    dtype=DTYPE,
+    dtype=None,
 ) -> J2PlasticityQuadratureState:
     """Return zero J2 history arrays for every element quadrature point.
 
     ``space_or_n_elems`` may be an FE space with ``elem_dofs`` and ``basis`` or
     an integer element count. When an integer is passed, ``n_q`` is required.
     """
+    dtype = _default_dtype() if dtype is None else dtype
     if hasattr(space_or_n_elems, "elem_dofs") and hasattr(space_or_n_elems, "basis"):
         n_elems = int(space_or_n_elems.elem_dofs.shape[0])
         n_q_val = int(space_or_n_elems.basis.shape_functions().shape[0])
@@ -525,7 +531,7 @@ def solve_j2_plasticity_load_steps(
     from ...solver.result import SolverResult
     from ...solver.newton import newton_solve
 
-    dtype = jnp.asarray(u0).dtype if u0 is not None else DTYPE
+    dtype = jnp.asarray(u0).dtype if u0 is not None else _default_dtype()
     state = initial_state if initial_state is not None else make_j2_quadrature_state(space, dtype=dtype)
     u = jnp.zeros((space.n_dofs,), dtype=dtype) if u0 is None else jnp.asarray(u0, dtype=dtype)
     dirichlet_final = _j2_normalize_dirichlet(dirichlet)
