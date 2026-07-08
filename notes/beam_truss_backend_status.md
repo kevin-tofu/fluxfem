@@ -40,8 +40,9 @@ There is now a first continuum-to-beam coupling example:
   translations.
 - The solid-beam and solid-truss coupling tests also project the mixed
   continuum/line-element structural block through a Craig-Bampton basis and
-  compare the reconstructed constrained static solution against the full KKT
-  solve. RBE3 source-copy and remote-point auxiliary DOFs remain explicit.
+  compare against the full KKT solve for both constrained static displacement
+  and constrained modal frequencies. RBE3 source-copy and remote-point
+  auxiliary DOFs remain explicit and massless.
 - `tutorials/contact/contact_supported_box_by_truss_springs.py` combines the
   surface penalty contact path with truss/bar support stiffness by grounding
   support-pad bottom z DOFs with `E A / L` springs from `TrussSection`.
