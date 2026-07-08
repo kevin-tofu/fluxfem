@@ -47,6 +47,9 @@ gap/contact variables behind modal coordinates.
   static full-KKT vs CB-projected-KKT regressions. Interface solid translations
   and shell translations are retained, the remaining free DOFs are reduced, and
   the reconstructed ROM displacement is compared to the full constrained solve.
+- Solid-patch-to-shell-edge RBE3 coupling is also covered by a static full-KKT
+  vs CB-projected-KKT regression. The solid/shell structural DOFs are reduced,
+  while the RBE3 source-copy and remote-point DOFs remain explicit extra DOFs.
 
 ## Current second slice
 

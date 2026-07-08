@@ -22,6 +22,8 @@ Implemented:
 - Nonmatching shell-solid translational tie matrix for shell nodes projected to
   planar solid tri/quad surface facets with displacement interpolation.
 - Solid patch to shell edge coupling through a 6-DOF RBE3-style remote point.
+- Static full-KKT vs CB-projected-KKT regression for solid-patch-to-shell-edge
+  RBE3 coupling with explicit source-copy and remote-point extra DOFs.
 - Shell/solid cantilever benchmark against an Euler-Bernoulli beam estimate.
 - Shell-solid tutorials and benchmarks accept the shell `shear_mode` setting.
 
