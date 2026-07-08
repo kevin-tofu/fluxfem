@@ -43,10 +43,10 @@ gap/contact variables behind modal coordinates.
 - Plate/shell dynamic CB reduction is now covered for assembled flat Q4
   Mindlin/Reissner-Mindlin matrices. Curved/geometrically nonlinear shells and
   full shell-solid modal benchmark comparisons remain separate validation work.
-- Coincident shell-solid translational ties are covered by a static full-KKT vs
-  CB-projected-KKT regression. The interface solid translations and shell
-  translations are retained, the remaining free DOFs are reduced, and the
-  reconstructed ROM displacement is compared to the full constrained solve.
+- Coincident and nonmatching shell-solid translational ties are covered by
+  static full-KKT vs CB-projected-KKT regressions. Interface solid translations
+  and shell translations are retained, the remaining free DOFs are reduced, and
+  the reconstructed ROM displacement is compared to the full constrained solve.
 
 ## Current second slice
 

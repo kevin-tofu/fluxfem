@@ -30,6 +30,49 @@ def _coincident_tie_constraint(n_solid: int, n_shell: int, solid_dofs: np.ndarra
     return sp.csr_matrix((data, (rows, cols)), shape=(solid_dofs.size, n_solid + n_shell))
 
 
+def _assert_static_cb_projection_matches_full(K, F, C, fixed, retained_full):
+    full = np.asarray(
+        ff.LinearConstraintSystem(C.toarray()).solve(
+            K,
+            F,
+            fixed_dofs=fixed,
+            solver="spsolve",
+        ),
+        dtype=float,
+    )
+
+    free = np.asarray(ff.free_dofs(K.shape[0], fixed), dtype=int)
+    retained = np.flatnonzero(np.isin(free, np.asarray(retained_full, dtype=int))).astype(np.int32)
+    k_free = K[free, :][:, free]
+    f_free = np.asarray(F, dtype=float)[free]
+    c_free = C[:, free]
+
+    cb = ff.make_craig_bampton_basis(
+        k_free,
+        sp.eye(k_free.shape[0], format="csr"),
+        retained_dofs=retained,
+        n_modes=k_free.shape[0] - retained.size,
+        backend="scipy",
+        constraint_solver="spsolve",
+        modal_solver="dense",
+    )
+    reduced_constraints = ff.LinearConstraintSystem(c_free.toarray()).project(cb)
+    q = np.asarray(
+        reduced_constraints.solve(
+            cb.project_matrix(k_free),
+            cb.project_vector(f_free),
+            solver="spsolve",
+        ),
+        dtype=float,
+    )
+    rom_free = np.asarray(reduced_constraints.expand(q), dtype=float)
+    rom = np.zeros_like(full)
+    rom[free] = rom_free
+
+    np.testing.assert_allclose(rom, full, rtol=1.0e-8, atol=1.0e-8)
+    np.testing.assert_allclose(C @ rom, np.zeros((C.shape[0],), dtype=float), atol=1.0e-9)
+
+
 def test_solid_shell_translational_tie_matches_interface_displacements():
     tutorial = _load_tutorial_module("solid_shell_translational_tie")
     model = tutorial.build_solid_shell_tie(nx=2, ny=1, nz=1, pressure_z=-1.0)
@@ -238,3 +281,39 @@ def test_solid_shell_nonmatching_tie_interpolates_interface_displacements():
     np.testing.assert_allclose(tie_residual, np.zeros_like(tie_residual), rtol=1.0e-9, atol=1.0e-9)
     assert model["matched_solid_nodes"].shape[0] == model["shell_coords"].shape[0]
     assert float(np.min(shell_u.reshape(-1, 6)[:, 2])) < 0.0
+
+
+def test_solid_shell_nonmatching_tie_projects_through_cb_rom():
+    tutorial = _load_tutorial_module("solid_shell_nonmatching_tie")
+    model = tutorial.build_solid_shell_nonmatching_tie(
+        solid_nx=2,
+        solid_ny=1,
+        solid_nz=1,
+        shell_nx=4,
+        shell_ny=2,
+        pressure_z=-1.0,
+        shear_mode="mitc4",
+    )
+    K_lifted, F_lifted = model["system"].assemble(format="csr")
+    n_solid = model["solid_space"].n_dofs
+    n_shell = model["shell_n_dofs"]
+    K = K_lifted[: n_solid + n_shell, : n_solid + n_shell].tocsr()
+    F = np.asarray(F_lifted[: n_solid + n_shell], dtype=float)
+    C = model["constraint_matrix"].tocsr()
+
+    matched_solid_dofs = np.asarray([3 * int(node) + comp for nodes in model["matched_solid_nodes"] for node in nodes for comp in range(3)], dtype=int)
+    shell_nodes = np.arange(model["shell_coords"].shape[0], dtype=int)
+    retained_full = np.unique(
+        np.concatenate(
+            [
+                matched_solid_dofs,
+                model["shell_offset"] + ff.shell_node_dofs(shell_nodes, "uxuyuz"),
+                model["shell_offset"]
+                + ff.shell_node_dofs(
+                    np.flatnonzero(np.isclose(model["shell_coords"][:, 0], model["shell_coords"][:, 0].max()))
+                ),
+            ]
+        )
+    )
+
+    _assert_static_cb_projection_matches_full(K, F, C, np.asarray(model["fixed_dofs"], dtype=int), retained_full)
