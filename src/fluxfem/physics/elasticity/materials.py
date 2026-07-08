@@ -258,27 +258,35 @@ def j2_return_mapping(strain: jnp.ndarray, state: J2PlasticityState, material: J
 
     trial_stress = D @ (eps - eps_p)
     s_trial = voigt_deviator(trial_stress)
-    sigma_eq_trial = von_mises_stress_voigt(trial_stress)
-    f_trial = sigma_eq_trial - (jnp.asarray(material.yield_stress, dtype=eps.dtype) + H * p_n)
-    plastic = f_trial > 0.0
+    sigma_eq_trial_sq = jnp.maximum(1.5 * voigt_tensor_inner(s_trial, s_trial), 0.0)
+    yield_current = jnp.asarray(material.yield_stress, dtype=eps.dtype) + H * p_n
+    plastic = sigma_eq_trial_sq > yield_current * yield_current
 
-    safe_sigma_eq = jnp.maximum(sigma_eq_trial, jnp.asarray(1.0e-30, dtype=eps.dtype))
-    dgamma = jnp.where(plastic, f_trial / (3.0 * mu_arr + H), jnp.asarray(0.0, dtype=eps.dtype))
-    scale = jnp.where(plastic, 1.0 - (3.0 * mu_arr * dgamma / safe_sigma_eq), 1.0)
-    s_next = scale * s_trial
-    hydro = jnp.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=eps.dtype) * (voigt_trace(trial_stress) / 3.0)
-    stress_next = hydro + s_next
+    def elastic_update(_):
+        return trial_stress, J2PlasticityState(plastic_strain=eps_p, equivalent_plastic_strain=p_n)
 
-    flow = jnp.concatenate(
-        [
-            1.5 * s_trial[:3] / safe_sigma_eq,
-            3.0 * s_trial[3:] / safe_sigma_eq,
-        ]
-    )
-    eps_p_next = eps_p + dgamma * flow
-    p_next = p_n + dgamma
-    next_state = J2PlasticityState(plastic_strain=eps_p_next, equivalent_plastic_strain=p_next)
-    return stress_next, next_state
+    def plastic_update(_):
+        sigma_eq_trial = jnp.sqrt(sigma_eq_trial_sq)
+        f_trial = sigma_eq_trial - yield_current
+        safe_sigma_eq = jnp.maximum(sigma_eq_trial, jnp.asarray(1.0e-30, dtype=eps.dtype))
+        dgamma = f_trial / (3.0 * mu_arr + H)
+        scale = 1.0 - (3.0 * mu_arr * dgamma / safe_sigma_eq)
+        s_next = scale * s_trial
+        hydro = jnp.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=eps.dtype) * (voigt_trace(trial_stress) / 3.0)
+        stress_next = hydro + s_next
+
+        flow = jnp.concatenate(
+            [
+                1.5 * s_trial[:3] / safe_sigma_eq,
+                3.0 * s_trial[3:] / safe_sigma_eq,
+            ]
+        )
+        eps_p_next = eps_p + dgamma * flow
+        p_next = p_n + dgamma
+        next_state = J2PlasticityState(plastic_strain=eps_p_next, equivalent_plastic_strain=p_next)
+        return stress_next, next_state
+
+    return jax.lax.cond(plastic, plastic_update, elastic_update, operand=None)
 
 
 def j2_update_element_quadrature_state(

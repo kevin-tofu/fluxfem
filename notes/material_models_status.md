@@ -36,9 +36,13 @@ Implemented:
     quadrature-state commit tests, including displacement-controlled stepping,
     material-point reference matching for uniaxial extension, and elastic
     unload response after committed plasticity.
+  - Force-controlled elastic loading is checked to guard against NaN AD
+    tangents at zero stress, and mixed-BC displacement loading is checked for
+    plasticity with free lateral motion.
 - J2 visualization tutorial:
   `tutorials/nonlinear/j2_uniaxial_tension.py` writes displacement point data,
   element-averaged plastic strain/stress VTU cell data, and a CSV load history.
+  It supports `--bc-mode full`, `--bc-mode mixed`, and `--bc-mode force`.
 - Basic structural damping/spring/dashpot helpers for lumped DOFs. These are
   not continuum viscoelastic material models.
 
@@ -82,7 +86,8 @@ Recommended next steps:
 
 3. Harden J2 FE integration.
    - Add restart/output support for committed quadrature histories.
-   - Exercise the load-step wrapper on force-controlled and mixed BC examples.
+   - Exercise larger force-controlled plastic examples after tangent strategy
+     work; the current force-control check is elastic.
    - Add consistent algorithmic tangents or a clearly documented AD/tangent
      strategy.
    - Add patch tests beyond the current one-element homogeneous extension

@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import fluxfem as ff
+import fluxfem.helpers_wf as h_wf
 
 jax.config.update("jax_enable_x64", True)
 
@@ -24,6 +25,62 @@ def _extension_dirichlet(space, axial_strain: float) -> tuple[np.ndarray, np.nda
     for node_id, (x, _y, _z) in enumerate(coords):
         vals[3 * node_id + 0] = axial_strain * x
     return dofs, vals
+
+
+def _mixed_extension_dirichlet(space, axial_strain: float) -> tuple[np.ndarray, np.ndarray]:
+    mesh = space.mesh
+    coords = np.asarray(mesh.coords)
+    xmin = float(coords[:, 0].min())
+    xmax = float(coords[:, 0].max())
+    left = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1.0e-8),
+        components="xyz",
+    ).dofs
+    right_x = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], xmax, atol=1.0e-8),
+        components=[0],
+        dof_per_node=3,
+    ).dofs
+    dofs = np.concatenate([left, right_x])
+    vals = np.concatenate([np.zeros(len(left), dtype=float), np.full(len(right_x), axial_strain * xmax, dtype=float)])
+    return dofs, vals
+
+
+def _left_clamp(space) -> tuple[np.ndarray, np.ndarray]:
+    mesh = space.mesh
+    coords = np.asarray(mesh.coords)
+    xmin = float(coords[:, 0].min())
+    dofs = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1.0e-8),
+        components="xyz",
+    ).dofs
+    return dofs, np.zeros(len(dofs), dtype=float)
+
+
+def _right_face_traction(space, traction_x: float) -> jnp.ndarray:
+    mesh = space.mesh
+    coords = np.asarray(mesh.coords)
+    xmax = float(coords[:, 0].max())
+    facets = np.asarray(mesh.boundary_facets_where(lambda pts: np.allclose(pts[:, 0], xmax, atol=1.0e-8)))
+    surface = ff.make_surface_from_facets(coords, facets)
+    form = ff.LinearForm.surface(lambda v, p: (v | p) * h_wf.ds())
+    return jnp.asarray(
+        surface.assemble_linear_form_on_space(space, form, params=np.array([traction_x, 0.0, 0.0], dtype=float)),
+        dtype=jnp.float64,
+    )
+
+
+def _boundary_conditions(space, args: argparse.Namespace):
+    if args.bc_mode == "full":
+        return _extension_dirichlet(space, args.axial_strain), None
+    if args.bc_mode == "mixed":
+        return _mixed_extension_dirichlet(space, args.axial_strain), None
+    if args.bc_mode == "force":
+        return _left_clamp(space), _right_face_traction(space, args.traction)
+    raise ValueError(f"unknown bc mode: {args.bc_mode}")
 
 
 def run(args: argparse.Namespace) -> dict[str, Path]:
@@ -42,20 +99,26 @@ def run(args: argparse.Namespace) -> dict[str, Path]:
         yield_stress=args.yield_stress,
         hardening_modulus=args.hardening,
     )
-    dirichlet = _extension_dirichlet(space, args.axial_strain)
+    dirichlet, base_external = _boundary_conditions(space, args)
 
     u, state, history = ff.solve_j2_plasticity_load_steps(
         space,
         material,
         dirichlet=dirichlet,
+        base_external_vector=base_external,
         n_steps=args.steps,
+        tol=args.tol,
+        atol=args.atol,
+        maxiter=args.maxiter,
+        line_search=args.line_search,
     )
     cell_data = ff.make_j2_cell_data(space, u, state, material)
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    vtu_path = out_dir / "j2_uniaxial_tension.vtu"
-    csv_path = out_dir / "j2_uniaxial_tension_history.csv"
+    stem = f"j2_uniaxial_tension_{args.bc_mode}"
+    vtu_path = out_dir / f"{stem}.vtu"
+    csv_path = out_dir / f"{stem}_history.csv"
     ff.write_j2_vtu(mesh, space, u, state, material, str(vtu_path), deformed_scale=args.deformed_scale)
 
     with csv_path.open("w", newline="", encoding="ascii") as f:
@@ -88,6 +151,7 @@ def run(args: argparse.Namespace) -> dict[str, Path]:
 
     print(f"wrote {vtu_path}")
     print(f"wrote {csv_path}")
+    print(f"bc mode: {args.bc_mode}")
     print(f"final max p_eq: {float(np.max(cell_data['j2_p_eq'])):.6e}")
     print(f"final avg sigma_xx: {float(np.mean(cell_data['j2_sigma_xx'])):.6e}")
     return {"vtu": vtu_path, "csv": csv_path}
@@ -103,7 +167,13 @@ def main() -> None:
     parser.add_argument("--yield-stress", type=float, default=50.0)
     parser.add_argument("--hardening", type=float, default=100.0)
     parser.add_argument("--axial-strain", type=float, default=5.0e-3)
+    parser.add_argument("--traction", type=float, default=10.0)
+    parser.add_argument("--bc-mode", choices=("full", "mixed", "force"), default="full")
     parser.add_argument("--steps", type=int, default=5)
+    parser.add_argument("--maxiter", type=int, default=12)
+    parser.add_argument("--tol", type=float, default=1.0e-8)
+    parser.add_argument("--atol", type=float, default=1.0e-7)
+    parser.add_argument("--line-search", action="store_true")
     parser.add_argument("--deformed-scale", type=float, default=1.0)
     parser.add_argument("--output-dir", default="tutorials/nonlinear/results")
     run(parser.parse_args())

@@ -9,6 +9,7 @@ os.environ.setdefault("JAX_PLATFORMS", "cpu")
 import jax
 import jax.numpy as jnp
 import numpy as np
+import fluxfem.helpers_wf as h_wf
 
 jax.config.update("jax_enable_x64", True)
 
@@ -89,6 +90,40 @@ def _homogeneous_extension_dirichlet(space, axial_strain: float):
     for node_id, (x, _y, _z) in enumerate(coords):
         vals[3 * node_id + 0] = axial_strain * x
     return dofs, vals
+
+
+def _mixed_extension_dirichlet(space, axial_strain: float):
+    mesh = space.mesh
+    coords = np.asarray(mesh.coords)
+    xmin = float(coords[:, 0].min())
+    xmax = float(coords[:, 0].max())
+    left = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1.0e-8),
+        components="xyz",
+    ).dofs
+    right_x = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], xmax, atol=1.0e-8),
+        components=[0],
+        dof_per_node=3,
+    ).dofs
+    dofs = np.concatenate([left, right_x])
+    vals = np.concatenate([np.zeros(len(left), dtype=float), np.full(len(right_x), axial_strain * xmax, dtype=float)])
+    return dofs, vals
+
+
+def _right_face_traction(space, traction_x: float):
+    mesh = space.mesh
+    coords = np.asarray(mesh.coords)
+    xmax = float(coords[:, 0].max())
+    facets = np.asarray(mesh.boundary_facets_where(lambda pts: np.allclose(pts[:, 0], xmax, atol=1.0e-8)))
+    surface = ff.make_surface_from_facets(coords, facets)
+    form = ff.LinearForm.surface(lambda v, p: (v | p) * h_wf.ds())
+    return jnp.asarray(
+        surface.assemble_linear_form_on_space(space, form, params=np.array([traction_x, 0.0, 0.0], dtype=float)),
+        dtype=jnp.float64,
+    )
 
 
 def test_solve_j2_plasticity_load_steps_commits_only_after_each_converged_step():
@@ -222,3 +257,55 @@ def test_make_j2_cell_data_and_write_vtu(tmp_path):
     assert 'Name="j2_p_eq"' in text
     assert 'Name="j2_sigma_vm"' in text
     assert 'Name="j2_stress_voigt"' in text
+
+
+def test_j2_force_controlled_elastic_bar_converges_without_nan_tangent():
+    space = _one_hex_space()
+    mesh = space.mesh
+    coords = np.asarray(mesh.coords)
+    xmin = float(coords[:, 0].min())
+    fixed = ff.DirichletBC.from_boundary_dofs(
+        mesh,
+        lambda pts: np.isclose(pts[:, 0], xmin, atol=1.0e-8),
+        components="xyz",
+    ).dofs
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=1.0e6, hardening_modulus=0.0)
+    force = _right_face_traction(space, traction_x=10.0)
+
+    u, state, history = ff.solve_j2_plasticity_load_steps(
+        space,
+        material,
+        dirichlet=(fixed, np.zeros(len(fixed))),
+        base_external_vector=force,
+        n_steps=1,
+        maxiter=5,
+        line_search=True,
+    )
+
+    assert len(history) == 1
+    assert history[0].converged
+    assert history[0].committed
+    assert history[0].exception is None
+    assert float(jnp.max(jnp.abs(u))) > 0.0
+    np.testing.assert_allclose(np.asarray(state.equivalent_plastic_strain), 0.0, atol=1.0e-14)
+
+
+def test_j2_mixed_bc_tension_plasticizes_with_free_lateral_motion():
+    space = _one_hex_space()
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=50.0, hardening_modulus=100.0)
+    dirichlet = _mixed_extension_dirichlet(space, axial_strain=5.0e-3)
+
+    u, state, history = ff.solve_j2_plasticity_load_steps(
+        space,
+        material,
+        dirichlet=dirichlet,
+        n_steps=2,
+        maxiter=8,
+        line_search=True,
+    )
+
+    u_nodes = np.asarray(u).reshape(-1, 3)
+    assert len(history) == 2
+    assert all(step.converged for step in history)
+    assert float(jnp.max(state.equivalent_plastic_strain)) > 0.0
+    assert float(np.max(np.abs(u_nodes[:, 1:]))) > 0.0
