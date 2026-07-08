@@ -705,6 +705,7 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 - `tutorials/elasticity/mindlin_plate_cantilever.py` (Q4 Reissner-Mindlin/Mindlin plate helper, `--shear-mode reduced|full|mitc4`)
 - `tutorials/elasticity/mindlin_plate_shear_locking_benchmark.py` (thin-plate shear locking comparison for `full`, `reduced`, and `mitc4`)
 - `tutorials/elasticity/flat_shell_cantilever.py` (Q4 Reissner-Mindlin shell helper, 2D/tilted 3D coordinates, `--shear-mode reduced|full|mitc4`, and optional VTU output)
+- `tutorials/elasticity/flat_shell_shear_locking_benchmark.py` (thin-shell shear locking comparison and tilted 3D frame check)
 - `tutorials/elasticity/solid_shell_translational_tie.py` (solid surface tied to a shell skin by translational DOFs)
 - `tutorials/elasticity/solid_shell_rbe3_patch_coupling.py` (solid face patch coupled to a shell root edge through a 6-DOF RBE3 remote point)
 - `tutorials/elasticity/shell_solid_cantilever_benchmark.py` (shell and solid cantilever comparison against an Euler-Bernoulli estimate)
