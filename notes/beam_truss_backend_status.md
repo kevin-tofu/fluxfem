@@ -38,6 +38,10 @@ There is now a first continuum-to-beam coupling example:
 - `tutorials/elasticity/solid_truss_rbe3_coupling.py` follows the same pattern
   for a 3D truss/bar, tying only the remote translational DOFs to the truss root
   translations.
+- The solid-beam and solid-truss coupling tests also project the mixed
+  continuum/line-element structural block through a Craig-Bampton basis and
+  compare the reconstructed constrained static solution against the full KKT
+  solve. RBE3 source-copy and remote-point auxiliary DOFs remain explicit.
 - `tutorials/contact/contact_supported_box_by_truss_springs.py` combines the
   surface penalty contact path with truss/bar support stiffness by grounding
   support-pad bottom z DOFs with `E A / L` springs from `TrussSection`.
@@ -162,6 +166,7 @@ PYTHONPATH=src pytest -q src/tests/test_structural_2d.py src/tests/test_beam.py 
 PYTHONPATH=src pytest -q src/tests/test_solid_beam_coupling.py src/tests/test_rbe_constraints.py src/tests/test_structural_2d.py
 PYTHONPATH=src pytest -q src/tests/test_rbe_constraints.py src/tests/test_solid_beam_coupling.py src/tests/test_jax_coupled_system.py -k "dof_tie_constraint or rbe_constraints or solid_beam"
 PYTHONPATH=src pytest -q src/tests/test_solid_truss_coupling.py src/tests/test_solid_beam_coupling.py
+PYTHONPATH=src pytest -q src/tests/test_solid_beam_coupling.py src/tests/test_solid_truss_coupling.py src/tests/test_solid_shell_coupling.py src/tests/test_cb_structural_elements.py
 PYTHONPATH=src pytest -q src/tests/test_contact_truss_support.py src/tests/test_contact_box_solve_integration.py
 PYTHONPATH=src pytest -q src/tests/test_solid_beam_coupling.py src/tests/test_solid_truss_coupling.py src/tests/test_rbe_constraints.py src/tests/test_jax_coupled_system.py -k "solid_beam or solid_truss or distributed_coupling or bolt_preload or dof_tie_constraint or rbe3_constraint"
 ```

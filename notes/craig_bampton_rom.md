@@ -50,6 +50,10 @@ gap/contact variables behind modal coordinates.
 - Solid-patch-to-shell-edge RBE3 coupling is also covered by a static full-KKT
   vs CB-projected-KKT regression. The solid/shell structural DOFs are reduced,
   while the RBE3 source-copy and remote-point DOFs remain explicit extra DOFs.
+- Solid-to-beam and solid-to-truss RBE3 coupling are covered by the same static
+  full-KKT vs CB-projected-KKT pattern. The mixed continuum/line-element
+  structural block is reduced together, while source-copy and remote-point
+  auxiliary DOFs stay explicit.
 - Coincident and nonmatching shell-solid translational ties now also have
   constrained modal regressions: the full KKT constraint is eliminated with a
   nullspace basis and compared with the same constrained eigenproblem after CB
