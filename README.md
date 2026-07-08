@@ -299,6 +299,12 @@ RBE3 remote coupling. Nonmatching planar shell-solid translational ties are
 available through solid surface facet interpolation; see
 `notes/plate_shell_status.md` for current limits.
 
+Nonlinear material support currently centers on compressible Neo-Hookean
+hyperelasticity through JAX AD residual/Jacobian assembly. J2 plasticity,
+continuum viscoelasticity, and damage are not implemented yet; see
+`notes/material_models_status.md` for the current scope and recommended next
+steps.
+
 Backend support summary for the structural helpers:
 
 | Feature | SciPy/NumPy path | JAX path | Notes |
