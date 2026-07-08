@@ -287,6 +287,12 @@ couplings are assembled without remote-rotation columns and do not require a
 full 6-DOF patch rank. RBE2 helpers also support slave translation component
 selection through `slave_components`.
 
+Plate/shell helpers include Q4 Mindlin/Reissner-Mindlin plate elements and
+linear Q4 Reissner-Mindlin shell elements. Shells use 6 DOF/node and can be
+assembled on 2D flat coordinates or 3D planar element coordinates. Solid-shell
+examples cover coincident-node translational ties and solid-patch-to-shell-edge
+RBE3 remote coupling; see `notes/plate_shell_status.md` for current limits.
+
 See:
 
 - [`tutorials/elasticity/beam_cantilever.py`](tutorials/elasticity/beam_cantilever.py)
