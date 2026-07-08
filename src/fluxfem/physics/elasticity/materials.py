@@ -350,6 +350,40 @@ def update_j2_quadrature_state(
     )
 
 
+def evaluate_j2_quadrature_strain(space, u: jnp.ndarray) -> jnp.ndarray:
+    """Evaluate small-strain Voigt vectors at all element quadrature points."""
+    ctxs = space.build_form_contexts()
+    u_elems = jnp.asarray(u)[space.elem_dofs]
+    return jax.vmap(small_strain_voigt)(ctxs, u_elems)
+
+
+def evaluate_j2_quadrature_stress(
+    space,
+    u: jnp.ndarray,
+    state: J2PlasticityQuadratureState,
+    material: J2Plasticity,
+) -> jnp.ndarray:
+    """Evaluate J2 stresses from a frozen committed quadrature state."""
+    ctxs = space.build_form_contexts()
+    u_elems = jnp.asarray(u)[space.elem_dofs]
+
+    def per_element(ctx, u_elem, eps_p, p):
+        stress, _next_state = j2_update_element_quadrature_state(
+            ctx,
+            u_elem,
+            J2PlasticityState(plastic_strain=eps_p, equivalent_plastic_strain=p),
+            material,
+        )
+        return stress
+
+    return jax.vmap(per_element)(
+        ctxs,
+        u_elems,
+        state.plastic_strain,
+        state.equivalent_plastic_strain,
+    )
+
+
 def _j2_normalize_dirichlet(dirichlet):
     if dirichlet is None:
         return None
@@ -502,6 +536,8 @@ __all__ = [
     "J2Plasticity",
     "J2PlasticityQuadratureState",
     "J2PlasticityState",
+    "evaluate_j2_quadrature_strain",
+    "evaluate_j2_quadrature_stress",
     "j2_element_state",
     "j2_plasticity_residual_form",
     "j2_return_mapping",

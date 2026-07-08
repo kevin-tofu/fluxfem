@@ -133,3 +133,62 @@ def test_solve_j2_plasticity_load_steps_can_skip_commit():
     assert history[0].max_equivalent_plastic_strain > 0.0
     np.testing.assert_allclose(np.asarray(state.equivalent_plastic_strain), 0.0)
     np.testing.assert_allclose(np.asarray(state.plastic_strain), 0.0)
+
+
+def test_j2_uniaxial_extension_matches_material_point_reference():
+    space = _one_hex_space()
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=50.0, hardening_modulus=100.0)
+    axial_strain = 5.0e-3
+    dirichlet = _homogeneous_extension_dirichlet(space, axial_strain=axial_strain)
+
+    u, state, history = ff.solve_j2_plasticity_load_steps(
+        space,
+        material,
+        dirichlet=dirichlet,
+        n_steps=1,
+    )
+
+    stress_q = ff.evaluate_j2_quadrature_stress(space, u, history[0].state, material)
+    strain_q = ff.evaluate_j2_quadrature_strain(space, u)
+    strain_ref = jnp.array([axial_strain, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=jnp.float64)
+    stress_ref, state_ref = ff.j2_return_mapping(strain_ref, ff.make_j2_plasticity_state(dtype=jnp.float64), material)
+
+    np.testing.assert_allclose(np.asarray(strain_q), np.broadcast_to(np.asarray(strain_ref), strain_q.shape), atol=1.0e-14)
+    np.testing.assert_allclose(np.asarray(stress_q), np.broadcast_to(np.asarray(stress_ref), stress_q.shape), rtol=1.0e-12, atol=1.0e-9)
+    np.testing.assert_allclose(np.asarray(state.equivalent_plastic_strain), float(state_ref.equivalent_plastic_strain), rtol=1.0e-12)
+
+
+def test_j2_unload_after_committed_extension_has_elastic_stress_increment():
+    space = _one_hex_space()
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=50.0, hardening_modulus=100.0)
+    dirichlet_load = _homogeneous_extension_dirichlet(space, axial_strain=5.0e-3)
+    u_load, state_load, _history_load = ff.solve_j2_plasticity_load_steps(
+        space,
+        material,
+        dirichlet=dirichlet_load,
+        n_steps=1,
+    )
+
+    stress_load = ff.evaluate_j2_quadrature_stress(space, u_load, state_load, material)
+    dirichlet_unload = _homogeneous_extension_dirichlet(space, axial_strain=4.8e-3)
+    u_unload, state_unload, history_unload = ff.solve_j2_plasticity_load_steps(
+        space,
+        material,
+        initial_state=state_load,
+        u0=u_load,
+        dirichlet=dirichlet_unload,
+        n_steps=1,
+    )
+    stress_unload = ff.evaluate_j2_quadrature_stress(space, u_unload, state_load, material)
+
+    deps = jnp.array([-2.0e-4, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=jnp.float64)
+    elastic_delta = ff.isotropic_3d_D(material.E, material.nu) @ deps
+
+    assert history_unload[0].converged
+    np.testing.assert_allclose(
+        np.asarray(stress_unload - stress_load),
+        np.broadcast_to(np.asarray(elastic_delta), stress_unload.shape),
+        rtol=1.0e-12,
+        atol=1.0e-8,
+    )
+    np.testing.assert_allclose(np.asarray(state_unload.equivalent_plastic_strain), np.asarray(state_load.equivalent_plastic_strain), atol=1.0e-14)

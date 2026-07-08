@@ -28,8 +28,12 @@ Implemented:
   - Assembles a frozen-state small-strain internal-force residual.
   - Provides an explicit post-convergence state update helper and a basic
     load-step wrapper with trial/commit behavior.
+  - Exposes `evaluate_j2_quadrature_strain` and
+    `evaluate_j2_quadrature_stress` for diagnostics and verification.
   - Covered by elastic residual equality against linear elasticity and plastic
-    quadrature-state commit tests, including displacement-controlled stepping.
+    quadrature-state commit tests, including displacement-controlled stepping,
+    material-point reference matching for uniaxial extension, and elastic
+    unload response after committed plasticity.
 - Basic structural damping/spring/dashpot helpers for lumped DOFs. These are
   not continuum viscoelastic material models.
 
@@ -76,8 +80,8 @@ Recommended next steps:
    - Exercise the load-step wrapper on force-controlled and mixed BC examples.
    - Add consistent algorithmic tangents or a clearly documented AD/tangent
      strategy.
-   - Keep the verification path: uniaxial tension, unload/reload, and patch
-     tests.
+   - Add patch tests beyond the current one-element homogeneous extension
+     checks.
 
 4. Defer damage until the state/update infrastructure is in place.
    - Start with a clearly labeled local scalar damage demo only if needed.
