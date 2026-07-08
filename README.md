@@ -298,6 +298,17 @@ RBE3 remote coupling. Nonmatching planar shell-solid translational ties are
 available through solid surface facet interpolation; see
 `notes/plate_shell_status.md` for current limits.
 
+Backend support summary for the structural helpers:
+
+| Feature | SciPy/NumPy path | JAX path | Notes |
+|---|---|---|---|
+| Beam / frame / truss assembly | `format="csr"` or `"dense"` | `format="fluxsparse"` and JAX load vectors | Older `backend="scipy"|"numpy"|"jax"` spelling remains as a compatibility alias. |
+| Mindlin plate / Reissner-Mindlin shell assembly | `format="csr"` or `"dense"` | `format="fluxsparse"` and JAX load vectors | `shear_mode="reduced"|"full"|"mitc4"` is shared by both paths. |
+| DOF ties, RBE2, RBE3, distributed coupling, bolt preload | `NumpyCoupledSystemBuilder` | `JAXCoupledSystemBuilder` | Tests compare representative NumPy and JAX builder results. |
+| Shell-solid coincident tie | `NumpyCoupledSystemBuilder` tutorials | Constraint rows are compatible with `JAXCoupledSystemBuilder` | Translational shell DOFs only. |
+| Shell-solid nonmatching tie | CSR constraint matrix for NumPy builder | Dense/JAX-array constraint matrix for JAX builder | Node-to-surface interpolation on planar tri/quad facets; not mortar. |
+| Contact and mortar workflows | Mixed: many setup/reference paths use NumPy/SciPy | JAX is the primary AD/Jacobian path | Contact backend support is more specialized than the structural helpers. |
+
 See:
 
 - [`tutorials/elasticity/beam_cantilever.py`](tutorials/elasticity/beam_cantilever.py)

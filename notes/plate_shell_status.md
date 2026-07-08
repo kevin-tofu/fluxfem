@@ -20,6 +20,16 @@ Implemented:
 - Shell/solid cantilever benchmark against an Euler-Bernoulli beam estimate.
 - Shell-solid tutorials and benchmarks accept the shell `shear_mode` setting.
 
+Backend support:
+
+| Feature | SciPy/NumPy path | JAX path | Current note |
+|---|---|---|---|
+| Plate stiffness/load assembly | `format="csr"` / `"dense"`, NumPy load vectors | `format="fluxsparse"`, JAX load vectors | `shear_mode` is section-level and backend-neutral. |
+| Shell stiffness/load assembly | `format="csr"` / `"dense"`, NumPy load vectors | `format="fluxsparse"`, JAX load vectors | 3D shell coordinates are local planar frames transformed to global DOFs. |
+| Coincident shell-solid tie | `NumpyCoupledSystemBuilder.add_dof_tie_constraint` | Same DOF rows are compatible with `JAXCoupledSystemBuilder` | Translations only. |
+| Nonmatching shell-solid tie | CSR matrix from `shell_solid_nonmatching_translational_tie_matrix` | Use the same matrix as a dense/JAX array with `add_constraint_matrix_dof` | Node-to-surface interpolation; not mortar. |
+| Solid patch to shell edge RBE3 coupling | `NumpyCoupledSystemBuilder.add_distributed_coupling` tutorials | JAX builder has matching distributed-coupling tests | RBE3-style weighted least-squares remote reconstruction. |
+
 Important limits:
 
 - Kirchhoff/C1 plate elements are not implemented.
@@ -35,6 +45,7 @@ Important limits:
 Main checks:
 
 - `PYTHONPATH=src pytest -q src/tests/test_plate.py src/tests/test_solid_shell_coupling.py src/tests/test_shell_solid_benchmark.py`
+- `PYTHONPATH=src pytest -q src/tests/test_jax_coupled_system.py -k "constraint_matrix or dof_tie or rbe3 or distributed_coupling or nonmatching_shell_solid_tie"`
 - `PYTHONPATH=src pytest -q src/tests/test_plate_shear_locking_benchmark.py`
 - `PYTHONPATH=src pytest -q src/tests/test_shell_shear_locking_benchmark.py`
 - `PYTHONPATH=src python tutorials/elasticity/mindlin_plate_shear_locking_benchmark.py`
