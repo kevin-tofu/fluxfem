@@ -19,6 +19,8 @@ Implemented:
 - Shell-solid translational tie for coincident shell/solid surface nodes.
 - Static full-KKT vs CB-projected-KKT regressions for coincident and nonmatching
   shell-solid translational ties with retained interface DOFs.
+- Constrained modal full-vs-CB regression for coincident shell-solid
+  translational tie using nullspace elimination of the tie constraints.
 - Nonmatching shell-solid translational tie matrix for shell nodes projected to
   planar solid tri/quad surface facets with displacement interpolation.
 - Solid patch to shell edge coupling through a 6-DOF RBE3-style remote point.

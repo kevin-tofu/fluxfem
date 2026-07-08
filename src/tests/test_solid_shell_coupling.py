@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 
 import numpy as np
+import scipy.linalg as la
 import scipy.sparse as sp
 
 import fluxfem as ff
@@ -28,6 +29,31 @@ def _coincident_tie_constraint(n_solid: int, n_shell: int, solid_dofs: np.ndarra
     data[0::2] = 1.0
     data[1::2] = -1.0
     return sp.csr_matrix((data, (rows, cols)), shape=(solid_dofs.size, n_solid + n_shell))
+
+
+def _constrained_omegas(K, M, C, fixed, n_modes: int) -> np.ndarray:
+    free = np.asarray(ff.free_dofs(K.shape[0], np.asarray(fixed, dtype=int)), dtype=int)
+    K_ff = K[free, :][:, free].toarray() if sp.issparse(K) else np.asarray(K)[np.ix_(free, free)]
+    M_ff = M[free, :][:, free].toarray() if sp.issparse(M) else np.asarray(M)[np.ix_(free, free)]
+    C_f = C[:, free].toarray() if sp.issparse(C) else np.asarray(C)[:, free]
+    Z = la.null_space(C_f)
+    assert Z.shape[1] >= n_modes
+    k_c = Z.T @ K_ff @ Z
+    m_c = Z.T @ M_ff @ Z
+    w2 = la.eigh(k_c, m_c, eigvals_only=True)
+    w2 = np.asarray(w2, dtype=float)
+    w2 = w2[w2 > 1.0e-8]
+    return np.sqrt(w2[:n_modes])
+
+
+def _csr(matrix):
+    if sp.issparse(matrix):
+        return matrix.tocsr()
+    if hasattr(matrix, "to_csr"):
+        return matrix.to_csr()
+    if hasattr(matrix, "toarray"):
+        return sp.csr_matrix(matrix.toarray())
+    return sp.csr_matrix(np.asarray(matrix, dtype=float))
 
 
 def _assert_static_cb_projection_matches_full(K, F, C, fixed, retained_full):
@@ -225,6 +251,49 @@ def test_solid_shell_translational_tie_projects_through_cb_rom():
 
     np.testing.assert_allclose(rom, full, rtol=1.0e-8, atol=1.0e-8)
     np.testing.assert_allclose(C @ rom, np.zeros((C.shape[0],), dtype=float), atol=1.0e-9)
+
+
+def test_solid_shell_translational_tie_cb_matches_constrained_frequencies():
+    tutorial = _load_tutorial_module("solid_shell_translational_tie")
+    model = tutorial.build_solid_shell_tie(nx=2, ny=1, nz=1, pressure_z=-1.0, shear_mode="mitc4")
+    n_solid = model["solid_space"].n_dofs
+    n_shell = model["shell_n_dofs"]
+
+    K_lifted, _F_lifted = model["system"].assemble(format="csr")
+    K = K_lifted[: n_solid + n_shell, : n_solid + n_shell].tocsr()
+    C = _coincident_tie_constraint(n_solid, n_shell, model["solid_tie_dofs"], model["shell_tie_dofs"] - model["shell_offset"])
+    M_solid = 1.0 * _csr(model["solid_space"].assemble_mass_matrix(backend="numpy"))
+    shell_section = ff.ShellSection(E=2.0e5, nu=0.30, thickness=0.02, rho=1.0, shear_mode=model["shear_mode"])
+    M_shell = ff.assemble_shell_mass(model["shell_coords"], model["shell_conn"], shell_section, format="csr")
+    M = sp.block_diag((M_solid, M_shell), format="csr")
+
+    fixed = np.asarray(model["fixed_dofs"], dtype=int)
+    free = np.asarray(ff.free_dofs(K.shape[0], fixed), dtype=int)
+    retained_full = np.unique(np.concatenate([np.asarray(model["solid_tie_dofs"], dtype=int), np.asarray(model["shell_tie_dofs"], dtype=int)]))
+    retained = np.flatnonzero(np.isin(free, retained_full)).astype(np.int32)
+    k_free = K[free, :][:, free]
+    m_free = M[free, :][:, free]
+    c_free = C[:, free]
+
+    cb = ff.make_craig_bampton_basis(
+        k_free,
+        m_free,
+        retained_dofs=retained,
+        n_modes=k_free.shape[0] - retained.size,
+        backend="scipy",
+        constraint_solver="spsolve",
+        modal_solver="dense",
+    )
+    full = _constrained_omegas(K, M, C, fixed, n_modes=6)
+    rom = _constrained_omegas(
+        sp.csr_matrix(cb.project_matrix(k_free)),
+        sp.csr_matrix(cb.project_matrix(m_free)),
+        sp.csr_matrix(c_free @ cb.basis),
+        np.array([], dtype=int),
+        n_modes=6,
+    )
+
+    np.testing.assert_allclose(rom, full, rtol=1.0e-8, atol=1.0e-7)
 
 
 def test_solid_shell_translational_tie_accepts_mitc4_shell():
