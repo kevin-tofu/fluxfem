@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import jax
@@ -76,11 +77,66 @@ class J2PlasticityState:
         return cls(plastic_strain=plastic_strain, equivalent_plastic_strain=equivalent_plastic_strain)
 
 
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class J2PlasticityQuadratureState:
+    """Element/quadrature history arrays for small-strain J2 plasticity.
+
+    The array shapes are ``(n_elems, n_q, 6)`` for plastic strain and
+    ``(n_elems, n_q)`` for equivalent plastic strain.
+    """
+
+    plastic_strain: jnp.ndarray
+    equivalent_plastic_strain: jnp.ndarray
+
+    def tree_flatten(self):
+        return (self.plastic_strain, self.equivalent_plastic_strain), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        del aux_data
+        plastic_strain, equivalent_plastic_strain = children
+        return cls(plastic_strain=plastic_strain, equivalent_plastic_strain=equivalent_plastic_strain)
+
+
 def make_j2_plasticity_state(*, dtype=DTYPE) -> J2PlasticityState:
     """Return a zero-history J2 material-point state."""
     return J2PlasticityState(
         plastic_strain=jnp.zeros((6,), dtype=dtype),
         equivalent_plastic_strain=jnp.asarray(0.0, dtype=dtype),
+    )
+
+
+def make_j2_quadrature_state(
+    space_or_n_elems,
+    n_q: int | None = None,
+    *,
+    dtype=DTYPE,
+) -> J2PlasticityQuadratureState:
+    """Return zero J2 history arrays for every element quadrature point.
+
+    ``space_or_n_elems`` may be an FE space with ``elem_dofs`` and ``basis`` or
+    an integer element count. When an integer is passed, ``n_q`` is required.
+    """
+    if hasattr(space_or_n_elems, "elem_dofs") and hasattr(space_or_n_elems, "basis"):
+        n_elems = int(space_or_n_elems.elem_dofs.shape[0])
+        n_q_val = int(space_or_n_elems.basis.shape_functions().shape[0])
+    else:
+        if n_q is None:
+            raise ValueError("n_q is required when space_or_n_elems is an integer.")
+        n_elems = int(space_or_n_elems)
+        n_q_val = int(n_q)
+    return J2PlasticityQuadratureState(
+        plastic_strain=jnp.zeros((n_elems, n_q_val, 6), dtype=dtype),
+        equivalent_plastic_strain=jnp.zeros((n_elems, n_q_val), dtype=dtype),
+    )
+
+
+def j2_element_state(state: J2PlasticityQuadratureState, elem_id) -> J2PlasticityState:
+    """Extract one element's quadrature history as a material-point pytree batch."""
+    return J2PlasticityState(
+        plastic_strain=state.plastic_strain[elem_id],
+        equivalent_plastic_strain=state.equivalent_plastic_strain[elem_id],
     )
 
 
@@ -114,6 +170,40 @@ def von_mises_stress_voigt(stress: jnp.ndarray) -> jnp.ndarray:
     """Von Mises equivalent stress from a 6-component Voigt stress vector."""
     dev = voigt_deviator(stress)
     return jnp.sqrt(jnp.maximum(1.5 * voigt_tensor_inner(dev, dev), 0.0))
+
+
+def voigt_stress_to_tensor(stress: jnp.ndarray) -> jnp.ndarray:
+    """Convert stress ``[xx, yy, zz, xy, yz, zx]`` to a symmetric tensor."""
+    s = jnp.asarray(stress)
+    return jnp.stack(
+        [
+            jnp.stack([s[..., 0], s[..., 3], s[..., 5]], axis=-1),
+            jnp.stack([s[..., 3], s[..., 1], s[..., 4]], axis=-1),
+            jnp.stack([s[..., 5], s[..., 4], s[..., 2]], axis=-1),
+        ],
+        axis=-2,
+    )
+
+
+def small_strain_voigt_from_grad(grad_u: jnp.ndarray) -> jnp.ndarray:
+    """Small strain in Voigt form from displacement gradient ``du_i/dx_j``."""
+    g = jnp.asarray(grad_u)
+    return jnp.stack(
+        [
+            g[..., 0, 0],
+            g[..., 1, 1],
+            g[..., 2, 2],
+            g[..., 0, 1] + g[..., 1, 0],
+            g[..., 1, 2] + g[..., 2, 1],
+            g[..., 2, 0] + g[..., 0, 2],
+        ],
+        axis=-1,
+    )
+
+
+def small_strain_voigt(ctx, u_elem: jnp.ndarray) -> jnp.ndarray:
+    """Small-strain Voigt vector at element quadrature points."""
+    return small_strain_voigt_from_grad(ctx.trial.grad(u_elem))
 
 
 def j2_yield_function(stress: jnp.ndarray, state: J2PlasticityState, material: J2Plasticity) -> jnp.ndarray:
@@ -174,15 +264,93 @@ def j2_return_mapping(strain: jnp.ndarray, state: J2PlasticityState, material: J
     return stress_next, next_state
 
 
+def j2_update_element_quadrature_state(
+    ctx,
+    u_elem: jnp.ndarray,
+    element_state: J2PlasticityState,
+    material: J2Plasticity,
+) -> tuple[jnp.ndarray, J2PlasticityState]:
+    """Return quadrature stresses and updated state for one element."""
+    strain = small_strain_voigt(ctx, u_elem)
+    return jax.vmap(j2_return_mapping, in_axes=(0, 0, None))(strain, element_state, material)
+
+
+def j2_plasticity_residual_form(ctx, u_elem: jnp.ndarray, params) -> jnp.ndarray:
+    """Small-strain J2 internal-force residual using frozen quadrature state.
+
+    ``params`` may be a mapping with ``material`` and ``state`` keys or an
+    object with matching attributes. The state is read at ``ctx.elem_id``.
+    """
+    if isinstance(params, Mapping):
+        material = params["material"]
+        state = params["state"]
+    else:
+        material = params.material
+        state = params.state
+    stress, _next_state = j2_update_element_quadrature_state(
+        ctx,
+        u_elem,
+        j2_element_state(state, ctx.elem_id),
+        material,
+    )
+    sigma = voigt_stress_to_tensor(stress)
+    elem_res = jnp.einsum("qaj,qij->qai", ctx.trial.gradN, sigma)
+    return elem_res.reshape(elem_res.shape[0], -1)
+
+
+j2_plasticity_residual_form._ff_kind = "residual"
+j2_plasticity_residual_form._ff_domain = "volume"
+
+
+def update_j2_quadrature_state(
+    space,
+    u: jnp.ndarray,
+    state: J2PlasticityQuadratureState,
+    material: J2Plasticity,
+) -> J2PlasticityQuadratureState:
+    """Update all element quadrature states after a converged displacement."""
+    ctxs = space.build_form_contexts()
+    u_elems = jnp.asarray(u)[space.elem_dofs]
+
+    def per_element(ctx, u_elem, eps_p, p):
+        _stress, next_state = j2_update_element_quadrature_state(
+            ctx,
+            u_elem,
+            J2PlasticityState(plastic_strain=eps_p, equivalent_plastic_strain=p),
+            material,
+        )
+        return next_state.plastic_strain, next_state.equivalent_plastic_strain
+
+    plastic_strain, equivalent_plastic_strain = jax.vmap(per_element)(
+        ctxs,
+        u_elems,
+        state.plastic_strain,
+        state.equivalent_plastic_strain,
+    )
+    return J2PlasticityQuadratureState(
+        plastic_strain=plastic_strain,
+        equivalent_plastic_strain=equivalent_plastic_strain,
+    )
+
+
 __all__ = [
     "J2Plasticity",
+    "J2PlasticityQuadratureState",
     "J2PlasticityState",
+    "j2_element_state",
+    "j2_plasticity_residual_form",
     "j2_return_mapping",
+    "j2_update_element_quadrature_state",
     "j2_yield_function",
     "lame_parameters",
     "isotropic_3d_D",
     "make_j2_plasticity_state",
+    "make_j2_quadrature_state",
+    "small_strain_voigt",
+    "small_strain_voigt_from_grad",
+    "update_j2_quadrature_state",
     "voigt_deviator",
+    "voigt_stress_to_tensor",
     "voigt_tensor_inner",
     "voigt_trace",
     "von_mises_stress_voigt",
