@@ -821,6 +821,59 @@ tests are skipped by `petsc_is_available()`.
 GPU note: this repo currently tests CUDA via the `cuda12` extra only. Other CUDA
 versions are not covered by CI and may require manual JAX installation.
 
+## Capability Snapshot
+
+<small>
+<ul>
+  <li><strong>Core FEM and assembly</strong>
+    <ul>
+      <li>Hex/tet-style continuum spaces, weak-form DSL assembly, tensor/kernel assembly, mass assembly, Dirichlet handling, and SciPy/JAX-oriented sparse paths.</li>
+      <li>Differentiable residual/Jacobian workflows are centered on JAX; NumPy/SciPy paths are intended for conventional assembly, sparse solves, and regression checks.</li>
+    </ul>
+  </li>
+  <li><strong>Structural elements</strong>
+    <ul>
+      <li>Spring/mass/dashpot and Rayleigh damping helpers.</li>
+      <li>2D frame, 3D Euler-Bernoulli beam, 2D/3D truss/bar helpers with stiffness, mass, point loads, and distributed/uniform loads.</li>
+      <li>Q4 Mindlin plate and Q4 Reissner-Mindlin shell helpers with <code>reduced</code>, <code>full</code>, and <code>mitc4</code> shear options.</li>
+    </ul>
+  </li>
+  <li><strong>Coupling and constraints</strong>
+    <ul>
+      <li>MPC-style DOF ties, rigid/RBE2-style constraints, RBE3-style distributed coupling, bolt preload, and distributed coupling rows.</li>
+      <li>Coincident shell-solid translational ties, nonmatching shell-solid translational interpolation, solid-shell RBE3 patch coupling, solid-beam RBE3 coupling, and solid-truss RBE3 coupling.</li>
+      <li>Direct solid-shell rotational continuity is not implemented; use shell/beam DOFs or RBE3-style patch transfer where appropriate.</li>
+    </ul>
+  </li>
+  <li><strong>Dynamics and ROM</strong>
+    <ul>
+      <li>Linear Newmark dynamics for assembled systems and reduced coordinates.</li>
+      <li>Craig-Bampton ROM for assembled stiffness/mass matrices with SciPy and JAX backend coverage on structural element matrices.</li>
+      <li>Full-vs-CB regressions cover beam, truss, plate, shell, solid-shell, solid-beam, solid-truss, and combined solid + shell + beam models.</li>
+      <li>Mixed solid + shell + beam CB-ROM is checked for static, constrained modal, and constrained Newmark histories.</li>
+    </ul>
+  </li>
+  <li><strong>Contact and interfaces</strong>
+    <ul>
+      <li>Penalty contact, active contact update loops, node-surface and paired-surface contact helpers, contact diagnostics, and KKT/mortar-oriented utilities.</li>
+      <li>Contact examples include supported boxes, two-body contact VTU output, mortar builder methods, and CB contact tutorials.</li>
+    </ul>
+  </li>
+  <li><strong>Materials and multiphysics</strong>
+    <ul>
+      <li>Linear elasticity, diffusion/heat examples, thermoelastic examples, and Neo-Hookean hyperelastic residual examples are available.</li>
+      <li>J2 plasticity, general viscoelasticity, and damage models are not yet mature library-level material modules.</li>
+    </ul>
+  </li>
+  <li><strong>Visualization and tutorials</strong>
+    <ul>
+      <li>Several tutorials export VTU for inspection, including shell and contact examples.</li>
+      <li>Some experimental contact/sphere scripts may remain outside the tracked tutorial set until their behavior is stable.</li>
+    </ul>
+  </li>
+</ul>
+</small>
+
 ## Acknowledgements
 I acknowledge the open-source software, libraries, and communities that made this work possible.
 
