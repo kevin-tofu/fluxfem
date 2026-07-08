@@ -31,6 +31,8 @@ Implemented:
   RBE3 coupling with explicit source-copy and remote-point extra DOFs.
 - Constrained modal full-vs-CB regression for solid-patch-to-shell-edge RBE3
   coupling with massless extra DOFs eliminated by the constraint nullspace.
+- Static full-vs-CB regression for a combined solid + shell + beam model with a
+  shell-skin translational tie and a beam RBE3 interface on the same solid.
 - Shell/solid cantilever benchmark against an Euler-Bernoulli beam estimate.
 - Shell-solid tutorials and benchmarks accept the shell `shear_mode` setting.
 
@@ -64,6 +66,7 @@ Main checks:
 - `PYTHONPATH=src pytest -q src/tests/test_plate.py src/tests/test_solid_shell_coupling.py src/tests/test_shell_solid_benchmark.py`
 - `PYTHONPATH=src pytest -q src/tests/test_cb_structural_elements.py`
 - `PYTHONPATH=src pytest -q src/tests/test_solid_shell_coupling.py src/tests/test_dynamics.py src/tests/test_cb_structural_elements.py`
+- `PYTHONPATH=src pytest -q src/tests/test_mixed_structural_cb.py src/tests/test_solid_beam_coupling.py src/tests/test_solid_truss_coupling.py src/tests/test_solid_shell_coupling.py src/tests/test_cb_structural_elements.py`
 - `PYTHONPATH=src pytest -q src/tests/test_jax_coupled_system.py -k "constraint_matrix or dof_tie or rbe3 or distributed_coupling or nonmatching_shell_solid_tie"`
 - `PYTHONPATH=src pytest -q src/tests/test_plate_shear_locking_benchmark.py`
 - `PYTHONPATH=src pytest -q src/tests/test_shell_shear_locking_benchmark.py`

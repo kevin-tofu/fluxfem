@@ -56,6 +56,10 @@ gap/contact variables behind modal coordinates.
   low-order constrained mode. The mixed continuum/line-element structural block
   is reduced together, while source-copy and remote-point auxiliary DOFs stay
   explicit and massless.
+- A combined solid + shell + beam model now has a static full-KKT vs
+  CB-projected-KKT regression. The same solid body carries a translational shell
+  skin tie and an RBE3 beam interface, and the combined structural block is
+  reduced as one CB subsystem.
 - Coincident and nonmatching shell-solid translational ties now also have
   constrained modal regressions: the full KKT constraint is eliminated with a
   nullspace basis and compared with the same constrained eigenproblem after CB
