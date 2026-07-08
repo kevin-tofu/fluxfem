@@ -48,6 +48,7 @@ def build_solid_shell_rbe3_patch_coupling(
     shell_ny: int = 2,
     shell_length: float = 1.0,
     tip_load_y: float = -5.0,
+    shear_mode: str = "reduced",
 ):
     solid_mesh = ff.StructuredHexBox(
         nx=solid_nx,
@@ -82,7 +83,7 @@ def build_solid_shell_rbe3_patch_coupling(
             shell_xy[:, 1],
         ]
     )
-    shell_section = ff.ShellSection(E=2.0e5, nu=0.30, thickness=0.02)
+    shell_section = ff.ShellSection(E=2.0e5, nu=0.30, thickness=0.02, shear_mode=shear_mode)
     shell_K = ff.assemble_shell_stiffness(shell_coords, shell_conn, shell_section, format="csr")
 
     free_edge = np.flatnonzero(np.isclose(shell_xy[:, 0], shell_length, atol=1.0e-10))
@@ -133,6 +134,7 @@ def build_solid_shell_rbe3_patch_coupling(
         "shell_conn": shell_conn,
         "shell_offset": shell_offset,
         "shell_n_dofs": shell_K.shape[0],
+        "shear_mode": shear_mode,
         "face_nodes": face_nodes,
         "fixed_dofs": fixed_solid,
         "remote_dofs": builder.resolve_block_dofs("interface_remote", local_dofs=np.arange(6)),
@@ -146,6 +148,7 @@ def parse_args():
     p.add_argument("--shell-nx", type=int, default=4)
     p.add_argument("--shell-ny", type=int, default=2)
     p.add_argument("--tip-load-y", type=float, default=-5.0)
+    p.add_argument("--shear-mode", choices=("reduced", "full", "mitc4"), default="reduced")
     p.add_argument("--shell-vtu", default="", help="Optional VTU path for shell visualization.")
     return p.parse_args()
 
@@ -156,6 +159,7 @@ def main():
         shell_nx=args.shell_nx,
         shell_ny=args.shell_ny,
         tip_load_y=args.tip_load_y,
+        shear_mode=args.shear_mode,
     )
     system = model["system"]
     fixed = model["fixed_dofs"]
@@ -178,6 +182,7 @@ def main():
     shell_tip_q = u_all[model["shell_tip_dofs"]].reshape(-1, 6)
     print("solid nodes:          ", model["solid_coords"].shape[0])
     print("shell nodes:          ", model["shell_coords"].shape[0])
+    print("shell shear mode:     ", model["shear_mode"])
     print("coupled unknowns:     ", K_full.shape[0])
     print("interface remote q:   ", remote_q)
     print("max root mismatch:    ", f"{float(np.max(np.abs(shell_root_q - remote_q[None, :]))):.8e}")

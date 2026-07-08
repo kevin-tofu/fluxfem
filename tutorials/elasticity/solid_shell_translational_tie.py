@@ -45,6 +45,7 @@ def build_solid_shell_tie(
     width: float = 0.4,
     height: float = 0.2,
     pressure_z: float = -5.0,
+    shear_mode: str = "reduced",
 ):
     solid_mesh = ff.StructuredHexBox(nx=nx, ny=ny, nz=nz, lx=length, ly=width, lz=height).build()
     solid_space = ff.make_hex_space(solid_mesh, dim=3, intorder=2)
@@ -54,7 +55,7 @@ def build_solid_shell_tie(
 
     shell_xy, shell_conn = ff.structured_plate_grid(nx=nx, ny=ny, length_x=length, length_y=width)
     shell_coords = np.column_stack([shell_xy[:, 0], shell_xy[:, 1], np.full(shell_xy.shape[0], height)])
-    shell_section = ff.ShellSection(E=2.0e5, nu=0.30, thickness=0.02)
+    shell_section = ff.ShellSection(E=2.0e5, nu=0.30, thickness=0.02, shear_mode=shear_mode)
     shell_K = ff.assemble_shell_stiffness(shell_coords, shell_conn, shell_section, format="csr")
     shell_F = ff.assemble_shell_uniform_load(shell_coords, shell_conn, (0.0, 0.0, pressure_z))
 
@@ -97,6 +98,7 @@ def build_solid_shell_tie(
         "shell_conn": shell_conn,
         "shell_offset": shell_offset,
         "shell_n_dofs": shell_K.shape[0],
+        "shear_mode": shear_mode,
         "matched_shell_nodes": matched_shell,
         "matched_solid_nodes": matched_solid,
         "solid_tie_dofs": solid_dofs,
@@ -111,13 +113,14 @@ def parse_args():
     p.add_argument("--ny", type=int, default=2)
     p.add_argument("--nz", type=int, default=1)
     p.add_argument("--pressure-z", type=float, default=-5.0)
+    p.add_argument("--shear-mode", choices=("reduced", "full", "mitc4"), default="reduced")
     p.add_argument("--shell-vtu", default="", help="Optional VTU path for shell visualization.")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
-    model = build_solid_shell_tie(nx=args.nx, ny=args.ny, nz=args.nz, pressure_z=args.pressure_z)
+    model = build_solid_shell_tie(nx=args.nx, ny=args.ny, nz=args.nz, pressure_z=args.pressure_z, shear_mode=args.shear_mode)
     system = model["system"]
     fixed = model["fixed_dofs"]
     u_all = np.asarray(
@@ -139,6 +142,7 @@ def main():
     shell_u = u_all[model["shell_offset"] : model["shell_offset"] + model["shell_n_dofs"]].reshape(-1, 6)
     print("solid nodes:        ", model["solid_coords"].shape[0])
     print("shell nodes:        ", model["shell_coords"].shape[0])
+    print("shell shear mode:   ", model["shear_mode"])
     print("matched tie nodes:  ", model["matched_shell_nodes"].size)
     print("max tie mismatch:   ", f"{float(np.max(np.abs(solid_tie_u - shell_tie_u))):.8e}")
     print("shell min uz:       ", f"{float(np.min(shell_u[:, 2])):.8e}")

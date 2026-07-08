@@ -45,6 +45,26 @@ def test_solid_shell_translational_tie_matches_interface_displacements():
     assert float(np.linalg.norm(residual[free])) < 1.0e-6
 
 
+def test_solid_shell_translational_tie_accepts_mitc4_shell():
+    tutorial = _load_tutorial_module("solid_shell_translational_tie")
+    model = tutorial.build_solid_shell_tie(nx=2, ny=1, nz=1, pressure_z=-1.0, shear_mode="mitc4")
+    system = model["system"]
+    fixed = model["fixed_dofs"]
+
+    u_all = np.asarray(
+        system.solve(
+            format="csr",
+            dirichlet_dofs=fixed,
+            dirichlet_vals=np.zeros((fixed.size,), dtype=float),
+        ),
+        dtype=float,
+    )
+
+    solid_tie_u = u_all[model["solid_tie_dofs"]].reshape(-1, 3)
+    shell_tie_u = u_all[model["shell_tie_dofs"]].reshape(-1, 3)
+    np.testing.assert_allclose(solid_tie_u, shell_tie_u, rtol=1.0e-9, atol=1.0e-9)
+
+
 def test_solid_shell_rbe3_patch_coupling_ties_shell_root_to_remote():
     tutorial = _load_tutorial_module("solid_shell_rbe3_patch_coupling")
     model = tutorial.build_solid_shell_rbe3_patch_coupling(
@@ -78,3 +98,31 @@ def test_solid_shell_rbe3_patch_coupling_ties_shell_root_to_remote():
     free = np.ones((K_full.shape[0],), dtype=bool)
     free[fixed] = False
     assert float(np.linalg.norm(residual[free])) < 1.0e-6
+
+
+def test_solid_shell_rbe3_patch_coupling_accepts_mitc4_shell():
+    tutorial = _load_tutorial_module("solid_shell_rbe3_patch_coupling")
+    model = tutorial.build_solid_shell_rbe3_patch_coupling(
+        solid_nx=2,
+        solid_ny=1,
+        solid_nz=1,
+        shell_nx=2,
+        shell_ny=1,
+        tip_load_y=-1.0,
+        shear_mode="mitc4",
+    )
+    system = model["system"]
+    fixed = model["fixed_dofs"]
+
+    u_all = np.asarray(
+        system.solve(
+            format="csr",
+            dirichlet_dofs=fixed,
+            dirichlet_vals=np.zeros((fixed.size,), dtype=float),
+        ),
+        dtype=float,
+    )
+
+    remote_q = u_all[model["remote_dofs"]]
+    shell_root_q = u_all[model["shell_root_dofs"]].reshape(-1, 6)
+    np.testing.assert_allclose(shell_root_q, np.tile(remote_q[None, :], (shell_root_q.shape[0], 1)), rtol=1.0e-9, atol=1.0e-9)

@@ -16,6 +16,7 @@ Implemented:
 - Shell-solid translational tie for coincident shell/solid surface nodes.
 - Solid patch to shell edge coupling through a 6-DOF RBE3-style remote point.
 - Shell/solid cantilever benchmark against an Euler-Bernoulli beam estimate.
+- Shell-solid tutorials and benchmarks accept the shell `shear_mode` setting.
 
 Important limits:
 
@@ -36,5 +37,6 @@ Main checks:
 - `PYTHONPATH=src python tutorials/elasticity/flat_shell_cantilever.py --format fluxsparse --tilt-z 0.2`
 - `PYTHONPATH=src python tutorials/elasticity/flat_shell_cantilever.py --format fluxsparse --tilt-z 0.2 --shear-mode mitc4`
 - `PYTHONPATH=src python tutorials/elasticity/solid_shell_translational_tie.py --nx 2 --ny 1 --nz 1 --pressure-z -1.0`
+- `PYTHONPATH=src python tutorials/elasticity/solid_shell_translational_tie.py --nx 2 --ny 1 --nz 1 --pressure-z -1.0 --shear-mode mitc4`
 - `PYTHONPATH=src python tutorials/elasticity/solid_shell_rbe3_patch_coupling.py --shell-nx 2 --shell-ny 1 --tip-load-y -1.0`
 - `PYTHONPATH=src python tutorials/elasticity/shell_solid_cantilever_benchmark.py --shell-nx 8 --shell-ny 2 --solid-nx 12 --solid-ny 2 --solid-nz 2 --thickness 0.08 --tip-load-z -100.0`

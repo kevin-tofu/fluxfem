@@ -55,9 +55,10 @@ def solve_shell_tip(
     E: float,
     nu: float,
     tip_load_z: float,
+    shear_mode: str = "reduced",
 ) -> tuple[float, dict[str, object]]:
     coords, conn = ff.structured_plate_grid(nx=nx, ny=ny, length_x=length, length_y=width)
-    section = ff.ShellSection(E=E, nu=nu, thickness=thickness)
+    section = ff.ShellSection(E=E, nu=nu, thickness=thickness, shear_mode=shear_mode)
     K = ff.assemble_shell_stiffness(coords, conn, section, format="csr")
 
     left_nodes = np.flatnonzero(np.isclose(coords[:, 0], 0.0))
@@ -70,7 +71,7 @@ def solve_shell_tip(
 
     uz = np.asarray(u)[2::6]
     tip_node = right_nodes[np.argmin(np.abs(coords[right_nodes, 1] - 0.5 * width))]
-    return float(uz[tip_node]), {"coords": coords, "conn": conn, "u": np.asarray(u), "right_nodes": right_nodes}
+    return float(uz[tip_node]), {"coords": coords, "conn": conn, "u": np.asarray(u), "right_nodes": right_nodes, "shear_mode": shear_mode}
 
 
 def solve_solid_tip(
@@ -121,6 +122,7 @@ def run_benchmark(
     E: float = 210.0e9,
     nu: float = 0.3,
     tip_load_z: float = -1000.0,
+    shear_mode: str = "reduced",
 ) -> dict[str, object]:
     theory = euler_bernoulli_tip_deflection(load=tip_load_z, length=length, E=E, width=width, thickness=thickness)
     shell_tip, shell = solve_shell_tip(
@@ -132,6 +134,7 @@ def run_benchmark(
         E=E,
         nu=nu,
         tip_load_z=tip_load_z,
+        shear_mode=shear_mode,
     )
     solid_tip, solid = solve_solid_tip(
         nx=solid_nx,
@@ -153,6 +156,7 @@ def run_benchmark(
         "shell_to_solid_rel_diff": abs(shell_tip - solid_tip) / max(abs(solid_tip), 1.0e-30),
         "shell": shell,
         "solid": solid,
+        "shear_mode": shear_mode,
     }
 
 
@@ -169,6 +173,7 @@ def parse_args():
     p.add_argument("--E", type=float, default=210.0e9)
     p.add_argument("--nu", type=float, default=0.3)
     p.add_argument("--tip-load-z", type=float, default=-1000.0)
+    p.add_argument("--shear-mode", choices=("reduced", "full", "mitc4"), default="reduced")
     return p.parse_args()
 
 
@@ -186,7 +191,9 @@ def main():
         E=args.E,
         nu=args.nu,
         tip_load_z=args.tip_load_z,
+        shear_mode=args.shear_mode,
     )
+    print(f"shell shear mode:      {result['shear_mode']}")
     print(f"EB theory tip uz:      {result['theory']:.6e}")
     print(f"shell tip uz:          {result['shell_tip']:.6e}  rel.err={result['shell_rel_error']:.3e}")
     print(f"solid tip uz:          {result['solid_tip']:.6e}  rel.err={result['solid_rel_error']:.3e}")

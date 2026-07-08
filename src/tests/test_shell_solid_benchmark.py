@@ -33,3 +33,23 @@ def test_shell_solid_cantilever_benchmark_matches_beam_order():
     assert result["shell_rel_error"] < 0.05
     assert result["solid_rel_error"] < 0.75
     assert abs(result["solid_tip"]) < abs(result["shell_tip"])
+
+
+def test_shell_solid_cantilever_benchmark_accepts_mitc4_shell():
+    tutorial = _load_tutorial_module()
+    result = tutorial.run_benchmark(
+        shell_nx=8,
+        shell_ny=2,
+        solid_nx=12,
+        solid_ny=2,
+        solid_nz=2,
+        length=2.0,
+        width=0.3,
+        thickness=0.08,
+        tip_load_z=-100.0,
+        shear_mode="mitc4",
+    )
+
+    assert result["shear_mode"] == "mitc4"
+    assert result["shell_tip"] < 0.0
+    assert result["shell_rel_error"] < 0.05
