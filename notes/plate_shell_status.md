@@ -27,6 +27,8 @@ Implemented:
 - Solid patch to shell edge coupling through a 6-DOF RBE3-style remote point.
 - Static full-KKT vs CB-projected-KKT regression for solid-patch-to-shell-edge
   RBE3 coupling with explicit source-copy and remote-point extra DOFs.
+- Constrained modal full-vs-CB regression for solid-patch-to-shell-edge RBE3
+  coupling with massless extra DOFs eliminated by the constraint nullspace.
 - Shell/solid cantilever benchmark against an Euler-Bernoulli beam estimate.
 - Shell-solid tutorials and benchmarks accept the shell `shear_mode` setting.
 

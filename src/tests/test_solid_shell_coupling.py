@@ -422,6 +422,66 @@ def test_solid_shell_rbe3_patch_coupling_projects_through_cb_rom():
     )
 
 
+def test_solid_shell_rbe3_patch_coupling_cb_matches_constrained_frequencies():
+    tutorial = _load_tutorial_module("solid_shell_rbe3_patch_coupling")
+    model = tutorial.build_solid_shell_rbe3_patch_coupling(
+        solid_nx=2,
+        solid_ny=1,
+        solid_nz=1,
+        shell_nx=2,
+        shell_ny=1,
+        tip_load_y=-1.0,
+        shear_mode="mitc4",
+    )
+    K_lifted, _F_lifted = model["system"].assemble(format="csr")
+    n_structural = model["shell_offset"] + model["shell_n_dofs"]
+    remote_dofs = np.asarray(model["remote_dofs"], dtype=int)
+    n_primary = int(remote_dofs.max()) + 1
+    n_extra = n_primary - n_structural
+    K = K_lifted[:n_primary, :n_primary].tocsr()
+    C = K_lifted[n_primary:, :n_primary].tocsr()
+
+    M_solid = _csr(model["solid_space"].assemble_mass_matrix(backend="numpy"))
+    shell_section = ff.ShellSection(E=2.0e5, nu=0.30, thickness=0.02, rho=1.0, shear_mode=model["shear_mode"])
+    M_shell = ff.assemble_shell_mass(model["shell_coords"], model["shell_conn"], shell_section, format="csr")
+    M = sp.block_diag((M_solid, M_shell, sp.csr_matrix((n_extra, n_extra), dtype=float)), format="csr")
+
+    fixed = np.asarray(model["fixed_dofs"], dtype=int)
+    structural_free = np.asarray(ff.free_dofs(n_structural, fixed[fixed < n_structural]), dtype=int)
+    face_dofs = ff.vector_dofs_from_nodes(model["face_nodes"], dim=3)
+    retained_structural = np.unique(np.concatenate([face_dofs, model["shell_root_dofs"], model["shell_tip_dofs"]]))
+    retained = np.flatnonzero(np.isin(structural_free, retained_structural)).astype(np.int32)
+    k_struct = K[:n_structural, :n_structural].tocsr()
+    m_struct = M[:n_structural, :n_structural].tocsr()
+    k_free = k_struct[structural_free, :][:, structural_free]
+    m_free = m_struct[structural_free, :][:, structural_free]
+
+    cb = ff.make_craig_bampton_basis(
+        k_free,
+        m_free,
+        retained_dofs=retained,
+        n_modes=k_free.shape[0] - retained.size,
+        backend="scipy",
+        constraint_solver="spsolve",
+        modal_solver="dense",
+    )
+    k_reduced = cb.project_matrix(k_free)
+    m_reduced = cb.project_matrix(m_free)
+    c_reduced = np.hstack(
+        [
+            np.asarray(C[:, structural_free] @ cb.basis),
+            C[:, n_structural:n_primary].toarray(),
+        ]
+    )
+    K_rom = sp.block_diag((sp.csr_matrix(k_reduced), K[n_structural:n_primary, n_structural:n_primary]), format="csr")
+    M_rom = sp.block_diag((sp.csr_matrix(m_reduced), sp.csr_matrix((n_extra, n_extra), dtype=float)), format="csr")
+
+    full = _constrained_omegas(K, M, C, fixed, n_modes=6)
+    rom = _constrained_omegas(K_rom, M_rom, sp.csr_matrix(c_reduced), np.array([], dtype=int), n_modes=6)
+
+    np.testing.assert_allclose(rom, full, rtol=1.0e-6, atol=1.0e-5)
+
+
 def test_solid_shell_nonmatching_tie_interpolates_interface_displacements():
     tutorial = _load_tutorial_module("solid_shell_nonmatching_tie")
     model = tutorial.build_solid_shell_nonmatching_tie(

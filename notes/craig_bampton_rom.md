@@ -54,6 +54,9 @@ gap/contact variables behind modal coordinates.
   constrained modal regressions: the full KKT constraint is eliminated with a
   nullspace basis and compared with the same constrained eigenproblem after CB
   projection.
+- Solid-patch-to-shell-edge RBE3 coupling has the same constrained modal
+  regression, with massless source-copy and remote-point extra DOFs eliminated
+  through the constraint nullspace.
 
 ## Current second slice
 
