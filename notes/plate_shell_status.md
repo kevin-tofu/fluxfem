@@ -14,6 +14,8 @@ Implemented:
 - Q4 surface VTU output for plate/shell visualization.
 - Shell-to-beam style coupling through existing 6-DOF DOF ties.
 - Shell-solid translational tie for coincident shell/solid surface nodes.
+- Nonmatching shell-solid translational tie matrix for shell nodes projected to
+  planar solid tri/quad surface facets with displacement interpolation.
 - Solid patch to shell edge coupling through a 6-DOF RBE3-style remote point.
 - Shell/solid cantilever benchmark against an Euler-Bernoulli beam estimate.
 - Shell-solid tutorials and benchmarks accept the shell `shear_mode` setting.
@@ -25,6 +27,9 @@ Important limits:
 - The `mitc4` option is a small-strain, planar Q4 assumed-shear implementation; it is not a full general shell MITC library with curved geometry support.
 - Drilling rotation uses a small diagonal stabilization.
 - Direct solid-shell rotational continuity is not available because solid nodes do not have rotational DOFs. Use the RBE3 patch coupling path when average rotation transfer is needed.
+- Nonmatching shell-solid ties currently support node-to-surface translational
+  interpolation on planar tri/quad solid facets; this is not a mortar coupling
+  and does not transfer rotational continuity.
 - Low-order solid Hex bending can be much stiffer than the shell/beam estimate on coarse meshes; the benchmark reports this separately.
 
 Main checks:
@@ -38,5 +43,6 @@ Main checks:
 - `PYTHONPATH=src python tutorials/elasticity/flat_shell_cantilever.py --format fluxsparse --tilt-z 0.2 --shear-mode mitc4`
 - `PYTHONPATH=src python tutorials/elasticity/solid_shell_translational_tie.py --nx 2 --ny 1 --nz 1 --pressure-z -1.0`
 - `PYTHONPATH=src python tutorials/elasticity/solid_shell_translational_tie.py --nx 2 --ny 1 --nz 1 --pressure-z -1.0 --shear-mode mitc4`
+- `PYTHONPATH=src python tutorials/elasticity/solid_shell_nonmatching_tie.py --solid-nx 2 --solid-ny 1 --solid-nz 1 --shell-nx 4 --shell-ny 2 --pressure-z -1.0 --shear-mode mitc4`
 - `PYTHONPATH=src python tutorials/elasticity/solid_shell_rbe3_patch_coupling.py --shell-nx 2 --shell-ny 1 --tip-load-y -1.0`
 - `PYTHONPATH=src python tutorials/elasticity/shell_solid_cantilever_benchmark.py --shell-nx 8 --shell-ny 2 --solid-nx 12 --solid-ny 2 --solid-nz 2 --thickness 0.08 --tip-load-z -100.0`

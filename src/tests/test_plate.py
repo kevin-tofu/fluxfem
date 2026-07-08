@@ -185,6 +185,45 @@ def test_shell_node_dofs_and_element_dofs():
     np.testing.assert_array_equal(ff.shell_element_dofs(conn).shape, np.array([1, 24]))
 
 
+def test_shell_solid_nonmatching_translational_tie_matrix_interpolates_quad_face():
+    shell_coords = np.array(
+        [
+            [0.25, 0.25, 0.0],
+            [0.75, 0.25, 0.0],
+            [0.75, 0.75, 0.0],
+            [0.25, 0.75, 0.0],
+        ],
+        dtype=float,
+    )
+    solid_coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    C, matched_facets, matched_nodes, weights = ff.shell_solid_nonmatching_translational_tie_matrix(
+        shell_coords,
+        solid_coords,
+        np.array([[0, 1, 2, 3]], dtype=int),
+    )
+
+    assert C.shape == (12, 36)
+    np.testing.assert_array_equal(matched_facets, np.zeros((4,), dtype=int))
+    np.testing.assert_array_equal(matched_nodes, np.tile(np.array([[0, 1, 2, 3]], dtype=int), (4, 1)))
+    np.testing.assert_allclose(weights.sum(axis=1), np.ones((4,)))
+
+    solid_u = solid_coords.reshape(-1)
+    shell_u = shell_coords.reshape(-1)
+    q = np.zeros((36,), dtype=float)
+    q[:12] = solid_u
+    for node in range(4):
+        q[12 + 6 * node : 12 + 6 * node + 3] = shell_u[3 * node : 3 * node + 3]
+    np.testing.assert_allclose(C @ q, np.zeros((12,)), atol=1.0e-12)
+
+
 def test_assemble_flat_shell_point_loads():
     f = ff.assemble_flat_shell_point_loads(
         4,

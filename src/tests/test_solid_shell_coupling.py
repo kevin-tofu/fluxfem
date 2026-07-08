@@ -126,3 +126,34 @@ def test_solid_shell_rbe3_patch_coupling_accepts_mitc4_shell():
     remote_q = u_all[model["remote_dofs"]]
     shell_root_q = u_all[model["shell_root_dofs"]].reshape(-1, 6)
     np.testing.assert_allclose(shell_root_q, np.tile(remote_q[None, :], (shell_root_q.shape[0], 1)), rtol=1.0e-9, atol=1.0e-9)
+
+
+def test_solid_shell_nonmatching_tie_interpolates_interface_displacements():
+    tutorial = _load_tutorial_module("solid_shell_nonmatching_tie")
+    model = tutorial.build_solid_shell_nonmatching_tie(
+        solid_nx=2,
+        solid_ny=1,
+        solid_nz=1,
+        shell_nx=4,
+        shell_ny=2,
+        pressure_z=-1.0,
+        shear_mode="mitc4",
+    )
+    system = model["system"]
+    fixed = model["fixed_dofs"]
+
+    u_all = np.asarray(
+        system.solve(
+            format="csr",
+            dirichlet_dofs=fixed,
+            dirichlet_vals=np.zeros((fixed.size,), dtype=float),
+        ),
+        dtype=float,
+    )
+
+    solid_u = u_all[: model["solid_space"].n_dofs]
+    shell_u = u_all[model["shell_offset"] : model["shell_offset"] + model["shell_n_dofs"]]
+    tie_residual = model["constraint_matrix"] @ np.concatenate([solid_u, shell_u])
+    np.testing.assert_allclose(tie_residual, np.zeros_like(tie_residual), rtol=1.0e-9, atol=1.0e-9)
+    assert model["matched_solid_nodes"].shape[0] == model["shell_coords"].shape[0]
+    assert float(np.min(shell_u.reshape(-1, 6)[:, 2])) < 0.0

@@ -5,6 +5,7 @@ import os
 from typing import Sequence
 
 import numpy as np
+import scipy.sparse as sp
 
 from .lumped import (
     ArrayBackend,
@@ -210,6 +211,146 @@ def shell_solid_translational_tie_dofs(
         solid_match,
         shell_node_dofs(shell_match, "uxuyuz"),
         np.asarray([3 * int(n) + c for n in solid_match for c in range(3)], dtype=int),
+    )
+
+
+def _surface_point_local_frame(face_coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    x = _surface_coords3(face_coords)
+    origin = x[0]
+    ex_vec = x[1] - x[0]
+    ex_norm = float(np.linalg.norm(ex_vec))
+    if ex_norm <= 1.0e-14:
+        raise ValueError("surface facet has coincident first and second nodes.")
+    ex = ex_vec / ex_norm
+    ey_seed = x[2] - x[0]
+    ez = np.cross(ex, ey_seed)
+    ez_norm = float(np.linalg.norm(ez))
+    if ez_norm <= 1.0e-14 and x.shape[0] == 4:
+        ey_seed = x[3] - x[0]
+        ez = np.cross(ex, ey_seed)
+        ez_norm = float(np.linalg.norm(ez))
+    if ez_norm <= 1.0e-14:
+        raise ValueError("surface facet local frame is degenerate.")
+    ez = ez / ez_norm
+    ey = np.cross(ez, ex)
+    ey = ey / np.linalg.norm(ey)
+    return np.vstack([ex, ey, ez]), origin
+
+
+def _tri_shape_at_point(local: np.ndarray, point: np.ndarray, tol: float) -> np.ndarray | None:
+    a, b, c = local[:3, :2]
+    M = np.column_stack([b - a, c - a])
+    det = float(np.linalg.det(M))
+    if abs(det) <= 1.0e-14:
+        return None
+    uv = np.linalg.solve(M, point[:2] - a)
+    N = np.array([1.0 - uv[0] - uv[1], uv[0], uv[1]], dtype=float)
+    if np.all(N >= -tol) and np.all(N <= 1.0 + tol):
+        return np.clip(N, 0.0, 1.0) / np.sum(np.clip(N, 0.0, 1.0))
+    return None
+
+
+def _quad_shape_at_point(local: np.ndarray, point: np.ndarray, tol: float) -> np.ndarray | None:
+    p = np.asarray(point[:2], dtype=float)
+    xi = 0.0
+    eta = 0.0
+    for _ in range(12):
+        N, dN = _q4_shape(xi, eta)
+        xh = N @ local[:, :2]
+        J = local[:, :2].T @ dN
+        det = float(np.linalg.det(J))
+        if abs(det) <= 1.0e-14:
+            return None
+        delta = np.linalg.solve(J, p - xh)
+        xi += float(delta[0])
+        eta += float(delta[1])
+        if float(np.linalg.norm(delta)) <= 1.0e-12:
+            break
+    if xi < -1.0 - tol or xi > 1.0 + tol or eta < -1.0 - tol or eta > 1.0 + tol:
+        return None
+    N, _dN = _q4_shape(float(np.clip(xi, -1.0, 1.0)), float(np.clip(eta, -1.0, 1.0)))
+    return N
+
+
+def shell_solid_nonmatching_translational_tie_matrix(
+    shell_coords: np.ndarray,
+    solid_coords: np.ndarray,
+    solid_facets: np.ndarray,
+    *,
+    shell_nodes: Sequence[int] | np.ndarray | None = None,
+    tol: float = 1.0e-9,
+) -> tuple[sp.csr_matrix, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Build DOF-level constraints tying shell translations to interpolated solid surface motion.
+
+    The returned matrix ``C`` has columns ``[solid_dofs, shell_dofs]`` and rows
+    enforcing ``sum_a N_a u_solid_a - u_shell = 0`` for each selected shell
+    node and translational component. ``solid_facets`` may contain planar tri or
+    quad surface facets in global solid-node numbering.
+    """
+    xs = _surface_coords3(shell_coords)
+    xg = _surface_coords3(solid_coords)
+    facets = np.asarray(solid_facets, dtype=int)
+    if facets.ndim != 2 or facets.shape[1] not in (3, 4):
+        raise ValueError("solid_facets must have shape (n_facets, 3) or (n_facets, 4).")
+    if np.any(facets < 0) or np.any(facets >= xg.shape[0]):
+        raise ValueError("solid_facets contains an index outside solid_coords.")
+    if tol <= 0.0:
+        raise ValueError("tol must be positive.")
+    s_nodes = np.arange(xs.shape[0], dtype=int) if shell_nodes is None else np.asarray(shell_nodes, dtype=int).reshape(-1)
+    if s_nodes.size == 0:
+        raise ValueError("shell_nodes must contain at least one node.")
+    if np.any(s_nodes < 0) or np.any(s_nodes >= xs.shape[0]):
+        raise ValueError("shell_nodes contains an index outside shell_coords.")
+
+    n_solid_dofs = 3 * xg.shape[0]
+    n_shell_dofs = SHELL_DOF_PER_NODE * xs.shape[0]
+    rows: list[int] = []
+    cols: list[int] = []
+    data: list[float] = []
+    matched_facets: list[int] = []
+    matched_weights: list[np.ndarray] = []
+    matched_solid_nodes: list[np.ndarray] = []
+    row = 0
+    for sn in s_nodes.tolist():
+        point = xs[int(sn)]
+        found: tuple[int, np.ndarray, np.ndarray] | None = None
+        for fi, facet in enumerate(facets):
+            face = xg[facet]
+            R, origin = _surface_point_local_frame(face)
+            local = (R @ (face - origin).T).T
+            p_local = R @ (point - origin)
+            if abs(float(p_local[2])) > tol:
+                continue
+            if facet.size == 3:
+                weights = _tri_shape_at_point(local, p_local, tol)
+            else:
+                weights = _quad_shape_at_point(local, p_local, tol)
+            if weights is not None:
+                found = (fi, facet.copy(), weights)
+                break
+        if found is None:
+            raise ValueError(f"no containing solid surface facet found for shell node {sn}.")
+        fi, facet, weights = found
+        matched_facets.append(fi)
+        matched_solid_nodes.append(facet)
+        matched_weights.append(weights)
+        for comp in range(3):
+            for node, weight in zip(facet, weights, strict=True):
+                rows.append(row)
+                cols.append(3 * int(node) + comp)
+                data.append(float(weight))
+            rows.append(row)
+            cols.append(n_solid_dofs + SHELL_DOF_PER_NODE * int(sn) + comp)
+            data.append(-1.0)
+            row += 1
+
+    C = sp.csr_matrix((data, (rows, cols)), shape=(3 * s_nodes.size, n_solid_dofs + n_shell_dofs))
+    return (
+        C,
+        np.asarray(matched_facets, dtype=int),
+        np.asarray(matched_solid_nodes, dtype=int),
+        np.asarray(matched_weights, dtype=float),
     )
 
 
@@ -983,6 +1124,7 @@ __all__ = [
     "shell_element_stiffness_global",
     "shell_element_uniform_load_global",
     "shell_node_dofs",
+    "shell_solid_nonmatching_translational_tie_matrix",
     "shell_solid_translational_tie_dofs",
     "structured_plate_grid",
     "write_q4_surface_vtu",
