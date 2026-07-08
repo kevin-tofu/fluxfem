@@ -1341,6 +1341,39 @@ def test_jax_coupled_system_bolt_preload_matches_numpy_builder():
     assert np.allclose(np.asarray(system_jax.F_u), np.asarray(F_np), atol=1e-12)
 
 
+def test_jax_coupled_system_bolt_preload_local_dofs_matches_numpy_builder():
+    K_u = np.zeros((6, 6), dtype=float)
+    F_u = np.zeros((6,), dtype=float)
+    local_dofs = np.array([1, 4], dtype=int)
+    direction = np.array([3.0, 4.0], dtype=float)
+
+    np_builder = ff.NumpyCoupledSystemBuilder.from_structural(K_u, F_u)
+    np_builder.register_field("bolt", n_dofs=6, value_dim=1, offset=0)
+    np_dofs = np_builder.add_bolt_preload(
+        "bolt",
+        stiffness=20.0,
+        direction=direction,
+        target_displacement=0.5,
+        local_dofs=local_dofs,
+    )
+    K_np, F_np = np_builder.build().assemble(format="dense")
+
+    jax_builder = ff.JAXCoupledSystemBuilder.from_structural(jnp.zeros((6, 6), dtype=jnp.float64), jnp.zeros((6,), dtype=jnp.float64))
+    jax_builder.register_field("bolt", n_dofs=6, value_dim=1, offset=0)
+    jax_dofs = jax_builder.add_bolt_preload(
+        "bolt",
+        stiffness=20.0,
+        direction=jnp.asarray(direction),
+        target_displacement=0.5,
+        local_dofs=jnp.asarray(local_dofs),
+    )
+    system_jax = jax_builder.build()
+
+    np.testing.assert_array_equal(np_dofs, jax_dofs)
+    np.testing.assert_allclose(np.asarray(system_jax.K_u.to_dense()), np.asarray(K_np), atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(system_jax.F_u), np.asarray(F_np), atol=1.0e-12)
+
+
 def test_jax_coupled_system_remote_spring_with_rbe3_is_differentiable():
     x_ref = jnp.array([0.0, 0.0, 0.0])
     x_slave = jnp.array(

@@ -432,6 +432,44 @@ def test_builder_add_bolt_preload_adds_directional_spring_load():
     np.testing.assert_allclose(F[:3], np.array([3.0, 0.0, 0.0]))
 
 
+def test_builder_add_bolt_preload_supports_local_dof_direction_vector():
+    builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.csr_matrix((6, 6)), np.zeros((6,), dtype=float))
+    builder.register_field("bolt", n_dofs=6, value_dim=1, offset=0)
+    dofs = builder.add_bolt_preload(
+        "bolt",
+        stiffness=20.0,
+        direction=np.array([3.0, 4.0], dtype=float),
+        target_displacement=0.5,
+        local_dofs=np.array([1, 4], dtype=int),
+    )
+
+    K, F = builder.build().assemble(format="csr")
+    unit = np.array([0.6, 0.8], dtype=float)
+    expected_K = 20.0 * np.outer(unit, unit)
+    expected_F = expected_K @ (0.5 * unit)
+
+    np.testing.assert_array_equal(dofs, np.array([1, 4]))
+    np.testing.assert_allclose(K.toarray()[np.ix_([1, 4], [1, 4])], expected_K, atol=1.0e-12)
+    np.testing.assert_allclose(F[[1, 4]], expected_F, atol=1.0e-12)
+
+
+def test_builder_add_bolt_preload_validates_direction_and_dofs():
+    builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.csr_matrix((4, 4)), np.zeros((4,), dtype=float))
+    builder.register_field("bolt", n_dofs=4, value_dim=1, offset=0)
+
+    with pytest.raises(ValueError, match="direction must have length 3 or match the field DOF count"):
+        builder.add_bolt_preload("bolt", stiffness=1.0, direction=np.ones((2,)))
+
+    with pytest.raises(ValueError, match="direction length must match local_dofs"):
+        builder.add_bolt_preload("bolt", stiffness=1.0, direction=np.ones((2,)), local_dofs=np.array([0]))
+
+    with pytest.raises(ValueError, match="local_dofs contains an index outside the field"):
+        builder.add_bolt_preload("bolt", stiffness=1.0, direction=np.ones((1,)), local_dofs=np.array([4]))
+
+    with pytest.raises(ValueError, match="direction must be nonzero"):
+        builder.add_bolt_preload("bolt", stiffness=1.0, direction=np.zeros((3,)))
+
+
 def test_builder_rbe2_rejects_slave_size_mismatch():
     builder = ff.NumpyCoupledSystemBuilder.from_structural(sp.eye(6, format="csr"), np.zeros((6,), dtype=float))
     builder.register_field("remote", n_dofs=6, value_dim=1, offset=0)
