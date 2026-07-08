@@ -1,8 +1,10 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any, Sequence
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 DTYPE = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
 
@@ -97,6 +99,21 @@ class J2PlasticityQuadratureState:
         del aux_data
         plastic_strain, equivalent_plastic_strain = children
         return cls(plastic_strain=plastic_strain, equivalent_plastic_strain=equivalent_plastic_strain)
+
+
+@dataclass(frozen=True)
+class J2LoadStepResult:
+    """One J2 load-step result with committed/trial state diagnostics."""
+
+    load_factor: float
+    converged: bool
+    committed: bool
+    u: Any
+    state: J2PlasticityQuadratureState
+    trial_state: J2PlasticityQuadratureState
+    info: Any
+    max_equivalent_plastic_strain: float
+    exception: str | None = None
 
 
 def make_j2_plasticity_state(*, dtype=DTYPE) -> J2PlasticityState:
@@ -333,7 +350,155 @@ def update_j2_quadrature_state(
     )
 
 
+def _j2_normalize_dirichlet(dirichlet):
+    if dirichlet is None:
+        return None
+    from ...solver.dirichlet import DirichletBC, _normalize_dirichlet
+
+    if isinstance(dirichlet, DirichletBC):
+        dirichlet = dirichlet.as_tuple()
+    dofs, vals = _normalize_dirichlet(dirichlet[0], dirichlet[1])
+    if vals.ndim == 0:
+        vals = np.full(dofs.shape[0], float(vals), dtype=float)
+    return dofs, vals
+
+
+def _j2_schedule(load_sequence: Sequence[float] | None, n_steps: int) -> list[float]:
+    if load_sequence is not None:
+        raw = list(load_sequence)
+    else:
+        raw = list(np.linspace(0.0, 1.0, max(1, int(n_steps)) + 1, endpoint=True)[1:])
+    schedule: list[float] = []
+    prev = 0.0
+    for value in raw:
+        lf = float(value)
+        if not np.isfinite(lf):
+            raise ValueError("load factors must be finite.")
+        if lf < 0.0 or lf > 1.0:
+            raise ValueError("load factors must be in [0, 1].")
+        if lf < prev:
+            raise ValueError("load factors must be monotone nondecreasing.")
+        schedule.append(lf)
+        prev = lf
+    return schedule
+
+
+def solve_j2_plasticity_load_steps(
+    space,
+    material: J2Plasticity,
+    *,
+    initial_state: J2PlasticityQuadratureState | None = None,
+    u0: jnp.ndarray | None = None,
+    dirichlet=None,
+    base_external_vector=None,
+    load_sequence: Sequence[float] | None = None,
+    n_steps: int = 1,
+    tol: float = 1.0e-8,
+    atol: float = 0.0,
+    maxiter: int = 20,
+    linear_solver: str = "spsolve",
+    line_search: bool = False,
+    assembly_policy=None,
+    jacobian_pattern=None,
+    commit_on_converged: bool = True,
+    stop_on_failure: bool = True,
+) -> tuple[jnp.ndarray, J2PlasticityQuadratureState, list[J2LoadStepResult]]:
+    """Solve small-strain J2 load steps with explicit state commit.
+
+    The committed quadrature state is held fixed inside each Newton solve and
+    updated only after a converged step. Dirichlet values and external loads are
+    scaled by the load factor, so the helper supports basic force or prescribed
+    displacement stepping.
+    """
+    from ...solver.result import SolverResult
+    from ...solver.newton import newton_solve
+
+    dtype = jnp.asarray(u0).dtype if u0 is not None else DTYPE
+    state = initial_state if initial_state is not None else make_j2_quadrature_state(space, dtype=dtype)
+    u = jnp.zeros((space.n_dofs,), dtype=dtype) if u0 is None else jnp.asarray(u0, dtype=dtype)
+    dirichlet_final = _j2_normalize_dirichlet(dirichlet)
+    schedule = _j2_schedule(load_sequence, n_steps)
+    history: list[J2LoadStepResult] = []
+
+    if dirichlet_final is None:
+        final_dofs = np.array([], dtype=int)
+        final_vals = np.array([], dtype=float)
+    else:
+        final_dofs, final_vals = dirichlet_final
+
+    free_mask = np.ones(int(space.n_dofs), dtype=bool)
+    free_mask[final_dofs] = False
+    has_free_dofs = bool(np.any(free_mask))
+
+    for lf in schedule:
+        step_dofs = final_dofs
+        step_vals = lf * final_vals
+        if step_dofs.size:
+            u = u.at[jnp.asarray(step_dofs, dtype=jnp.int64)].set(jnp.asarray(step_vals, dtype=u.dtype))
+
+        params = {"material": material, "state": state}
+        external = None
+        if base_external_vector is not None:
+            external = jnp.asarray(lf * jnp.asarray(base_external_vector, dtype=u.dtype), dtype=u.dtype)
+        exception = None
+        if has_free_dofs:
+            try:
+                u_step, info = newton_solve(
+                    space,
+                    j2_plasticity_residual_form,
+                    u,
+                    params,
+                    tol=tol,
+                    atol=atol,
+                    maxiter=maxiter,
+                    linear_solver=linear_solver,
+                    dirichlet=(step_dofs, step_vals) if step_dofs.size else None,
+                    line_search=line_search,
+                    external_vector=external,
+                    jacobian_pattern=jacobian_pattern,
+                    assembly_policy=assembly_policy,
+                )
+                u = jnp.asarray(u_step, dtype=u.dtype)
+            except Exception as exc:  # pragma: no cover - defensive path
+                info = SolverResult(converged=False, iters=0, stop_reason="exception")
+                exception = repr(exc)
+        else:
+            info = SolverResult(
+                converged=True,
+                iters=0,
+                residual_norm=0.0,
+                residual0=0.0,
+                rel_residual=0.0,
+                stop_reason="all_dirichlet",
+            )
+
+        converged = bool(getattr(info, "converged", False))
+        trial_state = update_j2_quadrature_state(space, u, state, material)
+        committed = bool(converged and commit_on_converged)
+        if committed:
+            state = trial_state
+        max_p = float(jax.block_until_ready(jnp.max(trial_state.equivalent_plastic_strain)))
+        history.append(
+            J2LoadStepResult(
+                load_factor=float(lf),
+                converged=converged,
+                committed=committed,
+                u=u,
+                state=state,
+                trial_state=trial_state,
+                info=info,
+                max_equivalent_plastic_strain=max_p,
+                exception=exception,
+            )
+        )
+        if not converged and stop_on_failure:
+            break
+
+    return u, state, history
+
+
 __all__ = [
+    "J2LoadStepResult",
     "J2Plasticity",
     "J2PlasticityQuadratureState",
     "J2PlasticityState",
@@ -348,6 +513,7 @@ __all__ = [
     "make_j2_quadrature_state",
     "small_strain_voigt",
     "small_strain_voigt_from_grad",
+    "solve_j2_plasticity_load_steps",
     "update_j2_quadrature_state",
     "voigt_deviator",
     "voigt_stress_to_tensor",

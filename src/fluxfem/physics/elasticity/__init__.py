@@ -1,6 +1,7 @@
 """Elasticity-related helpers (linear models, materials, forms)."""
 
 from .materials import (
+    J2LoadStepResult,
     J2Plasticity,
     J2PlasticityQuadratureState,
     J2PlasticityState,
@@ -15,6 +16,7 @@ from .materials import (
     make_j2_quadrature_state,
     small_strain_voigt,
     small_strain_voigt_from_grad,
+    solve_j2_plasticity_load_steps,
     update_j2_quadrature_state,
     voigt_deviator,
     voigt_stress_to_tensor,
@@ -42,6 +44,7 @@ from .stress import principal_stresses, principal_sum, max_shear_stress, von_mis
 __all__ = [
     "lame_parameters",
     "isotropic_3d_D",
+    "J2LoadStepResult",
     "J2Plasticity",
     "J2PlasticityQuadratureState",
     "J2PlasticityState",
@@ -54,6 +57,7 @@ __all__ = [
     "make_j2_quadrature_state",
     "small_strain_voigt",
     "small_strain_voigt_from_grad",
+    "solve_j2_plasticity_load_steps",
     "update_j2_quadrature_state",
     "voigt_deviator",
     "voigt_stress_to_tensor",

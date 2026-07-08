@@ -21,13 +21,15 @@ Implemented:
   - Covered by elastic, hydrostatic, pure-shear return, unload, and JIT tests.
 - J2 FE integration entry points:
   `J2PlasticityQuadratureState`, `make_j2_quadrature_state`,
-  `j2_plasticity_residual_form`, and `update_j2_quadrature_state`.
+  `j2_plasticity_residual_form`, `update_j2_quadrature_state`, and
+  `solve_j2_plasticity_load_steps`.
   - Stores history as element/quadrature arrays with shapes `(n_elem, n_q, 6)`
     and `(n_elem, n_q)`.
   - Assembles a frozen-state small-strain internal-force residual.
-  - Provides an explicit post-convergence state update helper.
+  - Provides an explicit post-convergence state update helper and a basic
+    load-step wrapper with trial/commit behavior.
   - Covered by elastic residual equality against linear elasticity and plastic
-    quadrature-state commit tests.
+    quadrature-state commit tests, including displacement-controlled stepping.
 - Basic structural damping/spring/dashpot helpers for lumped DOFs. These are
   not continuum viscoelastic material models.
 
@@ -38,8 +40,9 @@ Not implemented:
 - Continuum damage models.
 - Consistent algorithmic tangents for history-dependent material updates.
 - Production-grade quadrature-state lifecycle for plasticity, viscoelasticity,
-  or damage. J2 now has FE-facing frozen-state residual/update helpers, but not
-  a full load-step manager with commit/rollback/restart semantics.
+  or damage. J2 now has FE-facing frozen-state residual/update helpers and a
+  basic load-step wrapper, but not full restart/output or general analysis
+  orchestration.
 
 Important limits:
 
@@ -47,9 +50,9 @@ Important limits:
   a mixed nearly-incompressible formulation.
 - Tangents for the current hyperelastic residual are obtained by JAX AD. There
   is no hand-coded constitutive tangent layer yet.
-- History-dependent FE materials still need an explicit design for load
-  stepping, state commit/rollback, and restart/output before J2 is promoted to
-  production FE material integration.
+- History-dependent FE materials still need restart/output support and a broader
+  analysis lifecycle before J2 is promoted to production FE material
+  integration.
 - Damage with softening needs regularization or nonlocal/gradient treatment to
   avoid mesh-dependent localization; a simple local scalar damage model should
   be marked as a demonstration only.
@@ -69,7 +72,8 @@ Recommended next steps:
      to full 3D tensor models.
 
 3. Harden J2 FE integration.
-   - Add a load-step wrapper with trial/commit/rollback semantics.
+   - Add restart/output support for committed quadrature histories.
+   - Exercise the load-step wrapper on force-controlled and mixed BC examples.
    - Add consistent algorithmic tangents or a clearly documented AD/tangent
      strategy.
    - Keep the verification path: uniaxial tension, unload/reload, and patch

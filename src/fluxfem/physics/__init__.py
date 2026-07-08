@@ -1,6 +1,7 @@
 """Physics-level helpers (constitutive models, material laws, etc.)."""
 
 from .elasticity import (
+    J2LoadStepResult,
     J2Plasticity,
     J2PlasticityQuadratureState,
     J2PlasticityState,
@@ -15,6 +16,7 @@ from .elasticity import (
     make_j2_quadrature_state,
     small_strain_voigt,
     small_strain_voigt_from_grad,
+    solve_j2_plasticity_load_steps,
     update_j2_quadrature_state,
     linear_elasticity_form,
     vector_body_force_form,
@@ -138,6 +140,7 @@ from .postprocess import make_point_data_displacement, write_point_data_vtu, int
 __all__ = [
     "lame_parameters",
     "isotropic_3d_D",
+    "J2LoadStepResult",
     "J2Plasticity",
     "J2PlasticityQuadratureState",
     "J2PlasticityState",
@@ -150,6 +153,7 @@ __all__ = [
     "make_j2_quadrature_state",
     "small_strain_voigt",
     "small_strain_voigt_from_grad",
+    "solve_j2_plasticity_load_steps",
     "update_j2_quadrature_state",
     "linear_elasticity_form",
     "vector_body_force_form",

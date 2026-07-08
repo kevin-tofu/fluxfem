@@ -80,3 +80,56 @@ def test_j2_residual_form_uses_frozen_state_without_committing():
 
     np.testing.assert_allclose(np.asarray(state0.plastic_strain), 0.0)
     np.testing.assert_allclose(np.asarray(state0.equivalent_plastic_strain), 0.0)
+
+
+def _homogeneous_extension_dirichlet(space, axial_strain: float):
+    coords = np.asarray(space.mesh.coords)
+    dofs = np.arange(space.n_dofs, dtype=int)
+    vals = np.zeros(space.n_dofs, dtype=float)
+    for node_id, (x, _y, _z) in enumerate(coords):
+        vals[3 * node_id + 0] = axial_strain * x
+    return dofs, vals
+
+
+def test_solve_j2_plasticity_load_steps_commits_only_after_each_converged_step():
+    space = _one_hex_space()
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=50.0, hardening_modulus=100.0)
+    dirichlet = _homogeneous_extension_dirichlet(space, axial_strain=5.0e-3)
+
+    u, state, history = ff.solve_j2_plasticity_load_steps(
+        space,
+        material,
+        dirichlet=dirichlet,
+        n_steps=2,
+    )
+
+    assert len(history) == 2
+    assert all(step.converged for step in history)
+    assert all(step.committed for step in history)
+    assert history[0].max_equivalent_plastic_strain <= history[1].max_equivalent_plastic_strain
+    assert float(jnp.max(state.equivalent_plastic_strain)) > 0.0
+    np.testing.assert_allclose(np.asarray(state.equivalent_plastic_strain), np.asarray(history[-1].trial_state.equivalent_plastic_strain))
+    np.testing.assert_allclose(np.asarray(u), dirichlet[1])
+
+
+def test_solve_j2_plasticity_load_steps_can_skip_commit():
+    space = _one_hex_space()
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=50.0, hardening_modulus=100.0)
+    state0 = ff.make_j2_quadrature_state(space, dtype=jnp.float64)
+    dirichlet = _homogeneous_extension_dirichlet(space, axial_strain=5.0e-3)
+
+    _u, state, history = ff.solve_j2_plasticity_load_steps(
+        space,
+        material,
+        initial_state=state0,
+        dirichlet=dirichlet,
+        n_steps=1,
+        commit_on_converged=False,
+    )
+
+    assert len(history) == 1
+    assert history[0].converged
+    assert not history[0].committed
+    assert history[0].max_equivalent_plastic_strain > 0.0
+    np.testing.assert_allclose(np.asarray(state.equivalent_plastic_strain), 0.0)
+    np.testing.assert_allclose(np.asarray(state.plastic_strain), 0.0)
