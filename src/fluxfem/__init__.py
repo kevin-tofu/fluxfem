@@ -430,6 +430,8 @@ __all__ = [
     "j2_return_mapping",
     "j2_update_element_quadrature_state",
     "j2_yield_function",
+    "make_j2_cell_data",
+    "make_j2_point_and_cell_data",
     "make_j2_plasticity_state",
     "make_j2_quadrature_state",
     "small_strain_voigt",
@@ -592,6 +594,7 @@ __all__ = [
     "voigt_tensor_inner",
     "voigt_trace",
     "von_mises_stress_voigt",
+    "write_j2_vtu",
 ]
 
 _PHYSICS_EXPORTS = {
@@ -608,6 +611,8 @@ _PHYSICS_EXPORTS = {
     "j2_return_mapping",
     "j2_update_element_quadrature_state",
     "j2_yield_function",
+    "make_j2_cell_data",
+    "make_j2_point_and_cell_data",
     "make_j2_plasticity_state",
     "make_j2_quadrature_state",
     "small_strain_voigt",
@@ -723,6 +728,7 @@ _PHYSICS_EXPORTS = {
     "voigt_tensor_inner",
     "voigt_trace",
     "von_mises_stress_voigt",
+    "write_j2_vtu",
 }
 
 _TOOLS_VIS_EXPORTS = {

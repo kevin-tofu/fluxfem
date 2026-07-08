@@ -305,10 +305,12 @@ hyperelasticity through JAX AD residual/Jacobian assembly. A small-strain J2
 plasticity material-point return mapping and FE-facing frozen-state residual /
 quadrature update helpers are available. A basic J2 load-step helper commits
 quadrature histories after converged steps, and quadrature strain/stress
-diagnostics are exposed for verification. Production restart/output and general
-lifecycle management for plasticity, continuum viscoelasticity, and damage are
-not mature yet; see `notes/material_models_status.md` for the current scope and
-recommended next steps.
+diagnostics are exposed for verification. `tutorials/nonlinear/j2_uniaxial_tension.py`
+writes VTU cell data and a CSV load history for a displacement-controlled J2
+bar. Production restart/output and general lifecycle management for plasticity,
+continuum viscoelasticity, and damage are not mature yet; see
+`notes/material_models_status.md` for the current scope and recommended next
+steps.
 
 Backend support summary for the structural helpers:
 

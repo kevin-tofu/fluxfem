@@ -14,6 +14,8 @@ from .elasticity import (
     j2_yield_function,
     lame_parameters,
     isotropic_3d_D,
+    make_j2_cell_data,
+    make_j2_point_and_cell_data,
     make_j2_plasticity_state,
     make_j2_quadrature_state,
     small_strain_voigt,
@@ -40,6 +42,7 @@ from .elasticity import (
     voigt_tensor_inner,
     voigt_trace,
     von_mises_stress_voigt,
+    write_j2_vtu,
 )
 from .diffusion import diffusion_form
 from .beam import (
@@ -153,6 +156,8 @@ __all__ = [
     "j2_return_mapping",
     "j2_update_element_quadrature_state",
     "j2_yield_function",
+    "make_j2_cell_data",
+    "make_j2_point_and_cell_data",
     "make_j2_plasticity_state",
     "make_j2_quadrature_state",
     "small_strain_voigt",
@@ -274,4 +279,5 @@ __all__ = [
     "voigt_tensor_inner",
     "voigt_trace",
     "von_mises_stress_voigt",
+    "write_j2_vtu",
 ]

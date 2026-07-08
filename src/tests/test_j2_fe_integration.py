@@ -192,3 +192,33 @@ def test_j2_unload_after_committed_extension_has_elastic_stress_increment():
         atol=1.0e-8,
     )
     np.testing.assert_allclose(np.asarray(state_unload.equivalent_plastic_strain), np.asarray(state_load.equivalent_plastic_strain), atol=1.0e-14)
+
+
+def test_make_j2_cell_data_and_write_vtu(tmp_path):
+    space = _one_hex_space()
+    mesh = space.mesh
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=50.0, hardening_modulus=100.0)
+    dirichlet = _homogeneous_extension_dirichlet(space, axial_strain=5.0e-3)
+    u, state, _history = ff.solve_j2_plasticity_load_steps(
+        space,
+        material,
+        dirichlet=dirichlet,
+        n_steps=1,
+    )
+
+    cell_data = ff.make_j2_cell_data(space, u, state, material)
+
+    assert set(cell_data) >= {"j2_p_eq", "j2_sigma_vm", "j2_sigma_xx", "j2_stress_voigt"}
+    assert cell_data["j2_p_eq"].shape == (mesh.conn.shape[0],)
+    assert cell_data["j2_stress_voigt"].shape == (mesh.conn.shape[0], 6)
+    assert float(cell_data["j2_p_eq"].max()) > 0.0
+    assert float(cell_data["j2_sigma_vm"].max()) > 0.0
+
+    out = tmp_path / "j2_uniaxial.vtu"
+    ff.write_j2_vtu(mesh, space, u, state, material, str(out))
+
+    text = out.read_text(encoding="ascii")
+    assert 'Name="displacement"' in text
+    assert 'Name="j2_p_eq"' in text
+    assert 'Name="j2_sigma_vm"' in text
+    assert 'Name="j2_stress_voigt"' in text

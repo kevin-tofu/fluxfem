@@ -30,10 +30,15 @@ Implemented:
     load-step wrapper with trial/commit behavior.
   - Exposes `evaluate_j2_quadrature_strain` and
     `evaluate_j2_quadrature_stress` for diagnostics and verification.
+  - Exposes `make_j2_cell_data`, `make_j2_point_and_cell_data`, and
+    `write_j2_vtu` for element-averaged VTU cell data.
   - Covered by elastic residual equality against linear elasticity and plastic
     quadrature-state commit tests, including displacement-controlled stepping,
     material-point reference matching for uniaxial extension, and elastic
     unload response after committed plasticity.
+- J2 visualization tutorial:
+  `tutorials/nonlinear/j2_uniaxial_tension.py` writes displacement point data,
+  element-averaged plastic strain/stress VTU cell data, and a CSV load history.
 - Basic structural damping/spring/dashpot helpers for lumped DOFs. These are
   not continuum viscoelastic material models.
 
@@ -93,4 +98,5 @@ Main checks for the current implemented nonlinear material path:
 - `PYTHONPATH=src pytest -q src/tests/test_kernel_assembly.py -k neo_hookean`
 - `PYTHONPATH=src pytest -q src/tests/test_j2_plasticity.py`
 - `PYTHONPATH=src pytest -q src/tests/test_j2_fe_integration.py`
+- `PYTHONPATH=src python tutorials/nonlinear/j2_uniaxial_tension.py --steps 2 --nx 2`
 - `PYTHONPATH=src JAX_PLATFORMS=cpu python tutorials/nonlinear/neo_hookean_cantilever.py --nx 2 --ny 1 --nz 1 --nstep 2 --no-output --linear-solver spsolve`

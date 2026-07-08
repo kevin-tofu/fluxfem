@@ -384,6 +384,76 @@ def evaluate_j2_quadrature_stress(
     )
 
 
+def make_j2_cell_data(
+    space,
+    u: jnp.ndarray,
+    state: J2PlasticityQuadratureState,
+    material: J2Plasticity,
+) -> dict[str, np.ndarray]:
+    """Return element-averaged J2 fields suitable for VTU cell data."""
+    stress = evaluate_j2_quadrature_stress(space, u, state, material)
+    p_eq = jnp.asarray(state.equivalent_plastic_strain)
+    sigma_vm = von_mises_stress_voigt(stress)
+    return {
+        "j2_p_eq": np.asarray(jnp.mean(p_eq, axis=1), dtype=np.float64),
+        "j2_sigma_vm": np.asarray(jnp.mean(sigma_vm, axis=1), dtype=np.float64),
+        "j2_sigma_xx": np.asarray(jnp.mean(stress[..., 0], axis=1), dtype=np.float64),
+        "j2_sigma_yy": np.asarray(jnp.mean(stress[..., 1], axis=1), dtype=np.float64),
+        "j2_sigma_zz": np.asarray(jnp.mean(stress[..., 2], axis=1), dtype=np.float64),
+        "j2_stress_voigt": np.asarray(jnp.mean(stress, axis=1), dtype=np.float64),
+    }
+
+
+def make_j2_point_and_cell_data(
+    mesh,
+    space,
+    u: jnp.ndarray,
+    state: J2PlasticityQuadratureState,
+    material: J2Plasticity,
+    *,
+    compute_j: bool = False,
+    deformed_scale: float = 1.0,
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """Return displacement point data and J2 element-averaged cell data."""
+    from ..postprocess import make_point_data_displacement
+
+    point_data = make_point_data_displacement(
+        mesh,
+        space,
+        u,
+        compute_j=compute_j,
+        deformed_scale=deformed_scale,
+    )
+    cell_data = make_j2_cell_data(space, u, state, material)
+    return point_data, cell_data
+
+
+def write_j2_vtu(
+    mesh,
+    space,
+    u: jnp.ndarray,
+    state: J2PlasticityQuadratureState,
+    material: J2Plasticity,
+    filepath: str,
+    *,
+    compute_j: bool = False,
+    deformed_scale: float = 1.0,
+) -> None:
+    """Write VTU with displacement point data and J2 cell data."""
+    from ...tools.visualizer import write_vtu
+
+    point_data, cell_data = make_j2_point_and_cell_data(
+        mesh,
+        space,
+        u,
+        state,
+        material,
+        compute_j=compute_j,
+        deformed_scale=deformed_scale,
+    )
+    write_vtu(mesh, filepath, point_data=point_data, cell_data=cell_data)
+
+
 def _j2_normalize_dirichlet(dirichlet):
     if dirichlet is None:
         return None
@@ -545,6 +615,8 @@ __all__ = [
     "j2_yield_function",
     "lame_parameters",
     "isotropic_3d_D",
+    "make_j2_cell_data",
+    "make_j2_point_and_cell_data",
     "make_j2_plasticity_state",
     "make_j2_quadrature_state",
     "small_strain_voigt",
@@ -556,4 +628,5 @@ __all__ = [
     "voigt_tensor_inner",
     "voigt_trace",
     "von_mises_stress_voigt",
+    "write_j2_vtu",
 ]
