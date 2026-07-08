@@ -703,6 +703,7 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 - `tutorials/elasticity/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
 - `tutorials/elasticity/frame2d_cantilever.py`, `tutorials/elasticity/beam_cantilever.py`, and `tutorials/elasticity/beam_uniform_load.py` (2D/3D Euler-Bernoulli frame helpers)
 - `tutorials/elasticity/mindlin_plate_cantilever.py` (Q4 Reissner-Mindlin/Mindlin plate helper, `--shear-mode reduced|full|mitc4`)
+- `tutorials/elasticity/mindlin_plate_shear_locking_benchmark.py` (thin-plate shear locking comparison for `full`, `reduced`, and `mitc4`)
 - `tutorials/elasticity/flat_shell_cantilever.py` (Q4 Reissner-Mindlin shell helper, 2D/tilted 3D coordinates, `--shear-mode reduced|full|mitc4`, and optional VTU output)
 - `tutorials/elasticity/solid_shell_translational_tie.py` (solid surface tied to a shell skin by translational DOFs)
 - `tutorials/elasticity/solid_shell_rbe3_patch_coupling.py` (solid face patch coupled to a shell root edge through a 6-DOF RBE3 remote point)

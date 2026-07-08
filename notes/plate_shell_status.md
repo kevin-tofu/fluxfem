@@ -29,6 +29,8 @@ Important limits:
 Main checks:
 
 - `PYTHONPATH=src pytest -q src/tests/test_plate.py src/tests/test_solid_shell_coupling.py src/tests/test_shell_solid_benchmark.py`
+- `PYTHONPATH=src pytest -q src/tests/test_plate_shear_locking_benchmark.py`
+- `PYTHONPATH=src python tutorials/elasticity/mindlin_plate_shear_locking_benchmark.py`
 - `PYTHONPATH=src python tutorials/elasticity/flat_shell_cantilever.py --format fluxsparse --tilt-z 0.2`
 - `PYTHONPATH=src python tutorials/elasticity/flat_shell_cantilever.py --format fluxsparse --tilt-z 0.2 --shear-mode mitc4`
 - `PYTHONPATH=src python tutorials/elasticity/solid_shell_translational_tie.py --nx 2 --ny 1 --nz 1 --pressure-z -1.0`
