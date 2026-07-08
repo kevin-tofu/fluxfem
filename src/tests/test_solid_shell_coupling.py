@@ -487,3 +487,66 @@ def test_solid_shell_nonmatching_tie_projects_through_cb_rom():
     )
 
     _assert_static_cb_projection_matches_full(K, F, C, np.asarray(model["fixed_dofs"], dtype=int), retained_full)
+
+
+def test_solid_shell_nonmatching_tie_cb_matches_constrained_frequencies():
+    tutorial = _load_tutorial_module("solid_shell_nonmatching_tie")
+    model = tutorial.build_solid_shell_nonmatching_tie(
+        solid_nx=2,
+        solid_ny=1,
+        solid_nz=1,
+        shell_nx=4,
+        shell_ny=2,
+        pressure_z=-1.0,
+        shear_mode="mitc4",
+    )
+    K_lifted, _F_lifted = model["system"].assemble(format="csr")
+    n_solid = model["solid_space"].n_dofs
+    n_shell = model["shell_n_dofs"]
+    K = K_lifted[: n_solid + n_shell, : n_solid + n_shell].tocsr()
+    C = model["constraint_matrix"].tocsr()
+    M_solid = _csr(model["solid_space"].assemble_mass_matrix(backend="numpy"))
+    shell_section = ff.ShellSection(E=2.0e5, nu=0.30, thickness=0.02, rho=1.0, shear_mode=model["shear_mode"])
+    M_shell = ff.assemble_shell_mass(model["shell_coords"], model["shell_conn"], shell_section, format="csr")
+    M = sp.block_diag((M_solid, M_shell), format="csr")
+
+    fixed = np.asarray(model["fixed_dofs"], dtype=int)
+    free = np.asarray(ff.free_dofs(K.shape[0], fixed), dtype=int)
+    matched_solid_dofs = np.asarray([3 * int(node) + comp for nodes in model["matched_solid_nodes"] for node in nodes for comp in range(3)], dtype=int)
+    shell_nodes = np.arange(model["shell_coords"].shape[0], dtype=int)
+    retained_full = np.unique(
+        np.concatenate(
+            [
+                matched_solid_dofs,
+                model["shell_offset"] + ff.shell_node_dofs(shell_nodes, "uxuyuz"),
+                model["shell_offset"]
+                + ff.shell_node_dofs(
+                    np.flatnonzero(np.isclose(model["shell_coords"][:, 0], model["shell_coords"][:, 0].max()))
+                ),
+            ]
+        )
+    )
+    retained = np.flatnonzero(np.isin(free, retained_full)).astype(np.int32)
+    k_free = K[free, :][:, free]
+    m_free = M[free, :][:, free]
+    c_free = C[:, free]
+
+    cb = ff.make_craig_bampton_basis(
+        k_free,
+        m_free,
+        retained_dofs=retained,
+        n_modes=k_free.shape[0] - retained.size,
+        backend="scipy",
+        constraint_solver="spsolve",
+        modal_solver="dense",
+    )
+    full = _constrained_omegas(K, M, C, fixed, n_modes=6)
+    rom = _constrained_omegas(
+        sp.csr_matrix(cb.project_matrix(k_free)),
+        sp.csr_matrix(cb.project_matrix(m_free)),
+        sp.csr_matrix(c_free @ cb.basis),
+        np.array([], dtype=int),
+        n_modes=6,
+    )
+
+    np.testing.assert_allclose(rom, full, rtol=1.0e-6, atol=1.0e-5)
