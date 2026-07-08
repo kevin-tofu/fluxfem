@@ -10,6 +10,9 @@ Implemented:
   `shear_mode="reduced"` keeps one-point selective reduced integration,
   `shear_mode="full"` uses full 2x2 shear integration, and
   `shear_mode="mitc4"` uses an edge-tying assumed-shear variant.
+- Consistent plate/shell mass assembly using `section.rho`:
+  `assemble_mindlin_plate_mass`, `assemble_flat_shell_mass`, and
+  `assemble_shell_mass`.
 - 3D shell coordinates through per-element local frames and global DOF rotation.
 - Q4 surface VTU output for plate/shell visualization.
 - Shell-to-beam style coupling through existing 6-DOF DOF ties.
@@ -24,8 +27,8 @@ Backend support:
 
 | Feature | SciPy/NumPy path | JAX path | Current note |
 |---|---|---|---|
-| Plate stiffness/load assembly | `format="csr"` / `"dense"`, NumPy load vectors | `format="fluxsparse"`, JAX load vectors | `shear_mode` is section-level and backend-neutral. |
-| Shell stiffness/load assembly | `format="csr"` / `"dense"`, NumPy load vectors | `format="fluxsparse"`, JAX load vectors | 3D shell coordinates are local planar frames transformed to global DOFs. |
+| Plate stiffness/mass/load assembly | `format="csr"` / `"dense"`, NumPy load vectors | `format="fluxsparse"`, JAX load vectors | `shear_mode` is section-level and backend-neutral; mass requires `section.rho`. |
+| Shell stiffness/mass/load assembly | `format="csr"` / `"dense"`, NumPy load vectors | `format="fluxsparse"`, JAX load vectors | 3D shell coordinates are local planar frames transformed to global DOFs; mass requires `section.rho`. |
 | Coincident shell-solid tie | `NumpyCoupledSystemBuilder.add_dof_tie_constraint` | Same DOF rows are compatible with `JAXCoupledSystemBuilder` | Translations only. |
 | Nonmatching shell-solid tie | CSR matrix from `shell_solid_nonmatching_translational_tie_matrix` | Use the same matrix as a dense/JAX array with `add_constraint_matrix_dof` | Node-to-surface interpolation; not mortar. |
 | Solid patch to shell edge RBE3 coupling | `NumpyCoupledSystemBuilder.add_distributed_coupling` tutorials | JAX builder has matching distributed-coupling tests | RBE3-style weighted least-squares remote reconstruction; generated rows are checked for force/moment balance. |
@@ -36,6 +39,9 @@ Important limits:
 - The shell is a linear Reissner-Mindlin Q4 shell built from local planar element frames; it is not a geometrically nonlinear curved-shell formulation.
 - The `mitc4` option is a small-strain, planar Q4 assumed-shear implementation; it is not a full general shell MITC library with curved geometry support.
 - Drilling rotation uses a small diagonal stabilization.
+- Shell drilling rotation mass uses the same through-thickness rotary inertia
+  scale as the bending rotations for dynamic regularity; it is not a calibrated
+  drilling inertia model.
 - Direct solid-shell rotational continuity is not available because solid nodes do not have rotational DOFs. Use the RBE3 patch coupling path when average rotation transfer is needed.
 - Nonmatching shell-solid ties currently support node-to-surface translational
   interpolation on planar tri/quad solid facets; this is not a mortar coupling

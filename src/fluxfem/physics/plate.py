@@ -409,6 +409,19 @@ def _plate_constitutive(section: PlateSection) -> tuple[np.ndarray, np.ndarray]:
     return Db, Ds
 
 
+def _section_density_and_thickness(section: PlateSection | ShellSection) -> tuple[float, float]:
+    rho = section.rho
+    if rho is None:
+        raise ValueError("section.rho is required for mass assembly.")
+    rho_f = float(rho)
+    t = float(section.thickness)
+    if rho_f <= 0.0:
+        raise ValueError("rho must be positive.")
+    if t <= 0.0:
+        raise ValueError("thickness must be positive.")
+    return rho_f, t
+
+
 def _shell_section_as_plate(section: ShellSection) -> PlateSection:
     return PlateSection(
         E=section.E,
@@ -563,6 +576,35 @@ def mindlin_plate_element_stiffness(coords: np.ndarray, section: PlateSection) -
     return 0.5 * (K + K.T)
 
 
+def mindlin_plate_element_mass(coords: np.ndarray, section: PlateSection) -> np.ndarray:
+    """
+    12x12 consistent Q4 Reissner-Mindlin plate mass matrix.
+
+    The plate DOFs are ``[w, theta_x, theta_y]``. The transverse displacement
+    uses surface mass density ``rho * thickness`` and the two rotational DOFs
+    use the through-thickness rotary inertia ``rho * thickness**3 / 12``.
+    """
+    x = np.asarray(coords, dtype=float)
+    if x.shape != (4, 2):
+        raise ValueError("coords must have shape (4, 2).")
+    rho, t = _section_density_and_thickness(section)
+    translational = rho * t
+    rotational = rho * t**3 / 12.0
+    M = np.zeros((12, 12), dtype=float)
+    g = 1.0 / np.sqrt(3.0)
+    for xi in (-g, g):
+        for eta in (-g, g):
+            N, _dN_dx, detJ = _q4_gradients(x, xi, eta)
+            nn = np.outer(N, N) * detJ
+            for a in range(4):
+                for b in range(4):
+                    block = nn[a, b]
+                    M[3 * a + 0, 3 * b + 0] += translational * block
+                    M[3 * a + 1, 3 * b + 1] += rotational * block
+                    M[3 * a + 2, 3 * b + 2] += rotational * block
+    return 0.5 * (M + M.T)
+
+
 def flat_shell_element_stiffness(coords: np.ndarray, section: ShellSection) -> np.ndarray:
     """
     24x24 flat Q4 Reissner-Mindlin shell stiffness in the x-y plane.
@@ -612,6 +654,36 @@ def flat_shell_element_stiffness(coords: np.ndarray, section: ShellSection) -> n
         for a in range(4):
             K[6 * a + 5, 6 * a + 5] += scale
     return 0.5 * (K + K.T)
+
+
+def flat_shell_element_mass(coords: np.ndarray, section: ShellSection) -> np.ndarray:
+    """
+    24x24 consistent flat Reissner-Mindlin shell mass in local shell axes.
+
+    Translational DOFs use ``rho * thickness``. Rotational DOFs use the
+    through-thickness rotary inertia ``rho * thickness**3 / 12``; this gives the
+    bending rotations the same mass as the Mindlin plate block and assigns a
+    small physical inertia to the drilling rotation for dynamic regularity.
+    """
+    x = np.asarray(coords, dtype=float)
+    if x.shape != (4, 2):
+        raise ValueError("coords must have shape (4, 2).")
+    rho, t = _section_density_and_thickness(section)
+    translational = rho * t
+    rotational = rho * t**3 / 12.0
+    M = np.zeros((24, 24), dtype=float)
+    g = 1.0 / np.sqrt(3.0)
+    for xi in (-g, g):
+        for eta in (-g, g):
+            N, _dN_dx, detJ = _q4_gradients(x, xi, eta)
+            nn = np.outer(N, N) * detJ
+            for a in range(4):
+                for b in range(4):
+                    block = nn[a, b]
+                    for comp in range(3):
+                        M[6 * a + comp, 6 * b + comp] += translational * block
+                        M[6 * a + 3 + comp, 6 * b + 3 + comp] += rotational * block
+    return 0.5 * (M + M.T)
 
 
 def mindlin_plate_element_uniform_load(coords: np.ndarray, load: float) -> np.ndarray:
@@ -679,6 +751,38 @@ def assemble_mindlin_plate_stiffness(
     return _sparse_from_coo(rows, cols, data, n_dofs, format=_resolve_matrix_format(format, backend))
 
 
+def assemble_mindlin_plate_mass(
+    coords: np.ndarray,
+    conn: np.ndarray,
+    section: PlateSection,
+    *,
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
+):
+    """Assemble consistent mass for Q4 Reissner-Mindlin plate elements."""
+    coords_arr = np.asarray(coords, dtype=float)
+    conn_arr = np.asarray(conn, dtype=int)
+    if coords_arr.ndim != 2 or coords_arr.shape[1] != 2:
+        raise ValueError("coords must have shape (n_nodes, 2).")
+    if conn_arr.ndim != 2 or conn_arr.shape[1] != 4:
+        raise ValueError("conn must have shape (n_elems, 4).")
+
+    elem_dofs = plate_element_dofs(conn_arr)
+    rows: list[int] = []
+    cols: list[int] = []
+    data: list[float] = []
+    for e, nodes in enumerate(conn_arr):
+        Me = mindlin_plate_element_mass(coords_arr[nodes], section)
+        dofs = elem_dofs[e]
+        rr, cc = np.meshgrid(dofs, dofs, indexing="ij")
+        rows.extend(rr.reshape(-1).tolist())
+        cols.extend(cc.reshape(-1).tolist())
+        data.extend(Me.reshape(-1).tolist())
+
+    n_dofs = PLATE_DOF_PER_NODE * coords_arr.shape[0]
+    return _sparse_from_coo(rows, cols, data, n_dofs, format=_resolve_matrix_format(format, backend))
+
+
 def assemble_flat_shell_stiffness(
     coords: np.ndarray,
     conn: np.ndarray,
@@ -711,6 +815,38 @@ def assemble_flat_shell_stiffness(
     return _sparse_from_coo(rows, cols, data, n_dofs, format=_resolve_matrix_format(format, backend))
 
 
+def assemble_flat_shell_mass(
+    coords: np.ndarray,
+    conn: np.ndarray,
+    section: ShellSection,
+    *,
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
+):
+    """Assemble consistent mass for flat Q4 Reissner-Mindlin shell elements."""
+    coords_arr = np.asarray(coords, dtype=float)
+    conn_arr = np.asarray(conn, dtype=int)
+    if coords_arr.ndim != 2 or coords_arr.shape[1] != 2:
+        raise ValueError("coords must have shape (n_nodes, 2).")
+    if conn_arr.ndim != 2 or conn_arr.shape[1] != 4:
+        raise ValueError("conn must have shape (n_elems, 4).")
+
+    elem_dofs = shell_element_dofs(conn_arr)
+    rows: list[int] = []
+    cols: list[int] = []
+    data: list[float] = []
+    for e, nodes in enumerate(conn_arr):
+        Me = flat_shell_element_mass(coords_arr[nodes], section)
+        dofs = elem_dofs[e]
+        rr, cc = np.meshgrid(dofs, dofs, indexing="ij")
+        rows.extend(rr.reshape(-1).tolist())
+        cols.extend(cc.reshape(-1).tolist())
+        data.extend(Me.reshape(-1).tolist())
+
+    n_dofs = SHELL_DOF_PER_NODE * coords_arr.shape[0]
+    return _sparse_from_coo(rows, cols, data, n_dofs, format=_resolve_matrix_format(format, backend))
+
+
 def assemble_shell_stiffness(
     coords: np.ndarray,
     conn: np.ndarray,
@@ -738,6 +874,38 @@ def assemble_shell_stiffness(
         rows.extend(rr.reshape(-1).tolist())
         cols.extend(cc.reshape(-1).tolist())
         data.extend(Ke.reshape(-1).tolist())
+
+    n_dofs = SHELL_DOF_PER_NODE * coords_arr.shape[0]
+    return _sparse_from_coo(rows, cols, data, n_dofs, format=_resolve_matrix_format(format, backend))
+
+
+def assemble_shell_mass(
+    coords: np.ndarray,
+    conn: np.ndarray,
+    section: ShellSection,
+    *,
+    format: MatrixFormat | None = None,
+    backend: MatrixBackend | None = None,
+):
+    """Assemble consistent mass for Q4 Reissner-Mindlin shell elements in 2D or 3D coordinates."""
+    coords_arr = np.asarray(coords, dtype=float)
+    conn_arr = np.asarray(conn, dtype=int)
+    if coords_arr.ndim != 2 or coords_arr.shape[1] not in (2, 3):
+        raise ValueError("coords must have shape (n_nodes, 2) or (n_nodes, 3).")
+    if conn_arr.ndim != 2 or conn_arr.shape[1] != 4:
+        raise ValueError("conn must have shape (n_elems, 4).")
+
+    elem_dofs = shell_element_dofs(conn_arr)
+    rows: list[int] = []
+    cols: list[int] = []
+    data: list[float] = []
+    for e, nodes in enumerate(conn_arr):
+        Me = shell_element_mass_global(coords_arr[nodes], section)
+        dofs = elem_dofs[e]
+        rr, cc = np.meshgrid(dofs, dofs, indexing="ij")
+        rows.extend(rr.reshape(-1).tolist())
+        cols.extend(cc.reshape(-1).tolist())
+        data.extend(Me.reshape(-1).tolist())
 
     n_dofs = SHELL_DOF_PER_NODE * coords_arr.shape[0]
     return _sparse_from_coo(rows, cols, data, n_dofs, format=_resolve_matrix_format(format, backend))
@@ -1011,6 +1179,20 @@ def shell_element_stiffness_global(coords: np.ndarray, section: ShellSection) ->
     return 0.5 * (T.T @ K_local @ T + (T.T @ K_local @ T).T)
 
 
+def shell_element_mass_global(coords: np.ndarray, section: ShellSection) -> np.ndarray:
+    """
+    24x24 Q4 Reissner-Mindlin shell mass for 2D or 3D shell coordinates.
+
+    For 3D coordinates, the local flat-shell mass is transformed back to global
+    translational and rotational DOFs using the same frame convention as shell
+    stiffness assembly.
+    """
+    R, local = shell_element_frame(coords)
+    M_local = flat_shell_element_mass(local, section)
+    T = _shell_transform(R)
+    return 0.5 * (T.T @ M_local @ T + (T.T @ M_local @ T).T)
+
+
 def shell_element_uniform_load_global(coords: np.ndarray, load: Sequence[float] | np.ndarray) -> np.ndarray:
     """24-vector of equivalent nodal loads for a uniform global shell load."""
     q_global = np.asarray(load, dtype=float).reshape(-1)
@@ -1105,22 +1287,28 @@ __all__ = [
     "ShellSection",
     "assemble_flat_shell_point_load",
     "assemble_flat_shell_point_loads",
+    "assemble_flat_shell_mass",
     "assemble_flat_shell_stiffness",
     "assemble_flat_shell_uniform_load",
+    "assemble_shell_mass",
     "assemble_shell_stiffness",
     "assemble_shell_uniform_load",
+    "assemble_mindlin_plate_mass",
     "assemble_mindlin_plate_point_load",
     "assemble_mindlin_plate_point_loads",
     "assemble_mindlin_plate_stiffness",
     "assemble_mindlin_plate_uniform_load",
+    "flat_shell_element_mass",
     "flat_shell_element_stiffness",
     "flat_shell_element_uniform_load",
+    "mindlin_plate_element_mass",
     "mindlin_plate_element_stiffness",
     "mindlin_plate_element_uniform_load",
     "plate_element_dofs",
     "plate_node_dofs",
     "shell_element_dofs",
     "shell_element_frame",
+    "shell_element_mass_global",
     "shell_element_stiffness_global",
     "shell_element_uniform_load_global",
     "shell_node_dofs",

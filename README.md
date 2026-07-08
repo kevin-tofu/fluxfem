@@ -291,12 +291,13 @@ selection through `slave_components`.
 Plate/shell helpers include Q4 Mindlin/Reissner-Mindlin plate elements and
 linear Q4 Reissner-Mindlin shell elements. Shells use 6 DOF/node and can be
 assembled on 2D flat coordinates or 3D planar element coordinates. Plate and
-shell sections expose `shear_mode="reduced" | "full" | "mitc4"`; the default
-keeps the existing selective reduced shear integration, while `mitc4` uses an
-edge-tying assumed-shear variant for locking/hourglass studies. Solid-shell
-examples cover coincident-node translational ties and solid-patch-to-shell-edge
-RBE3 remote coupling. Nonmatching planar shell-solid translational ties are
-available through solid surface facet interpolation; see
+shell sections expose `shear_mode="reduced" | "full" | "mitc4"` and `rho` for
+consistent mass assembly; the default keeps the existing selective reduced
+shear integration, while `mitc4` uses an edge-tying assumed-shear variant for
+locking/hourglass studies. Solid-shell examples cover coincident-node
+translational ties and solid-patch-to-shell-edge RBE3 remote coupling.
+Nonmatching planar shell-solid translational ties are available through solid
+surface facet interpolation; see
 `notes/plate_shell_status.md` for current limits.
 
 Nonlinear material support currently centers on compressible Neo-Hookean
@@ -310,7 +311,7 @@ Backend support summary for the structural helpers:
 | Feature | SciPy/NumPy path | JAX path | Notes |
 |---|---|---|---|
 | Beam / frame / truss assembly | `format="csr"` or `"dense"` | `format="fluxsparse"` and JAX load vectors | Older `backend="scipy"|"numpy"|"jax"` spelling remains as a compatibility alias. |
-| Mindlin plate / Reissner-Mindlin shell assembly | `format="csr"` or `"dense"` | `format="fluxsparse"` and JAX load vectors | `shear_mode="reduced"|"full"|"mitc4"` is shared by both paths. |
+| Mindlin plate / Reissner-Mindlin shell assembly | `format="csr"` or `"dense"` | `format="fluxsparse"` and JAX load vectors | Stiffness and mass matrices share the same backend path; mass requires `section.rho`. |
 | DOF ties, RBE2, RBE3, distributed coupling, bolt preload | `NumpyCoupledSystemBuilder` | `JAXCoupledSystemBuilder` | Tests compare representative NumPy and JAX builder results. |
 | Shell-solid coincident tie | `NumpyCoupledSystemBuilder` tutorials | Constraint rows are compatible with `JAXCoupledSystemBuilder` | Translational shell DOFs only. |
 | Shell-solid nonmatching tie | CSR constraint matrix for NumPy builder | Dense/JAX-array constraint matrix for JAX builder | Node-to-surface interpolation on planar tri/quad facets; not mortar. |

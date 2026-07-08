@@ -35,6 +35,32 @@ def test_mindlin_plate_element_stiffness_is_symmetric_and_preserves_rigid_modes(
         np.testing.assert_allclose(K @ mode, np.zeros((12,)), atol=scale * 1.0e-12)
 
 
+def test_mindlin_plate_element_mass_is_symmetric_and_preserves_mass():
+    coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]], dtype=float)
+    section = ff.PlateSection(E=210.0e9, nu=0.3, thickness=0.02, rho=7800.0)
+    M = ff.mindlin_plate_element_mass(coords, section)
+
+    assert M.shape == (12, 12)
+    np.testing.assert_allclose(M, M.T, rtol=0.0, atol=1.0e-12)
+    total_mass = section.rho * section.thickness * 2.0
+    ones = np.ones(4)
+    w_dofs = np.arange(0, 12, 3)
+    np.testing.assert_allclose(ones @ M[np.ix_(w_dofs, w_dofs)] @ ones, total_mass, rtol=1.0e-12)
+
+    rotational_inertia = section.rho * section.thickness**3 * 2.0 / 12.0
+    for offset in (1, 2):
+        dofs = np.arange(offset, 12, 3)
+        np.testing.assert_allclose(ones @ M[np.ix_(dofs, dofs)] @ ones, rotational_inertia, rtol=1.0e-12)
+
+
+def test_mindlin_plate_mass_requires_density():
+    coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]], dtype=float)
+    section = ff.PlateSection(E=210.0e9, nu=0.3, thickness=0.02)
+
+    with np.testing.assert_raises(ValueError):
+        ff.mindlin_plate_element_mass(coords, section)
+
+
 def test_mindlin_plate_shear_modes_are_selectable():
     coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.2, 1.0], [0.0, 1.0]], dtype=float)
     reduced = ff.PlateSection(E=210.0e9, nu=0.3, thickness=0.01, shear_mode="reduced")
@@ -85,6 +111,19 @@ def test_assemble_mindlin_plate_stiffness_backends_and_load_vector():
     np.testing.assert_allclose(f[0::3].sum(), 14.0, atol=1.0e-12)
 
 
+def test_assemble_mindlin_plate_mass_backends():
+    coords, conn = ff.structured_plate_grid(nx=1, ny=1, length_x=2.0, length_y=1.0)
+    section = ff.PlateSection(E=70.0e9, nu=0.33, thickness=0.05, rho=2700.0)
+
+    M_dense = ff.assemble_mindlin_plate_mass(coords, conn, section, backend="numpy")
+    M_csr = ff.assemble_mindlin_plate_mass(coords, conn, section, backend="scipy")
+    M_jax = ff.assemble_mindlin_plate_mass(coords, conn, section, backend="jax")
+
+    assert M_dense.shape == (12, 12)
+    np.testing.assert_allclose(M_csr.toarray(), M_dense)
+    np.testing.assert_allclose(np.asarray(M_jax.to_dense()), M_dense)
+
+
 def test_assemble_mindlin_plate_mitc4_backend_matches_dense():
     coords, conn = ff.structured_plate_grid(nx=1, ny=1, length_x=2.0, length_y=1.0)
     section = ff.PlateSection(E=70.0e9, nu=0.33, thickness=0.01, shear_mode="mitc4")
@@ -131,6 +170,20 @@ def test_flat_shell_element_stiffness_is_symmetric_and_preserves_rigid_modes():
         np.testing.assert_allclose(K @ mode, np.zeros((24,)), atol=scale * 1.0e-12)
 
 
+def test_flat_shell_element_mass_is_symmetric_and_preserves_translational_mass():
+    coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]], dtype=float)
+    section = ff.ShellSection(E=210.0e9, nu=0.3, thickness=0.02, rho=7800.0)
+    M = ff.flat_shell_element_mass(coords, section)
+
+    assert M.shape == (24, 24)
+    np.testing.assert_allclose(M, M.T, rtol=0.0, atol=1.0e-12)
+    total_mass = section.rho * section.thickness * 2.0
+    ones = np.ones(4)
+    for comp in range(3):
+        dofs = np.arange(comp, 24, 6)
+        np.testing.assert_allclose(ones @ M[np.ix_(dofs, dofs)] @ ones, total_mass, rtol=1.0e-12)
+
+
 def test_flat_shell_bending_block_matches_plate_stiffness():
     coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]], dtype=float)
     shell = ff.ShellSection(E=70.0e9, nu=0.33, thickness=0.05, drilling_stiffness=0.0)
@@ -144,6 +197,27 @@ def test_flat_shell_bending_block_matches_plate_stiffness():
         P[3 * a + 2, 6 * a + 3] = 1.0
 
     np.testing.assert_allclose(P @ Ks @ P.T, Kp)
+
+
+def test_flat_shell_bending_mass_block_matches_plate_mass():
+    coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]], dtype=float)
+    shell = ff.ShellSection(E=70.0e9, nu=0.33, thickness=0.05, drilling_stiffness=0.0, rho=2700.0)
+    plate = ff.PlateSection(
+        E=shell.E,
+        nu=shell.nu,
+        thickness=shell.thickness,
+        shear_correction=shell.shear_correction,
+        rho=shell.rho,
+    )
+    Ms = ff.flat_shell_element_mass(coords, shell)
+    Mp = ff.mindlin_plate_element_mass(coords, plate)
+    P = np.zeros((12, 24), dtype=float)
+    for a in range(4):
+        P[3 * a + 0, 6 * a + 2] = 1.0
+        P[3 * a + 1, 6 * a + 4] = -1.0
+        P[3 * a + 2, 6 * a + 3] = 1.0
+
+    np.testing.assert_allclose(P @ Ms @ P.T, Mp)
 
 
 def test_flat_shell_uses_plate_shear_mode():
@@ -176,6 +250,19 @@ def test_assemble_flat_shell_stiffness_backends_and_uniform_load():
     np.testing.assert_allclose(f[0::6].sum(), 2.0, atol=1.0e-12)
     np.testing.assert_allclose(f[1::6].sum(), 4.0, atol=1.0e-12)
     np.testing.assert_allclose(f[2::6].sum(), 6.0, atol=1.0e-12)
+
+
+def test_assemble_flat_shell_mass_backends():
+    coords, conn = ff.structured_plate_grid(nx=1, ny=1, length_x=2.0, length_y=1.0)
+    section = ff.ShellSection(E=70.0e9, nu=0.33, thickness=0.05, rho=2700.0)
+
+    M_dense = ff.assemble_flat_shell_mass(coords, conn, section, backend="numpy")
+    M_csr = ff.assemble_flat_shell_mass(coords, conn, section, backend="scipy")
+    M_jax = ff.assemble_flat_shell_mass(coords, conn, section, backend="jax")
+
+    assert M_dense.shape == (24, 24)
+    np.testing.assert_allclose(M_csr.toarray(), M_dense)
+    np.testing.assert_allclose(np.asarray(M_jax.to_dense()), M_dense)
 
 
 def test_shell_node_dofs_and_element_dofs():
@@ -362,6 +449,30 @@ def test_shell_element_stiffness_global_preserves_3d_rigid_modes():
         np.testing.assert_allclose(K @ mode, np.zeros((24,)), atol=scale * 1.0e-12)
 
 
+def test_shell_element_mass_global_is_symmetric_and_preserves_translational_mass():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.4],
+            [2.0, 1.0, 0.6],
+            [0.0, 1.0, 0.2],
+        ],
+        dtype=float,
+    )
+    section = ff.ShellSection(E=210.0e9, nu=0.3, thickness=0.02, rho=7800.0)
+    M = ff.shell_element_mass_global(coords, section)
+
+    assert M.shape == (24, 24)
+    np.testing.assert_allclose(M, M.T, rtol=0.0, atol=1.0e-12)
+    _R, local = ff.shell_element_frame(coords)
+    area = abs(float(np.linalg.det((local[[1, 3]] - local[0]).T)))
+    total_mass = section.rho * section.thickness * area
+    ones = np.ones(4)
+    for comp in range(3):
+        dofs = np.arange(comp, 24, 6)
+        np.testing.assert_allclose(ones @ M[np.ix_(dofs, dofs)] @ ones, total_mass, rtol=1.0e-12)
+
+
 def test_assemble_shell_stiffness_3d_backends_and_uniform_load_resultant():
     coords2, conn = ff.structured_plate_grid(nx=1, ny=1, length_x=2.0, length_y=1.0)
     coords3 = np.column_stack([coords2[:, 0], coords2[:, 1], 0.2 * coords2[:, 0] + 0.1 * coords2[:, 1]])
@@ -384,6 +495,20 @@ def test_assemble_shell_stiffness_3d_backends_and_uniform_load_resultant():
 
     area = tri_area(local[0], local[1], local[2]) + tri_area(local[0], local[2], local[3])
     np.testing.assert_allclose(f.reshape(-1, 6)[:, :3].sum(axis=0), load * area, atol=1.0e-12)
+
+
+def test_assemble_shell_mass_3d_backends():
+    coords2, conn = ff.structured_plate_grid(nx=1, ny=1, length_x=2.0, length_y=1.0)
+    coords3 = np.column_stack([coords2[:, 0], coords2[:, 1], 0.2 * coords2[:, 0] + 0.1 * coords2[:, 1]])
+    section = ff.ShellSection(E=70.0e9, nu=0.33, thickness=0.05, rho=2700.0)
+
+    M_dense = ff.assemble_shell_mass(coords3, conn, section, backend="numpy")
+    M_csr = ff.assemble_shell_mass(coords3, conn, section, backend="scipy")
+    M_jax = ff.assemble_shell_mass(coords3, conn, section, backend="jax")
+
+    assert M_dense.shape == (24, 24)
+    np.testing.assert_allclose(M_csr.toarray(), M_dense)
+    np.testing.assert_allclose(np.asarray(M_jax.to_dense()), M_dense)
 
 
 def test_flat_shell_node_can_tie_to_beam_root_with_coupled_builder():

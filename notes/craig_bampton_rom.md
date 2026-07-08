@@ -35,12 +35,14 @@ gap/contact variables behind modal coordinates.
   - Truss chains use the active axial DOF subspace; unconstrained transverse
     truss DOFs remain mechanisms and should be constrained, retained, or
     removed before CB reduction.
+  - Mindlin plate and Reissner-Mindlin shell matrices use physical consistent
+    mass assembly and retain boundary plate/shell node DOFs while reducing the
+    interior.
   - SciPy and JAX CB backends are compared on reduced stiffness/mass projection
     after accounting for the arbitrary sign of modal columns.
-- Plate/shell stiffness can be assembled separately, but dynamic CB reduction
-  for plate/shell is not complete until physical plate/shell mass assembly is
-  added. Static projection with an artificial mass is possible, but it should
-  not be treated as a validated modal ROM.
+- Plate/shell dynamic CB reduction is now covered for assembled flat Q4
+  Mindlin/Reissner-Mindlin matrices. Curved/geometrically nonlinear shells and
+  full shell-solid modal benchmark comparisons remain separate validation work.
 
 ## Current second slice
 

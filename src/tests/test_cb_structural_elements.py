@@ -97,3 +97,35 @@ def test_craig_bampton_accepts_assembled_truss_axial_matrices():
     retained = np.array([0, active.size - 1], dtype=np.int32)
 
     _assert_cb_backend_projection_matches(k, m, retained, n_modes=2)
+
+
+def test_craig_bampton_accepts_assembled_mindlin_plate_matrices():
+    coords, conn = ff.structured_plate_grid(nx=2, ny=2, length_x=2.0, length_y=1.0)
+    section = ff.PlateSection(E=70.0e9, nu=0.33, thickness=0.05, rho=2700.0, shear_mode="mitc4")
+    k = ff.assemble_mindlin_plate_stiffness(coords, conn, section, format="csr")
+    m = ff.assemble_mindlin_plate_mass(coords, conn, section, format="csr")
+    boundary_nodes = np.flatnonzero(
+        np.isclose(coords[:, 0], coords[:, 0].min())
+        | np.isclose(coords[:, 0], coords[:, 0].max())
+        | np.isclose(coords[:, 1], coords[:, 1].min())
+        | np.isclose(coords[:, 1], coords[:, 1].max())
+    )
+    retained = ff.plate_node_dofs(boundary_nodes).astype(np.int32)
+
+    _assert_cb_backend_projection_matches(k, m, retained, n_modes=1)
+
+
+def test_craig_bampton_accepts_assembled_flat_shell_matrices():
+    coords, conn = ff.structured_plate_grid(nx=2, ny=2, length_x=2.0, length_y=1.0)
+    section = ff.ShellSection(E=70.0e9, nu=0.33, thickness=0.05, rho=2700.0, shear_mode="mitc4")
+    k = ff.assemble_shell_stiffness(coords, conn, section, format="csr")
+    m = ff.assemble_shell_mass(coords, conn, section, format="csr")
+    boundary_nodes = np.flatnonzero(
+        np.isclose(coords[:, 0], coords[:, 0].min())
+        | np.isclose(coords[:, 0], coords[:, 0].max())
+        | np.isclose(coords[:, 1], coords[:, 1].min())
+        | np.isclose(coords[:, 1], coords[:, 1].max())
+    )
+    retained = ff.shell_node_dofs(boundary_nodes).astype(np.int32)
+
+    _assert_cb_backend_projection_matches(k, m, retained, n_modes=2)
