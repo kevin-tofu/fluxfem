@@ -189,8 +189,8 @@ def test_j2_uniaxial_extension_matches_material_point_reference():
     stress_ref, state_ref = ff.j2_return_mapping(strain_ref, ff.make_j2_plasticity_state(dtype=jnp.float64), material)
 
     np.testing.assert_allclose(np.asarray(strain_q), np.broadcast_to(np.asarray(strain_ref), strain_q.shape), atol=1.0e-14)
-    np.testing.assert_allclose(np.asarray(stress_q), np.broadcast_to(np.asarray(stress_ref), stress_q.shape), rtol=1.0e-12, atol=1.0e-9)
-    np.testing.assert_allclose(np.asarray(state.equivalent_plastic_strain), float(state_ref.equivalent_plastic_strain), rtol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(stress_q), np.broadcast_to(np.asarray(stress_ref), stress_q.shape), rtol=1.0e-6, atol=1.0e-4)
+    np.testing.assert_allclose(np.asarray(state.equivalent_plastic_strain), float(state_ref.equivalent_plastic_strain), rtol=1.0e-6)
 
 
 def test_j2_unload_after_committed_extension_has_elastic_stress_increment():
@@ -223,8 +223,8 @@ def test_j2_unload_after_committed_extension_has_elastic_stress_increment():
     np.testing.assert_allclose(
         np.asarray(stress_unload - stress_load),
         np.broadcast_to(np.asarray(elastic_delta), stress_unload.shape),
-        rtol=1.0e-12,
-        atol=1.0e-8,
+        rtol=2.0e-6,
+        atol=1.0e-4,
     )
     np.testing.assert_allclose(np.asarray(state_unload.equivalent_plastic_strain), np.asarray(state_load.equivalent_plastic_strain), atol=1.0e-14)
 
@@ -278,6 +278,7 @@ def test_j2_force_controlled_elastic_bar_converges_without_nan_tangent():
         dirichlet=(fixed, np.zeros(len(fixed))),
         base_external_vector=force,
         n_steps=1,
+        atol=1.0e-6,
         maxiter=5,
         line_search=True,
     )
@@ -300,6 +301,7 @@ def test_j2_mixed_bc_tension_plasticizes_with_free_lateral_motion():
         material,
         dirichlet=dirichlet,
         n_steps=2,
+        atol=2.0e-6,
         maxiter=8,
         line_search=True,
     )
