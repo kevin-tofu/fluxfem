@@ -30,6 +30,7 @@ class PlateSection:
     thickness: float
     shear_correction: float = 5.0 / 6.0
     rho: float | None = None
+    shear_mode: str = "reduced"
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class ShellSection:
     shear_correction: float = 5.0 / 6.0
     drilling_stiffness: float = 1.0e-8
     rho: float | None = None
+    shear_mode: str = "reduced"
 
 
 def plate_node_dofs(
@@ -272,6 +274,7 @@ def _shell_section_as_plate(section: ShellSection) -> PlateSection:
         nu=section.nu,
         thickness=section.thickness,
         shear_correction=section.shear_correction,
+        shear_mode=section.shear_mode,
         rho=section.rho,
     )
 
@@ -328,12 +331,79 @@ def _shear_B(N: np.ndarray, dN_dx: np.ndarray) -> np.ndarray:
     return B
 
 
+def _normalize_shear_mode(mode: str) -> str:
+    normalized = str(mode).lower().replace("-", "_")
+    aliases = {
+        "sri": "reduced",
+        "selective_reduced": "reduced",
+        "one_point": "reduced",
+        "full_integration": "full",
+        "mitc": "mitc4",
+        "mitc_4": "mitc4",
+        "assumed": "mitc4",
+        "assumed_shear": "mitc4",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {"reduced", "full", "mitc4"}:
+        raise ValueError("shear_mode must be 'reduced', 'full', or 'mitc4'.")
+    return normalized
+
+
+def _mitc4_shear_B(coords: np.ndarray, xi: float, eta: float) -> tuple[np.ndarray, float]:
+    """
+    Return a MITC4-style assumed shear matrix for the plate DOF convention.
+
+    The transverse shear strains are sampled at the four edge tying points and
+    linearly interpolated through the element. This keeps the existing Q4
+    Mindlin element API while avoiding the hourglass-prone one-point shear term.
+    """
+    _N, _dN_dx, detJ = _q4_gradients(coords, xi, eta)
+    _N_b, dN_b, _det_b = _q4_gradients(coords, 0.0, -1.0)
+    _N_t, dN_t, _det_t = _q4_gradients(coords, 0.0, 1.0)
+    _N_l, dN_l, _det_l = _q4_gradients(coords, -1.0, 0.0)
+    _N_r, dN_r, _det_r = _q4_gradients(coords, 1.0, 0.0)
+
+    B_b = _shear_B(_N_b, dN_b)
+    B_t = _shear_B(_N_t, dN_t)
+    B_l = _shear_B(_N_l, dN_l)
+    B_r = _shear_B(_N_r, dN_r)
+
+    B = np.zeros((2, 12), dtype=float)
+    B[0] = 0.5 * (1.0 - eta) * B_b[0] + 0.5 * (1.0 + eta) * B_t[0]
+    B[1] = 0.5 * (1.0 - xi) * B_l[1] + 0.5 * (1.0 + xi) * B_r[1]
+    return B, detJ
+
+
+def _plate_shear_stiffness(coords: np.ndarray, Ds: np.ndarray, mode: str) -> np.ndarray:
+    K = np.zeros((12, 12), dtype=float)
+    shear_mode = _normalize_shear_mode(mode)
+    g = 1.0 / np.sqrt(3.0)
+
+    if shear_mode == "reduced":
+        N, dN_dx, detJ = _q4_gradients(coords, 0.0, 0.0)
+        Bs = _shear_B(N, dN_dx)
+        K += Bs.T @ Ds @ Bs * detJ * 4.0
+        return K
+
+    for xi in (-g, g):
+        for eta in (-g, g):
+            if shear_mode == "full":
+                N, dN_dx, detJ = _q4_gradients(coords, xi, eta)
+                Bs = _shear_B(N, dN_dx)
+            else:
+                Bs, detJ = _mitc4_shear_B(coords, xi, eta)
+            K += Bs.T @ Ds @ Bs * detJ
+    return K
+
+
 def mindlin_plate_element_stiffness(coords: np.ndarray, section: PlateSection) -> np.ndarray:
     """
     12x12 Q4 Reissner-Mindlin plate stiffness.
 
     DOFs per node are ``[w, theta_x, theta_y]``. Bending uses 2x2 integration;
-    transverse shear uses one-point reduced integration.
+    transverse shear uses ``section.shear_mode``: ``"reduced"`` by default,
+    ``"full"`` for full 2x2 shear integration, or ``"mitc4"`` for an
+    edge-tying assumed-shear variant.
     """
     x = np.asarray(coords, dtype=float)
     if x.shape != (4, 2):
@@ -348,9 +418,7 @@ def mindlin_plate_element_stiffness(coords: np.ndarray, section: PlateSection) -
             Bb = _bending_B(dN_dx)
             K += Bb.T @ Db @ Bb * detJ
 
-    N, dN_dx, detJ = _q4_gradients(x, 0.0, 0.0)
-    Bs = _shear_B(N, dN_dx)
-    K += Bs.T @ Ds @ Bs * detJ * 4.0
+    K += _plate_shear_stiffness(x, Ds, section.shear_mode)
     return 0.5 * (K + K.T)
 
 

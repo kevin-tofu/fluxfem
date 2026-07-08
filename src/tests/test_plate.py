@@ -35,6 +35,31 @@ def test_mindlin_plate_element_stiffness_is_symmetric_and_preserves_rigid_modes(
         np.testing.assert_allclose(K @ mode, np.zeros((12,)), atol=scale * 1.0e-12)
 
 
+def test_mindlin_plate_shear_modes_are_selectable():
+    coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.2, 1.0], [0.0, 1.0]], dtype=float)
+    reduced = ff.PlateSection(E=210.0e9, nu=0.3, thickness=0.01, shear_mode="reduced")
+    full = ff.PlateSection(E=210.0e9, nu=0.3, thickness=0.01, shear_mode="full")
+    mitc4 = ff.PlateSection(E=210.0e9, nu=0.3, thickness=0.01, shear_mode="mitc4")
+
+    K_reduced = ff.mindlin_plate_element_stiffness(coords, reduced)
+    K_full = ff.mindlin_plate_element_stiffness(coords, full)
+    K_mitc4 = ff.mindlin_plate_element_stiffness(coords, mitc4)
+
+    np.testing.assert_allclose(K_reduced, K_reduced.T, rtol=0.0, atol=1.0e-8)
+    np.testing.assert_allclose(K_full, K_full.T, rtol=0.0, atol=1.0e-8)
+    np.testing.assert_allclose(K_mitc4, K_mitc4.T, rtol=0.0, atol=1.0e-8)
+    assert not np.allclose(K_full, K_reduced)
+    assert not np.allclose(K_mitc4, K_reduced)
+
+
+def test_mindlin_plate_rejects_unknown_shear_mode():
+    coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]], dtype=float)
+    section = ff.PlateSection(E=210.0e9, nu=0.3, thickness=0.02, shear_mode="bogus")
+
+    with np.testing.assert_raises(ValueError):
+        ff.mindlin_plate_element_stiffness(coords, section)
+
+
 def test_mindlin_plate_uniform_load_resultant():
     coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]], dtype=float)
     f = ff.mindlin_plate_element_uniform_load(coords, 5.0)
@@ -58,6 +83,18 @@ def test_assemble_mindlin_plate_stiffness_backends_and_load_vector():
     np.testing.assert_allclose(K_csr.toarray(), K_dense)
     np.testing.assert_allclose(np.asarray(K_jax.to_dense()), K_dense)
     np.testing.assert_allclose(f[0::3].sum(), 14.0, atol=1.0e-12)
+
+
+def test_assemble_mindlin_plate_mitc4_backend_matches_dense():
+    coords, conn = ff.structured_plate_grid(nx=1, ny=1, length_x=2.0, length_y=1.0)
+    section = ff.PlateSection(E=70.0e9, nu=0.33, thickness=0.01, shear_mode="mitc4")
+
+    K_dense = ff.assemble_mindlin_plate_stiffness(coords, conn, section, backend="numpy")
+    K_csr = ff.assemble_mindlin_plate_stiffness(coords, conn, section, backend="scipy")
+    K_jax = ff.assemble_mindlin_plate_stiffness(coords, conn, section, backend="jax")
+
+    np.testing.assert_allclose(K_csr.toarray(), K_dense)
+    np.testing.assert_allclose(np.asarray(K_jax.to_dense()), K_dense)
 
 
 def test_assemble_mindlin_plate_point_loads():
@@ -98,6 +135,21 @@ def test_flat_shell_bending_block_matches_plate_stiffness():
     coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]], dtype=float)
     shell = ff.ShellSection(E=70.0e9, nu=0.33, thickness=0.05, drilling_stiffness=0.0)
     plate = ff.PlateSection(E=shell.E, nu=shell.nu, thickness=shell.thickness, shear_correction=shell.shear_correction)
+    Ks = ff.flat_shell_element_stiffness(coords, shell)
+    Kp = ff.mindlin_plate_element_stiffness(coords, plate)
+    P = np.zeros((12, 24), dtype=float)
+    for a in range(4):
+        P[3 * a + 0, 6 * a + 2] = 1.0
+        P[3 * a + 1, 6 * a + 4] = -1.0
+        P[3 * a + 2, 6 * a + 3] = 1.0
+
+    np.testing.assert_allclose(P @ Ks @ P.T, Kp)
+
+
+def test_flat_shell_uses_plate_shear_mode():
+    coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.2, 1.0], [0.0, 1.0]], dtype=float)
+    shell = ff.ShellSection(E=70.0e9, nu=0.33, thickness=0.01, drilling_stiffness=0.0, shear_mode="mitc4")
+    plate = ff.PlateSection(E=shell.E, nu=shell.nu, thickness=shell.thickness, shear_correction=shell.shear_correction, shear_mode="mitc4")
     Ks = ff.flat_shell_element_stiffness(coords, shell)
     Kp = ff.mindlin_plate_element_stiffness(coords, plate)
     P = np.zeros((12, 24), dtype=float)

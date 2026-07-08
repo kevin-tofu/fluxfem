@@ -289,7 +289,10 @@ selection through `slave_components`.
 
 Plate/shell helpers include Q4 Mindlin/Reissner-Mindlin plate elements and
 linear Q4 Reissner-Mindlin shell elements. Shells use 6 DOF/node and can be
-assembled on 2D flat coordinates or 3D planar element coordinates. Solid-shell
+assembled on 2D flat coordinates or 3D planar element coordinates. Plate and
+shell sections expose `shear_mode="reduced" | "full" | "mitc4"`; the default
+keeps the existing selective reduced shear integration, while `mitc4` uses an
+edge-tying assumed-shear variant for locking/hourglass studies. Solid-shell
 examples cover coincident-node translational ties and solid-patch-to-shell-edge
 RBE3 remote coupling; see `notes/plate_shell_status.md` for current limits.
 
@@ -699,8 +702,8 @@ Full documentation, tutorials, and API reference are hosted at [this site](https
 
 - `tutorials/elasticity/linearelastic_tensile_bar.py` (linear elasticity, weak-form assembly)
 - `tutorials/elasticity/frame2d_cantilever.py`, `tutorials/elasticity/beam_cantilever.py`, and `tutorials/elasticity/beam_uniform_load.py` (2D/3D Euler-Bernoulli frame helpers)
-- `tutorials/elasticity/mindlin_plate_cantilever.py` (Q4 Reissner-Mindlin/Mindlin plate helper)
-- `tutorials/elasticity/flat_shell_cantilever.py` (Q4 Reissner-Mindlin shell helper, 2D/tilted 3D coordinates and optional VTU output)
+- `tutorials/elasticity/mindlin_plate_cantilever.py` (Q4 Reissner-Mindlin/Mindlin plate helper, `--shear-mode reduced|full|mitc4`)
+- `tutorials/elasticity/flat_shell_cantilever.py` (Q4 Reissner-Mindlin shell helper, 2D/tilted 3D coordinates, `--shear-mode reduced|full|mitc4`, and optional VTU output)
 - `tutorials/elasticity/solid_shell_translational_tie.py` (solid surface tied to a shell skin by translational DOFs)
 - `tutorials/elasticity/solid_shell_rbe3_patch_coupling.py` (solid face patch coupled to a shell root edge through a 6-DOF RBE3 remote point)
 - `tutorials/elasticity/shell_solid_cantilever_benchmark.py` (shell and solid cantilever comparison against an Euler-Bernoulli estimate)

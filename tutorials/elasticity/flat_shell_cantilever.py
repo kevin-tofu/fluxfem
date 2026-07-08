@@ -33,6 +33,7 @@ def parse_args():
     p.add_argument("--length", type=float, default=2.0, help="Shell length.")
     p.add_argument("--width", type=float, default=0.4, help="Shell width.")
     p.add_argument("--thickness", type=float, default=0.04, help="Shell thickness.")
+    p.add_argument("--shear-mode", choices=("reduced", "full", "mitc4"), default="reduced", help="Transverse shear integration/assumed-strain mode.")
     p.add_argument("--E", type=float, default=210.0e9, help="Young's modulus.")
     p.add_argument("--nu", type=float, default=0.3, help="Poisson ratio.")
     p.add_argument("--tip-load-z", type=float, default=-1000.0, help="Total transverse load on the free edge.")
@@ -60,7 +61,7 @@ def main():
     shell_coords = coords
     if args.tilt_z != 0.0:
         shell_coords = np.column_stack([coords[:, 0], coords[:, 1], args.tilt_z * coords[:, 0]])
-    section = ff.ShellSection(E=args.E, nu=args.nu, thickness=args.thickness)
+    section = ff.ShellSection(E=args.E, nu=args.nu, thickness=args.thickness, shear_mode=args.shear_mode)
     K = ff.assemble_shell_stiffness(shell_coords, conn, section, format=args.format)
 
     left_nodes = np.flatnonzero(np.isclose(coords[:, 0], 0.0))
@@ -90,7 +91,7 @@ def main():
 
     print(
         f"flat shell solved: format={args.format}, solver={solver}, "
-        f"nodes={coords.shape[0]}, elems={conn.shape[0]}, dofs={6 * coords.shape[0]}"
+        f"shear_mode={args.shear_mode}, nodes={coords.shape[0]}, elems={conn.shape[0]}, dofs={6 * coords.shape[0]}"
     )
     print(f"tip mid-node uz={float(uz_nodes[tip_mid]):.6e}")
     print(f"free-edge mean uz={float(np.mean(right_uz)):.6e}, min uz={float(np.min(right_uz)):.6e}")
