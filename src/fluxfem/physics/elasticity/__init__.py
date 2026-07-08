@@ -1,6 +1,18 @@
 """Elasticity-related helpers (linear models, materials, forms)."""
 
-from .materials import lame_parameters, isotropic_3d_D
+from .materials import (
+    J2Plasticity,
+    J2PlasticityState,
+    j2_return_mapping,
+    j2_yield_function,
+    lame_parameters,
+    isotropic_3d_D,
+    make_j2_plasticity_state,
+    voigt_deviator,
+    voigt_tensor_inner,
+    voigt_trace,
+    von_mises_stress_voigt,
+)
 from .linear import (
     linear_elasticity_form,
     vector_body_force_form,
@@ -21,6 +33,15 @@ from .stress import principal_stresses, principal_sum, max_shear_stress, von_mis
 __all__ = [
     "lame_parameters",
     "isotropic_3d_D",
+    "J2Plasticity",
+    "J2PlasticityState",
+    "j2_return_mapping",
+    "j2_yield_function",
+    "make_j2_plasticity_state",
+    "voigt_deviator",
+    "voigt_tensor_inner",
+    "voigt_trace",
+    "von_mises_stress_voigt",
     "linear_elasticity_form",
     "vector_body_force_form",
     "constant_body_force_vector_form",

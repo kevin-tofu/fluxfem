@@ -419,6 +419,11 @@ __all__ = [
     "TetQuadraticBasis10Pytree",
     "lame_parameters",
     "isotropic_3d_D",
+    "J2Plasticity",
+    "J2PlasticityState",
+    "j2_return_mapping",
+    "j2_yield_function",
+    "make_j2_plasticity_state",
     "spdirect_solve_cpu",
     "spdirect_solve_gpu",
     "spdirect_solve_jax",
@@ -570,11 +575,20 @@ __all__ = [
     "principal_sum",
     "max_shear_stress",
     "von_mises_stress",
+    "voigt_deviator",
+    "voigt_tensor_inner",
+    "voigt_trace",
+    "von_mises_stress_voigt",
 ]
 
 _PHYSICS_EXPORTS = {
     "lame_parameters",
     "isotropic_3d_D",
+    "J2Plasticity",
+    "J2PlasticityState",
+    "j2_return_mapping",
+    "j2_yield_function",
+    "make_j2_plasticity_state",
     "linear_elasticity_form",
     "vector_body_force_form",
     "constant_body_force_vector_form",
@@ -679,6 +693,10 @@ _PHYSICS_EXPORTS = {
     "principal_sum",
     "max_shear_stress",
     "von_mises_stress",
+    "voigt_deviator",
+    "voigt_tensor_inner",
+    "voigt_trace",
+    "von_mises_stress_voigt",
 }
 
 _TOOLS_VIS_EXPORTS = {

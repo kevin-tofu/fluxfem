@@ -13,18 +13,24 @@ Implemented:
 - Neo-Hookean tutorials and nonlinear solve examples:
   `tutorials/nonlinear/neo_hookean_cantilever.py` and
   `tutorials/nonlinear/linear_material_geo_nonlinear.py`.
+- Small-strain J2 plasticity material-point update:
+  `J2Plasticity`, `J2PlasticityState`, `make_j2_plasticity_state`, and
+  `j2_return_mapping`.
+  - Uses 6-component Voigt strain/stress with engineering shear components.
+  - Supports isotropic linear hardening and JAX pytree/JIT material-point use.
+  - Covered by elastic, hydrostatic, pure-shear return, unload, and JIT tests.
 - Basic structural damping/spring/dashpot helpers for lumped DOFs. These are
   not continuum viscoelastic material models.
 
 Not implemented:
 
-- J2 plasticity.
 - Continuum viscoelasticity with internal variables, such as Maxwell,
   generalized Maxwell, Kelvin-Voigt, or standard linear solid models.
 - Continuum damage models.
 - Consistent algorithmic tangents for history-dependent material updates.
 - Quadrature-point material state storage/update APIs for production plasticity,
-  viscoelasticity, or damage.
+  viscoelasticity, or damage. The current J2 path is a material-point update,
+  not a full FE integration-state framework.
 
 Important limits:
 
@@ -32,9 +38,10 @@ Important limits:
   a mixed nearly-incompressible formulation.
 - Tangents for the current hyperelastic residual are obtained by JAX AD. There
   is no hand-coded constitutive tangent layer yet.
-- History-dependent materials need an explicit design for quadrature-point
-  state, load stepping, state commit/rollback, and restart/output. That design
-  should happen before adding J2 plasticity or damage.
+- History-dependent FE materials still need an explicit design for
+  quadrature-point state, load stepping, state commit/rollback, and
+  restart/output before J2 is promoted from material-point update to production
+  FE material integration.
 - Damage with softening needs regularization or nonlocal/gradient treatment to
   avoid mesh-dependent localization; a simple local scalar damage model should
   be marked as a demonstration only.
@@ -53,12 +60,12 @@ Recommended next steps:
    - Use this to design internal state update and time stepping before moving
      to full 3D tensor models.
 
-3. Design J2 plasticity before implementation.
-   - Required pieces: return mapping, plastic strain state, equivalent plastic
-     strain, yield stress/hardening law, consistent tangent, load stepping, and
-     state commit/rollback.
-   - Keep a verification path from the start: uniaxial tension, unload/reload,
-     and patch tests.
+3. Connect J2 plasticity to FE integration.
+   - Add quadrature-point state storage/update and commit/rollback semantics.
+   - Add consistent algorithmic tangents or a clearly documented AD/tangent
+     strategy.
+   - Keep the verification path: uniaxial tension, unload/reload, and patch
+     tests.
 
 4. Defer damage until the state/update infrastructure is in place.
    - Start with a clearly labeled local scalar damage demo only if needed.
@@ -68,4 +75,5 @@ Main checks for the current implemented nonlinear material path:
 
 - `PYTHONPATH=src pytest -q src/tests/test_neo_hookean.py src/tests/test_weakform_nonlinear.py`
 - `PYTHONPATH=src pytest -q src/tests/test_kernel_assembly.py -k neo_hookean`
+- `PYTHONPATH=src pytest -q src/tests/test_j2_plasticity.py`
 - `PYTHONPATH=src JAX_PLATFORMS=cpu python tutorials/nonlinear/neo_hookean_cantilever.py --nx 2 --ny 1 --nz 1 --nstep 2 --no-output --linear-solver spsolve`

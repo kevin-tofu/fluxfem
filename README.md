@@ -301,10 +301,11 @@ surface facet interpolation; see
 `notes/plate_shell_status.md` for current limits.
 
 Nonlinear material support currently centers on compressible Neo-Hookean
-hyperelasticity through JAX AD residual/Jacobian assembly. J2 plasticity,
-continuum viscoelasticity, and damage are not implemented yet; see
-`notes/material_models_status.md` for the current scope and recommended next
-steps.
+hyperelasticity through JAX AD residual/Jacobian assembly. A small-strain J2
+plasticity material-point return mapping is available, but production FE
+quadrature-state management for plasticity, continuum viscoelasticity, and
+damage is not mature yet; see `notes/material_models_status.md` for the current
+scope and recommended next steps.
 
 Backend support summary for the structural helpers:
 
@@ -861,8 +862,8 @@ versions are not covered by CI and may require manual JAX installation.
   </li>
   <li><strong>Materials and multiphysics</strong>
     <ul>
-      <li>Linear elasticity, diffusion/heat examples, thermoelastic examples, and Neo-Hookean hyperelastic residual examples are available.</li>
-      <li>J2 plasticity, general viscoelasticity, and damage models are not yet mature library-level material modules.</li>
+      <li>Linear elasticity, diffusion/heat examples, thermoelastic examples, Neo-Hookean hyperelastic residual examples, and a J2 material-point return mapping are available.</li>
+      <li>Production FE quadrature-state management for plasticity, general viscoelasticity, and damage is not yet mature.</li>
     </ul>
   </li>
   <li><strong>Visualization and tutorials</strong>

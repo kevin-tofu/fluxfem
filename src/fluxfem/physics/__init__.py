@@ -1,8 +1,13 @@
 """Physics-level helpers (constitutive models, material laws, etc.)."""
 
 from .elasticity import (
+    J2Plasticity,
+    J2PlasticityState,
+    j2_return_mapping,
+    j2_yield_function,
     lame_parameters,
     isotropic_3d_D,
+    make_j2_plasticity_state,
     linear_elasticity_form,
     vector_body_force_form,
     constant_body_force_vector_form,
@@ -18,6 +23,10 @@ from .elasticity import (
     principal_sum,
     max_shear_stress,
     von_mises_stress,
+    voigt_deviator,
+    voigt_tensor_inner,
+    voigt_trace,
+    von_mises_stress_voigt,
 )
 from .diffusion import diffusion_form
 from .beam import (
@@ -120,6 +129,11 @@ from .postprocess import make_point_data_displacement, write_point_data_vtu, int
 __all__ = [
     "lame_parameters",
     "isotropic_3d_D",
+    "J2Plasticity",
+    "J2PlasticityState",
+    "j2_return_mapping",
+    "j2_yield_function",
+    "make_j2_plasticity_state",
     "linear_elasticity_form",
     "vector_body_force_form",
     "constant_body_force_vector_form",
@@ -230,4 +244,8 @@ __all__ = [
     "principal_sum",
     "max_shear_stress",
     "von_mises_stress",
+    "voigt_deviator",
+    "voigt_tensor_inner",
+    "voigt_trace",
+    "von_mises_stress_voigt",
 ]
