@@ -32,18 +32,21 @@ def _coincident_tie_constraint(n_solid: int, n_shell: int, solid_dofs: np.ndarra
 
 
 def _constrained_omegas(K, M, C, fixed, n_modes: int) -> np.ndarray:
+    _free, Z, k_c, m_c = _constrained_free_matrices(K, M, C, fixed)
+    assert Z.shape[1] >= n_modes
+    w2 = la.eigh(k_c, m_c, eigvals_only=True)
+    w2 = np.asarray(w2, dtype=float)
+    w2 = w2[w2 > 1.0e-8]
+    return np.sqrt(w2[:n_modes])
+
+
+def _constrained_free_matrices(K, M, C, fixed):
     free = np.asarray(ff.free_dofs(K.shape[0], np.asarray(fixed, dtype=int)), dtype=int)
     K_ff = K[free, :][:, free].toarray() if sp.issparse(K) else np.asarray(K)[np.ix_(free, free)]
     M_ff = M[free, :][:, free].toarray() if sp.issparse(M) else np.asarray(M)[np.ix_(free, free)]
     C_f = C[:, free].toarray() if sp.issparse(C) else np.asarray(C)[:, free]
     Z = la.null_space(C_f)
-    assert Z.shape[1] >= n_modes
-    k_c = Z.T @ K_ff @ Z
-    m_c = Z.T @ M_ff @ Z
-    w2 = la.eigh(k_c, m_c, eigvals_only=True)
-    w2 = np.asarray(w2, dtype=float)
-    w2 = w2[w2 > 1.0e-8]
-    return np.sqrt(w2[:n_modes])
+    return free, Z, Z.T @ K_ff @ Z, Z.T @ M_ff @ Z
 
 
 def _csr(matrix):
@@ -294,6 +297,86 @@ def test_solid_shell_translational_tie_cb_matches_constrained_frequencies():
     )
 
     np.testing.assert_allclose(rom, full, rtol=1.0e-8, atol=1.0e-7)
+
+
+def test_solid_shell_translational_tie_cb_matches_constrained_newmark_history():
+    tutorial = _load_tutorial_module("solid_shell_translational_tie")
+    model = tutorial.build_solid_shell_tie(nx=2, ny=1, nz=1, pressure_z=0.0, shear_mode="mitc4")
+    n_solid = model["solid_space"].n_dofs
+    n_shell = model["shell_n_dofs"]
+
+    K_lifted, _F_lifted = model["system"].assemble(format="csr")
+    K = K_lifted[: n_solid + n_shell, : n_solid + n_shell].tocsr()
+    C = _coincident_tie_constraint(n_solid, n_shell, model["solid_tie_dofs"], model["shell_tie_dofs"] - model["shell_offset"])
+    M_solid = _csr(model["solid_space"].assemble_mass_matrix(backend="numpy"))
+    shell_section = ff.ShellSection(E=2.0e5, nu=0.30, thickness=0.02, rho=1.0, shear_mode=model["shear_mode"])
+    M_shell = ff.assemble_shell_mass(model["shell_coords"], model["shell_conn"], shell_section, format="csr")
+    M = sp.block_diag((M_solid, M_shell), format="csr")
+
+    fixed = np.asarray(model["fixed_dofs"], dtype=int)
+    free, Z, Kz, Mz = _constrained_free_matrices(K, M, C, fixed)
+    w2, modes = la.eigh(Kz, Mz)
+    positive = np.flatnonzero(np.asarray(w2, dtype=float) > 1.0e-8)
+    assert positive.size > 0
+    mode = modes[:, positive[0]]
+    u_free0 = Z @ mode
+    u_free0 *= 1.0e-4 / np.max(np.abs(u_free0))
+    q0 = la.lstsq(Z, u_free0)[0]
+    period = 2.0 * np.pi / np.sqrt(float(w2[positive[0]]))
+
+    out_full = ff.newmark_solve_linear(
+        Mz,
+        np.zeros_like(Kz),
+        Kz,
+        u0=q0,
+        v0=np.zeros_like(q0),
+        dt=period / 80.0,
+        n_steps=24,
+    )
+    full_free_hist = out_full.u @ Z.T
+
+    retained_full = np.unique(np.concatenate([np.asarray(model["solid_tie_dofs"], dtype=int), np.asarray(model["shell_tie_dofs"], dtype=int)]))
+    retained = np.flatnonzero(np.isin(free, retained_full)).astype(np.int32)
+    k_free = K[free, :][:, free]
+    m_free = M[free, :][:, free]
+    c_free = C[:, free]
+    cb = ff.make_craig_bampton_basis(
+        k_free,
+        m_free,
+        retained_dofs=retained,
+        n_modes=k_free.shape[0] - retained.size,
+        backend="scipy",
+        constraint_solver="spsolve",
+        modal_solver="dense",
+    )
+    basis = np.asarray(cb.basis, dtype=float)
+    K_rom = np.asarray(cb.project_matrix(k_free), dtype=float)
+    M_rom = np.asarray(cb.project_matrix(m_free), dtype=float)
+    C_rom = np.asarray(c_free @ basis, dtype=float)
+    Z_rom = la.null_space(C_rom)
+    Kzr = Z_rom.T @ K_rom @ Z_rom
+    Mzr = Z_rom.T @ M_rom @ Z_rom
+    q_cb0 = la.lstsq(basis, u_free0)[0]
+    ar0 = la.lstsq(Z_rom, q_cb0)[0]
+
+    out_rom = ff.newmark_solve_linear(
+        Mzr,
+        np.zeros_like(Kzr),
+        Kzr,
+        u0=ar0,
+        v0=np.zeros_like(ar0),
+        dt=period / 80.0,
+        n_steps=24,
+    )
+    rom_free_hist = out_rom.u @ Z_rom.T @ basis.T
+
+    shell_tip_nodes = np.flatnonzero(np.isclose(model["shell_coords"][:, 0], model["shell_coords"][:, 0].max()))
+    tip_uz = model["shell_offset"] + ff.shell_node_dofs(shell_tip_nodes, "uz")
+    tip_free = np.flatnonzero(np.isin(free, tip_uz))
+    assert tip_free.size > 0
+
+    np.testing.assert_allclose(rom_free_hist[:, tip_free], full_free_hist[:, tip_free], rtol=1.0e-7, atol=1.0e-9)
+    np.testing.assert_allclose(rom_free_hist, full_free_hist, rtol=1.0e-7, atol=1.0e-9)
 
 
 def test_solid_shell_translational_tie_accepts_mitc4_shell():

@@ -54,6 +54,11 @@ gap/contact variables behind modal coordinates.
   constrained modal regressions: the full KKT constraint is eliminated with a
   nullspace basis and compared with the same constrained eigenproblem after CB
   projection.
+- Coincident shell-solid translational ties also have a constrained Newmark
+  full-vs-CB regression. The tie constraints are eliminated through the same
+  nullspace path, an initial constrained mode is integrated in time, and the
+  reconstructed CB history is compared against the full-system displacement
+  history.
 - Solid-patch-to-shell-edge RBE3 coupling has the same constrained modal
   regression, with massless source-copy and remote-point extra DOFs eliminated
   through the constraint nullspace.

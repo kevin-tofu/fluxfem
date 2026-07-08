@@ -22,6 +22,8 @@ Implemented:
 - Constrained modal full-vs-CB regressions for coincident and nonmatching
   shell-solid translational ties using nullspace elimination of the tie
   constraints.
+- Constrained Newmark full-vs-CB regression for the coincident shell-solid
+  translational tie using the same nullspace elimination path.
 - Nonmatching shell-solid translational tie matrix for shell nodes projected to
   planar solid tri/quad surface facets with displacement interpolation.
 - Solid patch to shell edge coupling through a 6-DOF RBE3-style remote point.
@@ -61,6 +63,7 @@ Main checks:
 
 - `PYTHONPATH=src pytest -q src/tests/test_plate.py src/tests/test_solid_shell_coupling.py src/tests/test_shell_solid_benchmark.py`
 - `PYTHONPATH=src pytest -q src/tests/test_cb_structural_elements.py`
+- `PYTHONPATH=src pytest -q src/tests/test_solid_shell_coupling.py src/tests/test_dynamics.py src/tests/test_cb_structural_elements.py`
 - `PYTHONPATH=src pytest -q src/tests/test_jax_coupled_system.py -k "constraint_matrix or dof_tie or rbe3 or distributed_coupling or nonmatching_shell_solid_tie"`
 - `PYTHONPATH=src pytest -q src/tests/test_plate_shear_locking_benchmark.py`
 - `PYTHONPATH=src pytest -q src/tests/test_shell_shear_locking_benchmark.py`
