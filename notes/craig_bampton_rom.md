@@ -23,6 +23,25 @@ gap/contact variables behind modal coordinates.
 - `reduced_jacobian_from_full(cb, residual_fn)` uses `jax.jacrev` on the reduced
   residual, so nonlinear/contact terms can remain differentiable.
 
+## Structural element coverage
+
+- CB-ROM construction is assembled-matrix based, so it is not tied to hex/solid
+  elements. Any element family can participate once it provides compatible
+  stiffness and mass matrices plus a clear retained-DOF map.
+- Beam/frame and truss/bar elements now have explicit regression coverage via
+  `src/tests/test_cb_structural_elements.py`:
+  - 3D beam chains retain endpoint `ux uy uz rx ry rz` DOFs and reduce internal
+    6-DOF nodes with fixed-interface modes.
+  - Truss chains use the active axial DOF subspace; unconstrained transverse
+    truss DOFs remain mechanisms and should be constrained, retained, or
+    removed before CB reduction.
+  - SciPy and JAX CB backends are compared on reduced stiffness/mass projection
+    after accounting for the arbitrary sign of modal columns.
+- Plate/shell stiffness can be assembled separately, but dynamic CB reduction
+  for plate/shell is not complete until physical plate/shell mass assembly is
+  added. Static projection with an artificial mass is possible, but it should
+  not be treated as a validated modal ROM.
+
 ## Current second slice
 
 - Added reduced-coordinate Newmark-beta dynamics:
