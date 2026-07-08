@@ -548,6 +548,7 @@ Examples:
 
 - [`tutorials/diffusion/coupled_reaction_diffusion_new_api.py`](tutorials/diffusion/coupled_reaction_diffusion_new_api.py)
 - [`tutorials/diffusion/ch3d_fluxfem_wf_new_api.py`](tutorials/diffusion/ch3d_fluxfem_wf_new_api.py)
+- [`tutorials/diffusion/carburizing_diffusion_bar.py`](tutorials/diffusion/carburizing_diffusion_bar.py) (transient carbon diffusion / heat-treatment style example)
 
 ### Backend notes
 
