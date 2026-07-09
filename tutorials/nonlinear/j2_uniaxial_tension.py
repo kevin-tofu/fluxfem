@@ -119,6 +119,7 @@ def run(args: argparse.Namespace) -> dict[str, Path]:
     stem = f"j2_uniaxial_tension_{args.bc_mode}"
     vtu_path = out_dir / f"{stem}.vtu"
     csv_path = out_dir / f"{stem}_history.csv"
+    iter_csv_path = out_dir / f"{stem}_newton.csv"
     ff.write_j2_vtu(mesh, space, u, state, material, str(vtu_path), deformed_scale=args.deformed_scale)
 
     with csv_path.open("w", newline="", encoding="ascii") as f:
@@ -149,12 +150,59 @@ def run(args: argparse.Namespace) -> dict[str, Path]:
                 }
             )
 
+    with iter_csv_path.open("w", newline="", encoding="ascii") as f:
+        fieldnames = [
+            "step",
+            "load_factor",
+            "iter",
+            "res_inf",
+            "res_two",
+            "rel_residual",
+            "alpha",
+            "step_norm",
+            "linear_iters",
+            "linear_converged",
+            "linear_residual",
+            "nan_detected",
+            "initial_residual_time",
+            "initial_jacobian_time",
+            "rhs_time",
+            "linear_time",
+            "eval_time",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for i, step in enumerate(history, start=1):
+            for rec in step.iter_history:
+                writer.writerow(
+                    {
+                        "step": i,
+                        "load_factor": step.load_factor,
+                        "iter": rec.get("iter"),
+                        "res_inf": rec.get("res_inf"),
+                        "res_two": rec.get("res_two"),
+                        "rel_residual": rec.get("rel_residual"),
+                        "alpha": rec.get("alpha"),
+                        "step_norm": rec.get("step_norm"),
+                        "linear_iters": rec.get("linear_iters"),
+                        "linear_converged": rec.get("linear_converged"),
+                        "linear_residual": rec.get("linear_residual"),
+                        "nan_detected": rec.get("nan_detected"),
+                        "initial_residual_time": rec.get("initial_residual_time"),
+                        "initial_jacobian_time": rec.get("initial_jacobian_time"),
+                        "rhs_time": rec.get("rhs_time"),
+                        "linear_time": rec.get("linear_wall_time"),
+                        "eval_time": rec.get("eval_time"),
+                    }
+                )
+
     print(f"wrote {vtu_path}")
     print(f"wrote {csv_path}")
+    print(f"wrote {iter_csv_path}")
     print(f"bc mode: {args.bc_mode}")
     print(f"final max p_eq: {float(np.max(cell_data['j2_p_eq'])):.6e}")
     print(f"final avg sigma_xx: {float(np.mean(cell_data['j2_sigma_xx'])):.6e}")
-    return {"vtu": vtu_path, "csv": csv_path}
+    return {"vtu": vtu_path, "csv": csv_path, "newton_csv": iter_csv_path}
 
 
 def main() -> None:

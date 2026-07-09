@@ -117,6 +117,7 @@ class J2LoadStepResult:
     trial_state: J2PlasticityQuadratureState
     info: Any
     max_equivalent_plastic_strain: float
+    iter_history: tuple[dict[str, Any], ...] = ()
     exception: str | None = None
 
 
@@ -559,8 +560,12 @@ def solve_j2_plasticity_load_steps(
         if base_external_vector is not None:
             external = jnp.asarray(lf * jnp.asarray(base_external_vector, dtype=u.dtype), dtype=u.dtype)
         exception = None
+        iter_history: list[dict[str, Any]] = []
         if has_free_dofs:
             try:
+                def record_iteration(payload):
+                    iter_history.append(dict(payload))
+
                 u_step, info = newton_solve(
                     space,
                     j2_plasticity_residual_form,
@@ -573,6 +578,7 @@ def solve_j2_plasticity_load_steps(
                     dirichlet=(step_dofs, step_vals) if step_dofs.size else None,
                     line_search=line_search,
                     external_vector=external,
+                    callback=record_iteration,
                     jacobian_pattern=jacobian_pattern,
                     assembly_policy=assembly_policy,
                 )
@@ -606,6 +612,7 @@ def solve_j2_plasticity_load_steps(
                 trial_state=trial_state,
                 info=info,
                 max_equivalent_plastic_strain=max_p,
+                iter_history=tuple(iter_history),
                 exception=exception,
             )
         )

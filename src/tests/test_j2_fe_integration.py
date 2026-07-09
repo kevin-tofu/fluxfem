@@ -287,6 +287,8 @@ def test_j2_force_controlled_elastic_bar_converges_without_nan_tangent():
     assert history[0].converged
     assert history[0].committed
     assert history[0].exception is None
+    assert history[0].iter_history
+    assert any("res_inf" in rec for rec in history[0].iter_history)
     assert float(jnp.max(jnp.abs(u))) > 0.0
     np.testing.assert_allclose(np.asarray(state.equivalent_plastic_strain), 0.0, atol=1.0e-14)
 
