@@ -311,5 +311,42 @@ def test_j2_mixed_bc_tension_plasticizes_with_free_lateral_motion():
     u_nodes = np.asarray(u).reshape(-1, 3)
     assert len(history) == 2
     assert all(step.converged for step in history)
+    assert all(step.iter_history for step in history)
+    for step in history:
+        residuals = [rec["res_inf"] for rec in step.iter_history if "res_inf" in rec]
+        assert residuals[-1] <= residuals[0]
     assert float(jnp.max(state.equivalent_plastic_strain)) > 0.0
     assert float(np.max(np.abs(u_nodes[:, 1:]))) > 0.0
+
+
+def test_j2_full_bc_multi_hex_step_refinement_is_consistent():
+    mesh = ff.StructuredHexBox(nx=2, ny=1, nz=1, lx=1.0, ly=1.0, lz=1.0).build()
+    space = ff.make_hex_space(mesh, dim=3, intorder=2)
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=50.0, hardening_modulus=100.0)
+    dirichlet = _homogeneous_extension_dirichlet(space, axial_strain=5.0e-3)
+
+    u_two, state_two, history_two = ff.solve_j2_plasticity_load_steps(
+        space,
+        material,
+        dirichlet=dirichlet,
+        n_steps=2,
+    )
+    u_four, state_four, history_four = ff.solve_j2_plasticity_load_steps(
+        space,
+        material,
+        dirichlet=dirichlet,
+        n_steps=4,
+    )
+
+    assert len(history_two) == 2
+    assert len(history_four) == 4
+    assert all(step.converged and step.committed for step in history_two)
+    assert all(step.converged and step.committed for step in history_four)
+
+    np.testing.assert_allclose(np.asarray(u_two), np.asarray(u_four), atol=1.0e-14)
+    np.testing.assert_allclose(
+        np.asarray(state_two.equivalent_plastic_strain),
+        np.asarray(state_four.equivalent_plastic_strain),
+        rtol=1.0e-6,
+        atol=1.0e-8,
+    )
