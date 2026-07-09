@@ -88,3 +88,51 @@ def test_j2_return_mapping_is_jittable_with_state_pytree():
     assert stress.shape == (6,)
     assert next_state.plastic_strain.shape == (6,)
     assert float(next_state.equivalent_plastic_strain) > 0.0
+
+
+def _central_difference_jacobian(fun, x, *, step: float):
+    x_np = np.asarray(x, dtype=float)
+    cols = []
+    for i in range(x_np.size):
+        direction = np.zeros_like(x_np)
+        direction[i] = step
+        f_plus = np.asarray(fun(jnp.asarray(x_np + direction, dtype=jnp.float64)))
+        f_minus = np.asarray(fun(jnp.asarray(x_np - direction, dtype=jnp.float64)))
+        cols.append((f_plus - f_minus) / (2.0 * step))
+    return np.stack(cols, axis=1)
+
+
+def test_j2_material_point_elastic_tangent_matches_finite_difference():
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=250.0, hardening_modulus=1_000.0)
+    state = ff.make_j2_plasticity_state()
+    strain = jnp.array([1.0e-4, -2.0e-5, 0.0, 3.0e-5, 0.0, 0.0], dtype=jnp.float64)
+
+    def stress_fn(eps):
+        stress, _state = ff.j2_return_mapping(eps, state, material)
+        return stress
+
+    tangent_ad = jax.jacrev(stress_fn)(strain)
+    tangent_fd = _central_difference_jacobian(stress_fn, strain, step=1.0e-7)
+
+    assert np.all(np.isfinite(np.asarray(tangent_ad)))
+    np.testing.assert_allclose(np.asarray(tangent_ad), np.asarray(ff.isotropic_3d_D(material.E, material.nu)), rtol=1.0e-12, atol=1.0e-9)
+    np.testing.assert_allclose(np.asarray(tangent_ad), tangent_fd, rtol=1.0e-7, atol=1.0e-5)
+
+
+def test_j2_material_point_plastic_tangent_matches_finite_difference():
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=120.0, hardening_modulus=500.0)
+    state = ff.make_j2_plasticity_state()
+    strain = jnp.array([1.0e-4, -2.0e-4, 1.0e-4, 5.8e-3, 2.5e-4, -1.5e-4], dtype=jnp.float64)
+
+    def stress_fn(eps):
+        stress, _state = ff.j2_return_mapping(eps, state, material)
+        return stress
+
+    stress, next_state = ff.j2_return_mapping(strain, state, material)
+    tangent_ad = jax.jacrev(stress_fn)(strain)
+    tangent_fd = _central_difference_jacobian(stress_fn, strain, step=1.0e-7)
+
+    assert float(next_state.equivalent_plastic_strain) > 0.0
+    assert np.all(np.isfinite(np.asarray(tangent_ad)))
+    np.testing.assert_allclose(float(ff.j2_yield_function(stress, next_state, material)), 0.0, atol=1.0e-9)
+    np.testing.assert_allclose(np.asarray(tangent_ad), tangent_fd, rtol=5.0e-5, atol=2.0e-3)

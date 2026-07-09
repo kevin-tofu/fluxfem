@@ -83,6 +83,37 @@ def test_j2_residual_form_uses_frozen_state_without_committing():
     np.testing.assert_allclose(np.asarray(state0.equivalent_plastic_strain), 0.0)
 
 
+def test_j2_residual_jacobian_matches_finite_difference_columns_in_plastic_range():
+    space = _one_hex_space()
+    material = ff.J2Plasticity(E=210_000.0, nu=0.30, yield_stress=50.0, hardening_modulus=100.0)
+    state = ff.make_j2_quadrature_state(space, dtype=jnp.float64)
+    params = {"material": material, "state": state}
+
+    u = jnp.zeros(space.n_dofs, dtype=jnp.float64)
+    coords = np.asarray(space.mesh.coords)
+    for node_id, (x, y, z) in enumerate(coords):
+        u = u.at[3 * node_id + 0].set(5.0e-3 * x + 2.0e-4 * y)
+        u = u.at[3 * node_id + 1].set(-1.0e-4 * x + 1.0e-4 * z)
+
+    def residual_fn(u_vec):
+        return space.assemble_residual(ff.j2_plasticity_residual_form, u_vec, params)
+
+    J_ad = np.asarray(space.assemble_jacobian(ff.j2_plasticity_residual_form, u, params).to_dense())
+    R0 = np.asarray(residual_fn(u))
+    step = 1.0e-7
+
+    assert np.all(np.isfinite(J_ad))
+    assert np.all(np.isfinite(R0))
+    assert float(jnp.max(ff.update_j2_quadrature_state(space, u, state, material).equivalent_plastic_strain)) > 0.0
+    for col in (0, 5, 13, 21):
+        direction = np.zeros(space.n_dofs, dtype=float)
+        direction[col] = step
+        R_plus = np.asarray(residual_fn(u + jnp.asarray(direction, dtype=jnp.float64)))
+        R_minus = np.asarray(residual_fn(u - jnp.asarray(direction, dtype=jnp.float64)))
+        fd_col = (R_plus - R_minus) / (2.0 * step)
+        np.testing.assert_allclose(J_ad[:, col], fd_col, rtol=5.0e-5, atol=5.0e-4)
+
+
 def _homogeneous_extension_dirichlet(space, axial_strain: float):
     coords = np.asarray(space.mesh.coords)
     dofs = np.arange(space.n_dofs, dtype=int)
