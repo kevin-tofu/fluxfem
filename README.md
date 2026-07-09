@@ -885,6 +885,55 @@ versions are not covered by CI and may require manual JAX installation.
 </ul>
 </small>
 
+## Roadmap Status
+
+<small>
+<ul>
+  <li><strong>Phase 1: structural element base</strong>
+    <ul>
+      <li>Implemented: spring/mass/dashpot helpers, bar/truss helpers, 2D frame helpers, and 3D Euler-Bernoulli beam helpers.</li>
+      <li>Partial / future: Timoshenko beam and geometrically nonlinear beam/frame workflows.</li>
+    </ul>
+  </li>
+  <li><strong>Phase 2: practical constraints and coupling</strong>
+    <ul>
+      <li>Implemented: MPC-style rows, rigid/RBE2-style constraints, RBE3-style distributed coupling, tie constraints, bolt preload, and distributed coupling.</li>
+      <li>Note: RBE2/RBE3 helpers are tested FluxFEM-style constructions, not complete Nastran card-compatible implementations.</li>
+    </ul>
+  </li>
+  <li><strong>Phase 3: plate, shell, and mixed-dimensional coupling</strong>
+    <ul>
+      <li>Implemented: Q4 Mindlin/Reissner-Mindlin plate helpers, Q4 Reissner-Mindlin shell helpers, MITC4-style shear option, shell-solid translational ties, and solid-shell/beam/truss RBE3-style coupling examples.</li>
+      <li>Partial / future: curved/general shell kinematics, drilling-DOF treatment beyond the current helper scope, layered shells, and direct shell-solid rotational continuity.</li>
+    </ul>
+  </li>
+  <li><strong>Phase 4: contact</strong>
+    <ul>
+      <li>Implemented: penalty-style contact helpers, active contact update loops, node/surface and paired-surface utilities, KKT/contact builder paths, mortar-oriented utilities, and contact VTU/tutorial examples.</li>
+      <li>Partial / future: production-grade general frictional contact, robust large-sliding workflows, and full mortar contact lifecycle management.</li>
+    </ul>
+  </li>
+  <li><strong>Phase 5: nonlinear materials</strong>
+    <ul>
+      <li>Implemented: Neo-Hookean hyperelastic residual examples and small-strain J2 material-point / FE quadrature-state / load-step helpers with VTU, load-history CSV, Newton diagnostics, and tangent diagnostic tests.</li>
+      <li>Partial / future: production restart/output for plasticity, damage, viscoelasticity, and broader material lifecycle APIs.</li>
+    </ul>
+  </li>
+  <li><strong>Phase 6: optimization and ROM</strong>
+    <ul>
+      <li>Implemented: differentiable residual/Jacobian workflows, objective differentiation through JAX paths, Craig-Bampton ROM for stiffness/mass systems, reduced Newmark utilities, and mixed solid + shell + beam CB-ROM checks.</li>
+      <li>Partial / future: polished support-layout/shape-parameter optimization workflows, frequency-response examples, and broader nonlinear/contact ROM lifecycle tooling.</li>
+    </ul>
+  </li>
+  <li><strong>Deferred application areas</strong>
+    <ul>
+      <li>Not a current focus: full reinforced-concrete solver coverage, production-grade large-scale commercial-CAE feature parity, and fully general friction/wear contact.</li>
+      <li>Possible stepping stone: embedded reinforcement / embedded truss-style modeling before domain-specific RC workflows.</li>
+    </ul>
+  </li>
+</ul>
+</small>
+
 ## Acknowledgements
 I acknowledge the open-source software, libraries, and communities that made this work possible.
 
