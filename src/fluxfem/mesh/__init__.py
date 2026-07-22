@@ -93,6 +93,14 @@ from .contact_forms import (
     ContactState,
     ContactSolveResult,
 )
+from .contact_method_comparison import (
+    ContactMethodMetric,
+    ContactMethodResult,
+    ContactMethodSpec,
+    PrimalSolutionComparison,
+    compare_contact_methods,
+    compare_primal_solutions,
+)
 from .contact_constraint_assembly import (
     coarse_p1_basis_from_node_groups,
     coarse_p1_basis_from_surface_grid,
@@ -174,6 +182,12 @@ __all__ = [
     "PenaltyContactContribution",
     "MultiplierContactContribution",
     "ContactState",
+    "ContactMethodSpec",
+    "ContactMethodResult",
+    "ContactMethodMetric",
+    "PrimalSolutionComparison",
+    "compare_contact_methods",
+    "compare_primal_solutions",
     "AugmentedLagrangianState",
     "AugmentedLagrangianResult",
     "ContactMultiplierSpace",
