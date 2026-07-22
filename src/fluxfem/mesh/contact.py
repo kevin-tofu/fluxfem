@@ -1071,12 +1071,13 @@ class ContactMultiplierSpace:
             "svd",
             "auto",
             "algebraic_qr",
+            "patch_qr",
             "row_qr",
             "pivoted_qr",
         }:
             raise ValueError(
                 "ContactMultiplierSpace.coarse_mode must be 'qr', 'svd', 'auto', "
-                "'algebraic_qr', 'row_qr', or 'pivoted_qr'."
+                "'algebraic_qr', 'patch_qr', 'row_qr', or 'pivoted_qr'."
             )
         if self.coarse_energy_tol is not None and not (0.0 < float(self.coarse_energy_tol) <= 1.0):
             raise ValueError("ContactMultiplierSpace.coarse_energy_tol must be in (0, 1].")
@@ -1273,6 +1274,40 @@ class ContactMultiplierSpace:
             coarse_mode="algebraic_qr",
             coarse_rtol=float(rtol),
             coarse_max_rank=None if max_rank is None else int(max_rank),
+            constraint_scaling=constraint_scaling,
+        )
+
+    @classmethod
+    def patch_qr_mortar(
+        cls,
+        contact=None,
+        *,
+        patch_ids: np.ndarray | None = None,
+        family: str = "p0_supermesh",
+        side: str = "master",
+        value_dim: int = 1,
+        facet_conn: np.ndarray | None = None,
+        rtol: float = 1e-10,
+        max_rank: int | None = None,
+        constraint_scaling: str = "none",
+    ) -> "ContactMultiplierSpace":
+        """Patch-local row-selected mortar using pivoted QR on each patch block."""
+
+        patch_arr = patch_ids
+        if patch_arr is None and contact is not None:
+            patch_arr = _infer_contact_multiplier_patch_ids(contact, family=str(family), side=side)
+        if patch_arr is None:
+            raise ValueError("patch_qr_mortar requires patch_ids or a contact with inferable row patches.")
+        return cls.from_contact(
+            contact,
+            family=family,
+            side=side,
+            value_dim=value_dim,
+            facet_conn=facet_conn,
+            coarse_mode="patch_qr",
+            coarse_rtol=float(rtol),
+            coarse_max_rank=None if max_rank is None else int(max_rank),
+            coarse_patch_ids=np.asarray(patch_arr, dtype=int),
             constraint_scaling=constraint_scaling,
         )
 
@@ -2377,6 +2412,24 @@ def _infer_contact_side_facets(contact, *, side: str) -> np.ndarray | None:
     return None
 
 
+def _infer_contact_multiplier_patch_ids(contact, *, family: str, side: str = "master") -> np.ndarray | None:
+    fam = str(family).lower()
+    if str(side).lower() != "master":
+        return None
+    if fam == "p0_supermesh" and hasattr(contact, "source_facets_master"):
+        return np.asarray(contact.source_facets_master, dtype=int)
+    if fam == "p0_active" and hasattr(contact, "source_facets_master"):
+        source_facets = np.asarray(contact.source_facets_master, dtype=int)
+        if source_facets.size == 0:
+            return np.zeros((0,), dtype=int)
+        return np.unique(source_facets)
+    if fam == "p0":
+        facets = _infer_contact_side_facets(contact, side=side)
+        if facets is not None:
+            return np.arange(int(np.asarray(facets).shape[0]), dtype=int)
+    return None
+
+
 def _resolve_multiplier_spec(
     contact,
     *,
@@ -2566,6 +2619,54 @@ def _constraint_row_ids_from_pivoted_qr(
     return np.sort(np.asarray(pivots[:rank], dtype=int))
 
 
+def _expanded_constraint_patch_ids(patch_ids: np.ndarray, n_rows: int, value_dim: int) -> np.ndarray:
+    patch_np = np.asarray(patch_ids, dtype=int).reshape(-1)
+    if patch_np.size == int(n_rows):
+        return patch_np
+    vd = int(value_dim)
+    if vd > 1 and patch_np.size * vd == int(n_rows):
+        return np.repeat(patch_np, vd)
+    raise ValueError("patch_qr requires one patch id per constraint row before or after value_dim expansion.")
+
+
+def _constraint_row_ids_from_patch_qr(
+    B: np.ndarray,
+    patch_ids: np.ndarray,
+    *,
+    rtol: float,
+    max_rank: int | None,
+    value_dim: int,
+) -> np.ndarray:
+    """Return independent row ids selected by pivoted QR inside each row patch."""
+
+    B_np = np.asarray(B, dtype=float)
+    if B_np.ndim != 2:
+        raise ValueError("patch_qr reduction requires a rank-2 constraint matrix.")
+    n_rows, n_cols = B_np.shape
+    if n_rows == 0 or n_cols == 0:
+        return np.zeros((0,), dtype=int)
+    patch_np = _expanded_constraint_patch_ids(patch_ids, n_rows, value_dim)
+    selected: list[int] = []
+    remaining = None if max_rank is None else int(max_rank)
+    for patch in np.unique(patch_np):
+        if remaining is not None and remaining <= 0:
+            break
+        rows = np.flatnonzero(patch_np == int(patch))
+        if rows.size == 0:
+            continue
+        local_max = None if remaining is None else min(remaining, int(rows.size))
+        local_ids = _constraint_row_ids_from_pivoted_qr(
+            B_np[rows, :],
+            rtol=rtol,
+            max_rank=local_max,
+        )
+        chosen = rows[local_ids]
+        selected.extend(int(row) for row in chosen.tolist())
+        if remaining is not None:
+            remaining -= int(chosen.size)
+    return np.asarray(sorted(selected), dtype=int)
+
+
 def _apply_coarse_mortar_projection(B_a, B_b, multiplier: ContactMultiplierSpace, *, backend: str):
     projection = multiplier.coarse_projection
     rank = multiplier.coarse_rank
@@ -2584,6 +2685,19 @@ def _apply_coarse_mortar_projection(B_a, B_b, multiplier: ContactMultiplierSpace
             np.asarray(B, dtype=float),
             rtol=1e-10 if multiplier.coarse_rtol is None else float(multiplier.coarse_rtol),
             max_rank=multiplier.coarse_max_rank,
+        )
+        B_coarse = xp.asarray(np.asarray(B, dtype=float)[row_ids, :])
+        n_a = int(B_a.shape[1])
+        return B_coarse[:, :n_a], -B_coarse[:, n_a:]
+    if mode == "patch_qr":
+        if multiplier.coarse_patch_ids is None:
+            raise ValueError("patch_qr mortar reduction requires coarse_patch_ids.")
+        row_ids = _constraint_row_ids_from_patch_qr(
+            np.asarray(B, dtype=float),
+            np.asarray(multiplier.coarse_patch_ids, dtype=int),
+            rtol=1e-10 if multiplier.coarse_rtol is None else float(multiplier.coarse_rtol),
+            max_rank=multiplier.coarse_max_rank,
+            value_dim=int(multiplier.value_dim),
         )
         B_coarse = xp.asarray(np.asarray(B, dtype=float)[row_ids, :])
         n_a = int(B_a.shape[1])
@@ -2626,6 +2740,10 @@ def _apply_constraint_row_scaling(B_a, B_b, scaling: str, *, backend: str):
     B_scaled = scale[:, None] * B
     n_a = int(B_a.shape[1])
     return B_scaled[:, :n_a], -B_scaled[:, n_a:]
+
+
+def _is_patch_qr_multiplier(multiplier: ContactMultiplierSpace) -> bool:
+    return str(multiplier.coarse_mode).lower() == "patch_qr"
 
 
 def _kkt_coo_from_coupling(
@@ -2725,7 +2843,7 @@ def _kkt_coo_from_coupling(
             b_data = np.zeros((0,), dtype=float)
     else:
         raise ValueError("multiplier_space must be 'nodal', 'dual_nodal', 'coarse_p1', or 'p0'")
-    if coarse_patch_ids is not None:
+    if coarse_patch_ids is not None and str(coarse_mode).lower() != "patch_qr":
         if multiplier_space != "p0":
             raise ValueError("coarse_patch_ids are supported only for p0 multiplier_space in sparse KKT assembly.")
         B_dense = np.zeros((n_l, n_u), dtype=float)
@@ -2746,15 +2864,15 @@ def _kkt_coo_from_coupling(
         B_dense = np.zeros((n_l, n_u), dtype=float)
         B_dense[b_rows, b_cols] += b_data
         coarse_multiplier = ContactMultiplierSpace(
-            family="nodal",
-            value_dim=1,
+            family="p0" if str(coarse_mode).lower() == "patch_qr" else "nodal",
+            value_dim=int(multiplier_value_dim) if str(coarse_mode).lower() == "patch_qr" else 1,
             coarse_rank=coarse_rank,
             coarse_projection=coarse_projection,
             coarse_mode=coarse_mode,
             coarse_energy_tol=coarse_energy_tol,
             coarse_rtol=coarse_rtol,
             coarse_max_rank=coarse_max_rank,
-            coarse_patch_ids=None,
+            coarse_patch_ids=coarse_patch_ids if str(coarse_mode).lower() == "patch_qr" else None,
             coarse_basis=None,
             constraint_scaling="none",
         )
@@ -3053,7 +3171,7 @@ def assemble_contact_constraint_operators(
         B_a, B_b = _apply_integrated_coarse_p0_groups(
             B_a,
             B_b,
-            multiplier_resolved.coarse_patch_ids,
+            None if _is_patch_qr_multiplier(multiplier_resolved) else multiplier_resolved.coarse_patch_ids,
             backend=backend,
         )
         B_a = _expand_scalar_constraint_dense(
@@ -3071,14 +3189,14 @@ def assemble_contact_constraint_operators(
             contact,
             backend=backend,
             value_dim=int(multiplier_resolved.value_dim),
-            coarse_patch_ids=multiplier_resolved.coarse_patch_ids,
+            coarse_patch_ids=None if _is_patch_qr_multiplier(multiplier_resolved) else multiplier_resolved.coarse_patch_ids,
         )
     elif mult_space == "p0_supermesh":
         B_a, B_b = _assemble_supermesh_triangle_p0_blocks(
             contact,
             backend=backend,
             value_dim=int(multiplier_resolved.value_dim),
-            coarse_patch_ids=multiplier_resolved.coarse_patch_ids,
+            coarse_patch_ids=None if _is_patch_qr_multiplier(multiplier_resolved) else multiplier_resolved.coarse_patch_ids,
         )
         if backend == "jax":
             B_a = xp.asarray(B_a)
@@ -3089,7 +3207,9 @@ def assemble_contact_constraint_operators(
             "'p0', 'p0_active', or 'p0_supermesh'."
         )
 
+    n_rows_before_reduction = int(B_a.shape[0])
     B_a, B_b = _apply_coarse_mortar_projection(B_a, B_b, multiplier_resolved, backend=backend)
+    n_rows_after_reduction = int(B_a.shape[0])
     B_a, B_b = _apply_constraint_row_scaling(
         B_a,
         B_b,
@@ -3128,7 +3248,14 @@ def assemble_contact_constraint_operators(
         facet_conn_master=facet_conn_master,
         rho=rho,
         multiplier=multiplier_resolved,
-        diagnostics={"constraint_scaling": str(multiplier_resolved.constraint_scaling).lower()},
+        diagnostics={
+            "constraint_scaling": str(multiplier_resolved.constraint_scaling).lower(),
+            "constraint_reduction": str(multiplier_resolved.coarse_mode).lower()
+            if multiplier_resolved.coarse_mode is not None
+            else "none",
+            "constraint_rows_before_reduction": n_rows_before_reduction,
+            "constraint_rows_after_reduction": n_rows_after_reduction,
+        },
     )
 
 

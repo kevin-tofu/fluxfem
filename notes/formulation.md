@@ -102,6 +102,38 @@ overlap-area variation.
 The default remains `constraint_scaling="none"` for backward compatibility.
 The selected mode is reported in `MultiplierContactContribution.diagnostics`.
 
+### Patch-local QR row reduction
+
+The updated kktkit lecture notes still describe large-pair sparse
+rank-revealing QR as future work.  kktkit has dense per-pair
+`algebraic-qr`, but not a production sparse QR path for very large contact
+pairs.
+
+FluxFEM now has a conservative intermediate option:
+
+```python
+multiplier = MultiplierSpec.patch_qr_mortar(
+    contact,
+    family="p0_supermesh",
+    value_dim=3,
+    constraint_scaling="l2",
+)
+```
+
+For `p0_supermesh`, patch ids are inferred from `contact.source_facets_master`.
+The implementation runs pivoted QR on each patch block rather than on the whole
+constraint matrix.  This reduces patch-local redundant rows without requiring a
+global dense QR.  It is intentionally weaker than global `algebraic_qr`: it
+does not guarantee removal of dependencies across different patches.
+
+`MultiplierContactContribution.diagnostics` now reports:
+
+```text
+constraint_reduction
+constraint_rows_before_reduction
+constraint_rows_after_reduction
+```
+
 ### Constraint quality policy
 
 FluxFEM now also has an opt-in quality-policy layer:
@@ -261,6 +293,7 @@ Focused tests cover:
 - a runnable Mortar/Nitsche split-tet supermesh comparison demo
 - a runnable nonmatching hex fixture/workpiece Mortar/Nitsche diagnostics demo
 - L2 constraint row scaling for mortar multiplier operators
+- patch-local QR row reduction for p0-like mortar rows
 
 The checked command was:
 
@@ -275,7 +308,7 @@ PYTHONPATH=src pytest \
 Current result:
 
 ```text
-87 passed, 3 warnings
+88 passed, 3 warnings
 ```
 
 The warnings are existing float32/JAX and deprecated compatibility-path
@@ -318,6 +351,11 @@ mortar B shape: (96, 150)
 mortar estimated rank: 63
 mortar rank deficiency: 33
 mortar quality status: fail
+mortar patch-qr B shape: (90, 150)
+mortar patch-qr estimated rank: 63
+mortar patch-qr rank deficiency: 27
+mortar patch-qr quality status: fail
+mortar patch-qr row norm range: ('1.000e+00', '1.000e+00')
 mortar algebraic-qr B shape: (63, 150)
 mortar algebraic-qr rank deficiency: 0
 mortar algebraic-qr quality status: pass
@@ -352,8 +390,8 @@ policy is configured to expect and assert the current fail status.
 
 The lecture notes call out dense local SVD/QR as prototype-level for large
 contact pairs.  FluxFEM now has dense pivoted-QR row selection for assembled
-constraint matrices, but a true sparse rank-revealing reduction is still future
-work.
+constraint matrices and patch-local QR row selection for p0-like rows, but a
+true sparse rank-revealing reduction is still future work.
 
 This is lower priority than CI smoke-test selection unless large contact pairs
 become the immediate bottleneck.
@@ -381,6 +419,9 @@ Reasoning:
   supermesh P0 example
 - L2 row scaling now makes the reduced mortar rows unit norm before KKT
   assembly
+- patch-local QR now gives a memory-safer reduction option that removes
+  patch-local redundancy while preserving global diagnostics for remaining
+  cross-patch dependencies
 - the next missing piece is deciding which diagnostics should be asserted in CI
 
 Suggested first milestone:

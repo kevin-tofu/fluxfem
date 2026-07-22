@@ -452,6 +452,56 @@ def test_algebraic_qr_mortar_selects_independent_supermesh_rows():
     assert reduced.constraint_quality().status == "pass"
 
 
+def test_patch_qr_mortar_selects_independent_rows_per_supermesh_patch():
+    master = ff.StructuredHexBox(nx=2, ny=2, nz=1, lx=1.0, ly=1.0, lz=0.25).build()
+    slave = ff.StructuredHexBox(
+        nx=3,
+        ny=3,
+        nz=1,
+        lx=1.0,
+        ly=1.0,
+        lz=0.25,
+        origin=(0.0, 0.0, -0.25),
+    ).build()
+    master_space = ff.make_hex_space(master, dim=3)
+    slave_space = ff.make_hex_space(slave, dim=3)
+    contact = ff.ContactSurfaceSpace.from_sides(
+        ff.ContactSide.from_facets(master, master.facets_on_plane(axis=2, value=0.0), master_space),
+        ff.ContactSide.from_facets(slave, slave.facets_on_plane(axis=2, value=0.0), slave_space),
+        quad_order=2,
+        backend="numpy",
+        normal_sign=-1.0,
+    )
+
+    fine = contact.assemble_multiplier(
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.from_contact(contact, family="p0_supermesh", side="master", value_dim=3),
+        backend="numpy",
+    )
+    reduced = contact.assemble_multiplier(
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.patch_qr_mortar(
+            contact,
+            family="p0_supermesh",
+            side="master",
+            value_dim=3,
+            constraint_scaling="l2",
+        ),
+        backend="numpy",
+    )
+    fine_diag = fine.constraint_diagnostics()
+    reduced_diag = reduced.constraint_diagnostics()
+    row_norms = np.linalg.norm(np.asarray(reduced.B, dtype=float), axis=1)
+
+    assert reduced.B.shape[0] < fine.B.shape[0]
+    assert reduced_diag.estimated_rank == fine_diag.estimated_rank
+    assert 0 < reduced_diag.rank_deficiency < fine_diag.rank_deficiency
+    assert reduced.diagnostics["constraint_reduction"] == "patch_qr"
+    assert reduced.diagnostics["constraint_rows_before_reduction"] == fine.B.shape[0]
+    assert reduced.diagnostics["constraint_rows_after_reduction"] == reduced.B.shape[0]
+    np.testing.assert_allclose(row_norms[row_norms > 0.0], np.ones(np.count_nonzero(row_norms > 0.0)))
+
+
 def test_mortar_constraint_l2_scaling_normalizes_nonzero_rows():
     coords = np.array(
         [

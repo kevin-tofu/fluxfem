@@ -112,6 +112,17 @@ def run_demo(config: DemoConfig | None = None) -> dict[str, Any]:
     mortar_diag = mortar.constraint_diagnostics(max_singular_values=10)
     mortar_quality = mortar.constraint_quality(max_condition_number=1.0e6)
     mortar_residual = mortar.constraint_residual(state)
+    patch_qr_multiplier = ff.MultiplierSpec.patch_qr_mortar(
+        contact,
+        family="p0_supermesh",
+        side="master",
+        value_dim=3,
+        constraint_scaling="l2",
+    )
+    mortar_patch_qr = contact.assemble_multiplier(rho=cfg.rho, multiplier=patch_qr_multiplier, backend="numpy")
+    mortar_patch_qr_diag = mortar_patch_qr.constraint_diagnostics(max_singular_values=10)
+    mortar_patch_qr_quality = mortar_patch_qr.constraint_quality(max_condition_number=1.0e6)
+    mortar_patch_qr_residual = mortar_patch_qr.constraint_residual(state)
     qr_multiplier = ff.MultiplierSpec.algebraic_qr_mortar(
         contact,
         family="p0_supermesh",
@@ -177,6 +188,20 @@ def run_demo(config: DemoConfig | None = None) -> dict[str, Any]:
             "constraint_residual_norm": float(np.linalg.norm(mortar_residual)),
             "augmentation_energy": float(mortar.augmentation_energy(state)),
         },
+        "mortar_patch_qr": {
+            "B_shape": tuple(int(v) for v in np.asarray(mortar_patch_qr.B).shape),
+            "zero_row_count": int(mortar_patch_qr_diag.zero_row_count),
+            "estimated_rank": int(mortar_patch_qr_diag.estimated_rank),
+            "rank_deficiency": int(mortar_patch_qr_diag.rank_deficiency),
+            "condition_number": float(mortar_patch_qr_diag.condition_number),
+            "quality_status": str(mortar_patch_qr_quality.status),
+            "quality_issues": tuple(issue.check for issue in mortar_patch_qr_quality.issues),
+            "quality_hints": tuple((issue.check, issue.hint) for issue in mortar_patch_qr_quality.issues),
+            "row_norm_min": float(mortar_patch_qr_diag.row_norm_min),
+            "row_norm_max": float(mortar_patch_qr_diag.row_norm_max),
+            "constraint_residual_norm": float(np.linalg.norm(mortar_patch_qr_residual)),
+            "augmentation_energy": float(mortar_patch_qr.augmentation_energy(state)),
+        },
         "mortar_algebraic_qr": {
             "B_shape": tuple(int(v) for v in np.asarray(mortar_qr.B).shape),
             "zero_row_count": int(mortar_qr_diag.zero_row_count),
@@ -236,6 +261,18 @@ def main() -> None:
         print(f"mortar quality hint [{check}]: {hint}")
     print("mortar constraint residual norm:", f"{result['mortar']['constraint_residual_norm']:.3e}")
     print("mortar augmentation energy:", f"{result['mortar']['augmentation_energy']:.3e}")
+    print("mortar patch-qr B shape:", result["mortar_patch_qr"]["B_shape"])
+    print("mortar patch-qr estimated rank:", result["mortar_patch_qr"]["estimated_rank"])
+    print("mortar patch-qr rank deficiency:", result["mortar_patch_qr"]["rank_deficiency"])
+    print("mortar patch-qr quality status:", result["mortar_patch_qr"]["quality_status"])
+    print(
+        "mortar patch-qr row norm range:",
+        (
+            f"{result['mortar_patch_qr']['row_norm_min']:.3e}",
+            f"{result['mortar_patch_qr']['row_norm_max']:.3e}",
+        ),
+    )
+    print("mortar patch-qr constraint residual norm:", f"{result['mortar_patch_qr']['constraint_residual_norm']:.3e}")
     print("mortar algebraic-qr B shape:", result["mortar_algebraic_qr"]["B_shape"])
     print("mortar algebraic-qr estimated rank:", result["mortar_algebraic_qr"]["estimated_rank"])
     print("mortar algebraic-qr rank deficiency:", result["mortar_algebraic_qr"]["rank_deficiency"])
