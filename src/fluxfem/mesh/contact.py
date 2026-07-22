@@ -84,6 +84,10 @@ from .contact_embedding import (
     build_rbe3_weights,
     build_rbe3_remote_resultant,
 )
+from .contact_nitsche import (
+    assemble_pair_nitsche_supermesh_impl as _assemble_pair_nitsche_supermesh_impl,
+    make_pair_nitsche_supermesh_bilinear,
+)
 from .mortar_operators import (
     p0_reduction_matrix_from_facets as _p0_reduction_matrix_from_facets,
     p0_patch_group_matrix as _p0_patch_group_matrix,
@@ -332,34 +336,6 @@ def compile_tagged_pair_nitsche_penalty_residual(
     return _tag_contact_residual_form(
         res_form,
         formulation="pair_nitsche_penalty",
-        backend_fastpath=backend_fastpath,
-    )
-
-
-def make_pair_nitsche_supermesh_bilinear(
-    *,
-    backend_fastpath: str = "numpy_local_kernel",
-) -> ContactBilinear:
-    """Build the symmetric pair-Nitsche bilinear used on contact supermeshes."""
-    import fluxfem.helpers_wf as h_wf
-    from ..core.weakform import einsum as wf_einsum
-
-    def _bilin(v1, v2, u1, u2, p):
-        n = h_wf.normal()
-        ju = u1.val - u2.val
-        t_u = 0.5 * (h_wf.traction(u1, n, p) + h_wf.traction(u2, n, p))
-        t_v1 = h_wf.traction(v1, n, p)
-        t_v2 = h_wf.traction(v2, n, p)
-        penalty = p.use_penalty * (p.alpha * p.inv_h) * (
-            h_wf.dot(v1, ju) - h_wf.dot(v2, ju)
-        )
-        traction = p.use_traction * (-h_wf.dot(v1, t_u) + h_wf.dot(v2, t_u))
-        traction -= p.use_traction * 0.5 * wf_einsum("qia,qi->qa", t_v1, ju)
-        traction -= p.use_traction * 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
-        return (penalty + traction) * h_wf.ds()
-
-    return make_tagged_pair_nitsche_penalty_bilinear(
-        _bilin,
         backend_fastpath=backend_fastpath,
     )
 
@@ -4597,33 +4573,6 @@ class OneToManyContactSurfaceSpace:
         )
 
 
-def _params_with_pair_nitsche_defaults(
-    params: "WeakParams",
-    *,
-    use_penalty: float | None,
-    use_traction: float | None,
-) -> "WeakParams":
-    defaults = {
-        "use_penalty": 1.0 if use_penalty is None else float(use_penalty),
-        "use_traction": 1.0 if use_traction is None else float(use_traction),
-    }
-    data = dict(getattr(params, "_data", {}))
-    if not data:
-        data = dict(vars(params))
-    changed = False
-    for name, value in defaults.items():
-        if name not in data or (name == "use_penalty" and use_penalty is not None) or (
-            name == "use_traction" and use_traction is not None
-        ):
-            data[name] = value
-            changed = True
-    if not changed:
-        return params
-    from ..core.weakform import Params
-
-    return Params(**data)
-
-
 def assemble_pair_nitsche_supermesh(
     contact,
     params: "WeakParams",
@@ -4634,37 +4583,16 @@ def assemble_pair_nitsche_supermesh(
     use_traction: float | None = None,
     backend_fastpath: str = "numpy_local_kernel",
 ) -> PenaltyContactContribution:
-    """
-    Assemble pair-Nitsche contact terms over a prepared contact supermesh.
-
-    The contact object must provide ``assemble_bilinear_form``; prepared
-    ``ContactSurfaceSpace`` and ``OneToManyContactSurfaceSpace`` objects do.
-    """
-    if not hasattr(contact, "assemble_bilinear_form"):
-        raise TypeError("contact must provide assemble_bilinear_form() for pair-Nitsche supermesh assembly.")
-    params_eff = _params_with_pair_nitsche_defaults(
+    """Assemble pair-Nitsche contact terms over a prepared contact supermesh."""
+    return _assemble_pair_nitsche_supermesh_impl(
+        contact,
         params,
-        use_penalty=use_penalty,
-        use_traction=use_traction,
-    )
-    bilin = make_pair_nitsche_supermesh_bilinear(backend_fastpath=backend_fastpath)
-    jacobian = contact.assemble_bilinear_form(
-        bilin,
-        params_eff,
+        contribution_cls=PenaltyContactContribution,
         sparse=sparse,
         normal_source=normal_source,
-    )
-    diagnostics: dict[str, Any] = {}
-    if hasattr(contact, "supermesh_conn"):
-        diagnostics["supermesh_triangles"] = int(np.asarray(contact.supermesh_conn).shape[0])
-    diagnostics["use_penalty"] = float(getattr(params_eff, "use_penalty", 1.0))
-    diagnostics["use_traction"] = float(getattr(params_eff, "use_traction", 1.0))
-    return PenaltyContactContribution(
-        enforcement="nitsche",
-        law="frictionless_tied",
-        formulation="pair_nitsche_penalty",
-        jacobian=jacobian,
-        diagnostics=diagnostics,
+        use_penalty=use_penalty,
+        use_traction=use_traction,
+        backend_fastpath=backend_fastpath,
     )
 
 

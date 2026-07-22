@@ -57,6 +57,7 @@ from .contact_embedding import (
     build_rbe3_weights,
     build_rbe3_remote_resultant,
 )
+from .contact_nitsche import make_pair_nitsche_supermesh_bilinear
 from .contact import (
     ContactOperators,
     PenaltyContactContribution,
@@ -74,7 +75,6 @@ from .contact import (
     coarse_p1_basis_from_surface_grid,
     UnilateralContactActiveSetRecord,
     UnilateralContactActiveSetResult,
-    make_pair_nitsche_supermesh_bilinear,
     assemble_pair_nitsche_supermesh,
     ContactSurfaceSpace,
     PreparedContactInterface,
