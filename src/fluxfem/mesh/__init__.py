@@ -21,13 +21,20 @@ from .contact_interface import (
     quad9_shape_values,
     hex27_gradN,
 )
+from .mortar_problem import (
+    MortarContactProblemPair,
+    MortarContactProblem,
+    assemble_mortar_contact_problem,
+)
+from .mortar_multiplier import (
+    ContactMultiplierSpace,
+    MultiplierSpec,
+)
 from .contact import (
     ContactOperators,
     ContactConstraintDiagnostics,
     ContactConstraintQualityIssue,
     ContactConstraintQualityReport,
-    MortarContactProblemPair,
-    MortarContactProblem,
     PenaltyContactContribution,
     MultiplierContactContribution,
     ContactState,
@@ -39,8 +46,6 @@ from .contact import (
     ContactGroupSpec,
     OneSidedContactSpaces,
     OneSidedContactSpec,
-    ContactMultiplierSpace,
-    MultiplierSpec,
     coarse_p1_basis_from_node_groups,
     coarse_p1_basis_from_surface_grid,
     ContactKKTSolveConfig,
@@ -61,7 +66,6 @@ from .contact import (
     build_rbe3_remote_resultant,
     make_pair_nitsche_supermesh_bilinear,
     assemble_pair_nitsche_supermesh,
-    assemble_mortar_contact_problem,
     ContactSurfaceSpace,
     PreparedContactInterface,
     ContactSide,
