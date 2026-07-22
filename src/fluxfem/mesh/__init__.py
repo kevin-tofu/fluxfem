@@ -44,6 +44,14 @@ from .contact_kkt_solver import (
     solve_contact_kkt,
     solve_contact_kkt_with_info,
 )
+from .contact_solvers import (
+    AugmentedLagrangianState,
+    AugmentedLagrangianResult,
+    UnilateralContactActiveSetRecord,
+    UnilateralContactActiveSetResult,
+    solve_unilateral_contact_active_set_kkt,
+    solve_augmented_lagrangian_outer_loop,
+)
 from .contact_embedding import (
     EmbeddingMap,
     build_nodal_embedding_map,
@@ -63,8 +71,6 @@ from .contact import (
     PenaltyContactContribution,
     MultiplierContactContribution,
     ContactState,
-    AugmentedLagrangianState,
-    AugmentedLagrangianResult,
     ContactSpaces,
     ContactPairSpec,
     ContactGroupSpaces,
@@ -73,8 +79,6 @@ from .contact import (
     OneSidedContactSpec,
     coarse_p1_basis_from_node_groups,
     coarse_p1_basis_from_surface_grid,
-    UnilateralContactActiveSetRecord,
-    UnilateralContactActiveSetResult,
     assemble_pair_nitsche_supermesh,
     ContactSurfaceSpace,
     PreparedContactInterface,
@@ -94,8 +98,6 @@ from .contact import (
     assemble_contact_interface_jacobian,
     assemble_contact_coupling_matrices,
     assemble_contact_kkt,
-    solve_unilateral_contact_active_set_kkt,
-    solve_augmented_lagrangian_outer_loop,
     ContactSolveResult,
     update_contact_state_penalty,
     solve_contact_penalty_jax,
