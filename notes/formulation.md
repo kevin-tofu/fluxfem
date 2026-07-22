@@ -216,6 +216,7 @@ Focused tests cover:
 - public pair-Nitsche supermesh API matching scikit-fem for matching and
   nonmatching tet4 interfaces
 - a runnable Mortar/Nitsche split-tet supermesh comparison demo
+- a runnable nonmatching hex fixture/workpiece Mortar/Nitsche diagnostics demo
 
 The checked command was:
 
@@ -230,7 +231,7 @@ PYTHONPATH=src pytest \
 Current result:
 
 ```text
-80 passed, 3 warnings
+85 passed, 3 warnings
 ```
 
 The warnings are existing float32/JAX and deprecated compatibility-path
@@ -257,25 +258,36 @@ KKT residual norm: 6.942e-19
 KKT scaled row norm range: ('1.000e+00', '1.852e+00')
 ```
 
+The larger comparison demo command was also checked:
+
+```bash
+PYTHONPATH=src python tutorials/contact/mortar_nitsche_fixture_workpiece_diagnostics.py
+```
+
+Current output includes:
+
+```text
+fixture facets: 4
+workpiece facets: 9
+supermesh triangles: 32
+mortar B shape: (96, 150)
+mortar estimated rank: 63
+mortar rank deficiency: 33
+mortar quality status: fail
+nitsche penalty K shape: (150, 150)
+nitsche full K shape: (150, 150)
+KKT solver: block_scaled
+KKT scaled row norm range: ('1.000e+00', '2.631e+00')
+```
+
+This larger nonmatching case intentionally exposes rank deficiency in the
+supermesh P0 multiplier space.  That makes it a useful diagnostics example:
+the split-tet smoke case passes, while the larger fixture/workpiece case shows
+when quality policy starts asking for a coarser or rank-reduced multiplier.
+
 ## Remaining formulation gaps
 
-### 1. Larger Mortar/Nitsche example
-
-The split-tet demo is intentionally small.  The next formulation-facing example
-should use a slightly larger fixture/workpiece or sphere/box-style contact
-setup and report the same diagnostics:
-
-- supermesh overlap count
-- Mortar row/rank diagnostics
-- Mortar quality report
-- Nitsche penalty/full matrix norms
-- compatibility residual and augmented energy
-- KKT residual after a simple constrained solve
-
-This is the right place to decide whether the diagnostics should become part of
-a CI smoke test.
-
-### 2. Constraint-quality remediation suggestions
+### 1. Constraint-quality remediation suggestions
 
 The quality report currently classifies issues.  A useful follow-up is to attach
 action hints:
@@ -285,6 +297,18 @@ action hints:
 - high condition number: inspect row scaling or use block-scaled KKT solve
 
 This should still be advisory text, not automatic behavior.
+
+### 2. CI smoke-test selection
+
+The split-tet and fixture/workpiece demos are both runnable.  The next decision
+is whether to make either of them part of CI:
+
+- split-tet: fast pass case for public API and KKT diagnostics
+- fixture/workpiece: larger diagnostic case that intentionally reports a rank
+  deficiency
+
+The fixture/workpiece case should probably remain a tutorial unless the quality
+policy is configured to expect and assert the current fail status.
 
 ### 3. Sparse rank-revealing reduction
 
@@ -297,7 +321,7 @@ unless large contact pairs become the immediate bottleneck.
 
 ## Recommended next step
 
-Extend the Mortar/Nitsche comparison to a larger contact example next.
+Add remediation hints to constraint quality reports next.
 
 Reasoning:
 
@@ -310,15 +334,17 @@ Reasoning:
 - block-scaled KKT diagnostics now show scaling ranges and solve residuals
 - constraint quality now gives explicit pass/warn/fail policy without changing
   default assembly behavior
-- the next missing piece is checking that the same diagnostics stay useful on a
+- the larger fixture/workpiece demo confirms the diagnostics stay useful on a
   less toy contact geometry
+- the next missing piece is making the quality report actionable without making
+  automatic assembly choices
 
 Suggested first milestone:
 
 ```text
-Extend tutorials/contact/mortar_nitsche_supermesh_comparison.py or add a sibling
-demo using a larger fixture/workpiece or sphere/box-style contact geometry.
+Attach advisory hints to ContactConstraintQualityIssue based on the failing
+check name.
 ```
 
-After that passes, decide whether the small split-tet demo, the larger demo, or
-both should become CI smoke tests.
+After that passes, decide whether the split-tet pass case should become a small
+CI smoke test.
