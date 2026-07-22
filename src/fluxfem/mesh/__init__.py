@@ -66,24 +66,26 @@ from .contact_embedding import (
     build_rbe3_remote_resultant,
 )
 from .contact_nitsche import make_pair_nitsche_supermesh_bilinear
-from .contact import (
-    ContactOperators,
-    PenaltyContactContribution,
-    MultiplierContactContribution,
-    ContactState,
+from .contact_api import (
+    ContactSide,
+    ContactSideSpec,
     ContactSpaces,
     ContactPairSpec,
     ContactGroupSpaces,
     ContactGroupSpec,
     OneSidedContactSpaces,
     OneSidedContactSpec,
+)
+from .contact import (
+    ContactOperators,
+    PenaltyContactContribution,
+    MultiplierContactContribution,
+    ContactState,
     coarse_p1_basis_from_node_groups,
     coarse_p1_basis_from_surface_grid,
     assemble_pair_nitsche_supermesh,
     ContactSurfaceSpace,
     PreparedContactInterface,
-    ContactSide,
-    ContactSideSpec,
     OneSidedContact,
     OneSidedContactSurfaceSpace,
     PreparedOneSidedContactInterface,
