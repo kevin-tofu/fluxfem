@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Linear Elasticity: Tensile Bar &#8212; FluxFEM 0.3.4 documentation</title>
+    <title>Linear Elasticity: Tensile Bar &#8212; FluxFEM 0.3.10 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=39bb16ab"></script>
+    <script src="_static/documentation_options.js?v=d9c7ed7f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
@@ -112,7 +112,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.4 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.10 documentation</p>
   
 </a></div>
     
@@ -321,6 +321,10 @@
 <li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_contact_supported_box.html">Supported Box Contact Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_mortar_fixture_workpiece.html">Mortar Fixture-Workpiece Comparison</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_craig_bampton_vibration.html">Craig-Bampton Vibration ROM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_craig_bampton_two_bar_subsystems.html">Craig-Bampton Two-Subsystem ROM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_reduced_equation_builder.html">Reduced Equation Builder</a></li>
 </ul>
 </div>
 </nav></div>
@@ -384,11 +388,11 @@
   <section id="linear-elasticity-tensile-bar">
 <h1>Linear Elasticity: Tensile Bar<a class="headerlink" href="#linear-elasticity-tensile-bar" title="Link to this heading">#</a></h1>
 <p>This tutorial walks through the minimal tensile-bar example in
-<code class="docutils literal notranslate"><span class="pre">tutorials/linearelastic_tensile_bar.py</span></code> and explains the weak form,
+<code class="docutils literal notranslate"><span class="pre">tutorials/elasticity/linearelastic_tensile_bar.py</span></code> and explains the weak form,
 assembly, and boundary conditions with the key equations.</p>
 <section id="run-the-example">
 <h2>Run the example<a class="headerlink" href="#run-the-example" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/linearelastic_tensile_bar.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/elasticity/linearelastic_tensile_bar.py
 </pre></div>
 </div>
 </section>

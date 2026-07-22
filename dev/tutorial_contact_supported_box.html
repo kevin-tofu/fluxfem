@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Supported Box Contact Tutorial &#8212; FluxFEM 0.3.4 documentation</title>
+    <title>Supported Box Contact Tutorial &#8212; FluxFEM 0.3.10 documentation</title>
   
   
   
@@ -38,14 +38,14 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=39bb16ab"></script>
+    <script src="_static/documentation_options.js?v=d9c7ed7f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial_contact_supported_box';</script>
     <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial_contact_supported_box.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="API Reference" href="api.html" />
+    <link rel="next" title="Mortar Fixture-Workpiece Comparison" href="tutorial_mortar_fixture_workpiece.html" />
     <link rel="prev" title="PETSc Shell Solvers" href="tutorial_petsc_shell.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.4 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.10 documentation</p>
   
 </a></div>
     
@@ -320,6 +320,10 @@
 <li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Supported Box Contact Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_mortar_fixture_workpiece.html">Mortar Fixture-Workpiece Comparison</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_craig_bampton_vibration.html">Craig-Bampton Vibration ROM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_craig_bampton_two_bar_subsystems.html">Craig-Bampton Two-Subsystem ROM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_reduced_equation_builder.html">Reduced Equation Builder</a></li>
 </ul>
 </div>
 </nav></div>
@@ -391,12 +395,12 @@
 <section id="script">
 <h2>Script<a class="headerlink" href="#script" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/contact_supported_box_by_pillars.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/contact/contact_supported_box_by_pillars.py</span></code></p></li>
 </ul>
 </section>
 <section id="run">
 <h2>Run<a class="headerlink" href="#run" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>python<span class="w"> </span>tutorials/contact_supported_box_by_pillars.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>python<span class="w"> </span>tutorials/contact/contact_supported_box_by_pillars.py
 </pre></div>
 </div>
 </section>
@@ -434,11 +438,11 @@ master/slave roles are explicit in the public API.</p></li>
       </div>
     </a>
     <a class="right-next"
-       href="api.html"
+       href="tutorial_mortar_fixture_workpiece.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">API Reference</p>
+        <p class="prev-next-title">Mortar Fixture-Workpiece Comparison</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

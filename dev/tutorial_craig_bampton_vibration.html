@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Chunked Assembly &#8212; FluxFEM 0.3.10 documentation</title>
+    <title>Craig-Bampton Vibration ROM &#8212; FluxFEM 0.3.10 documentation</title>
   
   
   
@@ -41,12 +41,12 @@
     <script src="_static/documentation_options.js?v=d9c7ed7f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'usage_chunked_assembly';</script>
-    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/usage_chunked_assembly.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial_craig_bampton_vibration';</script>
+    <link rel="canonical" href="https://kevin-tofu.github.io/fluxfem/tutorial_craig_bampton_vibration.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Solvers" href="solver.html" />
-    <link rel="prev" title="Role-Explicit API Migration" href="migration_role_spaces.html" />
+    <link rel="next" title="Craig-Bampton Two-Subsystem ROM" href="tutorial_craig_bampton_two_bar_subsystems.html" />
+    <link rel="prev" title="Mortar Fixture-Workpiece Comparison" href="tutorial_mortar_fixture_workpiece.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -132,14 +132,14 @@
 </li>
 
 
-<li class="nav-item current active">
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="usage.html">
     Usage
   </a>
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="tutorial.html">
     Tutorial Page
   </a>
@@ -248,14 +248,14 @@
 </li>
 
 
-<li class="nav-item current active">
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="usage.html">
     Usage
   </a>
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="tutorial.html">
     Tutorial Page
   </a>
@@ -311,16 +311,19 @@
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Usage</span></p>
-<ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="assembly.html">Assembly</a></li>
-<li class="toctree-l1"><a class="reference internal" href="migration_role_spaces.html">Role-Explicit API Migration</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Chunked Assembly</a></li>
-<li class="toctree-l1"><a class="reference internal" href="solver.html">Solvers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="space.html">FE Spaces</a></li>
-<li class="toctree-l1"><a class="reference internal" href="usage_contact.html">Contact Interface Usage</a></li>
-<li class="toctree-l1"><a class="reference internal" href="usage_remote_constraints.html">Remote Constraints and Virtual Springs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="contact_api_boundaries.html">Contact API Boundaries</a></li>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="tutorial_linear_elasticity.html">Linear Elasticity: Tensile Bar</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_neo_hookean.html">Hyper-Elasticity: Hyperelastic Cantilever</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_autodiff.html">Autodiff Tutorial: Inverse Diffusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_gmsh_msh.html">Load a Gmsh .msh and use it in analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_kernel_assembly.html">Kernel-based Assembly (JIT-Friendly)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_petsc_shell.html">PETSc Shell Solvers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_contact_supported_box.html">Supported Box Contact Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_mortar_fixture_workpiece.html">Mortar Fixture-Workpiece Comparison</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Craig-Bampton Vibration ROM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_craig_bampton_two_bar_subsystems.html">Craig-Bampton Two-Subsystem ROM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_reduced_equation_builder.html">Reduced Equation Builder</a></li>
 </ul>
 </div>
 </nav></div>
@@ -362,9 +365,9 @@
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="usage.html" class="nav-link">Usage</a></li>
+    <li class="breadcrumb-item"><a href="tutorial.html" class="nav-link">Tutorial Page</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Chunked Assembly</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Craig-Bampton Vibration ROM</span></li>
   </ul>
 </nav>
 </div>
@@ -381,74 +384,41 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="chunked-assembly">
-<h1>Chunked Assembly<a class="headerlink" href="#chunked-assembly" title="Link to this heading">#</a></h1>
-<p>Large meshes can cause JAX to recompile a new kernel every time the global
-assembly trim of data changes (e.g., the last chunk is smaller than the
-others). Chunked assembly puts a ceiling on the per-call compilation shape by
-splitting the mesh into <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code> pieces and processing each chunk with a
-fixed-size, padded batch.</p>
-<nav class="contents local" id="contents">
-<ul class="simple">
-<li><p><a class="reference internal" href="#why-chunked-assembly" id="id1">Why chunked assembly?</a></p></li>
-<li><p><a class="reference internal" href="#how-to-use-n-chunks" id="id2">How to use <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code></a></p></li>
-<li><p><a class="reference internal" href="#best-practices" id="id3">Best practices</a></p></li>
-</ul>
-</nav>
-<section id="why-chunked-assembly">
-<h2><a class="toc-backref" href="#id1" role="doc-backlink">Why chunked assembly?</a><a class="headerlink" href="#why-chunked-assembly" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><strong>Stable JIT shapes:</strong> Each chunk is padded to a constant <code class="docutils literal notranslate"><span class="pre">chunk_size</span></code> so JAX
-sees the same array dimensions during tracing, rather than a barely smaller
-last element batch that would trigger recompilation.</p></li>
-<li><p><strong>Smaller working sets:</strong> Chunking keeps the per-call intermediate footprint
-bounded, which can reduce memory pressure when assembling very large meshes
-(or running batched <code class="docutils literal notranslate"><span class="pre">jit``+``vmap</span></code> loops).</p></li>
-<li><p><strong>Optional tracing hints:</strong> <cite>pad_trace=True</cite> emits statistics about the chosen
-chunk layout, which helps tune <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code> for your problem.</p></li>
-</ul>
-</section>
-<section id="how-to-use-n-chunks">
-<h2><a class="toc-backref" href="#id2" role="doc-backlink">How to use <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code></a><a class="headerlink" href="#how-to-use-n-chunks" title="Link to this heading">#</a></h2>
-<p>Chunking is configured via <code class="docutils literal notranslate"><span class="pre">AssemblyPolicy</span></code>. This policy is accepted by both
-functional APIs (<code class="docutils literal notranslate"><span class="pre">fluxfem.core.assemble_*</span></code>) and <code class="docutils literal notranslate"><span class="pre">space.assemble*</span></code> helpers.
-Set <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code> to a positive integer:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">policy</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">AssemblyPolicy</span><span class="o">.</span><span class="n">chunked</span><span class="p">(</span>
-    <span class="n">n_chunks</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
-    <span class="n">pad_trace</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="n">K</span> <span class="o">=</span> <span class="n">space</span><span class="o">.</span><span class="n">assemble</span><span class="p">(</span><span class="n">ff</span><span class="o">.</span><span class="n">diffusion_form</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">policy</span><span class="p">)</span>
+  <section id="craig-bampton-vibration-rom">
+<h1>Craig-Bampton Vibration ROM<a class="headerlink" href="#craig-bampton-vibration-rom" title="Link to this heading">#</a></h1>
+<p>This tutorial summarizes <code class="docutils literal notranslate"><span class="pre">tutorials/craig_bampton/craig_bampton_vibration_rom.py</span></code>.
+It shows that Craig-Bampton reduction in FluxFEM is not stiffness-only: the
+same basis projects the mass matrix for modal and transient dynamics.</p>
+<section id="run">
+<h2>Run<a class="headerlink" href="#run" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>python<span class="w"> </span>tutorials/craig_bampton/craig_bampton_vibration_rom.py
 </pre></div>
 </div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><code class="docutils literal notranslate"><span class="pre">space.assemble(...,</span> <span class="pre">n_chunks=...,</span> <span class="pre">pad_trace=...)</span></code> style kwargs are no
-longer supported. Pass tuning options through <code class="docutils literal notranslate"><span class="pre">AssemblyPolicy</span></code>.</p>
-</div>
-<p>FluxFEM automatically chooses <code class="docutils literal notranslate"><span class="pre">chunk_size</span> <span class="pre">=</span> <span class="pre">ceil(n_elems</span> <span class="pre">/</span> <span class="pre">n_chunks)</span></code>
-and rounds up the padded element data to the nearest multiple of that size.
-During chunked assembly the padded elements are evaluated but never used in the
-final sparse matrix because the final data vector is sliced back to
-<code class="docutils literal notranslate"><span class="pre">n_elems</span> <span class="pre">*</span> <span class="pre">n_ldofs^2</span></code> (or <code class="docutils literal notranslate"><span class="pre">n_elems</span> <span class="pre">*</span> <span class="pre">n_ldofs</span></code> for RHS assembly).</p>
 </section>
-<section id="best-practices">
-<h2><a class="toc-backref" href="#id3" role="doc-backlink">Best practices</a><a class="headerlink" href="#best-practices" title="Link to this heading">#</a></h2>
+<section id="what-it-does">
+<h2>What It Does<a class="headerlink" href="#what-it-does" title="Link to this heading">#</a></h2>
+<p>The script builds a small scalar hex bar, fixes the left face, and retains the
+right face as physical interface coordinates.  It assembles sparse full-order
+stiffness and mass matrices, builds a Craig-Bampton basis from <code class="docutils literal notranslate"><span class="pre">K</span></code> and <code class="docutils literal notranslate"><span class="pre">M</span></code>,
+then forms</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">Kr</span> <span class="o">=</span> <span class="n">cb</span><span class="o">.</span><span class="n">project_matrix</span><span class="p">(</span><span class="n">K</span><span class="p">)</span>
+<span class="n">Mr</span> <span class="o">=</span> <span class="n">cb</span><span class="o">.</span><span class="n">project_matrix</span><span class="p">(</span><span class="n">M</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Finally, it solves the generalized eigenproblems
+<code class="docutils literal notranslate"><span class="pre">K</span> <span class="pre">phi</span> <span class="pre">=</span> <span class="pre">omega^2</span> <span class="pre">M</span> <span class="pre">phi</span></code> and <code class="docutils literal notranslate"><span class="pre">Kr</span> <span class="pre">q</span> <span class="pre">=</span> <span class="pre">omega^2</span> <span class="pre">Mr</span> <span class="pre">q</span></code> and prints the frequency
+error against the full-order model.</p>
+</section>
+<section id="notes">
+<h2>Notes<a class="headerlink" href="#notes" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><strong>Pick powers of two when possible;</strong> they keep <code class="docutils literal notranslate"><span class="pre">chunk_size</span></code> regular and mesh
-partitions predictable.</p></li>
-<li><p><strong>Set ``n_chunks`` based on mesh size;</strong> values larger than <code class="docutils literal notranslate"><span class="pre">n_elems</span></code> are
-automatically clamped to <code class="docutils literal notranslate"><span class="pre">n_elems</span></code>.</p></li>
-<li><p><strong>Combine with ``pad_trace=True`` when tuning.</strong> The trace output reports how
-many elements were padded so you can balance between padding overhead and
-JIT stability.</p></li>
-<li><p><strong>Use the same ``n_chunks`` for residual/Jacobian pairs</strong> so the sparsity
-pattern remains stable for nonlinear solves.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">make_craig_bampton_basis(K,</span> <span class="pre">M,</span> <span class="pre">...)</span></code> uses the internal mass block in the
+fixed-interface modal solve.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cb.project_matrix(M)</span></code> gives the reduced mass matrix used for vibration or
+Newmark-style dynamics.</p></li>
+<li><p>Sparse inputs can be passed directly; <code class="docutils literal notranslate"><span class="pre">project_matrix</span></code> avoids unnecessary
+densification during the full-matrix multiply.</p></li>
 </ul>
-<p>Chunked assembly is a lightweight way to improve JAX stability without rewriting
-your weak form or introducing new scalar-friendly kernels. When <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code> is
-<code class="docutils literal notranslate"><span class="pre">None</span></code> (the default) the entire mesh is assembled at once, so you only need
-to set the option once you see JIT recompile churn or trace warnings for
-variable-sized inputs.</p>
 </section>
 </section>
 
@@ -463,20 +433,20 @@ variable-sized inputs.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="migration_role_spaces.html"
+       href="tutorial_mortar_fixture_workpiece.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Role-Explicit API Migration</p>
+        <p class="prev-next-title">Mortar Fixture-Workpiece Comparison</p>
       </div>
     </a>
     <a class="right-next"
-       href="solver.html"
+       href="tutorial_craig_bampton_two_bar_subsystems.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Solvers</p>
+        <p class="prev-next-title">Craig-Bampton Two-Subsystem ROM</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -499,9 +469,9 @@ variable-sized inputs.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-chunked-assembly">Why chunked assembly?</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-to-use-n-chunks">How to use <code class="docutils literal notranslate"><span class="pre">n_chunks</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best practices</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run">Run</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-it-does">What It Does</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notes">Notes</a></li>
 </ul>
   </nav></div>
 
@@ -509,7 +479,7 @@ variable-sized inputs.</p>
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="_sources/usage_chunked_assembly.rst.txt"
+      <li><a href="_sources/tutorial_craig_bampton_vibration.rst.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>

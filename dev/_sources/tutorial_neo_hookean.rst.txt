@@ -1,7 +1,7 @@
 Hyper-Elasticity: Hyperelastic Cantilever
 =========================================
 
-This tutorial summarizes ``tutorials/neo_hookean_cantilever.py`` and
+This tutorial summarizes ``tutorials/nonlinear/neo_hookean_cantilever.py`` and
 explains the nonlinear formulation, loads, and solver flow used for a 3D
 Neo-Hookean cantilever.
 
@@ -10,7 +10,7 @@ Run the example
 
 .. code-block:: bash
 
-   python tutorials/neo_hookean_cantilever.py
+   python tutorials/nonlinear/neo_hookean_cantilever.py
 
 Recommended solver settings
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -20,7 +20,7 @@ with a direct preconditioner:
 
 .. code-block:: bash
 
-   python tutorials/neo_hookean_cantilever.py \
+   python tutorials/nonlinear/neo_hookean_cantilever.py \
      --linear-solver petsc_shell \
      --petsc-ksp-type preonly \
      --petsc-pc-type lu \

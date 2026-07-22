@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>PETSc Shell Solvers &#8212; FluxFEM 0.3.4 documentation</title>
+    <title>PETSc Shell Solvers &#8212; FluxFEM 0.3.10 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=39bb16ab"></script>
+    <script src="_static/documentation_options.js?v=d9c7ed7f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial_petsc_shell';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.4 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.10 documentation</p>
   
 </a></div>
     
@@ -320,6 +320,10 @@
 <li class="toctree-l1"><a class="reference internal" href="tutorial_mixed_block.html">MixedForm and Block Utilities</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">PETSc Shell Solvers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial_contact_supported_box.html">Supported Box Contact Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_mortar_fixture_workpiece.html">Mortar Fixture-Workpiece Comparison</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_craig_bampton_vibration.html">Craig-Bampton Vibration ROM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_craig_bampton_two_bar_subsystems.html">Craig-Bampton Two-Subsystem ROM</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_reduced_equation_builder.html">Reduced Equation Builder</a></li>
 </ul>
 </div>
 </nav></div>
@@ -384,15 +388,19 @@
 <h1>PETSc Shell Solvers<a class="headerlink" href="#petsc-shell-solvers" title="Link to this heading">#</a></h1>
 <p>This tutorial summarizes the PETSc shell-matrix demos:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_demo.py</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_pmat_demo.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc/petsc_shell_poisson_demo.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc/petsc_shell_poisson_pmat_demo.py</span></code></p></li>
 </ul>
 <p>They show how to wrap FluxFEM operators in PETSc shells for flexible
 preconditioning and matrix-free solves.</p>
 <section id="prerequisites">
 <h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">#</a></h2>
-<p>The demos require PETSc and <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> (the <code class="docutils literal notranslate"><span class="pre">petsc</span></code> extra). Install with:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="w"> </span>--extras<span class="w"> </span><span class="s2">&quot;petsc&quot;</span>
+<p>The demos require PETSc and <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> (the <code class="docutils literal notranslate"><span class="pre">petsc</span></code> extra). For source
+checkouts with a custom PETSc build, install the regular Poetry environment and
+then build <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> against that PETSc:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_DIR</span><span class="o">=</span>/path/to/petsc-3.24.4
+<span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_ARCH</span><span class="o">=</span>arch-linux-c-opt
+scripts/install_petsc4py
 </pre></div>
 </div>
 <p>Ensure <code class="docutils literal notranslate"><span class="pre">PETSC_DIR</span></code> (and optionally <code class="docutils literal notranslate"><span class="pre">PETSC_ARCH</span></code>) point to a valid PETSc build
@@ -400,8 +408,8 @@ so <code class="docutils literal notranslate"><span class="pre">petsc4py</span><
 </section>
 <section id="run-the-examples">
 <h2>Run the examples<a class="headerlink" href="#run-the-examples" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/petsc_shell_poisson_demo.py
-python<span class="w"> </span>tutorials/petsc_shell_poisson_pmat_demo.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>tutorials/petsc/petsc_shell_poisson_demo.py
+python<span class="w"> </span>tutorials/petsc/petsc_shell_poisson_pmat_demo.py
 </pre></div>
 </div>
 </section>
@@ -420,9 +428,9 @@ ILU or Jacobi.</p></li>
 <section id="details-per-script">
 <h2>Details per script<a class="headerlink" href="#details-per-script" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_demo.py</span></code> keeps everything matrix-free and
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc/petsc_shell_poisson_demo.py</span></code> keeps everything matrix-free and
 sets <code class="docutils literal notranslate"><span class="pre">preconditioner=&quot;diag0&quot;</span></code> so PETSc only sees the shell operator.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc_shell_poisson_pmat_demo.py</span></code> still uses the shell for the
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/petsc/petsc_shell_poisson_pmat_demo.py</span></code> still uses the shell for the
 mat-vec but passes <code class="docutils literal notranslate"><span class="pre">pmat=A</span></code> plus <code class="docutils literal notranslate"><span class="pre">pc_type=&quot;jacobi&quot;</span></code> so PETSc can build an
 explicit preconditioner from the assembled stiffness while the shell retains
 flexibility for the operator action.</p></li>

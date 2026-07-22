@@ -67,8 +67,8 @@ The standard mixed lookup rules are:
 
 Related mixed tutorials:
 
-- `tutorials/thermoelastic_bar_1d_mixed.py`
-- `tutorials/nitsche_contact_supermesh_api.py`
+- `tutorials/thermoelastic/thermoelastic_bar_1d_mixed.py`
+- `tutorials/contact/nitsche_contact_supermesh_api.py`
 
 Mixed PDE view
 --------------
@@ -124,8 +124,8 @@ insert `K12` and (optionally) its transpose:
 This is commonly used in contact or mixed formulations. See the following
 tutorial scripts for full examples:
 
-- `tutorials/nitsche_contact_supermesh_api.py`
-- `tutorials/nitsche_contact_supermesh_demo_fluxfem.py`
+- `tutorials/contact/nitsche_contact_supermesh_api.py`
+- `tutorials/contact/nitsche_contact_supermesh_demo_fluxfem.py`
 
 Block matrix intuition
 ----------------------

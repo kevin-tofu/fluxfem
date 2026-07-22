@@ -280,9 +280,76 @@ assemble operators first, then pass them to ``add_contact`` (or ``add_contact_mo
 
 .. code-block:: python
 
-   lm_space = ff.ContactMultiplierSpace.from_contact(contact, family="p0", side="master")
+   lm_space = ff.MultiplierSpec.dual_mortar()
    ops_mortar = ff.assemble_contact_constraint_operators(contact, rho=1.0, multiplier=lm_space)
    builder.add_contact(ops_mortar, master="top", slave="support", value_dim=1)
+
+Raw prepared contacts can also be passed directly and assembled by the builder:
+
+.. code-block:: python
+
+   builder.add_contact(
+       contact,
+       master="top",
+       slave="support",
+       family="constraint",
+       mortar="coarse_dual",
+       rho=1.0,
+       value_dim=1,
+   )
+
+Mortar Method Selection
+-----------------------
+
+Dual nodal mortar is the default multiplier basis for constraint-family contact.
+Use the explicit factory constructors when the choice should be visible in code:
+
+.. code-block:: python
+
+   ff.MultiplierSpec.dual_mortar()
+   ff.MultiplierSpec.coarse_dual_mortar()
+   ff.MultiplierSpec.coarse_dual_mortar(rank=32)
+   ff.MultiplierSpec.coarse_dual_mortar(max_rank=64, energy_tol=0.999)
+   ff.MultiplierSpec.nodal_mortar()
+   ff.MultiplierSpec.p0_mortar(contact)
+   ff.MultiplierSpec.coarse_p0_mortar(contact, patch_ids=patch_ids)
+   ff.MultiplierSpec.coarse_p1_mortar(basis=C)
+
+``coarse_dual_mortar`` is an algebraic row compression of the assembled
+dual-nodal mortar operator.  ``coarse_p0_mortar`` instead groups fine P0
+facet/supermesh integral rows by user-provided patch ids, which is the
+integrated coarse P0 path.  ``coarse_p1_mortar`` represents coarse multiplier
+shape functions as rows of ``C`` in the master-side fine nodal basis and
+assembles integrated rows as ``C @ M_aa`` and ``C @ M_ab``.
+For simple grouped coarse nodes, build ``C`` with:
+
+.. code-block:: python
+
+   C = ff.coarse_p1_basis_from_node_groups(n_master_nodes, [[0, 2], [1, 3]])
+   C = ff.coarse_p1_basis_from_surface_grid(master_surface, shape=(4, 4), axes=(0, 1))
+
+For builder-managed raw prepared contacts, select the method directly:
+
+.. code-block:: python
+
+   builder.add_contact(contact, master="top", slave="support",
+                       family="constraint", mortar="dual", rho=1.0)
+   builder.add_contact(contact, master="top", slave="support",
+                       family="constraint", mortar="coarse_dual",
+                       mortar_max_rank=64, rho=1.0)
+
+``mortar="nodal"`` keeps the original nodal multiplier basis available for
+compatibility and comparisons. Coarse dual mortar reduces multiplier rows after
+the dual mortar operator has been assembled; fixed ``mortar_rank`` uses a QR
+row-space projection, while rank-free selection uses SVD energy and numerical
+rank criteria.
+
+For a compact numerical check of coarse P1 mortar, run
+``tutorials/contact/mortar_fixture_workpiece_comparison.py``.  It solves matching and
+nonmatching fixture/workpiece interface problems and compares the reduced
+coarse P1 response against the dual mortar reference.  Passing ``--output-dir``
+also writes surface VTU files for visual inspection when ``meshio`` is
+available.
 
 Mixed NumPy/JAX Inputs
 ----------------------

@@ -3,8 +3,8 @@ PETSc Shell Solvers
 
 This tutorial summarizes the PETSc shell-matrix demos:
 
-- ``tutorials/petsc_shell_poisson_demo.py``
-- ``tutorials/petsc_shell_poisson_pmat_demo.py``
+- ``tutorials/petsc/petsc_shell_poisson_demo.py``
+- ``tutorials/petsc/petsc_shell_poisson_pmat_demo.py``
 
 They show how to wrap FluxFEM operators in PETSc shells for flexible
 preconditioning and matrix-free solves.
@@ -12,11 +12,15 @@ preconditioning and matrix-free solves.
 Prerequisites
 ^^^^^^^^^^^^^
 
-The demos require PETSc and ``petsc4py`` (the ``petsc`` extra). Install with:
+The demos require PETSc and ``petsc4py`` (the ``petsc`` extra). For source
+checkouts with a custom PETSc build, install the regular Poetry environment and
+then build ``petsc4py`` against that PETSc:
 
 .. code-block:: bash
 
-   poetry add fluxfem --extras "petsc"
+   export PETSC_DIR=/path/to/petsc-3.24.4
+   export PETSC_ARCH=arch-linux-c-opt
+   scripts/install_petsc4py
 
 Ensure ``PETSC_DIR`` (and optionally ``PETSC_ARCH``) point to a valid PETSc build
 so ``petsc4py`` can import successfully. Once PETSc is configured, run:
@@ -26,8 +30,8 @@ Run the examples
 
 .. code-block:: bash
 
-   python tutorials/petsc_shell_poisson_demo.py
-   python tutorials/petsc_shell_poisson_pmat_demo.py
+   python tutorials/petsc/petsc_shell_poisson_demo.py
+   python tutorials/petsc/petsc_shell_poisson_pmat_demo.py
 
 What the demos do
 ^^^^^^^^^^^^^^^^^^^
@@ -43,9 +47,9 @@ What the demos do
 Details per script
 ^^^^^^^^^^^^^^^^^^
 
-- ``tutorials/petsc_shell_poisson_demo.py`` keeps everything matrix-free and
+- ``tutorials/petsc/petsc_shell_poisson_demo.py`` keeps everything matrix-free and
   sets ``preconditioner="diag0"`` so PETSc only sees the shell operator.
-- ``tutorials/petsc_shell_poisson_pmat_demo.py`` still uses the shell for the
+- ``tutorials/petsc/petsc_shell_poisson_pmat_demo.py`` still uses the shell for the
   mat-vec but passes ``pmat=A`` plus ``pc_type="jacobi"`` so PETSc can build an
   explicit preconditioner from the assembled stiffness while the shell retains
   flexibility for the operator action.

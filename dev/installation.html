@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Installation &#8212; FluxFEM 0.3.4 documentation</title>
+    <title>Installation &#8212; FluxFEM 0.3.10 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=39bb16ab"></script>
+    <script src="_static/documentation_options.js?v=d9c7ed7f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'installation';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.4 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.10 documentation</p>
   
 </a></div>
     
@@ -430,6 +430,16 @@ poetry<span class="w"> </span>add<span class="w"> </span>fluxfem<span class="w">
 <p>Note: match the <cite>petsc4py</cite> version to your PETSc installation.
 FluxFEM currently pins <cite>petsc4py==3.24.4</cite> in extras, so use a compatible PETSc
 build or override the version to fit your environment.</p>
+<p>For source checkouts with a custom PETSc build, prefer installing the normal
+Poetry environment first and then building <code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> against that PETSc:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_DIR</span><span class="o">=</span>/path/to/petsc-3.24.4
+<span class="nb">export</span><span class="w"> </span><span class="nv">PETSC_ARCH</span><span class="o">=</span>arch-linux-c-opt
+scripts/install_petsc4py
+</pre></div>
+</div>
+<p>The script uses <code class="docutils literal notranslate"><span class="pre">PETSC4PY_VERSION=3.24.4</span></code> by default and verifies that
+<code class="docutils literal notranslate"><span class="pre">petsc4py</span></code> can import PETSc. PETSc remains optional; if it cannot be imported,
+PETSc-specific tests are skipped by <code class="docutils literal notranslate"><span class="pre">petsc_is_available()</span></code>.</p>
 <p>GPU note: this repo currently tests CUDA via the <cite>cuda12</cite> extra only. Other
 CUDA versions are not covered by CI and may require manual JAX installation.</p>
 </section>

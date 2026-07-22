@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Remote Constraints and Virtual Springs &#8212; FluxFEM 0.3.4 documentation</title>
+    <title>Remote Constraints and Virtual Springs &#8212; FluxFEM 0.3.10 documentation</title>
   
   
   
@@ -38,7 +38,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=39bb16ab"></script>
+    <script src="_static/documentation_options.js?v=d9c7ed7f"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'usage_remote_constraints';</script>
@@ -111,7 +111,7 @@
   
   
   
-    <p class="title logo__title">FluxFEM 0.3.4 documentation</p>
+    <p class="title logo__title">FluxFEM 0.3.10 documentation</p>
   
 </a></div>
     
@@ -403,6 +403,7 @@ offsets and constraint matrices.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.CoupledSystemBuilder.add_dof_spring(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.CoupledSystemBuilder.add_remote_spring(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.CoupledSystemBuilder.add_field_matrix(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ff.CoupledSystemBuilder.append_dof_copy_field(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.CoupledSystemBuilder.add_constraint_matrix_dof(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.ConstraintSpec(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ff.build_rbe3_weights(...)</span></code></p></li>
@@ -569,20 +570,19 @@ directly to a registered field.</p>
 <section id="dof-level-constraint-wiring">
 <h2>DOF-Level Constraint Wiring<a class="headerlink" href="#dof-level-constraint-wiring" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">RBE2</span></code> and <code class="docutils literal notranslate"><span class="pre">RBE3</span></code> often need an intermediate slave field rather than being
-connected directly to the full structural vector. For that wiring,
-<code class="docutils literal notranslate"><span class="pre">add_constraint_matrix_dof(...)</span></code> is the key helper.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">builder</span><span class="o">.</span><span class="n">append_field</span><span class="p">(</span><span class="s2">&quot;support_face&quot;</span><span class="p">,</span> <span class="n">n_dofs</span><span class="o">=</span><span class="n">left_local_dofs</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="n">value_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-
-<span class="n">C_face</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">left_local_dofs</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="n">space</span><span class="o">.</span><span class="n">n_dofs</span> <span class="o">+</span> <span class="n">left_local_dofs</span><span class="o">.</span><span class="n">size</span><span class="p">))</span>
-<span class="k">for</span> <span class="n">row</span><span class="p">,</span> <span class="n">dof</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">left_local_dofs</span><span class="p">):</span>
-    <span class="n">C_face</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="n">dof</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span>
-    <span class="n">C_face</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="n">space</span><span class="o">.</span><span class="n">n_dofs</span> <span class="o">+</span> <span class="n">row</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="mf">1.0</span>
-
-<span class="n">builder</span><span class="o">.</span><span class="n">add_constraint_matrix_dof</span><span class="p">(</span>
-    <span class="n">C_face</span><span class="p">,</span>
-    <span class="n">master</span><span class="o">=</span><span class="s2">&quot;u&quot;</span><span class="p">,</span>
-    <span class="n">slave</span><span class="o">=</span><span class="s2">&quot;support_face&quot;</span><span class="p">,</span>
+connected directly to the full structural vector. When that field is just a
+copy of selected structural DOFs, prefer <code class="docutils literal notranslate"><span class="pre">append_dof_copy_field(...)</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">patch_dofs</span> <span class="o">=</span> <span class="n">ff</span><span class="o">.</span><span class="n">vector_dofs_from_nodes</span><span class="p">(</span><span class="n">patch_nodes</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">append_dof_copy_field</span><span class="p">(</span>
+    <span class="s2">&quot;support_face&quot;</span><span class="p">,</span>
+    <span class="n">source</span><span class="o">=</span><span class="s2">&quot;workpiece&quot;</span><span class="p">,</span>
+    <span class="n">source_dofs</span><span class="o">=</span><span class="n">patch_dofs</span><span class="p">,</span>
 <span class="p">)</span>
+</pre></div>
+</div>
+<p>For custom wiring, <code class="docutils literal notranslate"><span class="pre">add_constraint_matrix_dof(...)</span></code> remains the low-level
+escape hatch.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">builder</span><span class="o">.</span><span class="n">append_dof_copy_field</span><span class="p">(</span><span class="s2">&quot;support_face&quot;</span><span class="p">,</span> <span class="n">source</span><span class="o">=</span><span class="s2">&quot;u&quot;</span><span class="p">,</span> <span class="n">source_dofs</span><span class="o">=</span><span class="n">left_local_dofs</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Conceptually this enforces:</p>
@@ -716,6 +716,7 @@ support:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">append_remote_point(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">append_field(...)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">append_dof_copy_field(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">add_constraint_matrix_dof(...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ConstraintSpec(kind=&quot;rbe3&quot;,</span> <span class="pre">...)</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">add_remote_spring(...)</span></code></p></li>
@@ -725,7 +726,8 @@ support:</p>
 <h2>Reference Script<a class="headerlink" href="#reference-script" title="Link to this heading">#</a></h2>
 <p>For a working example, see:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/remote_rbe3_spring_compliance.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/remote_constraints/remote_rbe3_spring_compliance.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tutorials/remote_constraints/remote_rbe3_preload_fixture_plate.py</span></code></p></li>
 </ul>
 </section>
 <section id="current-scope">
