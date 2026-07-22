@@ -76,6 +76,11 @@ from .contact_api import (
     OneSidedContactSpaces,
     OneSidedContactSpec,
 )
+from .contact_surface_helpers import (
+    OneSidedContact,
+    active_contact_facets,
+    facet_gap_values,
+)
 from .contact import (
     ContactOperators,
     PenaltyContactContribution,
@@ -86,7 +91,6 @@ from .contact import (
     assemble_pair_nitsche_supermesh,
     ContactSurfaceSpace,
     PreparedContactInterface,
-    OneSidedContact,
     OneSidedContactSurfaceSpace,
     PreparedOneSidedContactInterface,
     OneToManyContactSurfaceSpace,
@@ -104,8 +108,6 @@ from .contact import (
     update_contact_state_penalty,
     solve_contact_penalty_jax,
     solve_contact_al_jax,
-    facet_gap_values,
-    active_contact_facets,
 )
 from .io import load_gmsh_mesh, load_gmsh_hex_mesh, load_gmsh_tet_mesh, make_surface_from_facets
 
