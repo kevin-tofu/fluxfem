@@ -79,6 +79,29 @@ selected original constraint rows.  It is intentionally separate from the older
 `coarse_dual_mortar(mode="qr")` path, which builds a QR projection basis rather
 than selecting rows.
 
+### Mortar constraint row scaling
+
+Mortar multiplier specs now support opt-in row scaling:
+
+```python
+multiplier = MultiplierSpec.algebraic_qr_mortar(
+    contact,
+    family="p0_supermesh",
+    value_dim=3,
+    constraint_scaling="l2",
+)
+```
+
+`constraint_scaling="l2"` normalizes each nonzero assembled constraint row of
+`B = [B_master, -B_slave]` to unit L2 norm.  The scaling is applied after any
+coarse/QR row reduction and before forming either the dense multiplier
+operators or sparse KKT COO blocks.  This preserves the represented constraint
+equations up to row scaling while making the KKT dual rows less sensitive to
+overlap-area variation.
+
+The default remains `constraint_scaling="none"` for backward compatibility.
+The selected mode is reported in `MultiplierContactContribution.diagnostics`.
+
 ### Constraint quality policy
 
 FluxFEM now also has an opt-in quality-policy layer:
@@ -237,6 +260,7 @@ Focused tests cover:
   nonmatching tet4 interfaces
 - a runnable Mortar/Nitsche split-tet supermesh comparison demo
 - a runnable nonmatching hex fixture/workpiece Mortar/Nitsche diagnostics demo
+- L2 constraint row scaling for mortar multiplier operators
 
 The checked command was:
 
@@ -251,7 +275,7 @@ PYTHONPATH=src pytest \
 Current result:
 
 ```text
-85 passed, 3 warnings
+87 passed, 3 warnings
 ```
 
 The warnings are existing float32/JAX and deprecated compatibility-path
@@ -297,6 +321,7 @@ mortar quality status: fail
 mortar algebraic-qr B shape: (63, 150)
 mortar algebraic-qr rank deficiency: 0
 mortar algebraic-qr quality status: pass
+mortar algebraic-qr row norm range: ('1.000e+00', '1.000e+00')
 nitsche penalty K shape: (150, 150)
 nitsche full K shape: (150, 150)
 KKT solver: block_scaled
@@ -354,6 +379,8 @@ Reasoning:
   choices
 - algebraic QR now removes the rank deficiency in the larger fixture/workpiece
   supermesh P0 example
+- L2 row scaling now makes the reduced mortar rows unit norm before KKT
+  assembly
 - the next missing piece is deciding which diagnostics should be asserted in CI
 
 Suggested first milestone:

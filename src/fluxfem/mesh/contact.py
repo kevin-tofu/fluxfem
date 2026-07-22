@@ -1043,6 +1043,7 @@ class ContactMultiplierSpace:
     coarse_max_rank: int | None = None
     coarse_patch_ids: np.ndarray | None = None
     coarse_basis: np.ndarray | None = None
+    constraint_scaling: str = "none"
 
     def __post_init__(self) -> None:
         fam = str(self.family).lower()
@@ -1101,6 +1102,8 @@ class ContactMultiplierSpace:
                 raise ValueError("ContactMultiplierSpace.coarse_basis is supported only for family='coarse_p1'.")
         if fam == "coarse_p1" and self.coarse_basis is None:
             raise ValueError("ContactMultiplierSpace.coarse_basis is required when family='coarse_p1'.")
+        if str(self.constraint_scaling).lower() not in {"none", "l2"}:
+            raise ValueError("ContactMultiplierSpace.constraint_scaling must be 'none' or 'l2'.")
 
     @classmethod
     def from_contact(
@@ -1119,6 +1122,7 @@ class ContactMultiplierSpace:
         coarse_max_rank: int | None = None,
         coarse_patch_ids: np.ndarray | None = None,
         coarse_basis: np.ndarray | None = None,
+        constraint_scaling: str = "none",
     ) -> "ContactMultiplierSpace":
         fc = None if facet_conn is None else np.asarray(facet_conn, dtype=int)
         if str(family).lower() in {"p0", "p0_active", "p0_supermesh"} and fc is None:
@@ -1136,6 +1140,7 @@ class ContactMultiplierSpace:
             coarse_max_rank=None if coarse_max_rank is None else int(coarse_max_rank),
             coarse_patch_ids=None if coarse_patch_ids is None else np.asarray(coarse_patch_ids, dtype=int),
             coarse_basis=None if coarse_basis is None else np.asarray(coarse_basis, dtype=float),
+            constraint_scaling=str(constraint_scaling).lower(),
         )
 
     @classmethod
@@ -1144,8 +1149,14 @@ class ContactMultiplierSpace:
         *,
         side: str = "master",
         value_dim: int = 1,
+        constraint_scaling: str = "none",
     ) -> "ContactMultiplierSpace":
-        return cls(family="dual_nodal", side=side, value_dim=int(value_dim))
+        return cls(
+            family="dual_nodal",
+            side=side,
+            value_dim=int(value_dim),
+            constraint_scaling=constraint_scaling,
+        )
 
     @classmethod
     def nodal_mortar(
@@ -1153,8 +1164,14 @@ class ContactMultiplierSpace:
         *,
         side: str = "master",
         value_dim: int = 1,
+        constraint_scaling: str = "none",
     ) -> "ContactMultiplierSpace":
-        return cls(family="nodal", side=side, value_dim=int(value_dim))
+        return cls(
+            family="nodal",
+            side=side,
+            value_dim=int(value_dim),
+            constraint_scaling=constraint_scaling,
+        )
 
     @classmethod
     def coarse_dual_mortar(
@@ -1168,6 +1185,7 @@ class ContactMultiplierSpace:
         projection: np.ndarray | None = None,
         side: str = "master",
         value_dim: int = 1,
+        constraint_scaling: str = "none",
     ) -> "ContactMultiplierSpace":
         coarse_mode = "qr" if rank is not None and str(mode).lower() == "auto" else str(mode).lower()
         return cls(
@@ -1180,6 +1198,7 @@ class ContactMultiplierSpace:
             coarse_energy_tol=float(energy_tol),
             coarse_rtol=float(rtol),
             coarse_max_rank=None if max_rank is None else int(max_rank),
+            constraint_scaling=constraint_scaling,
         )
 
     @classmethod
@@ -1191,6 +1210,7 @@ class ContactMultiplierSpace:
         value_dim: int = 1,
         facet_conn: np.ndarray | None = None,
         family: str = "p0",
+        constraint_scaling: str = "none",
     ) -> "ContactMultiplierSpace":
         if contact is None and facet_conn is None:
             raise ValueError("p0_mortar requires contact or facet_conn.")
@@ -1200,6 +1220,7 @@ class ContactMultiplierSpace:
             side=side,
             value_dim=value_dim,
             facet_conn=facet_conn,
+            constraint_scaling=constraint_scaling,
         )
 
     @classmethod
@@ -1212,6 +1233,7 @@ class ContactMultiplierSpace:
         value_dim: int = 1,
         facet_conn: np.ndarray | None = None,
         family: str = "p0",
+        constraint_scaling: str = "none",
     ) -> "ContactMultiplierSpace":
         """Facet-integrated coarse P0 mortar grouped by patch ids."""
 
@@ -1224,6 +1246,7 @@ class ContactMultiplierSpace:
             value_dim=value_dim,
             facet_conn=facet_conn,
             coarse_patch_ids=np.asarray(patch_ids, dtype=int),
+            constraint_scaling=constraint_scaling,
         )
 
     @classmethod
@@ -1237,6 +1260,7 @@ class ContactMultiplierSpace:
         facet_conn: np.ndarray | None = None,
         rtol: float = 1e-10,
         max_rank: int | None = None,
+        constraint_scaling: str = "none",
     ) -> "ContactMultiplierSpace":
         """Rank-revealing row-selected mortar using pivoted QR on ``B.T``."""
 
@@ -1249,6 +1273,7 @@ class ContactMultiplierSpace:
             coarse_mode="algebraic_qr",
             coarse_rtol=float(rtol),
             coarse_max_rank=None if max_rank is None else int(max_rank),
+            constraint_scaling=constraint_scaling,
         )
 
     @classmethod
@@ -1258,6 +1283,7 @@ class ContactMultiplierSpace:
         basis: np.ndarray,
         side: str = "master",
         value_dim: int = 1,
+        constraint_scaling: str = "none",
     ) -> "ContactMultiplierSpace":
         """Integrated coarse P1 mortar from coarse master-side nodal basis rows.
 
@@ -1271,6 +1297,7 @@ class ContactMultiplierSpace:
             side=side,
             value_dim=int(value_dim),
             coarse_basis=np.asarray(basis, dtype=float),
+            constraint_scaling=constraint_scaling,
         )
 
 
@@ -2414,6 +2441,7 @@ def _resolve_multiplier_spec(
             if multiplier.coarse_basis is None
             else np.asarray(multiplier.coarse_basis, dtype=float)
         ),
+        constraint_scaling=str(getattr(multiplier, "constraint_scaling", "none")).lower(),
     )
     return fam, facet_arr, resolved_multiplier
 
@@ -2580,6 +2608,26 @@ def _apply_coarse_mortar_projection(B_a, B_b, multiplier: ContactMultiplierSpace
     return B_coarse[:, :n_a], -B_coarse[:, n_a:]
 
 
+def _apply_constraint_row_scaling(B_a, B_b, scaling: str, *, backend: str):
+    scaling_key = str(scaling).lower()
+    if scaling_key == "none":
+        return B_a, B_b
+    if scaling_key != "l2":
+        raise ValueError("constraint scaling must be 'none' or 'l2'.")
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        xp = jnp
+    else:
+        xp = np
+    B = xp.concatenate([B_a, -B_b], axis=1)
+    row_norms = xp.linalg.norm(B, axis=1)
+    scale = xp.where(row_norms > 0.0, 1.0 / row_norms, 1.0)
+    B_scaled = scale[:, None] * B
+    n_a = int(B_a.shape[1])
+    return B_scaled[:, :n_a], -B_scaled[:, n_a:]
+
+
 def _kkt_coo_from_coupling(
     coupling_aa,
     coupling_ab,
@@ -2596,6 +2644,7 @@ def _kkt_coo_from_coupling(
     coarse_max_rank: int | None = None,
     coarse_patch_ids: np.ndarray | None = None,
     coarse_basis: np.ndarray | None = None,
+    constraint_scaling: str = "none",
 ):
     if multiplier_space == "p0_supermesh":
         raise NotImplementedError(
@@ -2707,6 +2756,7 @@ def _kkt_coo_from_coupling(
             coarse_max_rank=coarse_max_rank,
             coarse_patch_ids=None,
             coarse_basis=None,
+            constraint_scaling="none",
         )
         n_a_expanded = int(n_a) * int(multiplier_value_dim)
         B_a_dense = B_dense[:, :n_a_expanded]
@@ -2715,6 +2765,22 @@ def _kkt_coo_from_coupling(
             B_a_dense,
             B_b_dense,
             coarse_multiplier,
+            backend="numpy",
+        )
+        B_dense = np.concatenate([B_a_dense, -B_b_dense], axis=1)
+        b_rows, b_cols, b_data = _dense_to_coo_entries(B_dense)
+        n_l = int(B_dense.shape[0])
+        n_u = int(B_dense.shape[1])
+    if str(constraint_scaling).lower() != "none":
+        B_dense = np.zeros((n_l, n_u), dtype=float)
+        B_dense[b_rows, b_cols] += b_data
+        n_a_expanded = int(n_a) * int(multiplier_value_dim)
+        B_a_dense = B_dense[:, :n_a_expanded]
+        B_b_dense = -B_dense[:, n_a_expanded:]
+        B_a_dense, B_b_dense = _apply_constraint_row_scaling(
+            B_a_dense,
+            B_b_dense,
+            str(constraint_scaling).lower(),
             backend="numpy",
         )
         B_dense = np.concatenate([B_a_dense, -B_b_dense], axis=1)
@@ -3024,6 +3090,12 @@ def assemble_contact_constraint_operators(
         )
 
     B_a, B_b = _apply_coarse_mortar_projection(B_a, B_b, multiplier_resolved, backend=backend)
+    B_a, B_b = _apply_constraint_row_scaling(
+        B_a,
+        B_b,
+        multiplier_resolved.constraint_scaling,
+        backend=backend,
+    )
     B = xp.concatenate([B_a, -B_b], axis=1)
     Kuu = xp.asarray(rho) * (B.T @ B)
     residual = None
@@ -3056,6 +3128,7 @@ def assemble_contact_constraint_operators(
         facet_conn_master=facet_conn_master,
         rho=rho,
         multiplier=multiplier_resolved,
+        diagnostics={"constraint_scaling": str(multiplier_resolved.constraint_scaling).lower()},
     )
 
 
@@ -3214,6 +3287,7 @@ def assemble_contact_kkt(
             coarse_max_rank=getattr(multiplier_eff, "coarse_max_rank", None),
             coarse_patch_ids=getattr(multiplier_eff, "coarse_patch_ids", None),
             coarse_basis=getattr(multiplier_eff, "coarse_basis", None),
+            constraint_scaling=getattr(multiplier_eff, "constraint_scaling", "none"),
         )
         if format == "fluxsparse":
             from ..solver import FluxSparseMatrix
@@ -3269,6 +3343,12 @@ def assemble_contact_kkt(
         backend=backend,
     )
     B_a, B_b = _apply_coarse_mortar_projection(B_a, B_b, multiplier_eff, backend=backend)
+    B_a, B_b = _apply_constraint_row_scaling(
+        B_a,
+        B_b,
+        getattr(multiplier_eff, "constraint_scaling", "none"),
+        backend=backend,
+    )
 
     B = xp.concatenate([B_a, -B_b], axis=1)
     Kuu = xp.asarray(rho) * (B.T @ B)

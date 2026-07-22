@@ -452,6 +452,47 @@ def test_algebraic_qr_mortar_selects_independent_supermesh_rows():
     assert reduced.constraint_quality().status == "pass"
 
 
+def test_mortar_constraint_l2_scaling_normalizes_nonzero_rows():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2], [0, 2, 3]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+
+    unscaled = contact.assemble_multiplier(
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.p0_mortar(contact),
+        backend="numpy",
+    )
+    scaled = contact.assemble_multiplier(
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.p0_mortar(contact, constraint_scaling="l2"),
+        backend="numpy",
+    )
+    row_norms = np.linalg.norm(np.asarray(scaled.B, dtype=float), axis=1)
+
+    assert scaled.diagnostics["constraint_scaling"] == "l2"
+    assert unscaled.diagnostics["constraint_scaling"] == "none"
+    np.testing.assert_allclose(row_norms[row_norms > 0.0], np.ones(np.count_nonzero(row_norms > 0.0)))
+
+
 def test_onesided_penalty_top_level_alias_matches_legacy_tutorial_path():
     coords = np.array(
         [

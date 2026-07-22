@@ -117,6 +117,7 @@ def run_demo(config: DemoConfig | None = None) -> dict[str, Any]:
         family="p0_supermesh",
         side="master",
         value_dim=3,
+        constraint_scaling="l2",
     )
     mortar_qr = contact.assemble_multiplier(rho=cfg.rho, multiplier=qr_multiplier, backend="numpy")
     mortar_qr_diag = mortar_qr.constraint_diagnostics(max_singular_values=10)
@@ -185,6 +186,8 @@ def run_demo(config: DemoConfig | None = None) -> dict[str, Any]:
             "quality_status": str(mortar_qr_quality.status),
             "quality_issues": tuple(issue.check for issue in mortar_qr_quality.issues),
             "quality_hints": tuple((issue.check, issue.hint) for issue in mortar_qr_quality.issues),
+            "row_norm_min": float(mortar_qr_diag.row_norm_min),
+            "row_norm_max": float(mortar_qr_diag.row_norm_max),
             "constraint_residual_norm": float(np.linalg.norm(mortar_qr_residual)),
             "augmentation_energy": float(mortar_qr.augmentation_energy(state)),
         },
@@ -237,6 +240,13 @@ def main() -> None:
     print("mortar algebraic-qr estimated rank:", result["mortar_algebraic_qr"]["estimated_rank"])
     print("mortar algebraic-qr rank deficiency:", result["mortar_algebraic_qr"]["rank_deficiency"])
     print("mortar algebraic-qr quality status:", result["mortar_algebraic_qr"]["quality_status"])
+    print(
+        "mortar algebraic-qr row norm range:",
+        (
+            f"{result['mortar_algebraic_qr']['row_norm_min']:.3e}",
+            f"{result['mortar_algebraic_qr']['row_norm_max']:.3e}",
+        ),
+    )
     print("mortar algebraic-qr constraint residual norm:", f"{result['mortar_algebraic_qr']['constraint_residual_norm']:.3e}")
     print("nitsche penalty K shape:", result["nitsche"]["penalty_K_shape"])
     print("nitsche full K shape:", result["nitsche"]["full_K_shape"])
