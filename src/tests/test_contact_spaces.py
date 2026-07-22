@@ -543,6 +543,71 @@ def test_mortar_constraint_l2_scaling_normalizes_nonzero_rows():
     np.testing.assert_allclose(row_norms[row_norms > 0.0], np.ones(np.count_nonzero(row_norms > 0.0)))
 
 
+def test_assemble_mortar_contact_problem_embeds_pair_constraints_in_global_kkt():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2], [0, 2, 3]], dtype=int)
+    contact = ff.ContactSurfaceSpace.from_facets(
+        coords,
+        facets,
+        coords,
+        facets,
+        elem_conn_master=conn,
+        elem_conn_slave=conn,
+        value_dim_master=1,
+        value_dim_slave=1,
+        quad_order=1,
+    )
+    ops = contact.assemble_multiplier(
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.p0_mortar(contact, constraint_scaling="l2"),
+        backend="numpy",
+    )
+    stiffness = np.eye(16, dtype=float)
+    load = np.linspace(0.1, 1.6, 16, dtype=float)
+
+    problem = ff.assemble_mortar_contact_problem(
+        stiffness=stiffness,
+        load=load,
+        contact_pairs=[
+            {
+                "name": "pair-a",
+                "operators": ops,
+                "master_dofs": np.arange(0, 4),
+                "slave_dofs": np.arange(4, 8),
+            },
+            {
+                "name": "pair-b",
+                "operators": ops,
+                "master_dofs": np.arange(8, 12),
+                "slave_dofs": np.arange(12, 16),
+            },
+        ],
+        metadata={"source": "fluxfem-standalone"},
+    )
+    diagnostics = problem.constraint_diagnostics(include_pairs=True)
+    solution = problem.solve_with_info().solution
+
+    assert isinstance(problem, ff.MortarContactProblem)
+    assert problem.coupling_matrix.shape == (2 * ops.B.shape[0], 16)
+    assert problem.matrix.shape == (16 + problem.multiplier_count, 16 + problem.multiplier_count)
+    assert problem.rhs.shape == (16 + problem.multiplier_count,)
+    assert problem.metadata["source"] == "fluxfem-standalone"
+    assert diagnostics["contact_pair_count"] == 2
+    assert diagnostics["contact_pairs"][0]["name"] == "pair-a"
+    assert diagnostics["contact_pairs"][1]["row_offset"] == ops.B.shape[0]
+    assert diagnostics["fine_multiplier_count"] == 2 * ops.B.shape[0]
+    assert np.asarray(solution).shape == problem.rhs.shape
+
+
 def test_onesided_penalty_top_level_alias_matches_legacy_tutorial_path():
     coords = np.array(
         [

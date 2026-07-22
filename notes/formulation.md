@@ -134,6 +134,44 @@ constraint_rows_before_reduction
 constraint_rows_after_reduction
 ```
 
+### kktkit-style standalone mortar problem wrapper
+
+FluxFEM now also exposes a standalone problem-level wrapper:
+
+```python
+problem = assemble_mortar_contact_problem(
+    stiffness=K,
+    load=F,
+    contact_pairs=[
+        {
+            "name": "fixture-a",
+            "operators": mortar_ops,
+            "master_dofs": workpiece_contact_dofs,
+            "slave_dofs": fixture_contact_dofs,
+        },
+    ],
+)
+```
+
+This is intentionally not kktkit-specific.  It gives FluxFEM users the same
+orchestration layer needed by kktkit:
+
+```text
+problem.stiffness
+problem.coupling_matrix
+problem.matrix          # [K B^T; B 0]
+problem.rhs             # [F, 0]
+problem.contact_pairs
+problem.constraint_diagnostics(include_pairs=True)
+problem.solve_with_info(...)
+```
+
+Each local `MultiplierContactContribution.B` is embedded into global primal DOF
+columns using explicit `master_dofs` and `slave_dofs`.  Multiple contact pairs
+are stacked by rows, with per-pair row offsets and diagnostics retained.  This
+matches the integration shape of kktkit's `DualMortarAssemblyResult` while
+remaining useful as a FluxFEM-native multi-contact KKT assembly API.
+
 ### Constraint quality policy
 
 FluxFEM now also has an opt-in quality-policy layer:
@@ -294,6 +332,8 @@ Focused tests cover:
 - a runnable nonmatching hex fixture/workpiece Mortar/Nitsche diagnostics demo
 - L2 constraint row scaling for mortar multiplier operators
 - patch-local QR row reduction for p0-like mortar rows
+- FluxFEM-native problem wrapper for embedding one or more mortar contact pairs
+  into a global KKT system
 
 The checked command was:
 
@@ -308,7 +348,7 @@ PYTHONPATH=src pytest \
 Current result:
 
 ```text
-88 passed, 3 warnings
+89 passed, 3 warnings
 ```
 
 The warnings are existing float32/JAX and deprecated compatibility-path
@@ -422,6 +462,8 @@ Reasoning:
 - patch-local QR now gives a memory-safer reduction option that removes
   patch-local redundancy while preserving global diagnostics for remaining
   cross-patch dependencies
+- `assemble_mortar_contact_problem` now provides the problem/result boundary
+  needed by both FluxFEM standalone workflows and kktkit-style orchestration
 - the next missing piece is deciding which diagnostics should be asserted in CI
 
 Suggested first milestone:
