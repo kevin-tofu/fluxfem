@@ -290,6 +290,117 @@ def test_contact_contribution_types_are_explicit_and_compatible():
     assert ops_multiplier.enforcement == "mortar"
 
 
+def test_contact_contribution_diagnostics_report_penalty_energy_and_mortar_residual():
+    ops_penalty = ff.PenaltyContactContribution(
+        enforcement="nitsche",
+        jacobian=np.array([[2.0, 0.5], [0.5, 4.0]], dtype=float),
+    )
+    assert np.isclose(ops_penalty.penalty_energy(np.array([1.0, 2.0])), 10.0)
+
+    ops_multiplier = ff.MultiplierContactContribution(
+        enforcement="mortar",
+        B=np.array([[1.0, 0.0, -1.0, 0.0], [0.0, 1.0, 0.0, -1.0]], dtype=float),
+        rho=3.0,
+    )
+    u = (np.array([2.0, -1.0]), np.array([0.5, 1.0]))
+
+    np.testing.assert_allclose(ops_multiplier.constraint_residual(u), np.array([1.5, -2.0]))
+    assert np.isclose(ops_multiplier.constraint_residual_norm(u), 2.5)
+    assert np.isclose(ops_multiplier.augmentation_energy(u), 9.375)
+
+
+def test_contact_constraint_diagnostics_report_row_norms_and_rank_deficiency():
+    B = np.array(
+        [
+            [1.0, -1.0, 0.0],
+            [2.0, -2.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ],
+        dtype=float,
+    )
+    diag = ff.contact_constraint_matrix_diagnostics(B, max_singular_values=None)
+
+    assert isinstance(diag, ff.ContactConstraintDiagnostics)
+    assert diag.n_rows == 3
+    assert diag.n_cols == 3
+    assert diag.zero_row_count == 1
+    assert diag.estimated_rank == 1
+    assert diag.rank_deficiency == 2
+    assert diag.singular_value_count == 3
+    assert np.isclose(diag.row_norm_min, 0.0)
+    assert np.isclose(diag.row_norm_max, np.sqrt(8.0))
+
+    ops = ff.MultiplierContactContribution(enforcement="mortar", B=B)
+    assert ops.constraint_diagnostics().estimated_rank == diag.estimated_rank
+
+
+def test_contact_constraint_quality_reports_pass_warn_and_fail():
+    B_good = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=float)
+    report_good = ff.assess_contact_constraint_quality(B_good)
+
+    assert isinstance(report_good, ff.ContactConstraintQualityReport)
+    assert report_good.status == "pass"
+    assert report_good.passed
+    assert report_good.issues == ()
+
+    B_bad = np.array(
+        [
+            [1.0, -1.0, 0.0],
+            [2.0, -2.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ],
+        dtype=float,
+    )
+    report_fail = ff.assess_contact_constraint_quality(B_bad)
+
+    assert report_fail.status == "fail"
+    assert not report_fail.passed
+    assert {issue.check for issue in report_fail.failures} == {"zero_rows", "rank_deficiency"}
+    assert report_fail.warnings == ()
+
+    diag = ff.contact_constraint_matrix_diagnostics(B_bad)
+    report_warn = ff.assess_contact_constraint_quality(
+        diag,
+        zero_row_severity="warn",
+        rank_deficiency_severity="warn",
+    )
+
+    assert report_warn.status == "warn"
+    assert report_warn.passed
+    assert {issue.check for issue in report_warn.warnings} == {"zero_rows", "rank_deficiency"}
+    assert report_warn.failures == ()
+
+    ops = ff.MultiplierContactContribution(enforcement="mortar", B=B_bad)
+    assert ops.constraint_quality().status == "fail"
+
+
+def test_contact_constraint_quality_optional_condition_and_row_norm_checks():
+    B = np.array([[1.0, 0.0], [0.0, 1.0e-6]], dtype=float)
+
+    report = ff.assess_contact_constraint_quality(
+        B,
+        max_condition_number=10.0,
+        min_row_norm=1.0e-3,
+    )
+
+    assert report.status == "warn"
+    assert report.passed
+    assert {issue.check for issue in report.warnings} == {"condition_number", "row_norm_min"}
+
+
+def test_contact_constraint_quality_validates_policy_arguments():
+    B = np.eye(2, dtype=float)
+
+    with pytest.raises(ValueError, match="zero_row_severity"):
+        ff.assess_contact_constraint_quality(B, zero_row_severity="error")
+    with pytest.raises(ValueError, match="max_zero_rows"):
+        ff.assess_contact_constraint_quality(B, max_zero_rows=-1)
+    with pytest.raises(ValueError, match="max_condition_number"):
+        ff.assess_contact_constraint_quality(B, max_condition_number=0.0)
+    with pytest.raises(ValueError, match="min_row_norm"):
+        ff.assess_contact_constraint_quality(B, min_row_norm=-1.0)
+
+
 def test_onesided_penalty_top_level_alias_matches_legacy_tutorial_path():
     coords = np.array(
         [

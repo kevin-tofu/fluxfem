@@ -287,6 +287,34 @@ def compile_tagged_pair_nitsche_penalty_residual(
     )
 
 
+def make_pair_nitsche_supermesh_bilinear(
+    *,
+    backend_fastpath: str = "numpy_local_kernel",
+) -> ContactBilinear:
+    """Build the symmetric pair-Nitsche bilinear used on contact supermeshes."""
+    import fluxfem.helpers_wf as h_wf
+    from ..core.weakform import einsum as wf_einsum
+
+    def _bilin(v1, v2, u1, u2, p):
+        n = h_wf.normal()
+        ju = u1.val - u2.val
+        t_u = 0.5 * (h_wf.traction(u1, n, p) + h_wf.traction(u2, n, p))
+        t_v1 = h_wf.traction(v1, n, p)
+        t_v2 = h_wf.traction(v2, n, p)
+        penalty = p.use_penalty * (p.alpha * p.inv_h) * (
+            h_wf.dot(v1, ju) - h_wf.dot(v2, ju)
+        )
+        traction = p.use_traction * (-h_wf.dot(v1, t_u) + h_wf.dot(v2, t_u))
+        traction -= p.use_traction * 0.5 * wf_einsum("qia,qi->qa", t_v1, ju)
+        traction -= p.use_traction * 0.5 * wf_einsum("qia,qi->qa", t_v2, ju)
+        return (penalty + traction) * h_wf.ds()
+
+    return make_tagged_pair_nitsche_penalty_bilinear(
+        _bilin,
+        backend_fastpath=backend_fastpath,
+    )
+
+
 @dataclass(frozen=True)
 class ContactOperators:
     """Container for assembled contact operators."""
@@ -305,6 +333,268 @@ class ContactOperators:
     facet_conn_master: np.ndarray | None = None
     rho: float | None = None
     multiplier: Any | None = None
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ContactConstraintDiagnostics:
+    """Numerical diagnostics for a mortar constraint matrix."""
+
+    n_rows: int
+    n_cols: int
+    nnz: int
+    zero_row_count: int
+    row_norm_min: float
+    row_norm_max: float
+    row_norm_mean: float
+    estimated_rank: int
+    rank_deficiency: int
+    condition_number: float
+    singular_values: np.ndarray
+    singular_value_count: int
+    rtol: float
+    atol: float
+
+
+@dataclass(frozen=True)
+class ContactConstraintQualityIssue:
+    """One opt-in quality-policy finding for a mortar constraint matrix."""
+
+    check: str
+    severity: str
+    message: str
+    value: float | int
+    threshold: float | int
+
+
+@dataclass(frozen=True)
+class ContactConstraintQualityReport:
+    """Pass/warn/fail quality report derived from contact constraint diagnostics."""
+
+    diagnostics: ContactConstraintDiagnostics
+    status: str
+    issues: tuple[ContactConstraintQualityIssue, ...] = ()
+
+    @property
+    def passed(self) -> bool:
+        return self.status != "fail"
+
+    @property
+    def warnings(self) -> tuple[ContactConstraintQualityIssue, ...]:
+        return tuple(issue for issue in self.issues if issue.severity == "warn")
+
+    @property
+    def failures(self) -> tuple[ContactConstraintQualityIssue, ...]:
+        return tuple(issue for issue in self.issues if issue.severity == "fail")
+
+
+def _flatten_contact_state_vector(state: Any, *, backend: str | None = None):
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        xp = jnp
+    else:
+        xp = np
+    if isinstance(state, Mapping):
+        parts = [xp.ravel(xp.asarray(value)) for value in state.values()]
+        if not parts:
+            return xp.zeros((0,), dtype=float)
+        return xp.concatenate(parts)
+    if isinstance(state, Sequence) and not hasattr(state, "shape"):
+        parts = [xp.ravel(xp.asarray(value)) for value in state]
+        if not parts:
+            return xp.zeros((0,), dtype=float)
+        return xp.concatenate(parts)
+    return xp.ravel(xp.asarray(state))
+
+
+def _dense_contact_operator_matrix(matrix: Any, *, backend: str | None = None):
+    if matrix is None:
+        return None
+    if backend == "jax":
+        import jax.numpy as jnp
+
+        return (
+            jnp.asarray(matrix.to_dense())
+            if hasattr(matrix, "to_dense")
+            else jnp.asarray(matrix)
+        )
+    return (
+        np.asarray(matrix.to_dense(), dtype=float)
+        if hasattr(matrix, "to_dense")
+        else np.asarray(matrix, dtype=float)
+    )
+
+
+def contact_constraint_matrix_diagnostics(
+    B: Any,
+    *,
+    rtol: float = 1e-10,
+    atol: float = 1e-14,
+    max_singular_values: int | None = 20,
+) -> ContactConstraintDiagnostics:
+    """Return row-scaling and rank diagnostics for a mortar matrix."""
+    B_np = np.asarray(_dense_contact_operator_matrix(B, backend="numpy"), dtype=float)
+    if B_np.ndim != 2:
+        raise ValueError("constraint diagnostics require a rank-2 B matrix.")
+    n_rows, n_cols = (int(B_np.shape[0]), int(B_np.shape[1]))
+    row_norms = np.linalg.norm(B_np, axis=1) if n_rows else np.zeros((0,), dtype=float)
+    zero_rows = row_norms <= float(atol)
+    if n_rows and n_cols:
+        singular_all = np.linalg.svd(B_np, compute_uv=False)
+    else:
+        singular_all = np.zeros((0,), dtype=float)
+    if singular_all.size:
+        threshold = max(float(atol), float(rtol) * float(singular_all[0]))
+        estimated_rank = int(np.count_nonzero(singular_all > threshold))
+        condition_number = (
+            float(singular_all[0] / singular_all[estimated_rank - 1])
+            if estimated_rank > 0
+            else float("inf")
+        )
+    else:
+        estimated_rank = 0
+        condition_number = float("inf")
+    if max_singular_values is None:
+        singular_values = singular_all
+    else:
+        singular_values = singular_all[: max(0, int(max_singular_values))]
+    rank_deficiency = max(0, min(n_rows, n_cols) - int(estimated_rank))
+    nnz = int(np.count_nonzero(np.abs(B_np) > float(atol)))
+    return ContactConstraintDiagnostics(
+        n_rows=n_rows,
+        n_cols=n_cols,
+        nnz=nnz,
+        zero_row_count=int(np.count_nonzero(zero_rows)),
+        row_norm_min=float(np.min(row_norms)) if row_norms.size else 0.0,
+        row_norm_max=float(np.max(row_norms)) if row_norms.size else 0.0,
+        row_norm_mean=float(np.mean(row_norms)) if row_norms.size else 0.0,
+        estimated_rank=estimated_rank,
+        rank_deficiency=rank_deficiency,
+        condition_number=condition_number,
+        singular_values=np.asarray(singular_values, dtype=float),
+        singular_value_count=int(singular_all.size),
+        rtol=float(rtol),
+        atol=float(atol),
+    )
+
+
+def _constraint_quality_severity(value: str, *, name: str) -> str:
+    severity = str(value).lower()
+    if severity not in {"warn", "fail"}:
+        raise ValueError(f"{name} must be 'warn' or 'fail'.")
+    return severity
+
+
+def _constraint_quality_status(issues: Sequence[ContactConstraintQualityIssue]) -> str:
+    order = {"pass": 0, "warn": 1, "fail": 2}
+    status = "pass"
+    for issue in issues:
+        if order[issue.severity] > order[status]:
+            status = issue.severity
+    return status
+
+
+def assess_contact_constraint_quality(
+    B_or_diagnostics: Any,
+    *,
+    max_zero_rows: int = 0,
+    zero_row_severity: str = "fail",
+    max_rank_deficiency: int = 0,
+    rank_deficiency_severity: str = "fail",
+    max_condition_number: float | None = None,
+    condition_number_severity: str = "warn",
+    min_row_norm: float | None = None,
+    row_norm_severity: str = "warn",
+    rtol: float = 1e-10,
+    atol: float = 1e-14,
+    max_singular_values: int | None = 20,
+) -> ContactConstraintQualityReport:
+    """
+    Evaluate opt-in quality thresholds for a mortar constraint matrix.
+
+    Defaults fail on zero rows and rank deficiency, while condition-number and
+    row-norm checks are enabled only when their thresholds are supplied.
+    """
+    if isinstance(B_or_diagnostics, ContactConstraintDiagnostics):
+        diag = B_or_diagnostics
+    else:
+        diag = contact_constraint_matrix_diagnostics(
+            B_or_diagnostics,
+            rtol=rtol,
+            atol=atol,
+            max_singular_values=max_singular_values,
+        )
+
+    zero_sev = _constraint_quality_severity(zero_row_severity, name="zero_row_severity")
+    rank_sev = _constraint_quality_severity(rank_deficiency_severity, name="rank_deficiency_severity")
+    cond_sev = _constraint_quality_severity(condition_number_severity, name="condition_number_severity")
+    row_sev = _constraint_quality_severity(row_norm_severity, name="row_norm_severity")
+    issues: list[ContactConstraintQualityIssue] = []
+
+    max_zero = int(max_zero_rows)
+    if max_zero < 0:
+        raise ValueError("max_zero_rows must be non-negative.")
+    if int(diag.zero_row_count) > max_zero:
+        issues.append(
+            ContactConstraintQualityIssue(
+                check="zero_rows",
+                severity=zero_sev,
+                message="constraint matrix contains zero rows",
+                value=int(diag.zero_row_count),
+                threshold=max_zero,
+            )
+        )
+
+    max_rank = int(max_rank_deficiency)
+    if max_rank < 0:
+        raise ValueError("max_rank_deficiency must be non-negative.")
+    if int(diag.rank_deficiency) > max_rank:
+        issues.append(
+            ContactConstraintQualityIssue(
+                check="rank_deficiency",
+                severity=rank_sev,
+                message="constraint matrix is rank deficient beyond the configured tolerance",
+                value=int(diag.rank_deficiency),
+                threshold=max_rank,
+            )
+        )
+
+    if max_condition_number is not None:
+        cond_threshold = float(max_condition_number)
+        if cond_threshold <= 0.0:
+            raise ValueError("max_condition_number must be positive when provided.")
+        if not np.isfinite(float(diag.condition_number)) or float(diag.condition_number) > cond_threshold:
+            issues.append(
+                ContactConstraintQualityIssue(
+                    check="condition_number",
+                    severity=cond_sev,
+                    message="constraint matrix condition number exceeds the configured threshold",
+                    value=float(diag.condition_number),
+                    threshold=cond_threshold,
+                )
+            )
+
+    if min_row_norm is not None:
+        row_threshold = float(min_row_norm)
+        if row_threshold < 0.0:
+            raise ValueError("min_row_norm must be non-negative when provided.")
+        if float(diag.row_norm_min) < row_threshold:
+            issues.append(
+                ContactConstraintQualityIssue(
+                    check="row_norm_min",
+                    severity=row_sev,
+                    message="constraint matrix row norm is below the configured threshold",
+                    value=float(diag.row_norm_min),
+                    threshold=row_threshold,
+                )
+            )
+
+    return ContactConstraintQualityReport(
+        diagnostics=diag,
+        status=_constraint_quality_status(issues),
+        issues=tuple(issues),
+    )
 
 
 @dataclass(frozen=True)
@@ -327,10 +617,106 @@ class ContactState:
 class PenaltyContactContribution(ContactOperators):
     """Explicit penalty-family contact contribution."""
 
+    def contact_energy(self, state: Any, *, matrix: Any | None = None, backend: str | None = None):
+        """
+        Return ``0.5 * u.T @ K_contact @ u`` for assembled penalty/Nitsche terms.
+
+        This is a diagnostic quantity; for nonlinear contact it is the quadratic
+        energy of the assembled tangent at the supplied state.
+        """
+        use_backend = (
+            backend
+            if backend is not None
+            else _infer_contact_backend(state, matrix, self.jacobian, default="numpy")
+        )
+        K = _dense_contact_operator_matrix(
+            self.jacobian if matrix is None else matrix,
+            backend=use_backend,
+        )
+        if K is None:
+            raise ValueError("contact_energy requires an assembled jacobian or explicit matrix.")
+        u = _flatten_contact_state_vector(state, backend=use_backend)
+        return 0.5 * (u @ (K @ u))
+
+    def penalty_energy(self, state: Any, *, matrix: Any | None = None, backend: str | None = None):
+        """Alias for ``contact_energy`` used by penalty/Nitsche diagnostics."""
+        return self.contact_energy(state, matrix=matrix, backend=backend)
+
 
 @dataclass(frozen=True)
 class MultiplierContactContribution(ContactOperators):
     """Explicit multiplier-family contact contribution."""
+
+    def constraint_diagnostics(
+        self,
+        *,
+        rtol: float = 1e-10,
+        atol: float = 1e-14,
+        max_singular_values: int | None = 20,
+    ) -> ContactConstraintDiagnostics:
+        """Return row norm, rank, and singular-value diagnostics for ``B``."""
+        if self.B is None:
+            raise ValueError("constraint_diagnostics requires an assembled B matrix.")
+        return contact_constraint_matrix_diagnostics(
+            self.B,
+            rtol=rtol,
+            atol=atol,
+            max_singular_values=max_singular_values,
+        )
+
+    def constraint_quality(
+        self,
+        **kwargs,
+    ) -> ContactConstraintQualityReport:
+        """Evaluate opt-in quality thresholds for the assembled ``B`` matrix."""
+        if self.B is None:
+            raise ValueError("constraint_quality requires an assembled B matrix.")
+        return assess_contact_constraint_quality(self.B, **kwargs)
+
+    def constraint_residual(self, state: Any, *, backend: str | None = None):
+        """Return the mortar compatibility residual ``B @ u``."""
+        use_backend = (
+            backend
+            if backend is not None
+            else _infer_contact_backend(state, self.B, default="numpy")
+        )
+        B = _dense_contact_operator_matrix(self.B, backend=use_backend)
+        if B is None:
+            raise ValueError("constraint_residual requires an assembled B matrix.")
+        u = _flatten_contact_state_vector(state, backend=use_backend)
+        return B @ u
+
+    def constraint_residual_norm(self, state: Any, *, backend: str | None = None):
+        """Return ``||B @ u||_2`` for mortar compatibility diagnostics."""
+        use_backend = (
+            backend
+            if backend is not None
+            else _infer_contact_backend(state, self.B, default="numpy")
+        )
+        r = self.constraint_residual(state, backend=use_backend)
+        if use_backend == "jax":
+            import jax.numpy as jnp
+
+            return jnp.linalg.norm(r)
+        return float(np.linalg.norm(np.asarray(r, dtype=float)))
+
+    def augmentation_energy(self, state: Any, *, rho: float | None = None, backend: str | None = None):
+        """Return ``0.5 * rho * ||B @ u||_2**2`` for augmented mortar diagnostics."""
+        rho_eff = self.rho if rho is None else rho
+        if rho_eff is None:
+            raise ValueError("augmentation_energy requires rho or self.rho.")
+        use_backend = (
+            backend
+            if backend is not None
+            else _infer_contact_backend(state, self.B, rho_eff, default="numpy")
+        )
+        r = self.constraint_residual(state, backend=use_backend)
+        if use_backend == "jax":
+            import jax.numpy as jnp
+
+            return 0.5 * jnp.asarray(rho_eff) * (r @ r)
+        r_np = np.asarray(r, dtype=float)
+        return float(0.5 * float(rho_eff) * (r_np @ r_np))
 
 
 @dataclass(frozen=True)
@@ -342,6 +728,39 @@ class ContactSolveResult:
     converged: bool
     iters: int
     residual_norm: float
+
+
+@dataclass(frozen=True)
+class ContactKKTSolveInfo:
+    """Diagnostics for a linear contact KKT solve."""
+
+    backend: str
+    solver: str
+    residual_norm: float
+    relative_residual_norm: float
+    n_primal: int | None = None
+    primal_scaling_min: float | None = None
+    primal_scaling_max: float | None = None
+    dual_scaling_min: float | None = None
+    dual_scaling_max: float | None = None
+    matrix_row_norm_min: float | None = None
+    matrix_row_norm_max: float | None = None
+    matrix_col_norm_min: float | None = None
+    matrix_col_norm_max: float | None = None
+    scaled_residual_norm: float | None = None
+    scaled_relative_residual_norm: float | None = None
+    scaled_matrix_row_norm_min: float | None = None
+    scaled_matrix_row_norm_max: float | None = None
+    scaled_matrix_col_norm_min: float | None = None
+    scaled_matrix_col_norm_max: float | None = None
+
+
+@dataclass(frozen=True)
+class ContactKKTSolveResult:
+    """Solution and diagnostics for a linear contact KKT solve."""
+
+    solution: Any
+    info: ContactKKTSolveInfo
 
 
 @dataclass(frozen=True)
@@ -822,6 +1241,9 @@ class ContactKKTSolveConfig:
     backend: str = "numpy"
     diagonal_shift: float = 0.0
     allow_dense_fallback: bool = True
+    numpy_solver: str = "direct"  # "direct" | "block_scaled"
+    n_primal: int | None = None
+    scaling_floor: float = 1e-30
     jax_solver: str = "gmres"
     jax_tol: float = 1e-8
     jax_atol: float = 0.0
@@ -842,6 +1264,12 @@ class ContactKKTSolveConfig:
         backend = str(self.backend).lower()
         if backend not in {"numpy", "jax", "petsc4py"}:
             raise ValueError("backend must be 'numpy', 'petsc4py', or 'jax'.")
+        if self.numpy_solver not in {"direct", "block_scaled"}:
+            raise ValueError("numpy_solver must be 'direct' or 'block_scaled'.")
+        if self.n_primal is not None and int(self.n_primal) <= 0:
+            raise ValueError("n_primal must be positive when provided.")
+        if float(self.scaling_floor) <= 0.0:
+            raise ValueError("scaling_floor must be positive.")
         if self.jax_solver not in {"gmres", "spsolve"}:
             raise ValueError("jax_solver must be 'gmres' or 'spsolve'.")
         if self.jax_dense_mode not in {"iterative", "direct_custom_vjp"}:
@@ -2779,6 +3207,55 @@ def _as_numpy_csr(kkt_matrix):
     return sp.csr_matrix(_as_numpy_dense(kkt_matrix))
 
 
+def _apply_numpy_diagonal_shift(A, diagonal_shift: float):
+    shift = float(diagonal_shift)
+    if shift == 0.0:
+        return A
+    try:
+        import scipy.sparse as sp
+    except Exception:
+        sp = None
+    if sp is not None and sp.issparse(A):
+        return A + shift * sp.eye(A.shape[0], format="csr")
+    A_np = np.asarray(A, dtype=float)
+    return A_np + shift * np.eye(A_np.shape[0], dtype=float)
+
+
+def _norm_range(values: np.ndarray) -> tuple[float, float]:
+    vals = np.asarray(values, dtype=float).reshape(-1)
+    if vals.size == 0:
+        return 0.0, 0.0
+    return float(np.min(vals)), float(np.max(vals))
+
+
+def _matrix_axis_norm_ranges(A) -> tuple[float, float, float, float]:
+    try:
+        import scipy.sparse as sp
+    except Exception:
+        sp = None
+    if sp is not None and sp.issparse(A):
+        A_csr = A.tocsr()
+        row_norms = np.sqrt(np.asarray(A_csr.multiply(A_csr).sum(axis=1)).reshape(-1))
+        col_norms = np.sqrt(np.asarray(A_csr.multiply(A_csr).sum(axis=0)).reshape(-1))
+    else:
+        A_np = np.asarray(A, dtype=float)
+        row_norms = np.linalg.norm(A_np, axis=1) if A_np.ndim == 2 else np.zeros((0,), dtype=float)
+        col_norms = np.linalg.norm(A_np, axis=0) if A_np.ndim == 2 else np.zeros((0,), dtype=float)
+    row_min, row_max = _norm_range(row_norms)
+    col_min, col_max = _norm_range(col_norms)
+    return row_min, row_max, col_min, col_max
+
+
+def _matrix_vector_product_numpy(A, x: np.ndarray) -> np.ndarray:
+    return np.asarray(A @ np.asarray(x, dtype=float), dtype=float)
+
+
+def _relative_norm(numer: np.ndarray, denom: np.ndarray) -> float:
+    n = float(np.linalg.norm(np.asarray(numer, dtype=float)))
+    d = float(np.linalg.norm(np.asarray(denom, dtype=float)))
+    return n / max(d, 1.0)
+
+
 def _as_jax_linear_op(kkt_matrix):
     import jax.numpy as jnp
     from jax.experimental import sparse as jsparse  # type: ignore
@@ -2828,8 +3305,40 @@ def _solve_kkt_petsc(kkt_matrix, rhs, cfg: ContactKKTSolveConfig):
     )
 
 
-def _solve_kkt_numpy(kkt_matrix, rhs, cfg: ContactKKTSolveConfig):
-    A_csr = _as_numpy_csr(kkt_matrix)
+def _kkt_block_scaling(A, *, n_primal: int, scaling_floor: float):
+    try:
+        import scipy.sparse as sp
+    except Exception:
+        sp = None
+
+    n = int(A.shape[0])
+    n_u = int(n_primal)
+    if n_u <= 0 or n_u >= n:
+        raise ValueError("n_primal must split a KKT matrix into non-empty primal and dual blocks.")
+
+    floor = float(scaling_floor)
+    if sp is not None and sp.issparse(A):
+        A_csr = A.tocsr()
+        primal_diag = np.abs(A_csr.diagonal()[:n_u])
+        d_u = 1.0 / np.sqrt(np.maximum(primal_diag, floor))
+        B = A_csr[n_u:, :n_u]
+        row_norms = np.sqrt(np.asarray(B.multiply(d_u).power(2).sum(axis=1)).reshape(-1))
+        d_l = 1.0 / np.maximum(row_norms, floor)
+        d = np.concatenate([d_u, d_l])
+        D = sp.diags(d, format="csr")
+        return D @ A_csr @ D, d
+
+    A_np = np.asarray(A, dtype=float)
+    primal_diag = np.abs(np.diag(A_np)[:n_u])
+    d_u = 1.0 / np.sqrt(np.maximum(primal_diag, floor))
+    B = A_np[n_u:, :n_u]
+    row_norms = np.linalg.norm(B * d_u[None, :], axis=1)
+    d_l = 1.0 / np.maximum(row_norms, floor)
+    d = np.concatenate([d_u, d_l])
+    return d[:, None] * A_np * d[None, :], d
+
+
+def _solve_kkt_numpy_direct(A, rhs, cfg: ContactKKTSolveConfig):
     try:
         import scipy.sparse as sp
         import scipy.sparse.linalg as spla
@@ -2837,17 +3346,95 @@ def _solve_kkt_numpy(kkt_matrix, rhs, cfg: ContactKKTSolveConfig):
         sp = None
         spla = None
 
-    if A_csr is not None and spla is not None:
-        if float(cfg.diagonal_shift) != 0.0:
-            A_csr = A_csr + float(cfg.diagonal_shift) * sp.eye(A_csr.shape[0], format="csr")
-        return np.asarray(spla.spsolve(A_csr, np.asarray(rhs, dtype=float)))
+    if sp is not None and spla is not None and sp.issparse(A):
+        return np.asarray(spla.spsolve(A.tocsr(), np.asarray(rhs, dtype=float)))
 
     if not bool(cfg.allow_dense_fallback):
         raise ValueError("Dense fallback is disabled by ContactKKTSolveConfig.allow_dense_fallback.")
-    A = _as_numpy_dense(kkt_matrix)
-    if float(cfg.diagonal_shift) != 0.0:
-        A = A + float(cfg.diagonal_shift) * np.eye(A.shape[0], dtype=A.dtype)
-    return np.linalg.solve(A, np.asarray(rhs, dtype=float))
+    return np.linalg.solve(np.asarray(A, dtype=float), np.asarray(rhs, dtype=float))
+
+
+def _solve_kkt_numpy(kkt_matrix, rhs, cfg: ContactKKTSolveConfig):
+    A_csr = _as_numpy_csr(kkt_matrix)
+    A = A_csr if A_csr is not None else _as_numpy_dense(kkt_matrix)
+    A = _apply_numpy_diagonal_shift(A, float(cfg.diagonal_shift))
+
+    if cfg.numpy_solver == "block_scaled":
+        if cfg.n_primal is None:
+            raise ValueError("numpy_solver='block_scaled' requires n_primal.")
+        A_scaled, d = _kkt_block_scaling(
+            A,
+            n_primal=int(cfg.n_primal),
+            scaling_floor=float(cfg.scaling_floor),
+        )
+        y = _solve_kkt_numpy_direct(A_scaled, d * np.asarray(rhs, dtype=float), cfg)
+        return d * np.asarray(y, dtype=float)
+
+    return _solve_kkt_numpy_direct(A, rhs, cfg)
+
+
+def _solve_kkt_numpy_with_info(kkt_matrix, rhs, cfg: ContactKKTSolveConfig) -> ContactKKTSolveResult:
+    A_csr = _as_numpy_csr(kkt_matrix)
+    A = A_csr if A_csr is not None else _as_numpy_dense(kkt_matrix)
+    A = _apply_numpy_diagonal_shift(A, float(cfg.diagonal_shift))
+    rhs_np = np.asarray(rhs, dtype=float)
+    row_min, row_max, col_min, col_max = _matrix_axis_norm_ranges(A)
+
+    if cfg.numpy_solver == "block_scaled":
+        if cfg.n_primal is None:
+            raise ValueError("numpy_solver='block_scaled' requires n_primal.")
+        n_primal = int(cfg.n_primal)
+        A_scaled, d = _kkt_block_scaling(
+            A,
+            n_primal=n_primal,
+            scaling_floor=float(cfg.scaling_floor),
+        )
+        rhs_scaled = d * rhs_np
+        y = _solve_kkt_numpy_direct(A_scaled, rhs_scaled, cfg)
+        solution = d * np.asarray(y, dtype=float)
+        residual = _matrix_vector_product_numpy(A, solution) - rhs_np
+        scaled_residual = _matrix_vector_product_numpy(A_scaled, np.asarray(y, dtype=float)) - rhs_scaled
+        srow_min, srow_max, scol_min, scol_max = _matrix_axis_norm_ranges(A_scaled)
+        d_u = np.asarray(d[:n_primal], dtype=float)
+        d_l = np.asarray(d[n_primal:], dtype=float)
+        primal_min, primal_max = _norm_range(d_u)
+        dual_min, dual_max = _norm_range(d_l)
+        info = ContactKKTSolveInfo(
+            backend="numpy",
+            solver="block_scaled",
+            residual_norm=float(np.linalg.norm(residual)),
+            relative_residual_norm=_relative_norm(residual, rhs_np),
+            n_primal=n_primal,
+            primal_scaling_min=primal_min,
+            primal_scaling_max=primal_max,
+            dual_scaling_min=dual_min,
+            dual_scaling_max=dual_max,
+            matrix_row_norm_min=row_min,
+            matrix_row_norm_max=row_max,
+            matrix_col_norm_min=col_min,
+            matrix_col_norm_max=col_max,
+            scaled_residual_norm=float(np.linalg.norm(scaled_residual)),
+            scaled_relative_residual_norm=_relative_norm(scaled_residual, rhs_scaled),
+            scaled_matrix_row_norm_min=srow_min,
+            scaled_matrix_row_norm_max=srow_max,
+            scaled_matrix_col_norm_min=scol_min,
+            scaled_matrix_col_norm_max=scol_max,
+        )
+        return ContactKKTSolveResult(solution=solution, info=info)
+
+    solution = _solve_kkt_numpy_direct(A, rhs_np, cfg)
+    residual = _matrix_vector_product_numpy(A, solution) - rhs_np
+    info = ContactKKTSolveInfo(
+        backend="numpy",
+        solver="direct",
+        residual_norm=float(np.linalg.norm(residual)),
+        relative_residual_norm=_relative_norm(residual, rhs_np),
+        matrix_row_norm_min=row_min,
+        matrix_row_norm_max=row_max,
+        matrix_col_norm_min=col_min,
+        matrix_col_norm_max=col_max,
+    )
+    return ContactKKTSolveResult(solution=solution, info=info)
 
 
 def _solve_kkt_jax(kkt_matrix, rhs, cfg: ContactKKTSolveConfig):
@@ -3475,6 +4062,77 @@ def solve_contact_kkt(
     if cfg.backend == "numpy":
         return _solve_kkt_numpy(kkt_matrix, rhs, cfg)
     return _solve_kkt_jax(kkt_matrix, rhs, cfg)
+
+
+def solve_contact_kkt_with_info(
+    kkt_matrix,
+    rhs,
+    *,
+    backend: str | None = None,
+    diagonal_shift: float = 0.0,
+    config: ContactKKTSolveConfig | None = None,
+) -> ContactKKTSolveResult:
+    """
+    Solve ``KKT * x = rhs`` and return solution plus residual/scaling diagnostics.
+
+    The NumPy ``numpy_solver="block_scaled"`` path reports block scaling ranges
+    and scaled-system residuals.  Other backends currently report unscaled
+    residuals only.
+    """
+    cfg = _resolve_kkt_solve_config(
+        backend=backend,
+        diagonal_shift=diagonal_shift,
+        config=config,
+        kkt_matrix=kkt_matrix,
+        rhs=rhs,
+    )
+    if cfg.backend == "numpy":
+        return _solve_kkt_numpy_with_info(kkt_matrix, rhs, cfg)
+    if cfg.backend == "petsc4py":
+        solution = _solve_kkt_petsc(kkt_matrix, rhs, cfg)
+        A_csr = _as_numpy_csr(kkt_matrix)
+        A = A_csr if A_csr is not None else _as_numpy_dense(kkt_matrix)
+        A = _apply_numpy_diagonal_shift(A, float(cfg.diagonal_shift))
+        rhs_np = np.asarray(rhs, dtype=float)
+        residual = _matrix_vector_product_numpy(A, np.asarray(solution, dtype=float)) - rhs_np
+        row_min, row_max, col_min, col_max = _matrix_axis_norm_ranges(A)
+        return ContactKKTSolveResult(
+            solution=solution,
+            info=ContactKKTSolveInfo(
+                backend="petsc4py",
+                solver=str(cfg.petsc_ksp_type),
+                residual_norm=float(np.linalg.norm(residual)),
+                relative_residual_norm=_relative_norm(residual, rhs_np),
+                matrix_row_norm_min=row_min,
+                matrix_row_norm_max=row_max,
+                matrix_col_norm_min=col_min,
+                matrix_col_norm_max=col_max,
+            ),
+        )
+
+    solution = _solve_kkt_jax(kkt_matrix, rhs, cfg)
+    try:
+        import jax.numpy as jnp
+
+        mv, _ = _as_jax_linear_op(kkt_matrix)
+        rhs_j = jnp.asarray(rhs)
+        residual_j = mv(solution) - rhs_j
+        if float(cfg.diagonal_shift) != 0.0:
+            residual_j = residual_j + float(cfg.diagonal_shift) * solution
+        residual_norm = float(jnp.linalg.norm(residual_j))
+        relative_residual_norm = residual_norm / max(float(jnp.linalg.norm(rhs_j)), 1.0)
+    except Exception:
+        residual_norm = float("nan")
+        relative_residual_norm = float("nan")
+    return ContactKKTSolveResult(
+        solution=solution,
+        info=ContactKKTSolveInfo(
+            backend="jax",
+            solver=str(cfg.jax_solver),
+            residual_norm=residual_norm,
+            relative_residual_norm=relative_residual_norm,
+        ),
+    )
 
 
 def solve_unilateral_contact_active_set_kkt(
@@ -4848,6 +5506,27 @@ class ContactSurfaceSpace:
             normal_source=normal_source,
         )
 
+    def assemble_pair_nitsche(
+        self,
+        params: "WeakParams",
+        *,
+        sparse: bool = False,
+        normal_source: str = "master",
+        use_penalty: float | None = None,
+        use_traction: float | None = None,
+        backend_fastpath: str = "numpy_local_kernel",
+    ) -> PenaltyContactContribution:
+        """Assemble pair-Nitsche terms over this prepared contact supermesh."""
+        return assemble_pair_nitsche_supermesh(
+            self,
+            params,
+            sparse=sparse,
+            normal_source=normal_source,
+            use_penalty=use_penalty,
+            use_traction=use_traction,
+            backend_fastpath=backend_fastpath,
+        )
+
 
 def _field_n_dofs(
     *,
@@ -5451,6 +6130,27 @@ class OneToManyContactSurfaceSpace:
             normal_source=normal_source,
         )
 
+    def assemble_pair_nitsche(
+        self,
+        params: "WeakParams",
+        *,
+        sparse: bool = False,
+        normal_source: str = "master",
+        use_penalty: float | None = None,
+        use_traction: float | None = None,
+        backend_fastpath: str = "numpy_local_kernel",
+    ) -> PenaltyContactContribution:
+        """Assemble pair-Nitsche terms over this one-to-many contact supermesh."""
+        return assemble_pair_nitsche_supermesh(
+            self,
+            params,
+            sparse=sparse,
+            normal_source=normal_source,
+            use_penalty=use_penalty,
+            use_traction=use_traction,
+            backend_fastpath=backend_fastpath,
+        )
+
     def assemble_contact_coupling_matrices(self):
         from .contact_interface import ContactCouplingMatrix
 
@@ -5682,6 +6382,77 @@ class OneToManyContactSurfaceSpace:
         )
 
 
+def _params_with_pair_nitsche_defaults(
+    params: "WeakParams",
+    *,
+    use_penalty: float | None,
+    use_traction: float | None,
+) -> "WeakParams":
+    defaults = {
+        "use_penalty": 1.0 if use_penalty is None else float(use_penalty),
+        "use_traction": 1.0 if use_traction is None else float(use_traction),
+    }
+    data = dict(getattr(params, "_data", {}))
+    if not data:
+        data = dict(vars(params))
+    changed = False
+    for name, value in defaults.items():
+        if name not in data or (name == "use_penalty" and use_penalty is not None) or (
+            name == "use_traction" and use_traction is not None
+        ):
+            data[name] = value
+            changed = True
+    if not changed:
+        return params
+    from ..core.weakform import Params
+
+    return Params(**data)
+
+
+def assemble_pair_nitsche_supermesh(
+    contact,
+    params: "WeakParams",
+    *,
+    sparse: bool = False,
+    normal_source: str = "master",
+    use_penalty: float | None = None,
+    use_traction: float | None = None,
+    backend_fastpath: str = "numpy_local_kernel",
+) -> PenaltyContactContribution:
+    """
+    Assemble pair-Nitsche contact terms over a prepared contact supermesh.
+
+    The contact object must provide ``assemble_bilinear_form``; prepared
+    ``ContactSurfaceSpace`` and ``OneToManyContactSurfaceSpace`` objects do.
+    """
+    if not hasattr(contact, "assemble_bilinear_form"):
+        raise TypeError("contact must provide assemble_bilinear_form() for pair-Nitsche supermesh assembly.")
+    params_eff = _params_with_pair_nitsche_defaults(
+        params,
+        use_penalty=use_penalty,
+        use_traction=use_traction,
+    )
+    bilin = make_pair_nitsche_supermesh_bilinear(backend_fastpath=backend_fastpath)
+    jacobian = contact.assemble_bilinear_form(
+        bilin,
+        params_eff,
+        sparse=sparse,
+        normal_source=normal_source,
+    )
+    diagnostics: dict[str, Any] = {}
+    if hasattr(contact, "supermesh_conn"):
+        diagnostics["supermesh_triangles"] = int(np.asarray(contact.supermesh_conn).shape[0])
+    diagnostics["use_penalty"] = float(getattr(params_eff, "use_penalty", 1.0))
+    diagnostics["use_traction"] = float(getattr(params_eff, "use_traction", 1.0))
+    return PenaltyContactContribution(
+        enforcement="nitsche",
+        law="frictionless_tied",
+        formulation="pair_nitsche_penalty",
+        jacobian=jacobian,
+        diagnostics=diagnostics,
+    )
+
+
 def assemble_contact_operators(
     contact,
     *,
@@ -5709,6 +6480,17 @@ def assemble_contact_operators(
         multiplier=multiplier,
     )
     if resolved == "penalty":
+        formulation_key = None if formulation is None else str(formulation).lower().replace("-", "_")
+        has_explicit_weak_form = any(value is not None for value in (weak_form, res_form, state, u))
+        if formulation_key in {"pair_nitsche_penalty", "pair_nitsche", "nitsche_supermesh"} and not has_explicit_weak_form:
+            if params is None:
+                raise ValueError("params is required for formulation='pair_nitsche_penalty'.")
+            return assemble_pair_nitsche_supermesh(
+                contact,
+                params,
+                sparse=sparse,
+                normal_source=normal_source,
+            )
         use_backend = "jax" if backend is None else backend
         return assemble_contact_penalty_operators(
             contact,
@@ -5764,9 +6546,14 @@ __all__ = [
     "PreparedOneToManyContactInterface",
     "OneToManyContactSurfaceSpace",
     "ContactOperators",
+    "ContactConstraintDiagnostics",
+    "ContactConstraintQualityIssue",
+    "ContactConstraintQualityReport",
     "MultiplierContactContribution",
     "PenaltyContactContribution",
     "ContactState",
+    "ContactKKTSolveInfo",
+    "ContactKKTSolveResult",
     "AugmentedLagrangianState",
     "AugmentedLagrangianResult",
     "MultiplierSpec",
@@ -5789,7 +6576,11 @@ __all__ = [
     "assemble_rbe2_constraint_matrix",
     "assemble_rbe3_constraint_matrix",
     "build_rbe3_weights",
+    "make_pair_nitsche_supermesh_bilinear",
+    "assemble_pair_nitsche_supermesh",
     "assemble_contact_constraint_operators",
+    "contact_constraint_matrix_diagnostics",
+    "assess_contact_constraint_quality",
     "assemble_multiplier",
     "assemble_contact_operators",
     "assemble_contact_penalty_operators",
@@ -5799,6 +6590,7 @@ __all__ = [
     "assemble_contact_coupling_matrices",
     "assemble_contact_kkt",
     "solve_contact_kkt",
+    "solve_contact_kkt_with_info",
     "solve_unilateral_contact_active_set_kkt",
     "solve_augmented_lagrangian_outer_loop",
     "facet_gap_values",

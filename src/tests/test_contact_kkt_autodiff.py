@@ -146,6 +146,83 @@ def test_solve_contact_kkt_auto_backend_prefers_jax_for_mixed_inputs():
     assert isinstance(u, jax.Array)
 
 
+def test_solve_contact_kkt_numpy_block_scaled_matches_direct_solution():
+    K = np.array([[1.0e6, 0.0], [0.0, 2.0e-3]], dtype=float)
+    B = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=float)
+    A = np.block([[K, B.T], [B, np.zeros((2, 2), dtype=float)]])
+    rhs = np.array([3.0, -4.0, 0.2, -0.1], dtype=float)
+
+    direct = ff.solve_contact_kkt(A, rhs, backend="numpy")
+    scaled = ff.solve_contact_kkt(
+        A,
+        rhs,
+        config=ff.ContactKKTSolveConfig(
+            backend="numpy",
+            numpy_solver="block_scaled",
+            n_primal=2,
+        ),
+    )
+
+    np.testing.assert_allclose(scaled, direct, rtol=1e-11, atol=1e-11)
+    np.testing.assert_allclose(A @ scaled, rhs, rtol=1e-11, atol=1e-11)
+
+
+def test_solve_contact_kkt_with_info_reports_block_scaling_diagnostics():
+    K = np.array([[1.0e6, 0.0], [0.0, 2.0e-3]], dtype=float)
+    B = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=float)
+    A = np.block([[K, B.T], [B, np.zeros((2, 2), dtype=float)]])
+    rhs = np.array([3.0, -4.0, 0.2, -0.1], dtype=float)
+    cfg = ff.ContactKKTSolveConfig(
+        backend="numpy",
+        numpy_solver="block_scaled",
+        n_primal=2,
+    )
+
+    result = ff.solve_contact_kkt_with_info(A, rhs, config=cfg)
+    direct = ff.solve_contact_kkt(A, rhs, backend="numpy")
+
+    assert isinstance(result, ff.ContactKKTSolveResult)
+    assert isinstance(result.info, ff.ContactKKTSolveInfo)
+    assert result.info.backend == "numpy"
+    assert result.info.solver == "block_scaled"
+    assert result.info.n_primal == 2
+    assert result.info.primal_scaling_min is not None
+    assert result.info.primal_scaling_max is not None
+    assert result.info.dual_scaling_min is not None
+    assert result.info.dual_scaling_max is not None
+    assert result.info.scaled_residual_norm is not None
+    assert result.info.scaled_relative_residual_norm is not None
+    assert result.info.scaled_matrix_row_norm_min is not None
+    assert result.info.scaled_matrix_row_norm_max is not None
+    assert result.info.matrix_row_norm_max > result.info.matrix_row_norm_min
+    assert result.info.residual_norm < 1.0e-10
+    assert result.info.scaled_residual_norm < 1.0e-10
+    np.testing.assert_allclose(result.solution, direct, rtol=1e-11, atol=1e-11)
+
+
+def test_solve_contact_kkt_with_info_reports_direct_numpy_residual():
+    A = np.array([[4.0, 1.0], [1.0, 3.0]], dtype=float)
+    rhs = np.array([1.0, 2.0], dtype=float)
+
+    result = ff.solve_contact_kkt_with_info(A, rhs, backend="numpy")
+
+    assert result.info.backend == "numpy"
+    assert result.info.solver == "direct"
+    assert result.info.n_primal is None
+    assert result.info.scaled_residual_norm is None
+    assert result.info.residual_norm < 1.0e-12
+    np.testing.assert_allclose(A @ result.solution, rhs, rtol=1e-12, atol=1e-12)
+
+
+def test_solve_contact_kkt_numpy_block_scaled_requires_primal_size():
+    A = np.eye(2, dtype=float)
+    rhs = np.ones((2,), dtype=float)
+    cfg = ff.ContactKKTSolveConfig(backend="numpy", numpy_solver="block_scaled")
+
+    with pytest.raises(ValueError, match="n_primal"):
+        ff.solve_contact_kkt(A, rhs, config=cfg)
+
+
 def test_unilateral_contact_active_set_kkt_enforces_complementarity():
     stiffness = np.diag([10.0, 8.0])
     force = np.array([-5.0, -1.0])

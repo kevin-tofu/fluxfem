@@ -28,6 +28,29 @@ def _tet4_coords() -> np.ndarray:
     )
 
 
+def _split_contact_tet_fixture() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    coords_master = _tet4_coords()
+    conn_master = np.array([[0, 1, 2, 3]], dtype=int)
+    coords_slave = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.5, 0.5, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+    conn_slave = np.array(
+        [
+            [0, 1, 3, 4],
+            [0, 3, 2, 4],
+        ],
+        dtype=int,
+    )
+    return coords_master, conn_master, coords_slave, conn_slave
+
+
 def _perm_by_coords(coords_ff: np.ndarray, doflocs_sf: np.ndarray, atol: float = 1e-8) -> np.ndarray:
     coords_ff = np.asarray(coords_ff, dtype=float)
     doflocs_sf = np.asarray(doflocs_sf, dtype=float)
@@ -191,6 +214,143 @@ def _assemble_nitsche_blocks_tet4(
     return K_ff_symbolic, K_ff_direct, K_sf
 
 
+def _assemble_public_pair_nitsche_tet4(
+    *,
+    inv_h: float,
+    use_penalty: float = 1.0,
+    use_traction: float = 1.0,
+) -> np.ndarray:
+    coords = _tet4_coords()
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    alpha = 10.0
+    quad_order = 2
+    mesh_m = ff.TetMesh(coords=coords, conn=conn)
+    mesh_s = ff.TetMesh(coords=coords, conn=conn)
+
+    def select_contact(mesh):
+        return mesh.facets_on_plane(axis=2, value=0.0)
+
+    contact = ff.OneToManyContactSurfaceSpace.from_meshes(
+        master_mesh=mesh_m,
+        slave_meshes=[mesh_s],
+        master_facet_selector=select_contact,
+        slave_facet_selectors=select_contact,
+        value_dim_master=3,
+        value_dim_slaves=3,
+        quad_order=quad_order,
+        normal_sign=-1.0,
+        backend="numpy",
+    )
+    lam, mu = ff.lame_parameters(210e9, 0.3)
+    params = ff.Params(
+        alpha=alpha,
+        inv_h=float(inv_h),
+        lam=float(lam),
+        mu=float(mu),
+        use_penalty=float(use_penalty),
+        use_traction=float(use_traction),
+    )
+    ops = ff.assemble_contact_operators(
+        contact,
+        formulation="pair_nitsche_penalty",
+        params=params,
+        sparse=False,
+    )
+    return np.asarray(ops.jacobian, dtype=float)
+
+
+def _assemble_public_and_skfem_pair_nitsche_split_tet(
+    *,
+    inv_h: float,
+    use_penalty: float = 1.0,
+    use_traction: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    skfem = pytest.importorskip("skfem", reason="scikit-fem not installed")
+    from skfem import MeshTet, Basis, FacetBasis, ElementTetP1, ElementVectorH1, asm
+    from skfem.helpers import dot, sym_grad, mul
+    from skfem.supermeshing import intersect, elementwise_quadrature
+    from skfem.models.elasticity import lame_parameters, linear_stress
+
+    coords_m, conn_m, coords_s, conn_s = _split_contact_tet_fixture()
+    alpha = 10.0
+    quad_order = 2
+
+    mesh_m_ff = ff.TetMesh(coords=coords_m, conn=conn_m)
+    mesh_s_ff = ff.TetMesh(coords=coords_s, conn=conn_s)
+
+    def select_contact(mesh):
+        return mesh.facets_on_plane(axis=2, value=0.0)
+
+    contact = ff.OneToManyContactSurfaceSpace.from_meshes(
+        master_mesh=mesh_m_ff,
+        slave_meshes=[mesh_s_ff],
+        master_facet_selector=select_contact,
+        slave_facet_selectors=select_contact,
+        value_dim_master=3,
+        value_dim_slaves=3,
+        quad_order=quad_order,
+        normal_sign=-1.0,
+        backend="numpy",
+    )
+    lam, mu = ff.lame_parameters(210e9, 0.3)
+    params = ff.Params(
+        alpha=alpha,
+        inv_h=float(inv_h),
+        lam=float(lam),
+        mu=float(mu),
+        use_penalty=float(use_penalty),
+        use_traction=float(use_traction),
+    )
+    ops = ff.assemble_contact_operators(
+        contact,
+        formulation="pair_nitsche_penalty",
+        params=params,
+        sparse=False,
+    )
+    K_public = np.asarray(ops.jacobian, dtype=float)
+
+    mesh_m_sf = MeshTet(coords_m.T, conn_m.T).with_boundaries({"contact": lambda x: np.isclose(x[2], 0.0)})
+    mesh_s_sf = MeshTet(coords_s.T, conn_s.T).with_boundaries({"contact": lambda x: np.isclose(x[2], 0.0)})
+    elem_s = ElementTetP1()
+    elem_v = ElementVectorH1(elem_s)
+    m1t, orig1 = mesh_m_sf.trace("contact", mtype=skfem.MeshTri, project=lambda p: p[[0, 1]])
+    m2t, orig2 = mesh_s_sf.trace("contact", mtype=skfem.MeshTri, project=lambda p: p[[0, 1]])
+    _m12, t1, t2 = intersect(m1t, m2t)
+    try:
+        quad1 = elementwise_quadrature(m1t, _m12, t1, intorder=quad_order)
+        quad2 = elementwise_quadrature(m2t, _m12, t2, intorder=quad_order)
+    except TypeError:
+        quad1 = elementwise_quadrature(m1t, _m12, t1)
+        quad2 = elementwise_quadrature(m2t, _m12, t2)
+
+    basis_scalar_m = Basis(mesh_m_sf, elem_s)
+    basis_scalar_s = Basis(mesh_s_sf, elem_s)
+    basis_vec_m = Basis(mesh_m_sf, elem_v)
+    basis_vec_s = Basis(mesh_s_sf, elem_v)
+    fb_u_m = FacetBasis(mesh_m_sf, elem_v, facets=orig1[t1], quadrature=quad1)
+    fb_u_s = FacetBasis(mesh_s_sf, elem_v, facets=orig2[t2], quadrature=quad2)
+    fbasis = fb_u_m * fb_u_s
+
+    lam_sf, mu_sf = lame_parameters(210e9, 0.3)
+    C = linear_stress(lam_sf, mu_sf)
+
+    @skfem.BilinearForm
+    def bilin_sf(u1, u2, v1, v2, w):
+        ju = u1 - u2
+        t_u = 0.5 * (mul(C(sym_grad(u1)), w.n) + mul(C(sym_grad(u2)), w.n))
+        t_v1 = mul(C(sym_grad(v1)), w.n)
+        t_v2 = mul(C(sym_grad(v2)), w.n)
+        penalty = use_penalty * (alpha / w.h) * dot(v1 - v2, ju)
+        traction = use_traction * (-dot(v1, t_u) + dot(v2, t_u) - 0.5 * dot(t_v1, ju) - 0.5 * dot(t_v2, ju))
+        return penalty + traction
+
+    K_sf = asm(bilin_sf, fbasis, h=fb_u_m.mesh_parameters()).toarray()
+    perm_m = _vector_perm_for_skfem(coords_m, np.asarray(basis_scalar_m.doflocs), np.asarray(basis_vec_m.doflocs), 3)
+    perm_s = _vector_perm_for_skfem(coords_s, np.asarray(basis_scalar_s.doflocs), np.asarray(basis_vec_s.doflocs), 3) + int(fb_u_m.N)
+    perm = np.concatenate([perm_m, perm_s])
+    return K_public, K_sf[np.ix_(perm, perm)]
+
+
 def test_nitsche_contact_interface_jacobian_matches_skfem_tet4():
     K_ff_symbolic, K_ff_direct, K_sf = _assemble_nitsche_blocks_tet4(inv_h=1.0)
 
@@ -202,6 +362,54 @@ def test_nitsche_contact_interface_jacobian_matches_skfem_tet4():
     diff_direct = K_ff_direct - K_sf
     rel_inf_direct = float(np.linalg.norm(diff_direct, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf)))
     assert rel_inf_direct < 1e-5
+
+
+@pytest.mark.parametrize(
+    ("use_penalty", "use_traction"),
+    [
+        (1.0, 0.0),
+        (1.0, 1.0),
+    ],
+)
+def test_pair_nitsche_supermesh_public_api_matches_skfem_tet4(use_penalty: float, use_traction: float):
+    K_public = _assemble_public_pair_nitsche_tet4(
+        inv_h=1.0,
+        use_penalty=use_penalty,
+        use_traction=use_traction,
+    )
+    _, _, K_sf = _assemble_nitsche_blocks_tet4(
+        inv_h=1.0,
+        use_penalty=use_penalty,
+        use_traction=use_traction,
+    )
+
+    assert K_public.shape == K_sf.shape
+    diff = K_public - K_sf
+    rel_inf = float(np.linalg.norm(diff, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf)))
+    assert rel_inf < 1e-5
+
+
+@pytest.mark.parametrize(
+    ("use_penalty", "use_traction"),
+    [
+        (1.0, 0.0),
+        (1.0, 1.0),
+    ],
+)
+def test_pair_nitsche_supermesh_public_api_matches_skfem_split_tet_nonmatching(
+    use_penalty: float,
+    use_traction: float,
+):
+    K_public, K_sf = _assemble_public_and_skfem_pair_nitsche_split_tet(
+        inv_h=1.0,
+        use_penalty=use_penalty,
+        use_traction=use_traction,
+    )
+
+    assert K_public.shape == K_sf.shape
+    diff = K_public - K_sf
+    rel_inf = float(np.linalg.norm(diff, ord=np.inf) / max(1.0, np.linalg.norm(K_sf, ord=np.inf)))
+    assert rel_inf < 1e-5
 
 
 def test_nitsche_contact_interface_fixed_inv_h_is_no_worse_than_skfem_top_h_tet4():
@@ -238,6 +446,67 @@ def test_nitsche_contact_interface_direct_bilinear_matches_symbolic_jacobian_tet
     diff = K_ff_direct - K_ff_symbolic
     rel_inf = float(np.linalg.norm(diff, ord=np.inf) / max(1.0, np.linalg.norm(K_ff_symbolic, ord=np.inf)))
     assert rel_inf < 1e-12
+
+
+def test_pair_nitsche_supermesh_public_helper_matches_direct_bilinear_tet4():
+    coords = _tet4_coords()
+    conn = np.array([[0, 1, 2, 3]], dtype=int)
+    facets = np.array([[0, 1, 2]], dtype=int)
+    surface_m = ff.SurfaceMesh.from_facets(coords, facets)
+    surface_s = ff.SurfaceMesh.from_facets(coords, facets)
+    side_m = ff.ContactSideSpec.from_surfaces(surface_m, elem_conn=conn, value_dim=3)
+    side_s = ff.ContactSideSpec.from_surfaces(surface_s, elem_conn=conn, value_dim=3)
+    contact = ff.ContactSurfaceSpace.from_sides(
+        side_m,
+        side_s,
+        quad_order=2,
+        normal_sign=-1.0,
+        backend="numpy",
+    )
+    lam, mu = ff.lame_parameters(210e9, 0.3)
+    params = ff.Params(alpha=10.0, inv_h=1.0, lam=float(lam), mu=float(mu))
+
+    ops = ff.assemble_pair_nitsche_supermesh(
+        contact,
+        params,
+        sparse=False,
+        use_penalty=1.0,
+        use_traction=0.0,
+    )
+    params_direct = ff.Params(
+        alpha=10.0,
+        inv_h=1.0,
+        lam=float(lam),
+        mu=float(mu),
+        use_penalty=1.0,
+        use_traction=0.0,
+    )
+    K_direct = contact.assemble_bilinear_form(
+        ff.make_pair_nitsche_supermesh_bilinear(),
+        params_direct,
+        sparse=False,
+    )
+
+    assert ops.enforcement == "nitsche"
+    assert ops.formulation == "pair_nitsche_penalty"
+    assert ops.diagnostics["supermesh_triangles"] == 1
+    np.testing.assert_allclose(np.asarray(ops.jacobian), np.asarray(K_direct), rtol=1e-12, atol=1e-12)
+
+    ops_method = contact.assemble_pair_nitsche(
+        params,
+        sparse=False,
+        use_penalty=1.0,
+        use_traction=0.0,
+    )
+    np.testing.assert_allclose(np.asarray(ops_method.jacobian), np.asarray(K_direct), rtol=1e-12, atol=1e-12)
+
+    ops_routed = ff.assemble_contact_operators(
+        contact,
+        formulation="pair_nitsche_penalty",
+        params=params_direct,
+        sparse=False,
+    )
+    np.testing.assert_allclose(np.asarray(ops_routed.jacobian), np.asarray(K_direct), rtol=1e-12, atol=1e-12)
 
 
 def _assemble_nitsche_blocks_hex27(*, inv_h: float, use_penalty: float = 1.0, use_traction: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
