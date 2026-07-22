@@ -76,8 +76,10 @@ report = assess_contact_constraint_quality(
 
 `report.status` is `pass`, `warn`, or `fail`.  The default policy fails on zero
 rows and rank deficiency, while condition-number and minimum-row-norm checks are
-enabled only when thresholds are provided.  The same path is available from
-assembled multiplier contributions:
+enabled only when thresholds are provided.  Each issue also carries an advisory
+`hint` that points to likely next checks such as overlap selection, coarser or
+rank-reduced multiplier spaces, row scaling, and block-scaled KKT diagnostics.
+The same path is available from assembled multiplier contributions:
 
 ```python
 report = mortar_ops.constraint_quality(max_condition_number=1.0e6)
@@ -287,18 +289,7 @@ when quality policy starts asking for a coarser or rank-reduced multiplier.
 
 ## Remaining formulation gaps
 
-### 1. Constraint-quality remediation suggestions
-
-The quality report currently classifies issues.  A useful follow-up is to attach
-action hints:
-
-- zero rows: inspect active overlap and supermesh clipping
-- rank deficiency: try coarse/QR/SVD-style multiplier reduction
-- high condition number: inspect row scaling or use block-scaled KKT solve
-
-This should still be advisory text, not automatic behavior.
-
-### 2. CI smoke-test selection
+### 1. CI smoke-test selection
 
 The split-tet and fixture/workpiece demos are both runnable.  The next decision
 is whether to make either of them part of CI:
@@ -310,18 +301,18 @@ is whether to make either of them part of CI:
 The fixture/workpiece case should probably remain a tutorial unless the quality
 policy is configured to expect and assert the current fail status.
 
-### 3. Sparse rank-revealing reduction
+### 2. Sparse rank-revealing reduction
 
 The lecture notes call out dense local SVD/QR as prototype-level for large
 contact pairs.  FluxFEM currently has algebraic coarse projection paths, but a
 true sparse rank-revealing reduction is still future work.
 
-This is lower priority than the larger comparison and remediation suggestions
-unless large contact pairs become the immediate bottleneck.
+This is lower priority than CI smoke-test selection unless large contact pairs
+become the immediate bottleneck.
 
 ## Recommended next step
 
-Add remediation hints to constraint quality reports next.
+Decide CI smoke-test coverage next.
 
 Reasoning:
 
@@ -336,15 +327,16 @@ Reasoning:
   default assembly behavior
 - the larger fixture/workpiece demo confirms the diagnostics stay useful on a
   less toy contact geometry
-- the next missing piece is making the quality report actionable without making
-  automatic assembly choices
+- quality issues now include advisory hints without making automatic assembly
+  choices
+- the next missing piece is deciding which diagnostics should be asserted in CI
 
 Suggested first milestone:
 
 ```text
-Attach advisory hints to ContactConstraintQualityIssue based on the failing
-check name.
+Add a small CI-friendly test for the split-tet demo's run_demo() output: status
+pass, zero rank deficiency, finite KKT residual, and expected supermesh count.
 ```
 
-After that passes, decide whether the split-tet pass case should become a small
-CI smoke test.
+Keep the fixture/workpiece diagnostics as a tutorial unless we explicitly assert
+its current rank-deficient quality status.

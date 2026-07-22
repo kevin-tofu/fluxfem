@@ -162,6 +162,7 @@ def run_demo(config: DemoConfig | None = None) -> dict[str, Any]:
             "condition_number": float(mortar_diag.condition_number),
             "quality_status": str(mortar_quality.status),
             "quality_issues": tuple(issue.check for issue in mortar_quality.issues),
+            "quality_hints": tuple((issue.check, issue.hint) for issue in mortar_quality.issues),
             "constraint_residual_norm": float(np.linalg.norm(mortar_residual)),
             "augmentation_energy": float(mortar.augmentation_energy(state)),
         },
@@ -206,6 +207,8 @@ def main() -> None:
     print("mortar condition number:", f"{result['mortar']['condition_number']:.3e}")
     print("mortar quality status:", result["mortar"]["quality_status"])
     print("mortar quality issues:", result["mortar"]["quality_issues"])
+    for check, hint in result["mortar"]["quality_hints"]:
+        print(f"mortar quality hint [{check}]: {hint}")
     print("mortar constraint residual norm:", f"{result['mortar']['constraint_residual_norm']:.3e}")
     print("mortar augmentation energy:", f"{result['mortar']['augmentation_energy']:.3e}")
     print("nitsche penalty K shape:", result["nitsche"]["penalty_K_shape"])

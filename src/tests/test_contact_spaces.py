@@ -356,6 +356,8 @@ def test_contact_constraint_quality_reports_pass_warn_and_fail():
     assert report_fail.status == "fail"
     assert not report_fail.passed
     assert {issue.check for issue in report_fail.failures} == {"zero_rows", "rank_deficiency"}
+    assert all(issue.hint for issue in report_fail.failures)
+    assert "coarser multiplier" in next(issue.hint for issue in report_fail.failures if issue.check == "rank_deficiency")
     assert report_fail.warnings == ()
 
     diag = ff.contact_constraint_matrix_diagnostics(B_bad)
@@ -386,6 +388,9 @@ def test_contact_constraint_quality_optional_condition_and_row_norm_checks():
     assert report.status == "warn"
     assert report.passed
     assert {issue.check for issue in report.warnings} == {"condition_number", "row_norm_min"}
+    assert all(issue.hint for issue in report.warnings)
+    assert "block-scaled" in next(issue.hint for issue in report.warnings if issue.check == "condition_number")
+    assert "overlap patches" in next(issue.hint for issue in report.warnings if issue.check == "row_norm_min")
 
 
 def test_contact_constraint_quality_validates_policy_arguments():

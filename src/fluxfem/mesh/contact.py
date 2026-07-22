@@ -365,6 +365,7 @@ class ContactConstraintQualityIssue:
     message: str
     value: float | int
     threshold: float | int
+    hint: str = ""
 
 
 @dataclass(frozen=True)
@@ -495,6 +496,30 @@ def _constraint_quality_status(issues: Sequence[ContactConstraintQualityIssue]) 
     return status
 
 
+def _constraint_quality_hint(check: str) -> str:
+    if check == "zero_rows":
+        return (
+            "Inspect active contact facets, empty overlap regions, and supermesh clipping; "
+            "zero rows usually mean a constraint row has no contributing overlap."
+        )
+    if check == "rank_deficiency":
+        return (
+            "Try a coarser multiplier space such as coarse_p0/coarse_p1, or apply "
+            "QR/SVD-style row reduction before solving the KKT system."
+        )
+    if check == "condition_number":
+        return (
+            "Inspect row scaling and material/penalty scaling; use the block-scaled "
+            "KKT solver diagnostics to confirm the scaled system is balanced."
+        )
+    if check == "row_norm_min":
+        return (
+            "Inspect very small overlap patches, nearly degenerate facets, or overly "
+            "tight clipping tolerances that can create weak constraint rows."
+        )
+    return "Inspect the contact geometry, multiplier space, and KKT scaling diagnostics."
+
+
 def assess_contact_constraint_quality(
     B_or_diagnostics: Any,
     *,
@@ -543,6 +568,7 @@ def assess_contact_constraint_quality(
                 message="constraint matrix contains zero rows",
                 value=int(diag.zero_row_count),
                 threshold=max_zero,
+                hint=_constraint_quality_hint("zero_rows"),
             )
         )
 
@@ -557,6 +583,7 @@ def assess_contact_constraint_quality(
                 message="constraint matrix is rank deficient beyond the configured tolerance",
                 value=int(diag.rank_deficiency),
                 threshold=max_rank,
+                hint=_constraint_quality_hint("rank_deficiency"),
             )
         )
 
@@ -572,6 +599,7 @@ def assess_contact_constraint_quality(
                     message="constraint matrix condition number exceeds the configured threshold",
                     value=float(diag.condition_number),
                     threshold=cond_threshold,
+                    hint=_constraint_quality_hint("condition_number"),
                 )
             )
 
@@ -587,6 +615,7 @@ def assess_contact_constraint_quality(
                     message="constraint matrix row norm is below the configured threshold",
                     value=float(diag.row_norm_min),
                     threshold=row_threshold,
+                    hint=_constraint_quality_hint("row_norm_min"),
                 )
             )
 
