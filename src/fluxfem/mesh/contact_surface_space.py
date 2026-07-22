@@ -9,6 +9,16 @@ import numpy.typing as npt
 
 from .base import BaseMesh
 from .contact_api import ContactSide
+from .contact_forms import (
+    ContactBilinearLike,
+    ContactJacobianReturn,
+    ContactOperators,
+    ContactState,
+    MixedSurfaceResidualForm,
+    PenaltyContactContribution,
+    _compile_contact_bilinear,
+    _is_compiled_contact_bilinear,
+)
 from .contact_interface import (
     assemble_contact_coupling_matrices as _assemble_contact_coupling_matrices,
     assemble_contact_interface_jacobian as _assemble_contact_interface_jacobian,
@@ -27,14 +37,6 @@ from .supermesh import build_surface_supermesh
 from .surface import SurfaceMesh
 
 if TYPE_CHECKING:
-    from .contact import (
-        ContactBilinearLike,
-        ContactJacobianReturn,
-        ContactOperators,
-        ContactState,
-        MixedSurfaceResidualForm,
-        PenaltyContactContribution,
-    )
     from .mortar_multiplier import ContactMultiplierSpace
     from ..core.weakform import Params as WeakParams
 
@@ -124,8 +126,6 @@ class OneSidedContactSurfaceSpace:
         )
 
     def initialize_state(self, *, metadata: Mapping[str, Any] | None = None):
-        from .contact import ContactState
-
         return ContactState(
             interface_kind="one_sided",
             geometry="reference",
@@ -612,8 +612,6 @@ class ContactSurfaceSpace:
             )
 
     def initialize_state(self, *, metadata: Mapping[str, Any] | None = None) -> ContactState:
-        from .contact import ContactState
-
         return ContactState(
             interface_kind="pair",
             geometry="reference",
@@ -1052,8 +1050,6 @@ class ContactSurfaceSpace:
         use_cache: bool = True,
     ) -> MixedSurfaceResidualForm:
         """Compile a contact bilinear callable to a reusable mixed-surface residual form."""
-        from .contact import _compile_contact_bilinear, _is_compiled_contact_bilinear
-
         if _is_compiled_contact_bilinear(bilin):
             return cast("MixedSurfaceResidualForm", bilin)
         use_backend = self._resolve_backend(backend)
@@ -1423,8 +1419,6 @@ class OneToManyContactSurfaceSpace:
         return n_master, slave_sizes, total
 
     def initialize_state(self, *, metadata: Mapping[str, Any] | None = None) -> "ContactState":
-        from .contact import ContactState
-
         n_master, slave_sizes, _ = self._dof_layout()
         return ContactState(
             interface_kind="one_to_many",
@@ -1475,8 +1469,6 @@ class OneToManyContactSurfaceSpace:
         use_cache: bool = True,
     ) -> "MixedSurfaceResidualForm":
         """Compile a one-to-many contact bilinear once and reuse it across all pair contacts."""
-        from .contact import _compile_contact_bilinear, _is_compiled_contact_bilinear
-
         use_backend = self._resolve_backend(backend)
         if _is_compiled_contact_bilinear(bilin):
             return cast("MixedSurfaceResidualForm", bilin)
