@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import jax
 import jax.numpy as jnp
@@ -20,6 +21,7 @@ from .contact_geometry import (
     _tri_quadrature,
 )
 from .contact_nitsche import _fast_pair_nitsche_penalty_local_matrix
+from .surface import SurfaceMesh
 from .contact_pair_basis import (
     _SupermeshPairBasisData,
     _gather_u_local,
@@ -834,6 +836,233 @@ def _accumulate_supermesh_residual_triangle(
             dofs = int(offset) + np.asarray(dofs_local, dtype=int)
             R[dofs] += fe
     return R
+
+def _projection_surface_batches(
+    source_facets_a: Iterable[int],
+    source_facets_b: Iterable[int],
+    surface_a: SurfaceMesh,
+    surface_b: SurfaceMesh,
+    *,
+    elem_conn_a: np.ndarray | None,
+    elem_conn_b: np.ndarray | None,
+    facet_to_elem_a: np.ndarray | None,
+    facet_to_elem_b: np.ndarray | None,
+    quad_order: int,
+    grad_source: str,
+    dof_source: str,
+    normal_source: str,
+    normal_sign: float,
+    tol: float,
+):
+    if dof_source != "volume" or grad_source != "volume":
+        return None, False
+
+    facets_a = np.asarray(surface_a.conn, dtype=int)
+    facets_b = np.asarray(surface_b.conn, dtype=int)
+    coords_a = np.asarray(surface_a.coords, dtype=float)
+    coords_b = np.asarray(surface_b.coords, dtype=float)
+
+    if facets_a.shape[1] != facets_b.shape[1] or facets_a.shape[1] not in {6, 9}:
+        return None, False
+    if elem_conn_a is None or elem_conn_b is None or facet_to_elem_a is None or facet_to_elem_b is None:
+        return None, False
+
+    diag = bool(os.getenv("FLUXFEM_PROJ_DIAG"))
+    diag_max = int(os.getenv("FLUXFEM_PROJ_DIAG_MAX", "20")) if diag else 0
+    total_points = 0
+    fail_points = 0
+    fail_by_code: dict[str, int] = {}
+    fail_samples: list[dict] = []
+
+    def _record_failure(code: str, info: dict | None, *, face_type: str, fa: int, fb: int, elem_id_a: int, elem_id_b: int, xm):
+        nonlocal fail_points
+        fail_points += 1
+        fail_by_code[code] = fail_by_code.get(code, 0) + 1
+        if not diag or len(fail_samples) >= diag_max:
+            return
+        sample = {
+            "code": code,
+            "face_type": face_type,
+            "fa": int(fa),
+            "fb": int(fb),
+            "elem_a": int(elem_id_a),
+            "elem_b": int(elem_id_b),
+            "xm": None if xm is None else np.array(xm, dtype=float),
+        }
+        if info:
+            sample.update(info)
+        fail_samples.append(sample)
+
+    pairs = {(int(fa), int(fb)) for fa, fb in zip(source_facets_a, source_facets_b)}
+    if facets_a.shape[1] == 9:
+        quad_pts, quad_w = _quad_quadrature(quad_order if quad_order > 0 else 2)
+        face_type = "quad9"
+    else:
+        quad_pts, quad_w = _tri_quadrature(quad_order if quad_order > 0 else 1)
+        face_type = "tri6"
+    batches = []
+    fallback = False
+
+    for fa, fb in pairs:
+        facet_a = facets_a[fa]
+        facet_b = facets_b[fb]
+        pts_a = coords_a[facet_a]
+        pts_b = coords_b[facet_b]
+
+        elem_id_a = int(facet_to_elem_a[fa])
+        elem_id_b = int(facet_to_elem_b[fb])
+        if elem_id_a < 0 or elem_id_b < 0:
+            return None, True
+        elem_nodes_a = np.asarray(elem_conn_a[elem_id_a], dtype=int)
+        elem_nodes_b = np.asarray(elem_conn_b[elem_id_b], dtype=int)
+        elem_coords_a = coords_a[elem_nodes_a]
+        elem_coords_b = coords_b[elem_nodes_b]
+
+        x_m_list = []
+        x_s_list = []
+        detJ_list = []
+        normal_list = []
+        for (xi, eta), w in zip(quad_pts, quad_w):
+            if facets_a.shape[1] == 9:
+                x_m, Jm = _quad9_map_and_jacobian(pts_a, xi, eta)
+                xi_s, eta_s, ok, x_s, Js, info = _project_point_to_quad9(x_m, pts_b, tol=tol)
+            else:
+                x_m, Jm = _tri6_map_and_jacobian(pts_a, xi, eta)
+                xi_s, eta_s, ok, x_s, Js, info = _project_point_to_tri6(x_m, pts_b, tol=tol)
+            total_points += 1
+            n_raw = np.cross(Jm[:, 0], Jm[:, 1])
+            j_surf = float(np.linalg.norm(n_raw))
+            if j_surf <= tol:
+                fallback = True
+                _record_failure(
+                    "DEGENERATE_MASTER",
+                    None,
+                    face_type=face_type,
+                    fa=fa,
+                    fb=fb,
+                    elem_id_a=elem_id_a,
+                    elem_id_b=elem_id_b,
+                    xm=x_m,
+                )
+                continue
+            if not ok:
+                fallback = True
+                _record_failure(
+                    info.get("status", "PROJECTION_FAIL"),
+                    info,
+                    face_type=face_type,
+                    fa=fa,
+                    fb=fb,
+                    elem_id_a=elem_id_a,
+                    elem_id_b=elem_id_b,
+                    xm=x_m,
+                )
+                continue
+            n_m = n_raw / j_surf
+            n_use = n_m
+            if normal_source in {"b", "slave"}:
+                n_raw_b = np.cross(Js[:, 0], Js[:, 1])
+                n_norm_b = float(np.linalg.norm(n_raw_b))
+                if n_norm_b <= tol:
+                    fallback = True
+                    _record_failure(
+                        "DEGENERATE_SLAVE",
+                        None,
+                        face_type=face_type,
+                        fa=fa,
+                        fb=fb,
+                        elem_id_a=elem_id_a,
+                        elem_id_b=elem_id_b,
+                        xm=x_m,
+                    )
+                    continue
+                n_use = n_raw_b / n_norm_b
+            elif normal_source == "avg":
+                n_raw_b = np.cross(Js[:, 0], Js[:, 1])
+                n_norm_b = float(np.linalg.norm(n_raw_b))
+                if n_norm_b <= tol:
+                    fallback = True
+                    _record_failure(
+                        "DEGENERATE_SLAVE",
+                        None,
+                        face_type=face_type,
+                        fa=fa,
+                        fb=fb,
+                        elem_id_a=elem_id_a,
+                        elem_id_b=elem_id_b,
+                        xm=x_m,
+                    )
+                    continue
+                n_b = n_raw_b / n_norm_b
+                avg = n_m + n_b
+                avg_norm = float(np.linalg.norm(avg))
+                n_use = avg / avg_norm if avg_norm > tol else n_m
+            x_m_list.append(x_m)
+            x_s_list.append(x_s)
+            detJ_list.append(float(w * j_surf))
+            normal_list.append(n_use)
+
+        if not x_m_list:
+            continue
+        x_m = np.array(x_m_list, dtype=float)
+        x_s = np.array(x_s_list, dtype=float)
+        weights = np.array(detJ_list, dtype=float)
+        normals = normal_sign * np.array(normal_list, dtype=float)
+
+        Na = _volume_shape_values_at_points(x_m, elem_coords_a, tol=tol)
+        Nb = _volume_shape_values_at_points(x_s, elem_coords_b, tol=tol)
+        gradNa = _tet_gradN_at_points(x_m, elem_coords_a, tol=tol)
+        gradNb = _tet_gradN_at_points(x_s, elem_coords_b, tol=tol)
+
+        batches.append(
+            dict(
+                x_q=x_m,
+                w=weights,
+                detJ=np.ones_like(weights),
+                Na=Na,
+                Nb=Nb,
+                gradNa=gradNa,
+                gradNb=gradNb,
+                nodes_a=elem_nodes_a,
+                nodes_b=elem_nodes_b,
+                normal=normals,
+            )
+        )
+
+    if diag and fail_points:
+        print(
+            "[fluxfem][proj][diag]",
+            f"total={total_points}",
+            f"fail={fail_points}",
+            f"fallback={fallback}",
+            f"face_type={face_type}",
+            f"fail_by_code={fail_by_code}",
+        )
+        for i, sample in enumerate(fail_samples):
+            xm = sample.get("xm")
+            xm_str = np.array2string(xm, precision=6) if xm is not None else "None"
+            print(
+                "[fluxfem][proj][diag]",
+                f"sample={i}",
+                f"code={sample.get('code')}",
+                f"face={sample.get('face_type')}",
+                f"fa={sample.get('fa')}",
+                f"fb={sample.get('fb')}",
+                f"elem_a={sample.get('elem_a')}",
+                f"elem_b={sample.get('elem_b')}",
+                f"xm={xm_str}",
+                f"xi0={sample.get('xi0', float('nan')):.6f}",
+                f"eta0={sample.get('eta0', float('nan')):.6f}",
+                f"xi={sample.get('xi', float('nan')):.6f}",
+                f"eta={sample.get('eta', float('nan')):.6f}",
+                f"r={sample.get('r_norm', float('nan')):.3e}",
+                f"d={sample.get('d_norm', float('nan')):.3e}",
+                f"det={sample.get('det', float('nan')):.3e}",
+                f"cond={sample.get('cond', float('nan')):.3e}",
+            )
+
+    return batches, fallback
+
 
 def _accumulate_projection_jacobian_batch(
     *,
