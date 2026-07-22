@@ -7,7 +7,8 @@ import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    from .contact import ContactConstraintDiagnostics, ContactKKTSolveConfig, ContactKKTSolveResult
+    from .contact import ContactKKTSolveConfig, ContactKKTSolveResult
+    from .contact_diagnostics import ContactConstraintDiagnostics
 
 
 @dataclass(frozen=True)
@@ -85,7 +86,7 @@ class MortarContactProblem:
         return np.concatenate([np.asarray(self.load, dtype=float), np.zeros(self.multiplier_count, dtype=float)])
 
     def constraint_diagnostics(self, *, include_pairs: bool = False, **kwargs) -> dict[str, Any]:
-        from .contact import contact_constraint_matrix_diagnostics
+        from .contact_diagnostics import contact_constraint_matrix_diagnostics
 
         diag = contact_constraint_matrix_diagnostics(self.coupling_matrix, **kwargs)
         result: dict[str, Any] = {
@@ -295,4 +296,3 @@ def assemble_mortar_contact_problem(
         contact_pairs=tuple(resolved_pairs),
         metadata={} if metadata is None else dict(metadata),
     )
-

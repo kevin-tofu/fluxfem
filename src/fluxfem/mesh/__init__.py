@@ -30,11 +30,15 @@ from .mortar_multiplier import (
     ContactMultiplierSpace,
     MultiplierSpec,
 )
-from .contact import (
-    ContactOperators,
+from .contact_diagnostics import (
     ContactConstraintDiagnostics,
     ContactConstraintQualityIssue,
     ContactConstraintQualityReport,
+    contact_constraint_matrix_diagnostics,
+    assess_contact_constraint_quality,
+)
+from .contact import (
+    ContactOperators,
     PenaltyContactContribution,
     MultiplierContactContribution,
     ContactState,
@@ -76,8 +80,6 @@ from .contact import (
     OneToManyContactSurfaceSpace,
     PreparedOneToManyContactInterface,
     assemble_contact_constraint_operators,
-    contact_constraint_matrix_diagnostics,
-    assess_contact_constraint_quality,
     assemble_multiplier,
     assemble_contact_operators,
     assemble_contact_penalty_operators,
