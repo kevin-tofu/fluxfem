@@ -58,6 +58,7 @@ from .contact_pair_basis import (
     _select_supermesh_pair_basis_builder,
 )
 from .contact_supermesh_assembly import (
+    ContactAssemblyCallbacks,
     _JacobianTriangleGeometryData,
     _apply_projection_jacobian_batches,
     _prepare_supermesh_jacobian_triangle_geometry,
@@ -180,6 +181,15 @@ def _has_jax_leaves(x: Any) -> bool:
     except Exception:
         leaves = [x]
     return any(_is_jax_value(leaf) for leaf in leaves)
+
+
+def _contact_assembly_callbacks() -> ContactAssemblyCallbacks:
+    return ContactAssemblyCallbacks(
+        mixed_surface_space_aliases=_mixed_surface_space_aliases,
+        build_mixed_surface_context=_build_mixed_surface_context,
+        surface_u_elem_with_space_aliases=_surface_u_elem_with_space_aliases,
+        compute_mixed_surface_local_jacobian=_compute_mixed_surface_local_jacobian,
+    )
 
 
 
@@ -874,6 +884,7 @@ def _accumulate_supermesh_jacobian_triangle_core(
     cols: list[int],
     data: list[float],
     K_dense: np.ndarray | None,
+    callbacks: ContactAssemblyCallbacks,
     tri_check: Callable[[str], None],
     trace_fn: Callable[[str], None],
     trace_time_fn: Callable[[str, float], None],
@@ -1066,13 +1077,13 @@ def _accumulate_supermesh_jacobian_triangle_core(
         )
     else:
         test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b = (
-            _mixed_surface_space_aliases(
+            callbacks.mixed_surface_space_aliases(
                 res_form,
                 field_a=field_a,
                 field_b=field_b,
             )
         )
-        ctx = _build_mixed_surface_context(
+        ctx = callbacks.build_mixed_surface_context(
             field_a=field_a,
             field_b=field_b,
             test_space_key_a=test_space_key_a,
@@ -1096,7 +1107,7 @@ def _accumulate_supermesh_jacobian_triangle_core(
             detJ=np.array([detJ], dtype=float),
             normal_q=normal_q,
         )
-        u_elem = _surface_u_elem_with_space_aliases(
+        u_elem = callbacks.surface_u_elem_with_space_aliases(
             field_a=field_a,
             field_b=field_b,
             unknown_space_key_a=unknown_space_key_a,
@@ -1110,7 +1121,7 @@ def _accumulate_supermesh_jacobian_triangle_core(
             field_a: slice(0, sizes[0]),
             field_b: slice(sizes[0], sizes[0] + sizes[1]),
         }
-        J_local_np = _compute_mixed_surface_local_jacobian(
+        J_local_np = callbacks.compute_mixed_surface_local_jacobian(
             u_local=np.asarray(u_local, dtype=float),
             backend=backend,
             fd_eps=fd_eps,
@@ -2086,6 +2097,7 @@ def assemble_contact_interface_jacobian(
         K_dense = jnp.zeros((n_total, n_total), dtype=jnp.float64)
     else:
         K_dense = np.zeros((n_total, n_total), dtype=float)
+    callbacks = _contact_assembly_callbacks()
 
     use_elem_a = elem_conn_a is not None and facet_to_elem_a is not None
     use_elem_b = elem_conn_b is not None and facet_to_elem_b is not None
@@ -2169,6 +2181,7 @@ def assemble_contact_interface_jacobian(
                 cols=cols,
                 data=data,
                 K_dense=K_dense,
+                callbacks=callbacks,
             )
             if sparse:
                 from ..solver import FluxSparseMatrix
@@ -2794,6 +2807,7 @@ def assemble_contact_interface_jacobian(
             cols=cols,
             data=data,
             K_dense=K_dense,
+            callbacks=callbacks,
             tri_check=_tri_check,
             trace_fn=_trace,
             trace_time_fn=_trace_time,

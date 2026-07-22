@@ -27,6 +27,14 @@ class _JacobianTriangleGeometryData:
     x_q: np.ndarray
 
 
+@dataclass(frozen=True)
+class ContactAssemblyCallbacks:
+    mixed_surface_space_aliases: Callable[..., tuple[str | None, str | None, str | None, str | None]]
+    build_mixed_surface_context: Callable[..., Any]
+    surface_u_elem_with_space_aliases: Callable[..., dict[str, Any]]
+    compute_mixed_surface_local_jacobian: Callable[..., np.ndarray]
+
+
 def _prepare_supermesh_jacobian_triangle_geometry(
     *,
     it: int,
@@ -135,10 +143,9 @@ def _accumulate_projection_jacobian_batch(
     cols: list[int],
     data: list[float],
     K_dense: np.ndarray | None,
+    callbacks: ContactAssemblyCallbacks,
 ) -> None:
-    from . import contact_interface as ci
-
-    test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b = ci._mixed_surface_space_aliases(
+    test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b = callbacks.mixed_surface_space_aliases(
         res_form,
         field_a=field_a,
         field_b=field_b,
@@ -151,7 +158,7 @@ def _accumulate_projection_jacobian_batch(
     nodes_b = batch["nodes_b"]
     normal_q = batch["normal"]
 
-    ctx = ci._build_mixed_surface_context(
+    ctx = callbacks.build_mixed_surface_context(
         field_a=field_a,
         field_b=field_b,
         test_space_key_a=test_space_key_a,
@@ -176,7 +183,7 @@ def _accumulate_projection_jacobian_batch(
         normal_q=normal_q,
     )
 
-    u_elem = ci._surface_u_elem_with_space_aliases(
+    u_elem = callbacks.surface_u_elem_with_space_aliases(
         field_a=field_a,
         field_b=field_b,
         unknown_space_key_a=unknown_space_key_a,
@@ -191,7 +198,7 @@ def _accumulate_projection_jacobian_batch(
         field_b: slice(sizes[0], sizes[0] + sizes[1]),
     }
 
-    J_local_np = ci._compute_mixed_surface_local_jacobian(
+    J_local_np = callbacks.compute_mixed_surface_local_jacobian(
         u_local=np.asarray(u_local, dtype=float),
         backend=backend,
         fd_eps=fd_eps,
@@ -244,6 +251,7 @@ def _apply_projection_jacobian_batches(
     cols: list[int],
     data: list[float],
     K_dense: np.ndarray | None,
+    callbacks: ContactAssemblyCallbacks,
 ) -> None:
     u_a_np = np.asarray(u_a, dtype=float)
     u_b_np = np.asarray(u_b, dtype=float)
@@ -270,5 +278,5 @@ def _apply_projection_jacobian_batches(
             cols=cols,
             data=data,
             K_dense=K_dense,
+            callbacks=callbacks,
         )
-
