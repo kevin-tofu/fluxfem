@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import time
 from typing import Any, Callable
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -45,6 +46,8 @@ class ContactAssemblyCallbacks:
     build_mixed_surface_context: Callable[..., Any]
     surface_u_elem_with_space_aliases: Callable[..., dict[str, Any]]
     compute_mixed_surface_local_jacobian: Callable[..., np.ndarray]
+    reduce_surface_residual_jax: Callable[..., Any]
+    reduce_surface_residual_numpy: Callable[..., np.ndarray]
 
 
 def _prepare_supermesh_jacobian_triangle_geometry(
@@ -131,6 +134,10 @@ def _prepare_supermesh_jacobian_triangle_geometry(
         x_q=x_q,
     )
 
+
+
+def _is_jax_value(x: Any) -> bool:
+    return isinstance(x, jax.core.Tracer) or isinstance(x, jax.Array)
 
 _DEBUG_CONTACT_MAP_ONCE = False
 _DEBUG_CONTACT_N_ONCE = False
@@ -531,8 +538,6 @@ def _accumulate_supermesh_jacobian_triangle_core(
     else:
         assert K_dense is not None
         if backend == "jax":
-            import jax.numpy as jnp
-
             row_idx = jnp.asarray(row_dofs, dtype=jnp.int32).reshape(-1, 1)
             col_idx = jnp.asarray(col_dofs, dtype=jnp.int32).reshape(1, -1)
             K_dense = K_dense.at[row_idx, col_idx].add(jnp.asarray(J_local_np))
@@ -545,6 +550,290 @@ def _accumulate_supermesh_jacobian_triangle_core(
     return K_dense
 
 
+
+
+
+def _accumulate_supermesh_residual_triangle(
+    *,
+    R: np.ndarray,
+    a: np.ndarray,
+    b: np.ndarray,
+    c: np.ndarray,
+    fa: int,
+    fb: int,
+    tol: float,
+    skip_small_tri: bool,
+    area_scale: float,
+    facet_area_a: np.ndarray | None,
+    facet_area_b: np.ndarray | None,
+    diag_force: bool,
+    diag_abs_detj: bool,
+    quad_order: int,
+    diag_qp_mode: str,
+    diag_qp_path: str,
+    coords_a: np.ndarray,
+    coords_b: np.ndarray,
+    facets_a: np.ndarray,
+    facets_b: np.ndarray,
+    pair_basis_builder: Callable[..., _SupermeshPairBasisData],
+    trial_pair_basis_builder: Callable[..., _SupermeshPairBasisData],
+    value_dim_a: int,
+    value_dim_b: int,
+    trial_value_dim_a: int,
+    trial_value_dim_b: int,
+    dof_source: str,
+    grad_source: str,
+    space_mode_a: str,
+    space_mode_b: str,
+    trial_space_mode_a: str,
+    trial_space_mode_b: str,
+    use_elem_a: bool,
+    use_elem_b: bool,
+    elem_conn_a: np.ndarray | None,
+    elem_conn_b: np.ndarray | None,
+    facet_to_elem_a: np.ndarray | None,
+    facet_to_elem_b: np.ndarray | None,
+    facet_dofs_a: np.ndarray | None,
+    facet_dofs_b: np.ndarray | None,
+    trial_facet_dofs_a: np.ndarray | None,
+    trial_facet_dofs_b: np.ndarray | None,
+    proj_diag: bool,
+    normal_source: str,
+    normal_sign: float,
+    normals_a: np.ndarray | None,
+    normals_b: np.ndarray | None,
+    field_a: str,
+    field_b: str,
+    u_a: np.ndarray,
+    u_b: np.ndarray,
+    res_form: Callable[..., Any],
+    params: Any,
+    includes_measure: dict[str, bool],
+    offset_a: int,
+    offset_b: int,
+    diag_facet: int,
+    diag_max_q: int,
+    callbacks: ContactAssemblyCallbacks,
+) -> np.ndarray | jnp.ndarray:
+    use_jax = _is_jax_value(R)
+    area = _tri_area(a, b, c)
+    if area <= tol:
+        return R
+    if skip_small_tri and facet_area_a is not None and facet_area_b is not None:
+        area_ref = max(float(facet_area_a[int(fa)]), float(facet_area_b[int(fb)]))
+        if area_ref > 0.0 and area < area_scale * area_ref:
+            return R
+    detJ = 2.0 * area
+    if diag_force and diag_abs_detj:
+        detJ = abs(detJ)
+    if quad_order <= 0:
+        quad_pts = np.array([[1.0 / 3.0, 1.0 / 3.0]], dtype=float)
+        quad_w = np.array([0.5], dtype=float)
+    else:
+        quad_pts, quad_w = _tri_quadrature(quad_order)
+    quad_source = "fluxfem"
+    quad_override = _diag_quad_override(diag_force, diag_qp_mode, diag_qp_path)
+    if quad_override is not None:
+        quad_pts, quad_w = quad_override
+        quad_source = _diag_quad_source("override")
+    _diag_quad_dump(diag_force, diag_qp_mode, diag_qp_path, quad_pts, quad_w)
+
+    facet_a = facets_a[int(fa)]
+    facet_b = facets_b[int(fb)]
+    x_q = np.array([a + r * (b - a) + s * (c - a) for r, s in quad_pts], dtype=float)
+
+    pair_data = pair_basis_builder(
+        fa=int(fa),
+        fb=int(fb),
+        facet_a=facet_a,
+        facet_b=facet_b,
+        x_q=x_q,
+        coords_a=coords_a,
+        coords_b=coords_b,
+        facets_a=facets_a,
+        facets_b=facets_b,
+        value_dim_a=value_dim_a,
+        value_dim_b=value_dim_b,
+        dof_source=dof_source,
+        grad_source=grad_source,
+        use_elem_a=use_elem_a,
+        use_elem_b=use_elem_b,
+        elem_conn_a=elem_conn_a,
+        elem_conn_b=elem_conn_b,
+        facet_to_elem_a=facet_to_elem_a,
+        facet_to_elem_b=facet_to_elem_b,
+        facet_dofs_a=facet_dofs_a,
+        facet_dofs_b=facet_dofs_b,
+        tol=tol,
+    )
+    if (
+        int(trial_value_dim_a) != int(value_dim_a)
+        or int(trial_value_dim_b) != int(value_dim_b)
+        or str(trial_space_mode_a) != str(space_mode_a)
+        or str(trial_space_mode_b) != str(space_mode_b)
+        or not _same_optional_int_array(trial_facet_dofs_a, facet_dofs_a)
+        or not _same_optional_int_array(trial_facet_dofs_b, facet_dofs_b)
+    ):
+        trial_pair = trial_pair_basis_builder(
+            fa=int(fa),
+            fb=int(fb),
+            facet_a=facet_a,
+            facet_b=facet_b,
+            x_q=x_q,
+            coords_a=coords_a,
+            coords_b=coords_b,
+            facets_a=facets_a,
+            facets_b=facets_b,
+            value_dim_a=trial_value_dim_a,
+            value_dim_b=trial_value_dim_b,
+            dof_source=dof_source,
+            grad_source=grad_source,
+            use_elem_a=use_elem_a,
+            use_elem_b=use_elem_b,
+            elem_conn_a=elem_conn_a,
+            elem_conn_b=elem_conn_b,
+            facet_to_elem_a=facet_to_elem_a,
+            facet_to_elem_b=facet_to_elem_b,
+            facet_dofs_a=trial_facet_dofs_a,
+            facet_dofs_b=trial_facet_dofs_b,
+            tol=tol,
+        )
+        pair_data = _merge_trial_pair_basis_data(pair_data, trial_pair)
+    elem_id_a = pair_data.elem_id_a
+    elem_id_b = pair_data.elem_id_b
+    if proj_diag:
+        _proj_diag_set_context(
+            fa=int(fa),
+            fb=int(fb),
+            face_a=_facet_label(facet_a),
+            face_b=_facet_label(facet_b),
+            elem_a=elem_id_a,
+            elem_b=elem_id_b,
+        )
+
+    test_Na = pair_data.test_Na if pair_data.test_Na is not None else pair_data.Na
+    test_Nb = pair_data.test_Nb if pair_data.test_Nb is not None else pair_data.Nb
+    trial_Na = pair_data.trial_Na if pair_data.trial_Na is not None else pair_data.Na
+    trial_Nb = pair_data.trial_Nb if pair_data.trial_Nb is not None else pair_data.Nb
+    test_gradNa = pair_data.test_gradNa if pair_data.test_gradNa is not None else pair_data.gradNa
+    test_gradNb = pair_data.test_gradNb if pair_data.test_gradNb is not None else pair_data.gradNb
+    trial_gradNa = pair_data.trial_gradNa if pair_data.trial_gradNa is not None else pair_data.gradNa
+    trial_gradNb = pair_data.trial_gradNb if pair_data.trial_gradNb is not None else pair_data.gradNb
+    test_dofs_local_a = pair_data.test_dofs_local_a if pair_data.test_dofs_local_a is not None else pair_data.dofs_local_a
+    test_dofs_local_b = pair_data.test_dofs_local_b if pair_data.test_dofs_local_b is not None else pair_data.dofs_local_b
+    trial_dofs_local_a = pair_data.trial_dofs_local_a if pair_data.trial_dofs_local_a is not None else pair_data.dofs_local_a
+    trial_dofs_local_b = pair_data.trial_dofs_local_b if pair_data.trial_dofs_local_b is not None else pair_data.dofs_local_b
+    nodes_a = pair_data.nodes_a
+    nodes_b = pair_data.nodes_b
+
+    normal, na, nb = _resolve_contact_normal(
+        facet_id_a=int(fa),
+        facet_id_b=int(fb),
+        normals_a=normals_a,
+        normals_b=normals_b,
+        normal_source=normal_source,
+        normal_sign=normal_sign,
+        tol=tol,
+    )
+    if diag_force:
+        dofs_a = int(offset_a) + np.asarray(test_dofs_local_a, dtype=int)
+        dofs_b = int(offset_b) + np.asarray(test_dofs_local_b, dtype=int)
+        _diag_contact_projection(
+            fa=int(fa),
+            fb=int(fb),
+            quad_pts=quad_pts,
+            quad_w=quad_w,
+            x_q=x_q,
+            Na=test_Na,
+            Nb=test_Nb,
+            nodes_a=nodes_a,
+            nodes_b=nodes_b,
+            dofs_a=dofs_a,
+            dofs_b=dofs_b,
+            elem_coords_a=None,
+            elem_coords_b=None,
+            na=na,
+            nb=nb,
+            normal=normal,
+            normal_source=normal_source,
+            normal_sign=normal_sign,
+            detJ=detJ,
+            diag_facet=diag_facet,
+            diag_max_q=diag_max_q,
+            quad_source=quad_source,
+            tol=tol,
+        )
+
+    test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b = callbacks.mixed_surface_space_aliases(
+        res_form,
+        field_a=field_a,
+        field_b=field_b,
+    )
+    normal_q = None if normal is None else np.repeat(normal[None, :], quad_pts.shape[0], axis=0)
+    ctx = callbacks.build_mixed_surface_context(
+        field_a=field_a,
+        field_b=field_b,
+        test_space_key_a=test_space_key_a,
+        test_space_key_b=test_space_key_b,
+        unknown_space_key_a=unknown_space_key_a,
+        unknown_space_key_b=unknown_space_key_b,
+        test_Na=test_Na,
+        test_Nb=test_Nb,
+        trial_Na=trial_Na,
+        trial_Nb=trial_Nb,
+        test_gradNa=test_gradNa,
+        test_gradNb=test_gradNb,
+        trial_gradNa=trial_gradNa,
+        trial_gradNb=trial_gradNb,
+        test_value_dim_a=value_dim_a,
+        test_value_dim_b=value_dim_b,
+        trial_value_dim_a=value_dim_a,
+        trial_value_dim_b=value_dim_b,
+        x_q=x_q,
+        w=quad_w,
+        detJ=np.array([detJ], dtype=float),
+        normal_q=normal_q,
+    )
+
+    u_elem = callbacks.surface_u_elem_with_space_aliases(
+        field_a=field_a,
+        field_b=field_b,
+        unknown_space_key_a=unknown_space_key_a,
+        unknown_space_key_b=unknown_space_key_b,
+        u_local_a=jnp.asarray(u_a, dtype=jnp.float64)[jnp.asarray(trial_dofs_local_a, dtype=jnp.int32)]
+        if use_jax
+        else np.asarray(u_a, dtype=float)[np.asarray(trial_dofs_local_a, dtype=int)],
+        u_local_b=jnp.asarray(u_b, dtype=jnp.float64)[jnp.asarray(trial_dofs_local_b, dtype=jnp.int32)]
+        if use_jax
+        else np.asarray(u_b, dtype=float)[np.asarray(trial_dofs_local_b, dtype=int)],
+    )
+    fe_q = res_form(ctx, u_elem, params)
+    for name, dofs_local, offset in (
+        (field_a, test_dofs_local_a, offset_a),
+        (field_b, test_dofs_local_b, offset_b),
+    ):
+        fe_field = fe_q[name]
+        if fe_field.ndim != 2 or fe_field.shape[0] != ctx.x_q.shape[0]:
+            raise ValueError("surface residual must return shape (n_q, n_ldofs) per field")
+        if use_jax:
+            fe = callbacks.reduce_surface_residual_jax(
+                fe_field,
+                includes_measure=bool(includes_measure.get(name, False)),
+                w=ctx.w,
+                detJ=ctx.detJ,
+            )
+            dofs = int(offset) + np.asarray(dofs_local, dtype=int)
+            R = R.at[jnp.asarray(dofs, dtype=jnp.int32)].add(jnp.asarray(fe))
+        else:
+            fe = callbacks.reduce_surface_residual_numpy(
+                fe_field,
+                includes_measure=bool(includes_measure.get(name, False)),
+                w=ctx.w,
+                detJ=ctx.detJ,
+            )
+            dofs = int(offset) + np.asarray(dofs_local, dtype=int)
+            R[dofs] += fe
+    return R
 
 def _accumulate_projection_jacobian_batch(
     *,
