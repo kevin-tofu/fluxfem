@@ -7,8 +7,8 @@ import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    from .contact import ContactKKTSolveConfig, ContactKKTSolveResult
     from .contact_diagnostics import ContactConstraintDiagnostics
+    from .contact_kkt_solver import ContactKKTSolveConfig, ContactKKTSolveResult
 
 
 @dataclass(frozen=True)
@@ -118,7 +118,7 @@ class MortarContactProblem:
         return result
 
     def solve_with_info(self, config: "ContactKKTSolveConfig | None" = None) -> "ContactKKTSolveResult":
-        from .contact import ContactKKTSolveConfig, solve_contact_kkt_with_info
+        from .contact_kkt_solver import ContactKKTSolveConfig, solve_contact_kkt_with_info
 
         n_primal = int(self.stiffness.shape[0])
         cfg = ContactKKTSolveConfig(backend="numpy", numpy_solver="block_scaled", n_primal=n_primal)

@@ -37,6 +37,13 @@ from .contact_diagnostics import (
     contact_constraint_matrix_diagnostics,
     assess_contact_constraint_quality,
 )
+from .contact_kkt_solver import (
+    ContactKKTSolveConfig,
+    ContactKKTSolveInfo,
+    ContactKKTSolveResult,
+    solve_contact_kkt,
+    solve_contact_kkt_with_info,
+)
 from .contact import (
     ContactOperators,
     PenaltyContactContribution,
@@ -52,9 +59,6 @@ from .contact import (
     OneSidedContactSpec,
     coarse_p1_basis_from_node_groups,
     coarse_p1_basis_from_surface_grid,
-    ContactKKTSolveConfig,
-    ContactKKTSolveInfo,
-    ContactKKTSolveResult,
     UnilateralContactActiveSetRecord,
     UnilateralContactActiveSetResult,
     EmbeddingMap,
@@ -88,8 +92,6 @@ from .contact import (
     assemble_contact_interface_jacobian,
     assemble_contact_coupling_matrices,
     assemble_contact_kkt,
-    solve_contact_kkt,
-    solve_contact_kkt_with_info,
     solve_unilateral_contact_active_set_kkt,
     solve_augmented_lagrangian_outer_loop,
     ContactSolveResult,
