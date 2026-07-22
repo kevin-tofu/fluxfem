@@ -81,7 +81,11 @@ from .contact_surface_helpers import (
     active_contact_facets,
     facet_gap_values,
 )
-from .contact_surface_space import OneSidedContactSurfaceSpace, OneToManyContactSurfaceSpace
+from .contact_surface_space import (
+    ContactSurfaceSpace,
+    OneSidedContactSurfaceSpace,
+    OneToManyContactSurfaceSpace,
+)
 from .contact import (
     ContactOperators,
     PenaltyContactContribution,
@@ -90,7 +94,6 @@ from .contact import (
     coarse_p1_basis_from_node_groups,
     coarse_p1_basis_from_surface_grid,
     assemble_pair_nitsche_supermesh,
-    ContactSurfaceSpace,
     PreparedContactInterface,
     PreparedOneSidedContactInterface,
     PreparedOneToManyContactInterface,
