@@ -1065,8 +1065,18 @@ class ContactMultiplierSpace:
             raise ValueError("ContactMultiplierSpace.coarse_rank must be positive when provided.")
         if self.coarse_projection is not None and np.asarray(self.coarse_projection).ndim != 2:
             raise ValueError("ContactMultiplierSpace.coarse_projection must be a 2D matrix.")
-        if self.coarse_mode is not None and str(self.coarse_mode).lower() not in {"qr", "svd", "auto"}:
-            raise ValueError("ContactMultiplierSpace.coarse_mode must be 'qr', 'svd', or 'auto'.")
+        if self.coarse_mode is not None and str(self.coarse_mode).lower() not in {
+            "qr",
+            "svd",
+            "auto",
+            "algebraic_qr",
+            "row_qr",
+            "pivoted_qr",
+        }:
+            raise ValueError(
+                "ContactMultiplierSpace.coarse_mode must be 'qr', 'svd', 'auto', "
+                "'algebraic_qr', 'row_qr', or 'pivoted_qr'."
+            )
         if self.coarse_energy_tol is not None and not (0.0 < float(self.coarse_energy_tol) <= 1.0):
             raise ValueError("ContactMultiplierSpace.coarse_energy_tol must be in (0, 1].")
         if self.coarse_rtol is not None and float(self.coarse_rtol) < 0.0:
@@ -1214,6 +1224,31 @@ class ContactMultiplierSpace:
             value_dim=value_dim,
             facet_conn=facet_conn,
             coarse_patch_ids=np.asarray(patch_ids, dtype=int),
+        )
+
+    @classmethod
+    def algebraic_qr_mortar(
+        cls,
+        contact=None,
+        *,
+        family: str = "p0_supermesh",
+        side: str = "master",
+        value_dim: int = 1,
+        facet_conn: np.ndarray | None = None,
+        rtol: float = 1e-10,
+        max_rank: int | None = None,
+    ) -> "ContactMultiplierSpace":
+        """Rank-revealing row-selected mortar using pivoted QR on ``B.T``."""
+
+        return cls.from_contact(
+            contact,
+            family=family,
+            side=side,
+            value_dim=value_dim,
+            facet_conn=facet_conn,
+            coarse_mode="algebraic_qr",
+            coarse_rtol=float(rtol),
+            coarse_max_rank=None if max_rank is None else int(max_rank),
         )
 
     @classmethod
@@ -2471,6 +2506,38 @@ def _coarse_row_projection_from_svd(
     return xp.asarray(u[:, :rank]).T
 
 
+def _constraint_row_ids_from_pivoted_qr(
+    B: np.ndarray,
+    *,
+    rtol: float,
+    max_rank: int | None,
+) -> np.ndarray:
+    """Return independent row ids selected by pivoted QR of ``B.T``."""
+    B_np = np.asarray(B, dtype=float)
+    if B_np.ndim != 2:
+        raise ValueError("algebraic_qr reduction requires a rank-2 constraint matrix.")
+    n_rows, n_cols = B_np.shape
+    if n_rows == 0 or n_cols == 0:
+        return np.zeros((0,), dtype=int)
+    try:
+        from scipy.linalg import qr
+    except Exception as exc:
+        raise ImportError("algebraic_qr mortar reduction requires scipy.linalg.qr with pivoting.") from exc
+
+    _q, r, pivots = qr(B_np.T, mode="economic", pivoting=True)
+    diagonal = np.abs(np.diag(r))
+    if diagonal.size == 0:
+        rank = 0
+    else:
+        tol = float(rtol)
+        threshold = tol * float(diagonal[0]) if tol < 1.0 else tol
+        rank = int(np.count_nonzero(diagonal > threshold))
+    if max_rank is not None:
+        rank = min(rank, int(max_rank))
+    rank = max(0, min(rank, int(pivots.shape[0])))
+    return np.sort(np.asarray(pivots[:rank], dtype=int))
+
+
 def _apply_coarse_mortar_projection(B_a, B_b, multiplier: ContactMultiplierSpace, *, backend: str):
     projection = multiplier.coarse_projection
     rank = multiplier.coarse_rank
@@ -2484,6 +2551,15 @@ def _apply_coarse_mortar_projection(B_a, B_b, multiplier: ContactMultiplierSpace
     else:
         xp = np
     B = xp.concatenate([B_a, -B_b], axis=1)
+    if mode in {"algebraic_qr", "row_qr", "pivoted_qr"}:
+        row_ids = _constraint_row_ids_from_pivoted_qr(
+            np.asarray(B, dtype=float),
+            rtol=1e-10 if multiplier.coarse_rtol is None else float(multiplier.coarse_rtol),
+            max_rank=multiplier.coarse_max_rank,
+        )
+        B_coarse = xp.asarray(np.asarray(B, dtype=float)[row_ids, :])
+        n_a = int(B_a.shape[1])
+        return B_coarse[:, :n_a], -B_coarse[:, n_a:]
     if projection is not None:
         P = xp.asarray(projection)
         if int(P.shape[1]) != int(B.shape[0]):

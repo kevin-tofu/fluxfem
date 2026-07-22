@@ -112,6 +112,16 @@ def run_demo(config: DemoConfig | None = None) -> dict[str, Any]:
     mortar_diag = mortar.constraint_diagnostics(max_singular_values=10)
     mortar_quality = mortar.constraint_quality(max_condition_number=1.0e6)
     mortar_residual = mortar.constraint_residual(state)
+    qr_multiplier = ff.MultiplierSpec.algebraic_qr_mortar(
+        contact,
+        family="p0_supermesh",
+        side="master",
+        value_dim=3,
+    )
+    mortar_qr = contact.assemble_multiplier(rho=cfg.rho, multiplier=qr_multiplier, backend="numpy")
+    mortar_qr_diag = mortar_qr.constraint_diagnostics(max_singular_values=10)
+    mortar_qr_quality = mortar_qr.constraint_quality(max_condition_number=1.0e6)
+    mortar_qr_residual = mortar_qr.constraint_residual(state)
 
     params = _contact_params(cfg)
     nitsche_penalty = contact.assemble_pair_nitsche(
@@ -127,7 +137,7 @@ def run_demo(config: DemoConfig | None = None) -> dict[str, Any]:
         use_traction=1.0,
     )
 
-    B = np.asarray(mortar.B, dtype=float)
+    B = np.asarray(mortar_qr.B, dtype=float)
     u = np.concatenate([np.asarray(state[0], dtype=float), np.asarray(state[1], dtype=float)])
     K_primal = np.asarray(nitsche_penalty.jacobian, dtype=float)
     K_primal = K_primal + float(cfg.kkt_regularization) * np.eye(B.shape[1], dtype=float)
@@ -155,7 +165,7 @@ def run_demo(config: DemoConfig | None = None) -> dict[str, Any]:
         "workpiece_facets": int(contact.surface_slave.conn.shape[0]),
         "supermesh_triangles": int(np.asarray(contact.supermesh_conn).shape[0]),
         "mortar": {
-            "B_shape": tuple(int(v) for v in B.shape),
+            "B_shape": tuple(int(v) for v in np.asarray(mortar.B).shape),
             "zero_row_count": int(mortar_diag.zero_row_count),
             "estimated_rank": int(mortar_diag.estimated_rank),
             "rank_deficiency": int(mortar_diag.rank_deficiency),
@@ -165,6 +175,18 @@ def run_demo(config: DemoConfig | None = None) -> dict[str, Any]:
             "quality_hints": tuple((issue.check, issue.hint) for issue in mortar_quality.issues),
             "constraint_residual_norm": float(np.linalg.norm(mortar_residual)),
             "augmentation_energy": float(mortar.augmentation_energy(state)),
+        },
+        "mortar_algebraic_qr": {
+            "B_shape": tuple(int(v) for v in np.asarray(mortar_qr.B).shape),
+            "zero_row_count": int(mortar_qr_diag.zero_row_count),
+            "estimated_rank": int(mortar_qr_diag.estimated_rank),
+            "rank_deficiency": int(mortar_qr_diag.rank_deficiency),
+            "condition_number": float(mortar_qr_diag.condition_number),
+            "quality_status": str(mortar_qr_quality.status),
+            "quality_issues": tuple(issue.check for issue in mortar_qr_quality.issues),
+            "quality_hints": tuple((issue.check, issue.hint) for issue in mortar_qr_quality.issues),
+            "constraint_residual_norm": float(np.linalg.norm(mortar_qr_residual)),
+            "augmentation_energy": float(mortar_qr.augmentation_energy(state)),
         },
         "nitsche": {
             "penalty_K_shape": tuple(int(v) for v in np.asarray(nitsche_penalty.jacobian).shape),
@@ -211,6 +233,11 @@ def main() -> None:
         print(f"mortar quality hint [{check}]: {hint}")
     print("mortar constraint residual norm:", f"{result['mortar']['constraint_residual_norm']:.3e}")
     print("mortar augmentation energy:", f"{result['mortar']['augmentation_energy']:.3e}")
+    print("mortar algebraic-qr B shape:", result["mortar_algebraic_qr"]["B_shape"])
+    print("mortar algebraic-qr estimated rank:", result["mortar_algebraic_qr"]["estimated_rank"])
+    print("mortar algebraic-qr rank deficiency:", result["mortar_algebraic_qr"]["rank_deficiency"])
+    print("mortar algebraic-qr quality status:", result["mortar_algebraic_qr"]["quality_status"])
+    print("mortar algebraic-qr constraint residual norm:", f"{result['mortar_algebraic_qr']['constraint_residual_norm']:.3e}")
     print("nitsche penalty K shape:", result["nitsche"]["penalty_K_shape"])
     print("nitsche full K shape:", result["nitsche"]["full_K_shape"])
     print("nitsche penalty energy:", f"{result['nitsche']['penalty_energy']:.3e}")

@@ -61,6 +61,24 @@ for the assembled `B` matrix.
 This does not remove redundant constraints.  It makes rank/scaling issues
 observable before choosing coarse, SVD, or QR-style reduction.
 
+### Algebraic QR row reduction
+
+FluxFEM now supports the lecture-style row-selected QR reduction:
+
+```python
+multiplier = MultiplierSpec.algebraic_qr_mortar(
+    contact,
+    family="p0_supermesh",
+    value_dim=3,
+)
+ops = contact.assemble_multiplier(rho=rho, multiplier=multiplier)
+```
+
+This applies pivoted QR to `B.T`, selects independent rows, and keeps the
+selected original constraint rows.  It is intentionally separate from the older
+`coarse_dual_mortar(mode="qr")` path, which builds a QR projection basis rather
+than selecting rows.
+
 ### Constraint quality policy
 
 FluxFEM now also has an opt-in quality-policy layer:
@@ -276,16 +294,20 @@ mortar B shape: (96, 150)
 mortar estimated rank: 63
 mortar rank deficiency: 33
 mortar quality status: fail
+mortar algebraic-qr B shape: (63, 150)
+mortar algebraic-qr rank deficiency: 0
+mortar algebraic-qr quality status: pass
 nitsche penalty K shape: (150, 150)
 nitsche full K shape: (150, 150)
 KKT solver: block_scaled
-KKT scaled row norm range: ('1.000e+00', '2.631e+00')
+KKT scaled row norm range: ('1.000e+00', '2.077e+00')
 ```
 
 This larger nonmatching case intentionally exposes rank deficiency in the
 supermesh P0 multiplier space.  That makes it a useful diagnostics example:
 the split-tet smoke case passes, while the larger fixture/workpiece case shows
-when quality policy starts asking for a coarser or rank-reduced multiplier.
+that algebraic QR reduces the supermesh P0 rows from 96 to 63 and removes the
+observed rank deficiency.
 
 ## Remaining formulation gaps
 
@@ -304,8 +326,9 @@ policy is configured to expect and assert the current fail status.
 ### 2. Sparse rank-revealing reduction
 
 The lecture notes call out dense local SVD/QR as prototype-level for large
-contact pairs.  FluxFEM currently has algebraic coarse projection paths, but a
-true sparse rank-revealing reduction is still future work.
+contact pairs.  FluxFEM now has dense pivoted-QR row selection for assembled
+constraint matrices, but a true sparse rank-revealing reduction is still future
+work.
 
 This is lower priority than CI smoke-test selection unless large contact pairs
 become the immediate bottleneck.
@@ -329,6 +352,8 @@ Reasoning:
   less toy contact geometry
 - quality issues now include advisory hints without making automatic assembly
   choices
+- algebraic QR now removes the rank deficiency in the larger fixture/workpiece
+  supermesh P0 example
 - the next missing piece is deciding which diagnostics should be asserted in CI
 
 Suggested first milestone:

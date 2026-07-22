@@ -406,6 +406,52 @@ def test_contact_constraint_quality_validates_policy_arguments():
         ff.assess_contact_constraint_quality(B, min_row_norm=-1.0)
 
 
+def test_algebraic_qr_mortar_selects_independent_supermesh_rows():
+    master = ff.StructuredHexBox(nx=2, ny=2, nz=1, lx=1.0, ly=1.0, lz=0.25).build()
+    slave = ff.StructuredHexBox(
+        nx=3,
+        ny=3,
+        nz=1,
+        lx=1.0,
+        ly=1.0,
+        lz=0.25,
+        origin=(0.0, 0.0, -0.25),
+    ).build()
+    master_space = ff.make_hex_space(master, dim=3)
+    slave_space = ff.make_hex_space(slave, dim=3)
+    contact = ff.ContactSurfaceSpace.from_sides(
+        ff.ContactSide.from_facets(master, master.facets_on_plane(axis=2, value=0.0), master_space),
+        ff.ContactSide.from_facets(slave, slave.facets_on_plane(axis=2, value=0.0), slave_space),
+        quad_order=2,
+        backend="numpy",
+        normal_sign=-1.0,
+    )
+
+    fine = contact.assemble_multiplier(
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.from_contact(contact, family="p0_supermesh", side="master", value_dim=3),
+        backend="numpy",
+    )
+    reduced = contact.assemble_multiplier(
+        rho=0.0,
+        multiplier=ff.MultiplierSpec.algebraic_qr_mortar(
+            contact,
+            family="p0_supermesh",
+            side="master",
+            value_dim=3,
+        ),
+        backend="numpy",
+    )
+    fine_diag = fine.constraint_diagnostics()
+    reduced_diag = reduced.constraint_diagnostics()
+
+    assert reduced.B.shape[0] == fine_diag.estimated_rank
+    assert reduced.B.shape[0] < fine.B.shape[0]
+    assert fine_diag.rank_deficiency > 0
+    assert reduced_diag.rank_deficiency == 0
+    assert reduced.constraint_quality().status == "pass"
+
+
 def test_onesided_penalty_top_level_alias_matches_legacy_tutorial_path():
     coords = np.array(
         [
