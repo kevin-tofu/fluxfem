@@ -93,14 +93,17 @@ from .contact_forms import (
     ContactState,
     ContactSolveResult,
 )
-from .contact import (
+from .contact_constraint_assembly import (
     coarse_p1_basis_from_node_groups,
     coarse_p1_basis_from_surface_grid,
+    assemble_contact_constraint_operators,
+    assemble_contact_kkt,
+)
+from .contact import (
     assemble_pair_nitsche_supermesh,
     PreparedContactInterface,
     PreparedOneSidedContactInterface,
     PreparedOneToManyContactInterface,
-    assemble_contact_constraint_operators,
     assemble_multiplier,
     assemble_contact_operators,
     assemble_contact_penalty_operators,
@@ -108,7 +111,6 @@ from .contact import (
     assemble_contact_interface_residual,
     assemble_contact_interface_jacobian,
     assemble_contact_coupling_matrices,
-    assemble_contact_kkt,
     update_contact_state_penalty,
     solve_contact_penalty_jax,
     solve_contact_al_jax,

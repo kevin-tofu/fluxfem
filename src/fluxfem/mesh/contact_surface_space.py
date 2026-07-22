@@ -669,7 +669,7 @@ class ContactSurfaceSpace:
         return_blocks: bool = False,
     ):
         m_aa, m_ab = self.assemble_contact_coupling_matrices()
-        from .contact import assemble_contact_kkt
+        from .contact_constraint_assembly import assemble_contact_kkt
 
         return assemble_contact_kkt(
             m_aa,
@@ -699,7 +699,7 @@ class ContactSurfaceSpace:
         sparse: bool = False,
         batch_jac: bool | None = None,
     ) -> ContactOperators:
-        from .contact import assemble_contact_constraint_operators
+        from .contact_constraint_assembly import assemble_contact_constraint_operators
 
         return assemble_contact_constraint_operators(
             self,
@@ -1792,7 +1792,7 @@ class OneToManyContactSurfaceSpace:
         format: str = "fluxsparse",
         return_blocks: bool = False,
     ):
-        from .contact import assemble_contact_kkt
+        from .contact_constraint_assembly import assemble_contact_kkt
 
         m_aa, m_ab = self.assemble_contact_coupling_matrices()
         master_facets = np.asarray(self.contacts[0].surface_master.conn, dtype=int)
@@ -1824,7 +1824,7 @@ class OneToManyContactSurfaceSpace:
         sparse: bool = False,
         batch_jac: bool | None = None,
     ) -> "ContactOperators":
-        from .contact import assemble_contact_constraint_operators
+        from .contact_constraint_assembly import assemble_contact_constraint_operators
 
         return assemble_contact_constraint_operators(
             self,
