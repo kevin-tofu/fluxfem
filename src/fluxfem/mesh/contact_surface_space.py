@@ -802,7 +802,7 @@ class ContactSurfaceSpace:
         sparse: bool = False,
         batch_jac: bool | None = None,
     ) -> ContactOperators:
-        from .contact import assemble_contact_penalty_operators
+        from .contact_penalty_assembly import assemble_contact_penalty_operators
 
         return assemble_contact_penalty_operators(
             self,
@@ -1150,7 +1150,7 @@ class ContactSurfaceSpace:
         backend_fastpath: str = "numpy_local_kernel",
     ) -> PenaltyContactContribution:
         """Assemble pair-Nitsche terms over this prepared contact supermesh."""
-        from .contact import assemble_pair_nitsche_supermesh
+        from .contact_penalty_assembly import assemble_pair_nitsche_supermesh
 
         return assemble_pair_nitsche_supermesh(
             self,
@@ -1730,7 +1730,7 @@ class OneToManyContactSurfaceSpace:
         backend_fastpath: str = "numpy_local_kernel",
     ) -> "PenaltyContactContribution":
         """Assemble pair-Nitsche terms over this one-to-many contact supermesh."""
-        from .contact import assemble_pair_nitsche_supermesh
+        from .contact_penalty_assembly import assemble_pair_nitsche_supermesh
 
         return assemble_pair_nitsche_supermesh(
             self,
@@ -1892,7 +1892,7 @@ class OneToManyContactSurfaceSpace:
         sparse: bool = False,
         batch_jac: bool | None = None,
     ) -> "ContactOperators":
-        from .contact import assemble_contact_penalty_operators
+        from .contact_penalty_assembly import assemble_contact_penalty_operators
 
         return assemble_contact_penalty_operators(
             self,

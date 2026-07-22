@@ -99,21 +99,23 @@ from .contact_constraint_assembly import (
     assemble_contact_constraint_operators,
     assemble_contact_kkt,
 )
-from .contact import (
+from .contact_penalty_assembly import (
+    assemble_contact_penalty_operators,
     assemble_pair_nitsche_supermesh,
+    solve_contact_al_jax,
+    solve_contact_penalty_jax,
+    update_contact_state_penalty,
+)
+from .contact import (
     PreparedContactInterface,
     PreparedOneSidedContactInterface,
     PreparedOneToManyContactInterface,
     assemble_multiplier,
     assemble_contact_operators,
-    assemble_contact_penalty_operators,
     assemble_penalty,
     assemble_contact_interface_residual,
     assemble_contact_interface_jacobian,
     assemble_contact_coupling_matrices,
-    update_contact_state_penalty,
-    solve_contact_penalty_jax,
-    solve_contact_al_jax,
 )
 from .io import load_gmsh_mesh, load_gmsh_hex_mesh, load_gmsh_tet_mesh, make_surface_from_facets
 
