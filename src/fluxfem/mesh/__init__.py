@@ -81,7 +81,7 @@ from .contact_surface_helpers import (
     active_contact_facets,
     facet_gap_values,
 )
-from .contact_surface_space import OneSidedContactSurfaceSpace
+from .contact_surface_space import OneSidedContactSurfaceSpace, OneToManyContactSurfaceSpace
 from .contact import (
     ContactOperators,
     PenaltyContactContribution,
@@ -93,7 +93,6 @@ from .contact import (
     ContactSurfaceSpace,
     PreparedContactInterface,
     PreparedOneSidedContactInterface,
-    OneToManyContactSurfaceSpace,
     PreparedOneToManyContactInterface,
     assemble_contact_constraint_operators,
     assemble_multiplier,
