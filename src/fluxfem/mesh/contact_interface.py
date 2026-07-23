@@ -72,7 +72,10 @@ from .contact_nitsche import (
     _get_direct_pair_nitsche_batch_fun,
 )
 from .contact_jacobian_batch import (
+    contact_batch_dof_pairs,
     contact_batch_jacobian_gate,
+    make_contact_batch_jacobian_function,
+    pad_contact_batch_for_jit,
     stack_contact_batch_items,
 )
 from .contact_mixed_surface import (
@@ -1025,114 +1028,18 @@ def assemble_contact_interface_jacobian(
             and int(value_dim_b) == 3
         )
 
-        def _make_jac_fun(n_a_local: int, n_b_local: int):
-            test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b = (
-                _mixed_surface_space_aliases(
-                    res_form,
-                    field_a=field_a,
-                    field_b=field_b,
-                )
-            )
-
-            def _res_local_batch(u_vec, Na, Nb, gradNa, gradNb, x_q, w, detJ, normal):
-                fields = {
-                    field_a: _make_surface_field_pair(
-                        test_N=Na,
-                        test_gradN=gradNa,
-                        trial_N=Na,
-                        trial_gradN=gradNa,
-                        test_value_dim=value_dim_a,
-                        trial_value_dim=value_dim_a,
-                    ),
-                    field_b: _make_surface_field_pair(
-                        test_N=Nb,
-                        test_gradN=gradNb,
-                        trial_N=Nb,
-                        trial_gradN=gradNb,
-                        test_value_dim=value_dim_b,
-                        trial_value_dim=value_dim_b,
-                    ),
-                }
-                spaces = dict(fields)
-                for key in (test_space_key_a, unknown_space_key_a):
-                    if key is not None:
-                        spaces[key] = fields[field_a]
-                for key in (test_space_key_b, unknown_space_key_b):
-                    if key is not None:
-                        spaces[key] = fields[field_b]
-                normal_q = jnp.repeat(normal[None, :], x_q.shape[0], axis=0)
-                ctx = SurfaceMixedFormContext(
-                    bindings=fields,
-                    x_q=x_q,
-                    w=w,
-                    detJ=detJ,
-                    normal=normal_q,
-                    spaces=spaces,
-                )
-                u_dict = {
-                    field_a: u_vec[:n_a_local],
-                    field_b: u_vec[n_a_local:],
-                }
-                if unknown_space_key_a is not None:
-                    u_dict[unknown_space_key_a] = u_dict[field_a]
-                if unknown_space_key_b is not None:
-                    u_dict[unknown_space_key_b] = u_dict[field_b]
-                fe_q = res_form(ctx, u_dict, params)
-                res_parts = []
-                for name in (field_a, field_b):
-                    fe_field = fe_q[name]
-                    if includes_measure.get(name, False):
-                        fe = jnp.sum(jnp.asarray(fe_field), axis=0)
-                    else:
-                        wJ = jnp.asarray(ctx.w) * jnp.asarray(ctx.detJ)
-                        fe = jnp.einsum("qi,q->i", jnp.asarray(fe_field), wJ)
-                    res_parts.append(fe)
-                return jnp.concatenate(res_parts, axis=0)
-
-            if trace:
-                _trace(f"[CONTACT] batch_jac_build n_a={n_a_local} n_b={n_b_local} jit={jit_batch}")
-            jac_fun = jax.vmap(jax.jacrev(_res_local_batch))
-            return jax.jit(jac_fun) if jit_batch else jac_fun
-
         jac_fun_cache: dict[tuple[int, int], Callable[..., jnp.ndarray]] = {}
         direct_batch_fun = None
 
-        def _emit_batch(
-            Na_b,
-            Nb_b,
-            gradNa_b,
-            gradNb_b,
-            x_q_b,
-            w_b,
-            detJ_b,
-            normal_b,
-            u_local_b,
-            dofs_batch_np,
-            n_a_local,
-            n_b_local,
-            batch_n,
-        ) -> None:
+        def _emit_batch(stacked) -> None:
             nonlocal K_dense
             if trace:
-                _trace(f"[CONTACT] batch_emit start n={int(Na_b.shape[0])}")
-            if jit_batch and batch_size and batch_n < batch_size:
-                pad = int(batch_size - batch_n)
+                _trace(f"[CONTACT] batch_emit start n={int(stacked.Na.shape[0])}")
+            eval_stack = stacked
+            if jit_batch and batch_size and stacked.batch_n < batch_size:
                 if trace:
-                    _trace(f"[CONTACT] batch_pad n={batch_n} target={batch_size}")
-
-                def _pad_batch(x, pad_value: float = 0.0):
-                    pad_width = [(0, pad)] + [(0, 0)] * (x.ndim - 1)
-                    return jnp.pad(jnp.asarray(x), pad_width, mode="constant", constant_values=pad_value)
-
-                Na_b = _pad_batch(Na_b)
-                Nb_b = _pad_batch(Nb_b)
-                gradNa_b = _pad_batch(gradNa_b)
-                gradNb_b = _pad_batch(gradNb_b)
-                x_q_b = _pad_batch(x_q_b)
-                w_b = _pad_batch(w_b)
-                detJ_b = _pad_batch(detJ_b)
-                normal_b = _pad_batch(normal_b)
-                u_local_b = _pad_batch(u_local_b)
+                    _trace(f"[CONTACT] batch_pad n={stacked.batch_n} target={batch_size}")
+                eval_stack = pad_contact_batch_for_jit(stacked, target_size=batch_size)
             t_batch = time.perf_counter()
             if use_direct_pair_nitsche_batch:
                 nonlocal direct_batch_fun
@@ -1141,13 +1048,13 @@ def assemble_contact_interface_jacobian(
                         _trace(f"[CONTACT] batch_direct_build jit={direct_jit_batch}")
                     direct_batch_fun = _get_direct_pair_nitsche_batch_fun(jit=direct_jit_batch)
                 J_b = direct_batch_fun(
-                    Na_b,
-                    Nb_b,
-                    gradNa_b,
-                    gradNb_b,
-                    w_b,
-                    detJ_b,
-                    normal_b,
+                    eval_stack.Na,
+                    eval_stack.Nb,
+                    eval_stack.gradNa,
+                    eval_stack.gradNb,
+                    eval_stack.w,
+                    eval_stack.detJ,
+                    eval_stack.normal,
                     float(getattr(params, "alpha")),
                     float(getattr(params, "inv_h")),
                     float(getattr(params, "lam")),
@@ -1156,19 +1063,43 @@ def assemble_contact_interface_jacobian(
                     float(getattr(params, "use_traction", 1.0)),
                 )
             else:
-                key = (n_a_local, n_b_local)
+                key = (stacked.n_a_local, stacked.n_b_local)
                 jac_fun = jac_fun_cache.get(key)
                 if jac_fun is None:
-                    jac_fun = _make_jac_fun(n_a_local, n_b_local)
+                    if trace:
+                        _trace(
+                            f"[CONTACT] batch_jac_build n_a={stacked.n_a_local} "
+                            f"n_b={stacked.n_b_local} jit={jit_batch}"
+                        )
+                    jac_fun = make_contact_batch_jacobian_function(
+                        res_form=res_form,
+                        params=params,
+                        includes_measure=includes_measure,
+                        field_a=field_a,
+                        field_b=field_b,
+                        value_dim_a=value_dim_a,
+                        value_dim_b=value_dim_b,
+                        n_a_local=stacked.n_a_local,
+                        n_b_local=stacked.n_b_local,
+                        jit=jit_batch,
+                    )
                     jac_fun_cache[key] = jac_fun
-                J_b = jac_fun(u_local_b, Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b)
+                J_b = jac_fun(
+                    eval_stack.u_local,
+                    eval_stack.Na,
+                    eval_stack.Nb,
+                    eval_stack.gradNa,
+                    eval_stack.gradNb,
+                    eval_stack.x_q,
+                    eval_stack.w,
+                    eval_stack.detJ,
+                    eval_stack.normal,
+                )
             if trace:
                 _trace_time("[CONTACT] batch_emit jac_done", t_batch)
-            n_ldofs = dofs_batch_np.shape[1]
-            rows = np.repeat(dofs_batch_np, n_ldofs, axis=1).reshape(-1)
-            cols = np.tile(dofs_batch_np, (1, n_ldofs)).reshape(-1)
+            rows, cols = contact_batch_dof_pairs(stacked.dofs)
             if sparse:
-                data = jnp.asarray(J_b)[:batch_n].reshape(-1)
+                data = jnp.asarray(J_b)[: stacked.batch_n].reshape(-1)
                 batch_rows.append(rows)
                 batch_cols.append(cols)
                 batch_data.append(data)
@@ -1176,7 +1107,7 @@ def assemble_contact_interface_jacobian(
                 assert K_dense is not None
                 # rows/cols contain repeated global DOF pairs across triangles in the batch.
                 # Advanced indexing with += does not accumulate repeated indices reliably.
-                data = jnp.asarray(J_b)[:batch_n].reshape(-1)
+                data = jnp.asarray(J_b)[: stacked.batch_n].reshape(-1)
                 K_dense = K_dense.at[(jnp.asarray(rows, dtype=jnp.int32), jnp.asarray(cols, dtype=jnp.int32))].add(data)
         for (tri, a, b, c), fa, fb in zip(
             _iter_supermesh_tris(supermesh_coords, supermesh_conn),
@@ -1289,21 +1220,7 @@ def assemble_contact_interface_jacobian(
                             n_a_local=int(n_a_local_const),
                             n_b_local=int(n_b_local_const),
                         )
-                        _emit_batch(
-                            stacked.Na,
-                            stacked.Nb,
-                            stacked.gradNa,
-                            stacked.gradNb,
-                            stacked.x_q,
-                            stacked.w,
-                            stacked.detJ,
-                            stacked.normal,
-                            stacked.u_local,
-                            stacked.dofs,
-                            stacked.n_a_local,
-                            stacked.n_b_local,
-                            stacked.batch_n,
-                        )
+                        _emit_batch(stacked)
                     batch_items = [(Na, Nb, gradNa, gradNb, x_q, quad_w, detJ, normal)]
                     dofs_batch = [dofs]
                     u_local_batch = [u_local]
@@ -1323,21 +1240,7 @@ def assemble_contact_interface_jacobian(
                     n_a_local=int(n_a_local_const),
                     n_b_local=int(n_b_local_const),
                 )
-                _emit_batch(
-                    stacked.Na,
-                    stacked.Nb,
-                    stacked.gradNa,
-                    stacked.gradNb,
-                    stacked.x_q,
-                    stacked.w,
-                    stacked.detJ,
-                    stacked.normal,
-                    stacked.u_local,
-                    stacked.dofs,
-                    stacked.n_a_local,
-                    stacked.n_b_local,
-                    stacked.batch_n,
-                )
+                _emit_batch(stacked)
                 batch_items = []
                 dofs_batch = []
                 u_local_batch = []
@@ -1352,21 +1255,7 @@ def assemble_contact_interface_jacobian(
                 n_a_local=int(n_a_local_const),
                 n_b_local=int(n_b_local_const),
             )
-            _emit_batch(
-                stacked.Na,
-                stacked.Nb,
-                stacked.gradNa,
-                stacked.gradNb,
-                stacked.x_q,
-                stacked.w,
-                stacked.detJ,
-                stacked.normal,
-                stacked.u_local,
-                stacked.dofs,
-                stacked.n_a_local,
-                stacked.n_b_local,
-                stacked.batch_n,
-            )
+            _emit_batch(stacked)
 
         if not batch_failed and (batch_rows or (not sparse and K_dense is not None)):
             if sparse:
