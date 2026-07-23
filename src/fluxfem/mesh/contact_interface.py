@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import time
-from typing import Any, Callable, Iterable, Sequence, TYPE_CHECKING, cast
+from typing import Any, Callable, Iterable, Sequence, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -71,65 +71,18 @@ from .contact_nitsche import (
     _fast_pair_nitsche_penalty_local_matrix,
     _get_direct_pair_nitsche_batch_fun,
 )
-from ..core.forms import FormFieldLike
+from .contact_mixed_surface import (
+    SurfaceMixedFormContext,
+    build_mixed_surface_context as _build_mixed_surface_context,
+    compute_mixed_surface_local_jacobian as _compute_mixed_surface_local_jacobian,
+    make_surface_field_pair as _make_surface_field_pair,
+    mixed_surface_space_aliases as _mixed_surface_space_aliases,
+    reduce_surface_residual_jax as _reduce_surface_residual_jax,
+    reduce_surface_residual_numpy as _reduce_surface_residual_numpy,
+    surface_u_elem_with_space_aliases as _surface_u_elem_with_space_aliases,
+)
 if TYPE_CHECKING:
-    from ..core.forms import FieldPair
     from ..core.weakform import Params as WeakParams
-
-
-@dataclass(eq=False)
-class _SurfaceBasis:
-    dofs_per_node: int
-
-
-@dataclass(eq=False)
-class SurfaceMixedFormField:
-    """Surface form field for mixed weak-form evaluation."""
-    N: np.ndarray
-    gradN: np.ndarray | None
-    value_dim: int
-    basis: _SurfaceBasis
-
-
-@dataclass(eq=False)
-class SurfaceMixedFormContext:
-    """Surface mixed context for weak-form evaluation on supermesh."""
-    bindings: dict[str, "FieldPair"]
-    x_q: np.ndarray
-    w: np.ndarray
-    detJ: np.ndarray
-    normal: np.ndarray | None = None
-    spaces: dict[str, "FieldPair"] | None = None
-
-
-def _make_surface_field_pair(
-    *,
-    test_N: np.ndarray,
-    test_gradN: np.ndarray | None,
-    trial_N: np.ndarray,
-    trial_gradN: np.ndarray | None,
-    test_value_dim: int,
-    trial_value_dim: int,
-) -> "FieldPair":
-    from ..core.forms import FieldPair
-
-    test_field = SurfaceMixedFormField(
-        N=test_N,
-        gradN=test_gradN,
-        value_dim=test_value_dim,
-        basis=_SurfaceBasis(dofs_per_node=test_value_dim),
-    )
-    trial_field = SurfaceMixedFormField(
-        N=trial_N,
-        gradN=trial_gradN,
-        value_dim=trial_value_dim,
-        basis=_SurfaceBasis(dofs_per_node=trial_value_dim),
-    )
-    return FieldPair(
-        test=cast("FormFieldLike", test_field),
-        trial=cast("FormFieldLike", trial_field),
-        unknown=cast("FormFieldLike", trial_field),
-    )
 
 
 
@@ -246,270 +199,6 @@ def _resolve_normal_source_option(
     if resolved == "slave":
         resolved = "b" if (master_field is None or master_field == field_a) else "a"
     return resolved
-
-
-
-def _build_mixed_surface_context(
-    *,
-    field_a: str,
-    field_b: str,
-    test_space_key_a: str | None,
-    test_space_key_b: str | None,
-    unknown_space_key_a: str | None,
-    unknown_space_key_b: str | None,
-    test_Na: np.ndarray,
-    test_Nb: np.ndarray,
-    trial_Na: np.ndarray,
-    trial_Nb: np.ndarray,
-    test_gradNa: np.ndarray | None,
-    test_gradNb: np.ndarray | None,
-    trial_gradNa: np.ndarray | None,
-    trial_gradNb: np.ndarray | None,
-    test_value_dim_a: int,
-    test_value_dim_b: int,
-    trial_value_dim_a: int,
-    trial_value_dim_b: int,
-    x_q: np.ndarray,
-    w: np.ndarray,
-    detJ: np.ndarray,
-    normal_q: np.ndarray | None,
-) -> SurfaceMixedFormContext:
-    fields = {
-        field_a: _make_surface_field_pair(
-            test_N=test_Na,
-            test_gradN=test_gradNa,
-            trial_N=trial_Na,
-            trial_gradN=trial_gradNa,
-            test_value_dim=test_value_dim_a,
-            trial_value_dim=trial_value_dim_a,
-        ),
-        field_b: _make_surface_field_pair(
-            test_N=test_Nb,
-            test_gradN=test_gradNb,
-            trial_N=trial_Nb,
-            trial_gradN=trial_gradNb,
-            test_value_dim=test_value_dim_b,
-            trial_value_dim=trial_value_dim_b,
-        ),
-    }
-    spaces = dict(fields)
-    for key in (test_space_key_a, unknown_space_key_a):
-        if key is not None:
-            spaces[key] = fields[field_a]
-    for key in (test_space_key_b, unknown_space_key_b):
-        if key is not None:
-            spaces[key] = fields[field_b]
-    return SurfaceMixedFormContext(
-        bindings=fields,
-        x_q=x_q,
-        w=w,
-        detJ=detJ,
-        normal=normal_q,
-        spaces=spaces,
-    )
-
-
-def _surface_u_elem_with_space_aliases(
-    *,
-    field_a: str,
-    field_b: str,
-    unknown_space_key_a: str | None,
-    unknown_space_key_b: str | None,
-    u_local_a: np.ndarray,
-    u_local_b: np.ndarray,
-) -> dict[str, np.ndarray]:
-    u_elem = {
-        field_a: u_local_a,
-        field_b: u_local_b,
-    }
-    if unknown_space_key_a is not None:
-        u_elem[unknown_space_key_a] = u_elem[field_a]
-    if unknown_space_key_b is not None:
-        u_elem[unknown_space_key_b] = u_elem[field_b]
-    return u_elem
-
-
-def _surface_local_u_dict(
-    *,
-    u_vec: np.ndarray | jnp.ndarray,
-    slices: dict[str, slice],
-    field_a: str,
-    field_b: str,
-    ctx: SurfaceMixedFormContext,
-) -> dict[str, np.ndarray | jnp.ndarray]:
-    u_dict = {name: u_vec[slices[name]] for name in (field_a, field_b)}
-    if ctx.spaces is not None:
-        for key, pair in ctx.spaces.items():
-            if key in u_dict:
-                continue
-            if pair is ctx.bindings[field_a]:
-                u_dict[key] = u_dict[field_a]
-            elif pair is ctx.bindings[field_b]:
-                u_dict[key] = u_dict[field_b]
-    return u_dict
-
-
-def _mixed_surface_space_aliases(
-    res_form: Callable[..., Any],
-    *,
-    field_a: str,
-    field_b: str,
-) -> tuple[str | None, str | None, str | None, str | None]:
-    test_space_keys = getattr(res_form, "_test_space_by_target", {})
-    unknown_space_keys = getattr(res_form, "_unknown_space_by_target", {})
-    legacy_space_keys = getattr(res_form, "_space_by_target", {})
-    test_space_key_a = test_space_keys.get(field_a, legacy_space_keys.get(field_a))
-    test_space_key_b = test_space_keys.get(field_b, legacy_space_keys.get(field_b))
-    unknown_space_key_a = unknown_space_keys.get(field_a, legacy_space_keys.get(field_a))
-    unknown_space_key_b = unknown_space_keys.get(field_b, legacy_space_keys.get(field_b))
-    return test_space_key_a, test_space_key_b, unknown_space_key_a, unknown_space_key_b
-
-
-def _reduce_surface_residual_jax(
-    fe_field: Any,
-    *,
-    includes_measure: bool,
-    w: np.ndarray,
-    detJ: np.ndarray,
-) -> jnp.ndarray:
-    if includes_measure:
-        return jnp.sum(jnp.asarray(fe_field), axis=0)
-    wJ = jnp.asarray(w) * jnp.asarray(detJ)
-    return jnp.einsum("qi,q->i", jnp.asarray(fe_field), wJ)
-
-
-def _reduce_surface_residual_numpy(
-    fe_field: Any,
-    *,
-    includes_measure: bool,
-    w: np.ndarray,
-    detJ: np.ndarray,
-) -> np.ndarray:
-    if includes_measure:
-        return np.sum(np.asarray(fe_field), axis=0)
-    wJ = np.asarray(w) * np.asarray(detJ)
-    return np.einsum("qi...,q->i...", np.asarray(fe_field), wJ)
-
-
-def _mixed_surface_local_residual_jax(
-    *,
-    u_vec: jnp.ndarray,
-    slices: dict[str, slice],
-    field_a: str,
-    field_b: str,
-    res_form: Callable[..., Any],
-    ctx: SurfaceMixedFormContext,
-    params: Any,
-    includes_measure: dict[str, bool],
-) -> jnp.ndarray:
-    u_dict = _surface_local_u_dict(
-        u_vec=u_vec,
-        slices=slices,
-        field_a=field_a,
-        field_b=field_b,
-        ctx=ctx,
-    )
-    fe_q = res_form(ctx, u_dict, params)
-    res_parts = []
-    for name in (field_a, field_b):
-        fe_field = fe_q[name]
-        fe = _reduce_surface_residual_jax(
-            fe_field,
-            includes_measure=bool(includes_measure.get(name, False)),
-            w=ctx.w,
-            detJ=ctx.detJ,
-        )
-        res_parts.append(fe)
-    return jnp.concatenate(res_parts, axis=0)
-
-
-def _mixed_surface_local_residual_numpy(
-    *,
-    u_vec: np.ndarray,
-    slices: dict[str, slice],
-    field_a: str,
-    field_b: str,
-    res_form: Callable[..., Any],
-    ctx: SurfaceMixedFormContext,
-    params: Any,
-    includes_measure: dict[str, bool],
-) -> np.ndarray:
-    u_dict = _surface_local_u_dict(
-        u_vec=u_vec,
-        slices=slices,
-        field_a=field_a,
-        field_b=field_b,
-        ctx=ctx,
-    )
-    fe_q = res_form(ctx, u_dict, params)
-    res_parts = []
-    for name in (field_a, field_b):
-        fe_field = fe_q[name]
-        fe = _reduce_surface_residual_numpy(
-            fe_field,
-            includes_measure=bool(includes_measure.get(name, False)),
-            w=ctx.w,
-            detJ=ctx.detJ,
-        )
-        res_parts.append(np.asarray(fe))
-    return np.concatenate(res_parts, axis=0)
-
-
-def _compute_mixed_surface_local_jacobian(
-    *,
-    u_local: np.ndarray,
-    backend: str,
-    fd_eps: float,
-    fd_mode: str,
-    fd_block_size: int,
-    field_a: str,
-    field_b: str,
-    slices: dict[str, slice],
-    res_form: Callable[..., Any],
-    ctx: SurfaceMixedFormContext,
-    params: Any,
-    includes_measure: dict[str, bool],
-) -> np.ndarray:
-    if backend == "jax":
-        def _res_local(u_vec):
-            return _mixed_surface_local_residual_jax(
-                u_vec=jnp.asarray(u_vec),
-                slices=slices,
-                field_a=field_a,
-                field_b=field_b,
-                res_form=res_form,
-                ctx=ctx,
-                params=params,
-                includes_measure=includes_measure,
-            )
-
-        J_local = jax.jacrev(_res_local)(jnp.asarray(u_local))
-        return np.asarray(J_local)
-    if backend != "numpy":
-        raise ValueError("backend must be 'jax' or 'numpy'")
-
-    n_u = int(u_local.shape[0])
-    J = np.zeros((n_u, n_u), dtype=float)
-    for j in range(n_u):
-        u_col = np.zeros((n_u,), dtype=float)
-        u_col[j] = 1.0
-        J[:, j] = _mixed_surface_local_residual_numpy(
-            u_vec=u_col,
-            slices=slices,
-            field_a=field_a,
-            field_b=field_b,
-            res_form=res_form,
-            ctx=ctx,
-            params=params,
-            includes_measure=includes_measure,
-        )
-    return J
-
-
-
-
-
-
 
 
 
@@ -1068,7 +757,6 @@ def assemble_contact_interface_jacobian(
     backend = "jax" if backend is None else str(backend).lower()
     source_facets_a = list(source_facets_a)
     source_facets_b = list(source_facets_b)
-    from ..core.forms import FieldPair
     _contact_interface_dbg(
         f"[contact-interface] enter assemble_contact_interface_jacobian quad_order={quad_order} backend={backend}"
     )
@@ -1947,7 +1635,6 @@ def assemble_onesided_bilinear(
     Note: this implementation currently assumes volume-trace bases for both
     gradients and DOFs. Surface-only bases are not supported here yet.
     """
-    from ..core.forms import FieldPair
     coords_s = np.asarray(surface_slave.coords, dtype=float)
     facets_s = np.asarray(surface_slave.conn, dtype=int)
     coords_m = np.asarray(surface_master.coords, dtype=float) if surface_master is not None else coords_s
@@ -2088,13 +1775,16 @@ def assemble_onesided_bilinear(
             else:
                 N = np.array([_facet_shape_values(pt, facet, coords_s, tol=tol) for pt in x_q], dtype=float)
 
-            field = SurfaceMixedFormField(
-                N=N,
-                gradN=gradN,
-                value_dim=value_dim,
-                basis=_SurfaceBasis(dofs_per_node=value_dim),
-            )
-            fields = {"u": FieldPair(test=cast("FormFieldLike", field), trial=cast("FormFieldLike", field))}
+            fields = {
+                "u": _make_surface_field_pair(
+                    test_N=N,
+                    test_gradN=gradN,
+                    trial_N=N,
+                    trial_gradN=gradN,
+                    test_value_dim=value_dim,
+                    trial_value_dim=value_dim,
+                )
+            }
             normal = normals_s[int(f_id)] if normals_s is not None else None
             if normal is not None:
                 normal = normal_sign * normal
