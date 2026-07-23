@@ -71,6 +71,10 @@ from .contact_nitsche import (
     _fast_pair_nitsche_penalty_local_matrix,
     _get_direct_pair_nitsche_batch_fun,
 )
+from .contact_jacobian_batch import (
+    contact_batch_jacobian_gate,
+    stack_contact_batch_items,
+)
 from .contact_mixed_surface import (
     SurfaceMixedFormContext,
     build_mixed_surface_context as _build_mixed_surface_context,
@@ -973,40 +977,22 @@ def assemble_contact_interface_jacobian(
             assert K_dense is not None
             return K_dense
 
-    batch_enabled = (
-        batch_jac
-        and backend == "jax"
-        and dof_source == "volume"
-        and grad_source == "volume"
-        and use_elem_a
-        and use_elem_b
-        and not use_p0_a
-        and not use_p0_b
-        and not distinct_trial_layout
-        and not proj_diag
-        and not diag_force
+    batch_gate = contact_batch_jacobian_gate(
+        requested=bool(batch_jac),
+        backend=backend,
+        dof_source=dof_source,
+        grad_source=grad_source,
+        use_elem_a=use_elem_a,
+        use_elem_b=use_elem_b,
+        use_p0_a=use_p0_a,
+        use_p0_b=use_p0_b,
+        distinct_trial_layout=distinct_trial_layout,
+        proj_diag=proj_diag,
+        diag_force=diag_force,
     )
+    batch_enabled = batch_gate.enabled
     if trace and batch_jac and not batch_enabled:
-        reasons = []
-        if backend != "jax":
-            reasons.append(f"backend={backend}")
-        if dof_source != "volume":
-            reasons.append(f"dof_source={dof_source}")
-        if grad_source != "volume":
-            reasons.append(f"grad_source={grad_source}")
-        if not use_elem_a:
-            reasons.append("missing_elem_a")
-        if not use_elem_b:
-            reasons.append("missing_elem_b")
-        if use_p0_a:
-            reasons.append("space_mode_a=p0")
-        if use_p0_b:
-            reasons.append("space_mode_b=p0")
-        if proj_diag:
-            reasons.append("projection_diag")
-        if diag_force:
-            reasons.append("diag_force")
-        _trace(f"[CONTACT] batch_jac_disabled {' '.join(reasons)}")
+        _trace(f"[CONTACT] batch_jac_disabled {' '.join(batch_gate.reasons)}")
 
     if batch_enabled:
         if trace:
@@ -1294,33 +1280,29 @@ def assemble_contact_interface_jacobian(
                             f"db={dofs_b.shape[0]}/{n_b_local_const}"
                         )
                     if batch_items:
-                        Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b = zip(*batch_items)
-                        Na_b = jnp.asarray(np.stack(Na_b, axis=0))
-                        Nb_b = jnp.asarray(np.stack(Nb_b, axis=0))
-                        gradNa_b = jnp.asarray(np.stack(gradNa_b, axis=0))
-                        gradNb_b = jnp.asarray(np.stack(gradNb_b, axis=0))
-                        x_q_b = jnp.asarray(np.stack(x_q_b, axis=0))
-                        w_b = jnp.asarray(np.stack(w_b, axis=0))
-                        detJ_b = jnp.asarray(np.array(detJ_b, dtype=float)).reshape(-1, 1)
-                        normal_b = jnp.asarray(np.stack(normal_b, axis=0))
-                        u_local_b = jnp.asarray(np.stack(u_local_batch, axis=0))
-                        dofs_batch_np = np.asarray(dofs_batch, dtype=int)
                         assert n_a_local_const is not None
                         assert n_b_local_const is not None
+                        stacked = stack_contact_batch_items(
+                            batch_items,
+                            dofs_batch,
+                            u_local_batch,
+                            n_a_local=int(n_a_local_const),
+                            n_b_local=int(n_b_local_const),
+                        )
                         _emit_batch(
-                            Na_b,
-                            Nb_b,
-                            gradNa_b,
-                            gradNb_b,
-                            x_q_b,
-                            w_b,
-                            detJ_b,
-                            normal_b,
-                            u_local_b,
-                            dofs_batch_np,
-                            int(n_a_local_const),
-                            int(n_b_local_const),
-                            int(Na_b.shape[0]),
+                            stacked.Na,
+                            stacked.Nb,
+                            stacked.gradNa,
+                            stacked.gradNb,
+                            stacked.x_q,
+                            stacked.w,
+                            stacked.detJ,
+                            stacked.normal,
+                            stacked.u_local,
+                            stacked.dofs,
+                            stacked.n_a_local,
+                            stacked.n_b_local,
+                            stacked.batch_n,
                         )
                     batch_items = [(Na, Nb, gradNa, gradNb, x_q, quad_w, detJ, normal)]
                     dofs_batch = [dofs]
@@ -1332,66 +1314,58 @@ def assemble_contact_interface_jacobian(
                     n_b_local_const = dofs_b.shape[0]
 
             if batch_size and len(batch_items) >= batch_size:
-                Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b = zip(*batch_items)
-                Na_b = jnp.asarray(np.stack(Na_b, axis=0))
-                Nb_b = jnp.asarray(np.stack(Nb_b, axis=0))
-                gradNa_b = jnp.asarray(np.stack(gradNa_b, axis=0))
-                gradNb_b = jnp.asarray(np.stack(gradNb_b, axis=0))
-                x_q_b = jnp.asarray(np.stack(x_q_b, axis=0))
-                w_b = jnp.asarray(np.stack(w_b, axis=0))
-                detJ_b = jnp.asarray(np.array(detJ_b, dtype=float)).reshape(-1, 1)
-                normal_b = jnp.asarray(np.stack(normal_b, axis=0))
-                u_local_b = jnp.asarray(np.stack(u_local_batch, axis=0))
-                dofs_batch_np = np.asarray(dofs_batch, dtype=int)
                 assert n_a_local_const is not None
                 assert n_b_local_const is not None
+                stacked = stack_contact_batch_items(
+                    batch_items,
+                    dofs_batch,
+                    u_local_batch,
+                    n_a_local=int(n_a_local_const),
+                    n_b_local=int(n_b_local_const),
+                )
                 _emit_batch(
-                    Na_b,
-                    Nb_b,
-                    gradNa_b,
-                    gradNb_b,
-                    x_q_b,
-                    w_b,
-                    detJ_b,
-                    normal_b,
-                    u_local_b,
-                    dofs_batch_np,
-                    int(n_a_local_const),
-                    int(n_b_local_const),
-                    int(Na_b.shape[0]),
+                    stacked.Na,
+                    stacked.Nb,
+                    stacked.gradNa,
+                    stacked.gradNb,
+                    stacked.x_q,
+                    stacked.w,
+                    stacked.detJ,
+                    stacked.normal,
+                    stacked.u_local,
+                    stacked.dofs,
+                    stacked.n_a_local,
+                    stacked.n_b_local,
+                    stacked.batch_n,
                 )
                 batch_items = []
                 dofs_batch = []
                 u_local_batch = []
 
         if not batch_failed and batch_items:
-            Na_b, Nb_b, gradNa_b, gradNb_b, x_q_b, w_b, detJ_b, normal_b = zip(*batch_items)
-            Na_b = jnp.asarray(np.stack(Na_b, axis=0))
-            Nb_b = jnp.asarray(np.stack(Nb_b, axis=0))
-            gradNa_b = jnp.asarray(np.stack(gradNa_b, axis=0))
-            gradNb_b = jnp.asarray(np.stack(gradNb_b, axis=0))
-            x_q_b = jnp.asarray(np.stack(x_q_b, axis=0))
-            w_b = jnp.asarray(np.stack(w_b, axis=0))
-            detJ_b = jnp.asarray(np.array(detJ_b, dtype=float)).reshape(-1, 1)
-            normal_b = jnp.asarray(np.stack(normal_b, axis=0))
-            u_local_b = jnp.asarray(np.stack(u_local_batch, axis=0))
-            dofs_batch_np = np.asarray(dofs_batch, dtype=int)
             assert n_a_local_const is not None
             assert n_b_local_const is not None
+            stacked = stack_contact_batch_items(
+                batch_items,
+                dofs_batch,
+                u_local_batch,
+                n_a_local=int(n_a_local_const),
+                n_b_local=int(n_b_local_const),
+            )
             _emit_batch(
-                Na_b,
-                Nb_b,
-                gradNa_b,
-                gradNb_b,
-                x_q_b,
-                w_b,
-                detJ_b,
-                normal_b,
-                u_local_b,
-                dofs_batch_np,
-                int(n_a_local_const),
-                int(n_b_local_const),
-                int(Na_b.shape[0]),
+                stacked.Na,
+                stacked.Nb,
+                stacked.gradNa,
+                stacked.gradNb,
+                stacked.x_q,
+                stacked.w,
+                stacked.detJ,
+                stacked.normal,
+                stacked.u_local,
+                stacked.dofs,
+                stacked.n_a_local,
+                stacked.n_b_local,
+                stacked.batch_n,
             )
 
         if not batch_failed and (batch_rows or (not sparse and K_dense is not None)):
